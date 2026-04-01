@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { MapDocument, RenderCamera, ObjectDefinition } from '../core/types'
-import { buildScene } from './SceneBuilder'
+import { buildScene, setBuildingPaletteOverride } from './SceneBuilder'
+import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { quantizeImageData, applyOutlines, PALETTES } from './PaletteQuantizer'
 
 export interface RenderOptions {
@@ -28,8 +29,11 @@ export function renderPixelArt(
   map: MapDocument,
   camera: RenderCamera,
   objectDefs: ObjectDefinition[],
-  options: Partial<RenderOptions> = {}
+  options: Partial<RenderOptions> = {},
+  buildingPalettes?: BuildingPalette[] | null
 ): RenderResult {
+  // Apply building palette overrides before building the scene
+  setBuildingPaletteOverride(buildingPalettes || null)
   const opts = { ...DEFAULT_OPTIONS, ...options }
   const { outputWidth, outputHeight } = camera
 

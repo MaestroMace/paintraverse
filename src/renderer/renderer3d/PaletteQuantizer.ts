@@ -41,6 +41,10 @@ export const PALETTES: Record<string, Palette> = {
   endesga32: ENDESGA32
 }
 
+export function registerPalette(id: string, palette: Palette): void {
+  PALETTES[id] = palette
+}
+
 // Quantize an ImageData to the nearest palette colors
 export function quantizeImageData(
   imageData: ImageData,

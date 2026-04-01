@@ -129,6 +129,28 @@ ipcMain.handle('file:read', async (_event, filePath: string) => {
   return readFileSync(filePath, 'utf-8')
 })
 
+ipcMain.handle('dialog:open-image', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    filters: [
+      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] },
+      { name: 'All Files', extensions: ['*'] }
+    ],
+    properties: ['openFile']
+  })
+  return result.canceled ? null : result.filePaths[0]
+})
+
+ipcMain.handle('file:read-base64', async (_event, filePath: string) => {
+  const data = readFileSync(filePath)
+  const ext = filePath.split('.').pop()?.toLowerCase() || 'png'
+  const mimeTypes: Record<string, string> = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    webp: 'image/webp', bmp: 'image/bmp'
+  }
+  const mime = mimeTypes[ext] || 'image/png'
+  return `data:${mime};base64,${data.toString('base64')}`
+})
+
 // === APP LIFECYCLE ===
 
 app.whenReady().then(() => {

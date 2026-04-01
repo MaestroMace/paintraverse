@@ -15,6 +15,7 @@ export function RenderPanel() {
   const camera = useAppStore((s) => s.renderCamera)
   const updateCamera = useAppStore((s) => s.updateRenderCamera)
   const setActiveTool = useAppStore((s) => s.setActiveTool)
+  const buildingPalettes = useAppStore((s) => s.buildingPalettes)
 
   const [renderOpts, setRenderOpts] = useState({
     dithering: 'ordered' as 'none' | 'ordered' | 'floyd-steinberg',
@@ -32,7 +33,7 @@ export function RenderPanel() {
           paletteId: camera.paletteId,
           dithering: renderOpts.dithering,
           outlines: renderOpts.outlines
-        })
+        }, buildingPalettes)
         setPreviewURL(result.imageDataURL)
       } catch (e) {
         setError(String(e))

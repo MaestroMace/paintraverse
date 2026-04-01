@@ -8,6 +8,7 @@ import { LayerPanel } from '../ui/panels/LayerPanel'
 import { TextureBrowser } from '../ui/panels/TextureBrowser'
 import { StyleSetEditor } from '../ui/panels/StyleSetEditor'
 import { ObjectCreator } from '../ui/panels/ObjectCreator'
+import { InspirationPanel } from '../ui/panels/InspirationPanel'
 import { GenerationPanel } from '../ui/panels/GenerationPanel'
 import { EnvironmentPanel } from '../ui/panels/EnvironmentPanel'
 import { RenderPanel } from '../ui/panels/RenderPanel'
@@ -22,8 +23,10 @@ declare global {
     electronAPI?: {
       saveDialog: (defaultPath?: string) => Promise<string | null>
       openDialog: () => Promise<string | null>
+      openImageDialog: () => Promise<string | null>
       writeFile: (path: string, data: string) => Promise<boolean>
       readFile: (path: string) => Promise<string>
+      readImageAsDataURL: (path: string) => Promise<string>
       onMenuAction: (callback: (action: string) => void) => void
     }
   }
@@ -105,6 +108,7 @@ export function App() {
       <Toolbar />
       <div className="app-body">
         <div className="left-panel">
+          <InspirationPanel />
           <GenerationPanel />
           <ObjectLibrary />
           <ObjectCreator />

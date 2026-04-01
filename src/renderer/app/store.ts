@@ -13,6 +13,8 @@ import type {
   Command,
   EnvironmentState
 } from '../core/types'
+import type { ExtractedPalette } from '../inspiration/PaletteExtractor'
+import type { BuildingPalette } from '../inspiration/StyleMapper'
 
 // === DEFAULT FACTORIES ===
 
@@ -418,6 +420,11 @@ interface AppState {
   // Camera for rendering
   renderCamera: RenderCamera
 
+  // Inspiration
+  inspirationImage: string | null
+  inspirationPalette: ExtractedPalette | null
+  buildingPalettes: BuildingPalette[] | null  // null = use defaults
+
   // Undo/redo
   undoStack: Command[]
   redoStack: Command[]
@@ -452,6 +459,11 @@ interface AppState {
   // Object definitions
   addObjectDefinition: (def: ObjectDefinition) => void
   removeObjectDefinition: (id: string) => void
+
+  // Inspiration
+  setInspirationImage: (dataURL: string | null) => void
+  setInspirationPalette: (palette: ExtractedPalette | null) => void
+  setBuildingPalettes: (palettes: BuildingPalette[] | null) => void
 
   // Camera
   setRenderCamera: (camera: RenderCamera) => void
@@ -509,6 +521,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     outputHeight: 240,
     paletteId: 'db32'
   },
+  inspirationImage: null,
+  inspirationPalette: null,
+  buildingPalettes: null,
   undoStack: [],
   redoStack: [],
 
@@ -618,6 +633,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       objectDefinitions: state.objectDefinitions.filter((d) => d.id !== id),
       dirty: true
     })),
+
+  // Inspiration
+  setInspirationImage: (dataURL) => set({ inspirationImage: dataURL }),
+  setInspirationPalette: (palette) => set({ inspirationPalette: palette }),
+  setBuildingPalettes: (palettes) => set({ buildingPalettes: palettes }),
 
   // Camera
   setRenderCamera: (camera) => set({ renderCamera: camera }),

@@ -17,6 +17,17 @@ const BUILDING_PALETTES = [
   { wall: 0x7a8a7a, roof: 0x4a6a4a, door: 0x3a4a3a },
 ]
 
+// Allow external override of building palettes (from inspiration system)
+let _buildingPaletteOverride: { wall: number; roof: number; door: number }[] | null = null
+
+export function setBuildingPaletteOverride(palettes: { wall: number; roof: number; door: number }[] | null): void {
+  _buildingPaletteOverride = palettes
+}
+
+function getActiveBuildingPalettes() {
+  return _buildingPaletteOverride || BUILDING_PALETTES
+}
+
 export function buildScene(
   map: MapDocument,
   objectDefs: ObjectDefinition[]
@@ -89,7 +100,8 @@ function buildTerrain(tiles: number[][], tileSize: number): THREE.Group {
 
 function buildStructure(obj: PlacedObject, def: ObjectDefinition, tileSize: number): THREE.Group {
   const hash = simpleHash(obj.id)
-  const palette = BUILDING_PALETTES[hash % BUILDING_PALETTES.length]
+  const activePalettes = getActiveBuildingPalettes()
+  const palette = activePalettes[hash % activePalettes.length]
 
   switch (def.id) {
     case 'tavern': return buildTavern(obj, def, tileSize, palette, hash)
