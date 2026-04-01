@@ -64,17 +64,19 @@ export function RenderPanel() {
     link.click()
   }
 
-  // Auto-center camera on map
+  // Auto-center camera on map with good cinematic angle
   const handleCenterCamera = () => {
     const cx = map.gridWidth / 2
     const cy = map.gridHeight / 2
+    const mapSize = Math.max(map.gridWidth, map.gridHeight)
     setCameraConfig((c) => ({
       ...c,
-      worldX: cx - 10,
-      worldY: cy + 15,
+      worldX: cx - mapSize * 0.35,
+      worldY: cy + mapSize * 0.45,
       lookAtX: cx,
       lookAtY: cy,
-      elevation: 15
+      elevation: mapSize * 0.4,
+      fov: 50
     }))
   }
 

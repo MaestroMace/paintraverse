@@ -27,7 +27,7 @@ export class EditorViewport {
   onTileClick?: (tileX: number, tileY: number, event: FederatedPointerEvent) => void
   onTileDrag?: (tileX: number, tileY: number, event: FederatedPointerEvent) => void
   onTileUp?: (tileX: number, tileY: number, event: FederatedPointerEvent) => void
-  onObjectClick?: (objectId: string, layerId: string, event: FederatedPointerEvent) => void
+  onTileHover?: (tileX: number, tileY: number, event: FederatedPointerEvent) => void
 
   constructor() {
     this.app = new Application()
@@ -49,6 +49,9 @@ export class EditorViewport {
       autoDensity: true
     })
 
+    // Pass app to terrain layer for RenderTexture support
+    this.terrainLayer.setApp(this.app)
+
     this.app.stage.addChild(this.worldContainer)
     this.worldContainer.addChild(this.terrainLayer.container)
     this.worldContainer.addChild(this.grid.container)
@@ -57,7 +60,7 @@ export class EditorViewport {
     this.worldContainer.addChild(this.overlayLayer.container)
 
     this.setupInteraction()
-    this.centerView(32, 32, 32) // default map
+    this.centerView(32, 32, 32)
   }
 
   centerView(gridWidth: number, gridHeight: number, tileSize: number): void {
@@ -73,16 +76,13 @@ export class EditorViewport {
     stage.eventMode = 'static'
     stage.hitArea = this.app.screen
 
-    // Pointer events for tools
     stage.on('pointerdown', (e: FederatedPointerEvent) => {
-      // Middle click or space+click = pan
       if (e.button === 1 || (this._spaceHeld && e.button === 0)) {
         this._isPanning = true
         this._lastPanX = e.globalX
         this._lastPanY = e.globalY
         return
       }
-
       if (e.button === 0) {
         const tile = this.screenToTile(e.globalX, e.globalY)
         this.onTileClick?.(tile.x, tile.y, e)
@@ -99,9 +99,13 @@ export class EditorViewport {
         return
       }
 
+      const tile = this.screenToTile(e.globalX, e.globalY)
+
+      // Always fire hover for preview feedback
+      this.onTileHover?.(tile.x, tile.y, e)
+
       // Drag support for tools
       if (e.buttons === 1 && !this._spaceHeld) {
-        const tile = this.screenToTile(e.globalX, e.globalY)
         this.onTileDrag?.(tile.x, tile.y, e)
       }
     })
@@ -117,14 +121,17 @@ export class EditorViewport {
       }
     })
 
-    // Zoom with scroll wheel
+    stage.on('pointerleave', () => {
+      this.overlayLayer.clearPreview()
+    })
+
+    // Zoom with scroll wheel - smooth
     const canvasEl = this.app.canvas
     canvasEl.addEventListener('wheel', (e: WheelEvent) => {
       e.preventDefault()
       const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1
       const newZoom = Math.max(0.1, Math.min(10, this._zoom * zoomFactor))
 
-      // Zoom toward cursor position
       const mouseX = e.offsetX
       const mouseY = e.offsetY
       this._panX = mouseX - (mouseX - this._panX) * (newZoom / this._zoom)
@@ -159,7 +166,6 @@ export class EditorViewport {
   screenToTile(screenX: number, screenY: number): { x: number; y: number } {
     const worldX = (screenX - this._panX) / this._zoom
     const worldY = (screenY - this._panY) / this._zoom
-    // Use current tileSize from grid
     const tileSize = this.grid.tileSize
     return {
       x: Math.floor(worldX / tileSize),
@@ -197,7 +203,7 @@ export class EditorViewport {
     this.overlayLayer.updateSelection(selectedIds, hoveredId, tileSize, this.getAllObjects())
   }
 
-  private getAllObjects() {
+  getAllObjects() {
     return [
       ...this.structureLayer.getObjectBounds(),
       ...this.propLayer.getObjectBounds()

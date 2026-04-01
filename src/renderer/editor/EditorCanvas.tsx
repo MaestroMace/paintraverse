@@ -42,7 +42,65 @@ export function EditorCanvas() {
       viewport.onTileDrag = (tx, ty, e) => activeToolRef.current.onTileDrag?.(tx, ty, e)
       viewport.onTileUp = (tx, ty, e) => activeToolRef.current.onTileUp?.(tx, ty, e)
 
-      // Activate initial tool
+      // Hover callback for live previews
+      viewport.onTileHover = (tx, ty, _e) => {
+        const store = useAppStore.getState()
+        const tool = activeToolRef.current
+        const ts = store.map.tileSize
+        const gw = store.map.gridWidth
+        const gh = store.map.gridHeight
+
+        if (tool.name === 'place') {
+          // Show placement ghost
+          const defId = store.selectedDefinitionId
+          const def = defId ? store.objectDefinitions.find((d) => d.id === defId) : null
+          if (def) {
+            const inBounds = tx >= 0 && ty >= 0 &&
+              tx + def.footprint.w <= gw && ty + def.footprint.h <= gh
+
+            // Check overlap
+            const layerType = def.category === 'building' ? 'structure' : 'prop'
+            const layer = store.map.layers.find((l) => l.type === layerType)
+            let valid = inBounds
+            if (valid && layer) {
+              valid = !layer.objects.some((o) => {
+                const oDef = store.objectDefinitions.find((d) => d.id === o.definitionId)
+                if (!oDef) return false
+                return !(
+                  tx + def.footprint.w <= o.x ||
+                  tx >= o.x + oDef.footprint.w ||
+                  ty + def.footprint.h <= o.y ||
+                  ty >= o.y + oDef.footprint.h
+                )
+              })
+            }
+            viewport.overlayLayer.showPlacementPreview(
+              tx, ty, def.footprint.w, def.footprint.h, ts, valid
+            )
+          }
+        } else if (tool.name === 'brush') {
+          // Show tile highlight for brush
+          if (tx >= 0 && ty >= 0 && tx < gw && ty < gh) {
+            viewport.overlayLayer.showTileHighlight(tx, ty, ts)
+          } else {
+            viewport.overlayLayer.clearPreview()
+          }
+        } else if (tool.name === 'select' || tool.name === 'erase') {
+          // Show hover highlight on objects
+          const allObjects = viewport.getAllObjects()
+          const worldX = tx * ts + ts / 2
+          const worldY = ty * ts + ts / 2
+          const hit = allObjects.find(
+            (o) => worldX >= o.x && worldX <= o.x + o.width &&
+                   worldY >= o.y && worldY <= o.y + o.height
+          )
+          store.setHoveredObjectId(hit?.id ?? null)
+          if (!hit) viewport.overlayLayer.clearPreview()
+        } else {
+          viewport.overlayLayer.clearPreview()
+        }
+      }
+
       activeToolRef.current.onActivate?.(viewport)
     })
 
@@ -72,13 +130,16 @@ export function EditorCanvas() {
     activeToolRef.current = tools[activeTool] || tools.select
     activeToolRef.current.onActivate?.(vp)
     canvasRef.current!.style.cursor = activeToolRef.current.cursor
+    vp.overlayLayer.clearPreview()
   }, [activeTool])
 
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Don't capture if typing in an input
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
+
     const store = useAppStore.getState()
 
-    // Undo/Redo
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
       e.preventDefault()
       store.undo()
@@ -90,14 +151,12 @@ export function EditorCanvas() {
       return
     }
 
-    // Delete
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (store.activeTool === 'select' && store.selectedObjectIds.length > 0) {
         ;(tools.select as SelectTool).deleteSelected()
       }
     }
 
-    // Tool shortcuts
     if (e.key === 'v' || e.key === '1') store.setActiveTool('select')
     if (e.key === 'p' || e.key === '2') store.setActiveTool('place')
     if (e.key === 'e' || e.key === '3') store.setActiveTool('erase')
