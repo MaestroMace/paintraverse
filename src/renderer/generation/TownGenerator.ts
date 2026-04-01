@@ -6,71 +6,69 @@ import { createRNG, SimplexNoise, poissonDiskSampling } from './noise'
 export class TownGenerator implements IMapGenerator {
   readonly type = 'town'
   readonly displayName = 'Town'
-  readonly description = 'Generates a town with streets, buildings, and props'
+  readonly description = 'Generates an organic town with winding streets, plazas, and dense buildings'
 
   generate(config: GenerationConfig): MapDocument {
     const { width, height, seed, complexity, density } = config
     const rng = createRNG(seed)
     const noise = new SimplexNoise(seed)
 
-    // Create terrain
+    // 1. Generate height map for coherent elevation
+    const heightMap = this.generateHeightMap(width, height, noise)
+
+    // 2. Generate terrain base
     const terrainTiles = this.generateTerrain(width, height, noise)
 
-    // Generate road network
-    const roads = this.generateRoads(width, height, complexity, rng)
-    this.carveRoads(terrainTiles, roads, width, height)
+    // 3. Define a town center and generate organic road network
+    const centerX = Math.floor(width * 0.4 + rng() * width * 0.2)
+    const centerY = Math.floor(height * 0.4 + rng() * height * 0.2)
 
-    // Generate building parcels
-    const parcels = this.generateParcels(width, height, roads, complexity, rng)
+    // 4. Create a plaza at the center
+    const plazaRadius = Math.floor(3 + complexity * 3)
+    this.carvePlaza(terrainTiles, centerX, centerY, plazaRadius, width, height)
 
-    // Place buildings
-    const buildings = this.placeBuildings(parcels, density, rng, width, height)
+    // 5. Generate organic roads radiating from center with curves
+    const roadMap = this.generateOrganicRoads(
+      width, height, centerX, centerY, complexity, density, rng, noise, terrainTiles
+    )
 
-    // Scatter props
-    const props = this.scatterProps(width, height, roads, buildings, density, config.assetFrequencies, rng)
+    // 6. Place buildings densely along roads (shared walls, no buffers)
+    const buildings = this.placeBuildingsAlongRoads(
+      width, height, roadMap, heightMap, complexity, density, rng, centerX, centerY
+    )
 
-    // Scatter vegetation
-    const vegetation = this.scatterVegetation(width, height, roads, buildings, density, rng, noise)
+    // 7. Fill alleys and gaps with narrow paths
+    this.carveAlleysBetweenBuildings(terrainTiles, buildings, width, height, rng)
 
-    // Create layers
+    // 8. Scatter contextual props
+    const props = this.scatterProps(
+      width, height, roadMap, buildings, density, config.assetFrequencies, rng, centerX, centerY
+    )
+
+    // 9. Scatter vegetation in remaining open spaces
+    const vegetation = this.scatterVegetation(
+      width, height, roadMap, buildings, density, rng, noise
+    )
+
     const terrainLayer: MapLayer = {
-      id: uuid(),
-      name: 'Terrain',
-      type: 'terrain',
-      visible: true,
-      locked: false,
-      objects: [],
-      terrainTiles
+      id: uuid(), name: 'Terrain', type: 'terrain',
+      visible: true, locked: false, objects: [], terrainTiles
     }
-
     const structureLayer: MapLayer = {
-      id: uuid(),
-      name: 'Structures',
-      type: 'structure',
-      visible: true,
-      locked: false,
-      objects: buildings
+      id: uuid(), name: 'Structures', type: 'structure',
+      visible: true, locked: false, objects: buildings
     }
-
     const propLayer: MapLayer = {
-      id: uuid(),
-      name: 'Props',
-      type: 'prop',
-      visible: true,
-      locked: false,
-      objects: [...props, ...vegetation]
+      id: uuid(), name: 'Props', type: 'prop',
+      visible: true, locked: false, objects: [...props, ...vegetation]
     }
 
     const defaultEnv: EnvironmentState = {
-      timeOfDay: 12,
-      weather: 'clear',
-      weatherIntensity: 0,
+      timeOfDay: 12, weather: 'clear', weatherIntensity: 0,
       celestial: { moonPhase: 0.5, starDensity: 0.5, sunAngle: 45 },
       lighting: {
-        ambientColor: '#ffffff',
-        ambientIntensity: 0.6,
-        directionalAngle: 45,
-        directionalIntensity: 0.8
+        ambientColor: '#ffffff', ambientIntensity: 0.6,
+        directionalAngle: 45, directionalIntensity: 0.8
       }
     }
 
@@ -88,552 +86,514 @@ export class TownGenerator implements IMapGenerator {
     }
   }
 
+  // === HEIGHTMAP ===
+
+  private generateHeightMap(w: number, h: number, noise: SimplexNoise): number[][] {
+    const map: number[][] = []
+    for (let y = 0; y < h; y++) {
+      const row: number[] = []
+      for (let x = 0; x < w; x++) {
+        // Gentle rolling hills - low frequency noise
+        const n = noise.fbm(x * 0.03, y * 0.03, 2, 2, 0.5)
+        row.push(Math.max(0, (n + 0.5) * 1.5)) // 0 to ~2 range
+      }
+      map.push(row)
+    }
+    return map
+  }
+
+  // === TERRAIN ===
+
   private generateTerrain(w: number, h: number, noise: SimplexNoise): number[][] {
     const tiles: number[][] = []
     for (let y = 0; y < h; y++) {
       const row: number[] = []
       for (let x = 0; x < w; x++) {
-        const n = noise.fbm(x * 0.05, y * 0.05, 3)
-        // Mostly grass with some variation
-        if (n < -0.3) row.push(5)       // dark grass
-        else if (n < 0.2) row.push(0)   // grass
-        else if (n < 0.4) row.push(1)   // dirt patches
-        else row.push(0)                 // grass
+        const n = noise.fbm(x * 0.06, y * 0.06, 3)
+        if (n < -0.25) row.push(5)       // dark grass
+        else if (n < 0.15) row.push(0)   // grass
+        else if (n < 0.35) row.push(1)   // dirt
+        else row.push(0)
       }
       tiles.push(row)
     }
     return tiles
   }
 
-  private generateRoads(
-    w: number, h: number, complexity: number, rng: () => number
-  ): { x1: number; y1: number; x2: number; y2: number; width: number }[] {
-    const roads: { x1: number; y1: number; x2: number; y2: number; width: number }[] = []
-    const numMainRoads = Math.floor(2 + complexity * 4)
-    const margin = 3
+  // === PLAZA ===
 
-    // Main horizontal roads
-    const hCount = Math.ceil(numMainRoads / 2)
-    for (let i = 0; i < hCount; i++) {
-      const y = margin + Math.floor(rng() * (h - margin * 2))
-      roads.push({ x1: 0, y1: y, x2: w - 1, y2: y, width: 2 })
-    }
-
-    // Main vertical roads
-    const vCount = Math.floor(numMainRoads / 2)
-    for (let i = 0; i < vCount; i++) {
-      const x = margin + Math.floor(rng() * (w - margin * 2))
-      roads.push({ x1: x, y1: 0, x2: x, y2: h - 1, width: 2 })
-    }
-
-    // Secondary roads (connecting, shorter)
-    if (complexity > 0.3) {
-      const numSecondary = Math.floor(complexity * 6)
-      for (let i = 0; i < numSecondary; i++) {
-        const horizontal = rng() > 0.5
-        if (horizontal) {
-          const y = margin + Math.floor(rng() * (h - margin * 2))
-          const x1 = Math.floor(rng() * w * 0.3)
-          const x2 = Math.floor(w * 0.7 + rng() * w * 0.3)
-          roads.push({ x1, y1: y, x2, y2: y, width: 1 })
-        } else {
-          const x = margin + Math.floor(rng() * (w - margin * 2))
-          const y1 = Math.floor(rng() * h * 0.3)
-          const y2 = Math.floor(h * 0.7 + rng() * h * 0.3)
-          roads.push({ x1: x, y1, x2: x, y2, width: 1 })
-        }
-      }
-    }
-
-    return roads
-  }
-
-  private carveRoads(
-    terrain: number[][],
-    roads: { x1: number; y1: number; x2: number; y2: number; width: number }[],
+  private carvePlaza(
+    terrain: number[][], cx: number, cy: number, radius: number,
     w: number, h: number
   ): void {
-    for (const road of roads) {
-      if (road.y1 === road.y2) {
-        // Horizontal
-        const minX = Math.max(0, Math.min(road.x1, road.x2))
-        const maxX = Math.min(w - 1, Math.max(road.x1, road.x2))
-        for (let x = minX; x <= maxX; x++) {
-          for (let dy = 0; dy < road.width; dy++) {
-            const y = road.y1 + dy
-            if (y >= 0 && y < h) terrain[y][x] = (x + y) % 3 === 0 ? 9 : 8 // varied cobblestone
-          }
-        }
-      } else {
-        // Vertical
-        const minY = Math.max(0, Math.min(road.y1, road.y2))
-        const maxY = Math.min(h - 1, Math.max(road.y1, road.y2))
-        for (let y = minY; y <= maxY; y++) {
-          for (let dx = 0; dx < road.width; dx++) {
-            const x = road.x1 + dx
-            if (x >= 0 && x < w) terrain[y][x] = (x + y) % 3 === 0 ? 9 : 8 // varied cobblestone
-          }
+    // Slightly irregular circle using distance + noise
+    for (let y = cy - radius - 1; y <= cy + radius + 1; y++) {
+      for (let x = cx - radius - 1; x <= cx + radius + 1; x++) {
+        if (x < 0 || x >= w || y < 0 || y >= h) continue
+        const dx = x - cx, dy = y - cy
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        // Irregular edge
+        const edgeNoise = Math.sin(Math.atan2(dy, dx) * 5) * 0.8
+        if (dist < radius + edgeNoise) {
+          terrain[y][x] = (x + y) % 4 === 0 ? 9 : 8
         }
       }
     }
   }
 
-  private generateParcels(
-    w: number, h: number,
-    roads: { x1: number; y1: number; x2: number; y2: number; width: number }[],
-    complexity: number,
-    rng: () => number
-  ): { x: number; y: number; w: number; h: number }[] {
-    const parcels: { x: number; y: number; w: number; h: number }[] = []
+  // === ORGANIC ROAD NETWORK ===
 
-    // Create an occupancy grid
+  private generateOrganicRoads(
+    w: number, h: number,
+    cx: number, cy: number,
+    complexity: number, density: number,
+    rng: () => number,
+    noise: SimplexNoise,
+    terrain: number[][]
+  ): boolean[][] {
+    // Road map: true = road tile
+    const roadMap = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
+
+    // Mark plaza
+    const plazaR = Math.floor(3 + complexity * 3)
+    for (let y = cy - plazaR; y <= cy + plazaR; y++) {
+      for (let x = cx - plazaR; x <= cx + plazaR; x++) {
+        if (x >= 0 && x < w && y >= 0 && y < h) {
+          const dx = x - cx, dy = y - cy
+          if (Math.sqrt(dx * dx + dy * dy) < plazaR + 0.5) {
+            roadMap[y][x] = true
+          }
+        }
+      }
+    }
+
+    // Generate main roads radiating from center with gentle curves
+    const numMain = Math.floor(3 + complexity * 5)
+    for (let i = 0; i < numMain; i++) {
+      const angle = (i / numMain) * Math.PI * 2 + (rng() - 0.5) * 0.4
+      this.carveOrganicPath(
+        roadMap, terrain, cx, cy, angle, w, h,
+        Math.floor(w * 0.35 + rng() * w * 0.15),
+        2, // width
+        0.15, // curviness
+        noise, rng
+      )
+    }
+
+    // Generate secondary connecting roads between main roads
+    const numSecondary = Math.floor(complexity * 8)
+    for (let i = 0; i < numSecondary; i++) {
+      const sx = Math.floor(w * 0.15 + rng() * w * 0.7)
+      const sy = Math.floor(h * 0.15 + rng() * h * 0.7)
+      const angle = rng() * Math.PI * 2
+      this.carveOrganicPath(
+        roadMap, terrain, sx, sy, angle, w, h,
+        Math.floor(6 + rng() * 12),
+        1, // narrower
+        0.25, // curvier
+        noise, rng
+      )
+    }
+
+    // Generate small alleys branching off main roads
+    if (complexity > 0.3) {
+      const numAlleys = Math.floor(complexity * 12)
+      for (let i = 0; i < numAlleys; i++) {
+        // Find a random road tile to branch from
+        const bx = Math.floor(rng() * w)
+        const by = Math.floor(rng() * h)
+        if (bx >= 0 && bx < w && by >= 0 && by < h && roadMap[by][bx]) {
+          const angle = rng() * Math.PI * 2
+          this.carveOrganicPath(
+            roadMap, terrain, bx, by, angle, w, h,
+            Math.floor(3 + rng() * 6),
+            1, // narrow alley
+            0.3, // very curvy
+            noise, rng
+          )
+        }
+      }
+    }
+
+    // Paint road tiles onto terrain
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (roadMap[y][x]) {
+          terrain[y][x] = (x + y) % 4 === 0 ? 9 : 8
+        }
+      }
+    }
+
+    return roadMap
+  }
+
+  // Carve a single organic path using random walk with directional bias
+  private carveOrganicPath(
+    roadMap: boolean[][], terrain: number[][],
+    startX: number, startY: number,
+    angle: number,
+    w: number, h: number,
+    length: number,
+    roadWidth: number,
+    curviness: number,
+    noise: SimplexNoise,
+    rng: () => number
+  ): void {
+    let x = startX, y = startY
+    let dir = angle
+
+    for (let step = 0; step < length; step++) {
+      // Carve road tiles at current position
+      for (let dy = 0; dy < roadWidth; dy++) {
+        for (let dx = 0; dx < roadWidth; dx++) {
+          const rx = Math.floor(x) + dx
+          const ry = Math.floor(y) + dy
+          if (rx >= 0 && rx < w && ry >= 0 && ry < h) {
+            roadMap[ry][rx] = true
+          }
+        }
+      }
+
+      // Gentle curve using noise
+      const noiseVal = noise.noise2D(x * 0.1, y * 0.1)
+      dir += noiseVal * curviness + (rng() - 0.5) * curviness * 0.5
+
+      // Move forward
+      x += Math.cos(dir) * 1.2
+      y += Math.sin(dir) * 1.2
+
+      // Bounds check
+      if (x < 1 || x >= w - 1 || y < 1 || y >= h - 1) break
+    }
+  }
+
+  // === DENSE BUILDING PLACEMENT ===
+
+  private placeBuildingsAlongRoads(
+    w: number, h: number,
+    roadMap: boolean[][],
+    heightMap: number[][],
+    complexity: number, density: number,
+    rng: () => number,
+    cx: number, cy: number
+  ): PlacedObject[] {
+    const buildings: PlacedObject[] = []
     const occupied = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
 
     // Mark roads as occupied
-    for (const road of roads) {
-      if (road.y1 === road.y2) {
-        const minX = Math.max(0, Math.min(road.x1, road.x2))
-        const maxX = Math.min(w - 1, Math.max(road.x1, road.x2))
-        for (let x = minX; x <= maxX; x++) {
-          for (let dy = -1; dy <= road.width; dy++) {
-            const y = road.y1 + dy
-            if (y >= 0 && y < h) occupied[y][x] = true
-          }
-        }
-      } else {
-        const minY = Math.max(0, Math.min(road.y1, road.y2))
-        const maxY = Math.min(h - 1, Math.max(road.y1, road.y2))
-        for (let y = minY; y <= maxY; y++) {
-          for (let dx = -1; dx <= road.width; dx++) {
-            const x = road.x1 + dx
-            if (x >= 0 && x < w) occupied[y][x] = true
-          }
-        }
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (roadMap[y][x]) occupied[y][x] = true
       }
     }
 
-    // Try to place parcels near roads
-    const maxParcels = Math.floor(8 + complexity * 30)
-    let attempts = 0
-    while (parcels.length < maxParcels && attempts < maxParcels * 10) {
-      attempts++
-      const pw = 2 + Math.floor(rng() * 3) // 2-4 tiles wide
-      const ph = 2 + Math.floor(rng() * 2) // 2-3 tiles tall
-      const px = Math.floor(rng() * (w - pw))
-      const py = Math.floor(rng() * (h - ph))
+    // Building types by footprint
+    const types: { id: string; w: number; h: number; weight: number }[] = [
+      { id: 'building_small', w: 2, h: 2, weight: 3 },
+      { id: 'building_medium', w: 3, h: 3, weight: 2 },
+      { id: 'building_large', w: 4, h: 3, weight: 1 },
+      { id: 'tavern', w: 4, h: 3, weight: 1 },
+      { id: 'shop', w: 2, h: 3, weight: 2 },
+      { id: 'balcony_house', w: 3, h: 2, weight: 2 },
+      { id: 'tower', w: 2, h: 2, weight: 0.5 },
+      { id: 'archway', w: 3, h: 1, weight: 0.3 },
+      { id: 'staircase', w: 2, h: 3, weight: 0.3 },
+    ]
+    const totalWeight = types.reduce((s, t) => s + t.weight, 0)
 
-      // Check if area is free
+    // Walk along road edges and place buildings tight against them
+    const maxBuildings = Math.floor(10 + complexity * 25 + density * 15)
+    let placed = 0
+    let attempts = 0
+    const maxAttempts = maxBuildings * 20
+
+    while (placed < maxBuildings && attempts < maxAttempts) {
+      attempts++
+
+      // Pick a random road-adjacent tile
+      const rx = Math.floor(rng() * (w - 4)) + 2
+      const ry = Math.floor(rng() * (h - 4)) + 2
+      if (!this.isRoadAdjacent(rx, ry, roadMap, w, h)) continue
+      if (occupied[ry]?.[rx]) continue
+
+      // Pick a building type (weighted random)
+      let roll = rng() * totalWeight
+      let type = types[0]
+      for (const t of types) {
+        roll -= t.weight
+        if (roll <= 0) { type = t; break }
+      }
+
+      // Try to fit this building at this location
+      const bw = type.w, bh = type.h
+      if (rx + bw > w - 1 || ry + bh > h - 1) continue
+
+      // Check if area is free (NO buffer - buildings can share walls)
       let free = true
-      for (let dy = 0; dy < ph && free; dy++) {
-        for (let dx = 0; dx < pw && free; dx++) {
-          if (occupied[py + dy]?.[px + dx]) free = false
+      for (let dy = 0; dy < bh && free; dy++) {
+        for (let dx = 0; dx < bw && free; dx++) {
+          if (occupied[ry + dy]?.[rx + dx]) free = false
         }
       }
       if (!free) continue
 
-      // Check adjacency to road (within 2 tiles)
-      let nearRoad = false
-      for (let dy = -2; dy <= ph + 1 && !nearRoad; dy++) {
-        for (let dx = -2; dx <= pw + 1 && !nearRoad; dx++) {
-          const cx = px + dx
-          const cy = py + dy
-          if (cx >= 0 && cx < w && cy >= 0 && cy < h) {
-            // Check if this cell is a road
-            for (const road of roads) {
-              if (road.y1 === road.y2) {
-                if (cy >= road.y1 && cy < road.y1 + road.width &&
-                    cx >= Math.min(road.x1, road.x2) && cx <= Math.max(road.x1, road.x2)) {
-                  nearRoad = true
-                }
-              } else {
-                if (cx >= road.x1 && cx < road.x1 + road.width &&
-                    cy >= Math.min(road.y1, road.y2) && cy <= Math.max(road.y1, road.y2)) {
-                  nearRoad = true
-                }
-              }
-            }
-          }
-        }
-      }
-      if (!nearRoad) continue
-
-      parcels.push({ x: px, y: py, w: pw, h: ph })
-
-      // Mark as occupied (with 1-tile buffer)
-      for (let dy = -1; dy <= ph; dy++) {
-        for (let dx = -1; dx <= pw; dx++) {
-          const cx = px + dx
-          const cy = py + dy
-          if (cx >= 0 && cx < w && cy >= 0 && cy < h) {
-            occupied[cy][cx] = true
-          }
-        }
-      }
-    }
-
-    return parcels
-  }
-
-  private placeBuildings(
-    parcels: { x: number; y: number; w: number; h: number }[],
-    _density: number,
-    rng: () => number,
-    width: number,
-    height: number
-  ): PlacedObject[] {
-    const buildings: PlacedObject[] = []
-
-    // Building types by size category
-    const large4x3 = ['building_large', 'tavern']
-    const medium3x3 = ['building_medium']
-    const medium3x2 = ['balcony_house']
-    const medium2x3 = ['shop']
-    const small2x2 = ['building_small', 'tower']
-    const special3x1 = ['archway']
-    const special2x3 = ['staircase']
-
-    for (const parcel of parcels) {
-      let defId: string
-      const roll = rng()
-
-      if (parcel.w >= 4 && parcel.h >= 3) {
-        defId = large4x3[Math.floor(rng() * large4x3.length)]
-      } else if (parcel.w >= 3 && parcel.h >= 3) {
-        defId = medium3x3[Math.floor(rng() * medium3x3.length)]
-      } else if (parcel.w >= 3 && parcel.h >= 2) {
-        defId = roll > 0.7 ? special3x1[0] : medium3x2[Math.floor(rng() * medium3x2.length)]
-      } else if (parcel.w >= 2 && parcel.h >= 3) {
-        defId = roll > 0.6 ? special2x3[0] : medium2x3[Math.floor(rng() * medium2x3.length)]
-      } else if (parcel.w >= 2 && parcel.h >= 2) {
-        defId = small2x2[Math.floor(rng() * small2x2.length)]
-      } else {
-        defId = 'building_small'
-      }
-
-      // Elevation variation - buildings further from center get slight elevation
-      const cx = width / 2, cy = height / 2
-      const distFromCenter = Math.sqrt(
-        (parcel.x - cx) * (parcel.x - cx) + (parcel.y - cy) * (parcel.y - cy)
-      )
-      const maxDist = Math.sqrt(cx * cx + cy * cy)
-      const elevationBase = (distFromCenter / maxDist) * 1.5
-      const elevation = Math.floor(elevationBase + rng() * 0.8) * 0.5
+      // Elevation based on height map + distance from center
+      const distFromCenter = Math.sqrt((rx - cx) ** 2 + (ry - cy) ** 2)
+      const maxDist = Math.sqrt(w * w + h * h) / 2
+      const heightVal = heightMap[ry]?.[rx] ?? 0
+      const elevation = Math.round((heightVal + distFromCenter / maxDist * 0.5) * 2) / 2
 
       buildings.push({
         id: uuid(),
-        definitionId: defId,
-        x: parcel.x,
-        y: parcel.y,
+        definitionId: type.id,
+        x: rx, y: ry,
         rotation: 0,
-        scaleX: 1,
-        scaleY: 1,
-        elevation,
-        properties: { floors: 1 + Math.floor(rng() * 3) }
+        scaleX: 1, scaleY: 1,
+        elevation: Math.min(elevation, 2),
+        properties: { floors: 1 + Math.floor(rng() * 2) }
       })
+
+      // Mark occupied - NO buffer for denser packing
+      for (let dy = 0; dy < bh; dy++) {
+        for (let dx = 0; dx < bw; dx++) {
+          if (ry + dy < h && rx + dx < w) {
+            occupied[ry + dy][rx + dx] = true
+          }
+        }
+      }
+      placed++
     }
 
     return buildings
   }
 
+  private isRoadAdjacent(x: number, y: number, roadMap: boolean[][], w: number, h: number): boolean {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx, ny = y + dy
+        if (nx >= 0 && nx < w && ny >= 0 && ny < h && roadMap[ny][nx]) return true
+      }
+    }
+    return false
+  }
+
+  // === ALLEYS BETWEEN BUILDINGS ===
+
+  private carveAlleysBetweenBuildings(
+    terrain: number[][], buildings: PlacedObject[],
+    w: number, h: number, rng: () => number
+  ): void {
+    // Find 1-tile gaps between buildings and pave them as narrow alleys
+    const buildingMap = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
+    for (const b of buildings) {
+      for (let dy = 0; dy < 4; dy++) {
+        for (let dx = 0; dx < 5; dx++) {
+          const bx = b.x + dx, by = b.y + dy
+          if (bx < w && by < h) buildingMap[by][bx] = true
+        }
+      }
+    }
+
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        if (buildingMap[y][x]) continue
+        // Check if this tile is between two buildings (narrow gap)
+        const leftB = x > 0 && buildingMap[y][x - 1]
+        const rightB = x < w - 1 && buildingMap[y][x + 1]
+        const topB = y > 0 && buildingMap[y - 1][x]
+        const botB = y < h - 1 && buildingMap[y + 1][x]
+
+        if ((leftB && rightB) || (topB && botB)) {
+          // This is an alley tile
+          terrain[y][x] = 9 // dark cobblestone for alleys
+        }
+      }
+    }
+  }
+
+  // === PROPS ===
+
   private scatterProps(
     w: number, h: number,
-    roads: { x1: number; y1: number; x2: number; y2: number; width: number }[],
+    roadMap: boolean[][],
     buildings: PlacedObject[],
     density: number,
     assetFrequencies: Record<string, number>,
-    rng: () => number
+    rng: () => number,
+    cx: number, cy: number
   ): PlacedObject[] {
     const props: PlacedObject[] = []
-
-    // Build occupancy grid
     const occupied = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
+
+    // Mark buildings and roads
     for (const b of buildings) {
-      // Mark building area (+buffer)
-      for (let dy = -1; dy <= 3; dy++) {
-        for (let dx = -1; dx <= 4; dx++) {
-          const cx = b.x + dx
-          const cy = b.y + dy
-          if (cx >= 0 && cx < w && cy >= 0 && cy < h) occupied[cy][cx] = true
+      for (let dy = 0; dy < 4; dy++) {
+        for (let dx = 0; dx < 5; dx++) {
+          const bx = b.x + dx, by = b.y + dy
+          if (bx < w && by < h) occupied[by][bx] = true
+        }
+      }
+    }
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (roadMap[y][x]) occupied[y][x] = true
+      }
+    }
+
+    const place = (defId: string, x: number, y: number) => {
+      if (x < 0 || x >= w || y < 0 || y >= h || occupied[y][x]) return false
+      props.push(this.createProp(defId, x, y))
+      occupied[y][x] = true
+      return true
+    }
+
+    // === Building-adjacent props (1-3 per building) ===
+    for (const b of buildings) {
+      const spots: { x: number; y: number }[] = []
+      for (let dx = -1; dx <= 4; dx++) {
+        for (const dy of [-1, 4]) {
+          spots.push({ x: b.x + dx, y: b.y + dy })
+        }
+      }
+      for (let dy = 0; dy < 4; dy++) {
+        for (const dx of [-1, 5]) {
+          spots.push({ x: b.x + dx, y: b.y + dy })
+        }
+      }
+
+      const validSpots = spots.filter(
+        (s) => s.x >= 0 && s.x < w && s.y >= 0 && s.y < h && !occupied[s.y][s.x]
+      )
+
+      const numProps = Math.min(validSpots.length, 1 + Math.floor(rng() * 3))
+      const contextProps = this.getContextualProps(b.definitionId)
+
+      for (let i = 0; i < numProps; i++) {
+        const idx = Math.floor(rng() * validSpots.length)
+        const spot = validSpots.splice(idx, 1)[0]
+        if (spot) {
+          place(contextProps[Math.floor(rng() * contextProps.length)], spot.x, spot.y)
         }
       }
     }
 
-    // === Building-adjacent props (clustered near each building for lived-in feel) ===
-    for (const b of buildings) {
-      const bw = 3, bh = 3 // approximate footprint
-      const adjacentSpots: { x: number; y: number }[] = []
-      // Collect free tiles adjacent to building
-      for (let dx = -1; dx <= bw; dx++) {
-        for (const dy of [-1, bh]) {
-          const ax = b.x + dx, ay = b.y + dy
-          if (ax >= 0 && ax < w && ay >= 0 && ay < h && !occupied[ay][ax]) {
-            adjacentSpots.push({ x: ax, y: ay })
-          }
-        }
-      }
-      for (let dy = 0; dy < bh; dy++) {
-        for (const dx of [-1, bw]) {
-          const ax = b.x + dx, ay = b.y + dy
-          if (ax >= 0 && ax < w && ay >= 0 && ay < h && !occupied[ay][ax]) {
-            adjacentSpots.push({ x: ax, y: ay })
-          }
-        }
-      }
-
-      // Place 1-3 contextual props per building
-      const propsPerBuilding = Math.min(adjacentSpots.length, 1 + Math.floor(rng() * 3))
-      const buildingProps: string[] = []
-      if (b.definitionId === 'tavern' || b.definitionId === 'shop') {
-        buildingProps.push('barrel', 'crate', 'hanging_sign', 'potted_plant')
-      } else if (b.definitionId === 'building_small' || b.definitionId === 'building_medium' || b.definitionId === 'balcony_house') {
-        buildingProps.push('potted_plant', 'planter_box', 'barrel')
-      } else {
-        buildingProps.push('crate', 'barrel', 'potted_plant')
-      }
-
-      for (let i = 0; i < propsPerBuilding && adjacentSpots.length > 0; i++) {
-        const spotIdx = Math.floor(rng() * adjacentSpots.length)
-        const spot = adjacentSpots.splice(spotIdx, 1)[0]
-        const propId = buildingProps[Math.floor(rng() * buildingProps.length)]
-        props.push(this.createProp(propId, spot.x, spot.y))
-        occupied[spot.y][spot.x] = true
-      }
-    }
-
-    // === Lampposts + wall lanterns along roads (alternating) ===
+    // === Lights along roads ===
     const lampFreq = assetFrequencies['lamppost'] ?? 0.5
-    const lampSpacing = Math.max(3, Math.floor(8 - lampFreq * 5))
+    const lampSpacing = Math.max(2, Math.floor(6 - lampFreq * 4))
     let lampCount = 0
-    for (const road of roads) {
-      if (road.y1 === road.y2) {
-        const minX = Math.max(0, Math.min(road.x1, road.x2))
-        const maxX = Math.min(w - 1, Math.max(road.x1, road.x2))
-        for (let x = minX; x <= maxX; x += lampSpacing) {
-          const y = road.y1 - 1
-          if (y >= 0 && y < h && !occupied[y][x]) {
-            const lightType = lampCount % 3 === 0 ? 'wall_lantern' : 'lamppost'
-            props.push(this.createProp(lightType, x, y))
-            occupied[y][x] = true
+    for (let y = 0; y < h; y += lampSpacing) {
+      for (let x = 0; x < w; x += lampSpacing) {
+        if (!roadMap[y]?.[x]) continue
+        // Place light on adjacent non-road tile
+        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+          const lx = x + dx, ly = y + dy
+          if (lx >= 0 && lx < w && ly >= 0 && ly < h &&
+              !roadMap[ly][lx] && !occupied[ly][lx]) {
+            const lightType = lampCount % 4 === 0 ? 'street_lamp_double'
+              : lampCount % 3 === 0 ? 'wall_lantern' : 'lamppost'
+            place(lightType, lx, ly)
             lampCount++
-          }
-        }
-      } else {
-        const minY = Math.max(0, Math.min(road.y1, road.y2))
-        const maxY = Math.min(h - 1, Math.max(road.y1, road.y2))
-        for (let y = minY; y <= maxY; y += lampSpacing) {
-          const x = road.x1 - 1
-          if (x >= 0 && x < w && !occupied[y][x]) {
-            const lightType = lampCount % 3 === 0 ? 'wall_lantern' : 'lamppost'
-            props.push(this.createProp(lightType, x, y))
-            occupied[y][x] = true
-            lampCount++
+            break
           }
         }
       }
     }
 
-    // === Benches ===
-    const benchFreq = assetFrequencies['bench'] ?? 0.3
-    const numBenches = Math.floor(density * benchFreq * w * h * 0.003)
-    for (let i = 0; i < numBenches; i++) {
-      const x = Math.floor(rng() * (w - 2))
-      const y = Math.floor(rng() * h)
-      if (!occupied[y]?.[x] && !occupied[y]?.[x + 1]) {
-        props.push(this.createProp('bench', x, y))
-        occupied[y][x] = true
-        occupied[y][x + 1] = true
-      }
+    // === Plaza features ===
+    // Fountain at center
+    if (!occupied[cy]?.[cx] && !occupied[cy]?.[cx + 1] &&
+        !occupied[cy + 1]?.[cx] && !occupied[cy + 1]?.[cx + 1]) {
+      props.push(this.createProp('fountain', cx, cy))
+      occupied[cy][cx] = occupied[cy][cx + 1] = true
+      if (cy + 1 < h) { occupied[cy + 1][cx] = occupied[cy + 1][cx + 1] = true }
     }
 
-    // === Signs (mix of post signs and hanging signs) ===
-    const signFreq = assetFrequencies['sign'] ?? 0.3
-    const numSigns = Math.floor(density * signFreq * w * h * 0.003)
-    for (let i = 0; i < numSigns; i++) {
-      const x = Math.floor(rng() * w)
-      const y = Math.floor(rng() * h)
-      if (!occupied[y]?.[x]) {
-        const signType = rng() > 0.5 ? 'hanging_sign' : 'sign'
-        props.push(this.createProp(signType, x, y))
-        occupied[y][x] = true
-      }
-    }
+    // Statue near plaza
+    const statueX = cx + Math.floor(rng() * 4) - 2
+    const statueY = cy + Math.floor(rng() * 4) - 2
+    place('statue', statueX, statueY)
 
-    // === Barrels and crates near buildings ===
-    const storageCount = Math.floor(density * w * h * 0.004)
-    const storageTypes = ['barrel', 'barrel_stack', 'crate', 'crate_stack']
-    for (let i = 0; i < storageCount; i++) {
-      const x = Math.floor(rng() * w)
-      const y = Math.floor(rng() * h)
-      if (!occupied[y]?.[x]) {
-        props.push(this.createProp(storageTypes[Math.floor(rng() * storageTypes.length)], x, y))
-        occupied[y][x] = true
-      }
-    }
-
-    // === Cafe tables near commercial areas ===
-    const cafeCount = Math.floor(density * w * h * 0.002)
-    for (let i = 0; i < cafeCount; i++) {
-      const x = Math.floor(rng() * w)
-      const y = Math.floor(rng() * h)
-      if (!occupied[y]?.[x]) {
-        props.push(this.createProp('cafe_table', x, y))
-        occupied[y][x] = true
-      }
-    }
-
-    // === Potted plants and planter boxes ===
-    const planterCount = Math.floor(density * w * h * 0.003)
-    for (let i = 0; i < planterCount; i++) {
-      const x = Math.floor(rng() * w)
-      const y = Math.floor(rng() * h)
-      if (!occupied[y]?.[x]) {
-        if (rng() > 0.6 && x + 1 < w && !occupied[y]?.[x + 1]) {
-          props.push(this.createProp('planter_box', x, y))
-          occupied[y][x] = true
-          occupied[y][x + 1] = true
-        } else {
-          props.push(this.createProp('potted_plant', x, y))
-          occupied[y][x] = true
-        }
-      }
-    }
-
-    // === Fountain (town centerpiece) ===
-    const fountainFreq = assetFrequencies['fountain'] ?? 0.3
-    const numFountains = Math.max(0, Math.floor(density * fountainFreq * 2))
-    for (let i = 0; i < numFountains; i++) {
-      const x = Math.floor(w * 0.3 + rng() * w * 0.4)
-      const y = Math.floor(h * 0.3 + rng() * h * 0.4)
-      if (x + 1 < w && y + 1 < h &&
-        !occupied[y][x] && !occupied[y][x + 1] &&
-        !occupied[y + 1]?.[x] && !occupied[y + 1]?.[x + 1]) {
-        props.push(this.createProp('fountain', x, y))
-        occupied[y][x] = occupied[y][x + 1] = true
-        occupied[y + 1][x] = occupied[y + 1][x + 1] = true
-      }
-    }
-
-    // === Wells ===
-    const wellFreq = assetFrequencies['well'] ?? 0.2
-    const numWells = Math.floor(density * wellFreq * 2)
-    for (let i = 0; i < numWells; i++) {
-      const x = Math.floor(rng() * w)
-      const y = Math.floor(rng() * h)
-      if (!occupied[y]?.[x]) {
-        props.push(this.createProp('well', x, y))
-        occupied[y][x] = true
-      }
-    }
-
-    // === Fences and stone walls at edges / boundaries ===
-    const fenceCount = Math.floor(density * w * h * 0.001)
-    for (let i = 0; i < fenceCount; i++) {
-      const x = Math.floor(rng() * (w - 2))
-      const y = Math.floor(rng() * h)
-      if (!occupied[y]?.[x] && !occupied[y]?.[x + 1]) {
-        const fenceType = rng() > 0.5 ? 'fence' : 'stone_wall'
-        props.push(this.createProp(fenceType, x, y))
-        occupied[y][x] = true
-        occupied[y][x + 1] = true
-      }
-    }
-
-    // === Market stalls (2x2, near center) ===
-    const stallCount = Math.floor(density * 2)
+    // Market stalls around plaza
+    const stallCount = Math.floor(1 + density * 3)
     for (let i = 0; i < stallCount; i++) {
-      const x = Math.floor(w * 0.25 + rng() * w * 0.5)
-      const y = Math.floor(h * 0.25 + rng() * h * 0.5)
-      if (x + 1 < w && y + 1 < h &&
-        !occupied[y][x] && !occupied[y][x + 1] &&
-        !occupied[y + 1]?.[x] && !occupied[y + 1]?.[x + 1]) {
-        props.push(this.createProp('market_stall', x, y))
-        occupied[y][x] = occupied[y][x + 1] = true
-        occupied[y + 1][x] = occupied[y + 1][x + 1] = true
+      const sx = cx + Math.floor(rng() * 8) - 4
+      const sy = cy + Math.floor(rng() * 8) - 4
+      if (sx >= 0 && sx + 1 < w && sy >= 0 && sy + 1 < h &&
+          !occupied[sy][sx] && !occupied[sy][sx + 1] &&
+          !occupied[sy + 1]?.[sx] && !occupied[sy + 1]?.[sx + 1]) {
+        props.push(this.createProp('market_stall', sx, sy))
+        occupied[sy][sx] = occupied[sy][sx + 1] = true
+        if (sy + 1 < h) { occupied[sy + 1][sx] = occupied[sy + 1][sx + 1] = true }
       }
     }
 
-    // === Statues (rare, near center) ===
-    if (density > 0.3 && rng() > 0.4) {
-      const x = Math.floor(w * 0.35 + rng() * w * 0.3)
-      const y = Math.floor(h * 0.35 + rng() * h * 0.3)
-      if (!occupied[y]?.[x]) {
-        props.push(this.createProp('statue', x, y))
-        occupied[y][x] = true
-      }
-    }
-
-    // === Double lamps (at key intersections - replace some regular lamps) ===
-    const doubleLampCount = Math.floor(density * 3)
-    for (let i = 0; i < doubleLampCount; i++) {
+    // Scatter cafe tables, benches, signs in remaining road-adjacent spots
+    const streetFurnitureCount = Math.floor(density * w * h * 0.005)
+    const streetItems = ['cafe_table', 'bench', 'sign', 'hanging_sign', 'barrel', 'crate']
+    for (let i = 0; i < streetFurnitureCount; i++) {
       const x = Math.floor(rng() * w)
       const y = Math.floor(rng() * h)
-      if (!occupied[y]?.[x]) {
-        props.push(this.createProp('street_lamp_double', x, y))
-        occupied[y][x] = true
+      if (this.isRoadAdjacent(x, y, roadMap, w, h) && !occupied[y]?.[x]) {
+        place(streetItems[Math.floor(rng() * streetItems.length)], x, y)
       }
     }
 
     return props
   }
 
+  private getContextualProps(buildingId: string): string[] {
+    switch (buildingId) {
+      case 'tavern': return ['barrel', 'barrel_stack', 'crate', 'hanging_sign', 'wall_lantern']
+      case 'shop': return ['crate', 'crate_stack', 'hanging_sign', 'potted_plant', 'sign']
+      case 'balcony_house': return ['potted_plant', 'planter_box', 'bench']
+      case 'building_small':
+      case 'building_medium': return ['potted_plant', 'planter_box', 'barrel', 'fence']
+      case 'building_large': return ['barrel_stack', 'crate_stack', 'potted_plant', 'wall_lantern']
+      case 'tower': return ['stone_wall', 'wall_lantern', 'sign']
+      default: return ['potted_plant', 'barrel', 'crate']
+    }
+  }
+
+  // === VEGETATION ===
+
   private scatterVegetation(
     w: number, h: number,
-    roads: { x1: number; y1: number; x2: number; y2: number; width: number }[],
+    roadMap: boolean[][],
     buildings: PlacedObject[],
     density: number,
     rng: () => number,
     noise: SimplexNoise
   ): PlacedObject[] {
     const vegetation: PlacedObject[] = []
-
-    // Use Poisson disk sampling for trees
-    const minDist = Math.max(2, Math.floor(5 - density * 3))
-    const points = poissonDiskSampling(w, h, minDist, rng)
-
-    // Build quick occupancy check for roads and buildings
     const occupied = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
-    for (const road of roads) {
-      if (road.y1 === road.y2) {
-        const minX = Math.max(0, Math.min(road.x1, road.x2))
-        const maxX = Math.min(w - 1, Math.max(road.x1, road.x2))
-        for (let x = minX; x <= maxX; x++) {
-          for (let dy = -1; dy <= road.width; dy++) {
-            const y = road.y1 + dy
-            if (y >= 0 && y < h) occupied[y][x] = true
-          }
-        }
-      } else {
-        const minY = Math.max(0, Math.min(road.y1, road.y2))
-        const maxY = Math.min(h - 1, Math.max(road.y1, road.y2))
-        for (let y = minY; y <= maxY; y++) {
-          for (let dx = -1; dx <= road.width; dx++) {
-            const x = road.x1 + dx
-            if (x >= 0 && x < w) occupied[y][x] = true
-          }
-        }
+
+    // Mark roads and buildings
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (roadMap[y][x]) occupied[y][x] = true
       }
     }
     for (const b of buildings) {
       for (let dy = -1; dy <= 4; dy++) {
         for (let dx = -1; dx <= 5; dx++) {
-          const cx = b.x + dx
-          const cy = b.y + dy
-          if (cx >= 0 && cx < w && cy >= 0 && cy < h) occupied[cy][cx] = true
+          const bx = b.x + dx, by = b.y + dy
+          if (bx >= 0 && bx < w && by >= 0 && by < h) occupied[by][bx] = true
         }
       }
     }
 
+    // Poisson disk for natural tree distribution
+    const minDist = Math.max(2, Math.floor(4 - density * 2))
+    const points = poissonDiskSampling(w, h, minDist, rng)
+
     for (const p of points) {
-      const tx = Math.floor(p.x)
-      const ty = Math.floor(p.y)
-      if (tx < 0 || tx >= w || ty < 0 || ty >= h) continue
-      if (occupied[ty][tx]) continue
+      const tx = Math.floor(p.x), ty = Math.floor(p.y)
+      if (tx < 0 || tx >= w || ty < 0 || ty >= h || occupied[ty][tx]) continue
 
-      // Use noise to determine vegetation density
-      const vegNoise = noise.fbm(tx * 0.1, ty * 0.1, 2)
-      if (vegNoise < 0.1 - density * 0.3) continue
+      const vegNoise = noise.fbm(tx * 0.08, ty * 0.08, 2)
+      if (vegNoise < 0.05 - density * 0.2) continue
 
-      const isTree = rng() > 0.4
+      const isTree = rng() > 0.35
       vegetation.push(this.createProp(isTree ? 'tree' : 'bush', tx, ty))
     }
 
@@ -644,11 +604,9 @@ export class TownGenerator implements IMapGenerator {
     return {
       id: uuid(),
       definitionId: defId,
-      x,
-      y,
+      x, y,
       rotation: 0,
-      scaleX: 1,
-      scaleY: 1,
+      scaleX: 1, scaleY: 1,
       elevation: 0,
       properties: {}
     }
