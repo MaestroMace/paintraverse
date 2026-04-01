@@ -81,6 +81,14 @@ export function renderPixelArt(
 
   let imageData = new ImageData(flipped, outputWidth, outputHeight)
 
+  // === PRE-QUANTIZATION PROCESSING ===
+
+  // A3: Color grading - warm shift for night scenes, purple-blue shadows
+  applyColorGrading(imageData, map.environment.timeOfDay)
+
+  // A4: Bloom/glow approximation - soft halos around bright light sources
+  applyBloom(imageData, outputWidth, outputHeight)
+
   // Apply palette quantization
   const palette = PALETTES[opts.paletteId] || PALETTES['db32']
   imageData = quantizeImageData(imageData, palette, opts.dithering)
@@ -116,4 +124,103 @@ export function renderPixelArt(
     height: outputHeight,
     imageDataURL: outputCanvas.toDataURL('image/png')
   }
+}
+
+// === Color Grading ===
+// Shifts colors to create warm/cool contrast before palette quantization
+
+function applyColorGrading(imageData: ImageData, timeOfDay: number): void {
+  const { data } = imageData
+  const isNight = timeOfDay < 5 || timeOfDay >= 19
+  const isDusk = timeOfDay >= 17 && timeOfDay < 19
+
+  if (!isNight && !isDusk) return // only grade night/dusk scenes
+
+  const warmStrength = isNight ? 0.15 : 0.08
+
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i + 1], b = data[i + 2]
+    const lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255
+
+    if (lum < 0.3) {
+      // Dark pixels → push toward purple-blue (not gray)
+      data[i] = Math.max(0, r * 0.85 + 8)           // slight red tint
+      data[i + 1] = Math.max(0, g * 0.8)              // reduce green
+      data[i + 2] = Math.min(255, b * 1.1 + 15)       // boost blue
+    } else if (lum < 0.6) {
+      // Midtones → warm shift
+      data[i] = Math.min(255, r + warmStrength * 40)   // boost red
+      data[i + 1] = Math.min(255, g + warmStrength * 15) // slight green
+      data[i + 2] = Math.max(0, b - warmStrength * 20)  // reduce blue
+    } else {
+      // Highlights → push toward warm amber (light sources)
+      data[i] = Math.min(255, r + warmStrength * 30)
+      data[i + 1] = Math.min(255, g + warmStrength * 10)
+      data[i + 2] = Math.max(0, b - warmStrength * 15)
+    }
+  }
+}
+
+// === Bloom/Glow ===
+// Simple bloom: threshold bright pixels, blur, composite back
+
+function applyBloom(imageData: ImageData, width: number, height: number): void {
+  const { data } = imageData
+
+  // Extract bright pixels
+  const bright = new Float32Array(width * height * 3)
+  for (let i = 0; i < data.length; i += 4) {
+    const lum = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) / 255
+    const idx = (i / 4) * 3
+    if (lum > 0.65) {
+      const factor = (lum - 0.65) / 0.35 // 0 to 1
+      bright[idx] = data[i] * factor
+      bright[idx + 1] = data[i + 1] * factor
+      bright[idx + 2] = data[i + 2] * factor
+    }
+  }
+
+  // 5x5 box blur (two passes for a wider spread)
+  const blurred = boxBlur(bright, width, height)
+  const blurred2 = boxBlur(blurred, width, height)
+
+  // Composite bloom back onto original at 25% opacity
+  const bloomStrength = 0.25
+  for (let i = 0; i < data.length; i += 4) {
+    const idx = (i / 4) * 3
+    data[i] = Math.min(255, data[i] + blurred2[idx] * bloomStrength)
+    data[i + 1] = Math.min(255, data[i + 1] + blurred2[idx + 1] * bloomStrength)
+    data[i + 2] = Math.min(255, data[i + 2] + blurred2[idx + 2] * bloomStrength)
+  }
+}
+
+function boxBlur(src: Float32Array, width: number, height: number): Float32Array {
+  const dst = new Float32Array(src.length)
+  const radius = 2
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let r = 0, g = 0, b = 0, count = 0
+
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          const nx = x + dx, ny = y + dy
+          if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+            const idx = (ny * width + nx) * 3
+            r += src[idx]
+            g += src[idx + 1]
+            b += src[idx + 2]
+            count++
+          }
+        }
+      }
+
+      const idx = (y * width + x) * 3
+      dst[idx] = r / count
+      dst[idx + 1] = g / count
+      dst[idx + 2] = b / count
+    }
+  }
+
+  return dst
 }

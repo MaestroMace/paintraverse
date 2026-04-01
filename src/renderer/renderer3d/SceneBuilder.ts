@@ -161,7 +161,12 @@ function addDoor(group: THREE.Group, x: number, d: number, tileSize: number, pal
 
 function addWindows(group: THREE.Group, w: number, d: number, floors: number, tileSize: number, palette: BPalette): void {
   const winGeo = new THREE.BoxGeometry(tileSize * 0.15, tileSize * 0.18, 1.5)
-  const winMat = new THREE.MeshLambertMaterial({ color: 0x87ceeb, emissive: 0x2244aa, emissiveIntensity: 0.2 })
+  // Warm glowing windows - the key to the Traverse Town feel
+  const winMat = new THREE.MeshLambertMaterial({
+    color: 0xffcc66,
+    emissive: 0xffaa33,
+    emissiveIntensity: 0.7
+  })
   const shutterMat = new THREE.MeshLambertMaterial({ color: darken(palette.wall, 0.25) })
   const shutterGeo = new THREE.BoxGeometry(tileSize * 0.04, tileSize * 0.2, 1)
 
@@ -176,6 +181,10 @@ function addWindows(group: THREE.Group, w: number, d: number, floors: number, ti
         shutter.position.set(w / 2 + wx * w * 0.25 + sx * tileSize * 0.1, wy, d + 0.5)
         group.add(shutter)
       }
+      // Window light spilling out - warm amber pooling on the ground
+      const winLight = new THREE.PointLight(0xffaa44, 0.35, tileSize * 3)
+      winLight.position.set(w / 2 + wx * w * 0.25, wy, d + tileSize * 0.5)
+      group.add(winLight)
     }
     if (d > tileSize * 1.5) {
       const sw = new THREE.Mesh(winGeo.clone(), winMat)
@@ -242,8 +251,8 @@ function buildTavern(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: 
   signBoard.position.set(w * 0.3, wallH * 0.4, d + ts * 0.25)
   group.add(signBoard)
 
-  // Warm glow from windows at night
-  const glow = new THREE.PointLight(0xffaa44, 0.3, ts * 5)
+  // Warm glow from tavern interior spilling out
+  const glow = new THREE.PointLight(0xffaa44, 1.2, ts * 8)
   glow.position.set(w / 2, ts * 0.5, d + ts * 0.5)
   group.add(glow)
 
@@ -593,8 +602,8 @@ function buildProp(obj: PlacedObject, def: ObjectDefinition, tileSize: number): 
       lamp.position.set(x + tileSize * 0.2, tileSize * 1.08, z)
       group.add(lamp)
 
-      // Light
-      const light = new THREE.PointLight(0xffaa44, 0.6, tileSize * 5)
+      // Lamppost light - bright warm pool on the ground
+      const light = new THREE.PointLight(0xffaa44, 1.4, tileSize * 8)
       light.position.set(x + tileSize * 0.2, tileSize * 1.05, z)
       group.add(light)
       break
@@ -752,8 +761,8 @@ function buildProp(obj: PlacedObject, def: ObjectDefinition, tileSize: number): 
       cap.position.set(x, tileSize * 0.61, z + tileSize * 0.08)
       group.add(cap)
 
-      // Warm point light
-      const light = new THREE.PointLight(0xffaa44, 0.5, tileSize * 4)
+      // Wall lantern warm glow
+      const light = new THREE.PointLight(0xffaa44, 1.0, tileSize * 6)
       light.position.set(x, tileSize * 0.5, z + tileSize * 0.08)
       group.add(light)
       break
@@ -1202,7 +1211,7 @@ function buildProp(obj: PlacedObject, def: ObjectDefinition, tileSize: number): 
         group.add(lamp)
       }
 
-      const light = new THREE.PointLight(0xffaa44, 0.8, tileSize * 6)
+      const light = new THREE.PointLight(0xffaa44, 1.8, tileSize * 10)
       light.position.set(x, tileSize * 1.3, z)
       group.add(light)
       break
@@ -1385,12 +1394,12 @@ function applyLighting(scene: THREE.Scene, env: EnvironmentState): void {
     sunIntensity = (1 - p) * 0.7
     skyColor = lerpColor(0xff8844, 0x0a0a1a, p)
   } else {
-    // Night
-    ambientColor = 0x0a0a2a
-    ambientIntensity = 0.1
-    sunColor = 0x3344aa
-    sunIntensity = 0.08
-    skyColor = 0x050510
+    // Night - deep purple-blue ambience, the foundation for warm light contrast
+    ambientColor = 0x0a0820
+    ambientIntensity = 0.2
+    sunColor = 0x2233aa
+    sunIntensity = 0.05
+    skyColor = 0x060412
   }
 
   scene.add(new THREE.AmbientLight(ambientColor, ambientIntensity))
@@ -1401,23 +1410,36 @@ function applyLighting(scene: THREE.Scene, env: EnvironmentState): void {
   scene.add(dirLight)
 
   // Fill light from opposite side (softer shadows)
-  const fillLight = new THREE.DirectionalLight(ambientColor, sunIntensity * 0.2)
+  const fillLight = new THREE.DirectionalLight(ambientColor, sunIntensity * 0.15)
   fillLight.position.set(-Math.cos(sunAngleRad) * 50, 40, -Math.sin(sunAngleRad) * 50)
   scene.add(fillLight)
 
   scene.background = new THREE.Color(skyColor)
 
-  // Hemisphere light for natural outdoor feel
-  const hemiLight = new THREE.HemisphereLight(skyColor, 0x3a5a2a, 0.15)
+  // Hemisphere light - sky above, warm ground bounce below
+  const isNight = t < 5 || t >= 19
+  const groundColor = isNight ? 0x1a1008 : 0x3a5a2a
+  const hemiLight = new THREE.HemisphereLight(skyColor, groundColor, isNight ? 0.1 : 0.15)
   scene.add(hemiLight)
 
-  // Weather fog
+  // At night, add a subtle warm ground-bounce fill from below
+  // This simulates light reflecting off warm cobblestone from lanterns
+  if (isNight || (t >= 17 && t < 19)) {
+    const groundBounce = new THREE.DirectionalLight(0x332210, 0.08)
+    groundBounce.position.set(0, -10, 0)
+    scene.add(groundBounce)
+  }
+
+  // Atmospheric fog - adds depth even on clear nights
   if (env.weather === 'fog') {
     const fogColor = t >= 7 && t < 17 ? 0xc8c8d0 : 0x444455
     scene.fog = new THREE.FogExp2(fogColor, 0.0015 + env.weatherIntensity * 0.004)
     scene.background = new THREE.Color(fogColor)
   } else if (env.weather === 'rain' || env.weather === 'storm') {
     scene.fog = new THREE.FogExp2(0x667788, 0.0008 + env.weatherIntensity * 0.002)
+  } else if (isNight) {
+    // Subtle night fog for depth - deep purple-blue
+    scene.fog = new THREE.FogExp2(0x060412, 0.0006)
   }
 }
 

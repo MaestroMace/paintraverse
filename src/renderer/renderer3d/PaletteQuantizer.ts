@@ -36,9 +36,36 @@ export const ENDESGA32: Palette = {
   ]
 }
 
+// Traverse Town Night - warm amber lights against deep purple-blue shadows
+export const TRAVERSE_NIGHT: Palette = {
+  name: 'Traverse Night',
+  colors: [
+    // Deep shadow range (purple-blue, not gray)
+    [6, 4, 18], [14, 10, 32], [22, 16, 44], [32, 24, 56],
+    [42, 32, 64], [52, 38, 68],
+    // Mid shadow (blue-purple transition)
+    [60, 44, 72], [72, 52, 74], [80, 60, 70],
+    // Warm building tones (amber/brown range)
+    [100, 70, 44], [120, 84, 48], [140, 100, 56],
+    [160, 114, 64], [176, 128, 72],
+    // Warm light range (amber/orange/gold)
+    [200, 148, 80], [220, 168, 88], [240, 186, 100],
+    [255, 200, 110], [255, 170, 68], [255, 140, 40],
+    // Hot highlights (light sources)
+    [255, 220, 140], [255, 235, 180], [255, 245, 210],
+    // Cool accent for variety (awnings, signs)
+    [60, 80, 120], [80, 100, 140], [44, 66, 100],
+    // Vegetation (muted at night)
+    [30, 50, 28], [44, 64, 36], [56, 76, 44],
+    // Stone/cobble
+    [64, 58, 52], [80, 72, 64], [96, 86, 76]
+  ]
+}
+
 export const PALETTES: Record<string, Palette> = {
   db32: DB32,
-  endesga32: ENDESGA32
+  endesga32: ENDESGA32,
+  traverse_night: TRAVERSE_NIGHT
 }
 
 export function registerPalette(id: string, palette: Palette): void {
