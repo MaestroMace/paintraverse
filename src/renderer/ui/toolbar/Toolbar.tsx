@@ -6,7 +6,8 @@ const toolButtons: { id: ToolType; label: string; shortcut: string }[] = [
   { id: 'select', label: 'Select', shortcut: 'V' },
   { id: 'place', label: 'Place', shortcut: 'P' },
   { id: 'erase', label: 'Erase', shortcut: 'E' },
-  { id: 'brush', label: 'Brush', shortcut: 'B' }
+  { id: 'brush', label: 'Brush', shortcut: 'B' },
+  { id: 'camera', label: 'Camera', shortcut: 'C' }
 ]
 
 export function Toolbar() {
@@ -61,7 +62,7 @@ export function Toolbar() {
 
       <div className="toolbar-group">
         <span className="toolbar-hint">
-          Space+Drag: Pan | Scroll: Zoom | 1-4: Tools
+          Space+Drag: Pan | Scroll: Zoom | 1-5: Tools
         </span>
       </div>
     </div>

@@ -8,6 +8,7 @@ import type {
   ManifestEntry,
   TextureEntry,
   StyleSet,
+  RenderCamera,
   ToolType,
   Command,
   EnvironmentState
@@ -189,6 +190,9 @@ interface AppState {
   hoveredObjectId: string | null
   brushTileId: number
 
+  // Camera for rendering
+  renderCamera: RenderCamera
+
   // Undo/redo
   undoStack: Command[]
   redoStack: Command[]
@@ -219,6 +223,10 @@ interface AppState {
   setActiveTool: (tool: ToolType) => void
   setSelectedDefinitionId: (id: string | null) => void
   setBrushTileId: (id: number) => void
+
+  // Camera
+  setRenderCamera: (camera: RenderCamera) => void
+  updateRenderCamera: (updates: Partial<RenderCamera>) => void
 
   // Style sets
   addStyleSet: (ss: StyleSet) => void
@@ -259,6 +267,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedObjectIds: [],
   hoveredObjectId: null,
   brushTileId: 1,
+  renderCamera: {
+    id: 'default-camera',
+    name: 'Camera 1',
+    worldX: 16,
+    worldY: 16,
+    lookAtX: 24,
+    lookAtY: 24,
+    elevation: 20,
+    fov: 50,
+    outputWidth: 320,
+    outputHeight: 240,
+    paletteId: 'db32'
+  },
   undoStack: [],
   redoStack: [],
 
@@ -358,6 +379,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   setActiveTool: (tool) => set({ activeTool: tool }),
   setSelectedDefinitionId: (id) => set({ selectedDefinitionId: id }),
   setBrushTileId: (id) => set({ brushTileId: id }),
+
+  // Camera
+  setRenderCamera: (camera) => set({ renderCamera: camera }),
+  updateRenderCamera: (updates) =>
+    set((state) => ({ renderCamera: { ...state.renderCamera, ...updates } })),
 
   // Style sets
   addStyleSet: (ss) =>

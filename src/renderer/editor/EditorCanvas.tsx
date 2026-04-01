@@ -4,6 +4,7 @@ import { SelectTool } from './tools/SelectTool'
 import { PlaceTool } from './tools/PlaceTool'
 import { EraseTool } from './tools/EraseTool'
 import { BrushTool } from './tools/BrushTool'
+import { CameraTool } from './tools/CameraTool'
 import type { ITool } from './tools/BaseTool'
 import { useAppStore } from '../app/store'
 
@@ -11,7 +12,8 @@ const tools: Record<string, ITool> = {
   select: new SelectTool(),
   place: new PlaceTool(),
   erase: new EraseTool(),
-  brush: new BrushTool()
+  brush: new BrushTool(),
+  camera: new CameraTool()
 }
 
 export function EditorCanvas() {
@@ -96,6 +98,12 @@ export function EditorCanvas() {
           )
           store.setHoveredObjectId(hit?.id ?? null)
           if (!hit) viewport.overlayLayer.clearPreview()
+        } else if (tool.name === 'camera') {
+          // Camera tool: show current frustum + tile highlight for placement
+          if (tx >= 0 && ty >= 0 && tx < gw && ty < gh) {
+            viewport.overlayLayer.showTileHighlight(tx, ty, ts)
+          }
+          // Keep camera frustum visible (drawn by CameraTool)
         } else {
           viewport.overlayLayer.clearPreview()
         }
@@ -161,6 +169,7 @@ export function EditorCanvas() {
     if (e.key === 'p' || e.key === '2') store.setActiveTool('place')
     if (e.key === 'e' || e.key === '3') store.setActiveTool('erase')
     if (e.key === 'b' || e.key === '4') store.setActiveTool('brush')
+    if (e.key === 'c' || e.key === '5') store.setActiveTool('camera')
   }, [])
 
   useEffect(() => {
