@@ -6,6 +6,12 @@ import { ObjectLibrary } from '../ui/panels/ObjectLibrary'
 import { PropertyInspector } from '../ui/panels/PropertyInspector'
 import { LayerPanel } from '../ui/panels/LayerPanel'
 import { TextureBrowser } from '../ui/panels/TextureBrowser'
+import { StyleSetEditor } from '../ui/panels/StyleSetEditor'
+import { GenerationPanel } from '../ui/panels/GenerationPanel'
+import { EnvironmentPanel } from '../ui/panels/EnvironmentPanel'
+import { RenderPanel } from '../ui/panels/RenderPanel'
+// Ensure generators are registered
+import '../generation/GeneratorRegistry'
 import { useAppStore } from './store'
 import './App.css'
 
@@ -98,13 +104,17 @@ export function App() {
       <Toolbar />
       <div className="app-body">
         <div className="left-panel">
+          <GenerationPanel />
           <ObjectLibrary />
           <TextureBrowser />
+          <StyleSetEditor />
         </div>
         <EditorCanvas />
         <div className="right-panel">
           <LayerPanel />
           <PropertyInspector />
+          <EnvironmentPanel />
+          <RenderPanel />
           <ManifestPanel />
         </div>
       </div>

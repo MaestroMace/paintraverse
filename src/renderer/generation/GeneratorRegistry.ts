@@ -1,9 +1,5 @@
-// Stub for Phase 3: Procedural Generation
-//
-// This will hold the registry of map generators (Town, Forest, Dungeon, etc.)
-// Each generator implements IMapGenerator and is registered here.
-
 import type { MapDocument, GenerationConfig } from '../core/types'
+import { TownGenerator } from './TownGenerator'
 
 export interface IMapGenerator {
   readonly type: string
@@ -25,3 +21,6 @@ export function getGenerator(type: string): IMapGenerator | undefined {
 export function getAllGenerators(): IMapGenerator[] {
   return Array.from(generators.values())
 }
+
+// Register built-in generators
+registerGenerator(new TownGenerator())

@@ -7,6 +7,7 @@ import type {
   ObjectDefinition,
   ManifestEntry,
   TextureEntry,
+  StyleSet,
   ToolType,
   Command,
   EnvironmentState
@@ -175,6 +176,9 @@ interface AppState {
   // Textures
   textures: TextureEntry[]
 
+  // Style sets
+  styleSets: StyleSet[]
+
   // Manifest
   manifest: ManifestEntry[]
 
@@ -216,6 +220,14 @@ interface AppState {
   setSelectedDefinitionId: (id: string | null) => void
   setBrushTileId: (id: number) => void
 
+  // Style sets
+  addStyleSet: (ss: StyleSet) => void
+  updateStyleSet: (id: string, updates: Partial<StyleSet>) => void
+  removeStyleSet: (id: string) => void
+
+  // Environment
+  updateEnvironment: (updates: Partial<EnvironmentState>) => void
+
   // Manifest
   addManifestEntry: (entry: ManifestEntry) => void
   updateManifestEntry: (id: string, updates: Partial<ManifestEntry>) => void
@@ -240,6 +252,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   objectDefinitions: defaultObjectDefs,
   selectedDefinitionId: defaultObjectDefs[0].id,
   textures: [],
+  styleSets: [],
   manifest: [],
   activeTool: 'select',
   activeLayerId: null,
@@ -346,6 +359,34 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSelectedDefinitionId: (id) => set({ selectedDefinitionId: id }),
   setBrushTileId: (id) => set({ brushTileId: id }),
 
+  // Style sets
+  addStyleSet: (ss) =>
+    set((state) => ({ styleSets: [...state.styleSets, ss], dirty: true })),
+
+  updateStyleSet: (id, updates) =>
+    set((state) => ({
+      styleSets: state.styleSets.map((s) =>
+        s.id === id ? { ...s, ...updates } : s
+      ),
+      dirty: true
+    })),
+
+  removeStyleSet: (id) =>
+    set((state) => ({
+      styleSets: state.styleSets.filter((s) => s.id !== id),
+      dirty: true
+    })),
+
+  // Environment
+  updateEnvironment: (updates) =>
+    set((state) => ({
+      map: {
+        ...state.map,
+        environment: { ...state.map.environment, ...updates }
+      },
+      dirty: true
+    })),
+
   // Manifest
   addManifestEntry: (entry) =>
     set((state) => ({ manifest: [...state.manifest, entry], dirty: true })),
@@ -403,7 +444,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       map: state.map,
       manifest: state.manifest,
       textures: state.textures,
-      objectDefinitions: state.objectDefinitions
+      objectDefinitions: state.objectDefinitions,
+      styleSets: state.styleSets
     }, null, 2)
   },
 
@@ -417,6 +459,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       objectDefinitions: data.objectDefinitions?.length
         ? data.objectDefinitions
         : defaultObjectDefs,
+      styleSets: data.styleSets || [],
       dirty: false,
       undoStack: [],
       redoStack: [],
