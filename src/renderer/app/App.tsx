@@ -108,8 +108,8 @@ export function App() {
       <Toolbar />
       <div className="app-body">
         <div className="left-panel">
-          <InspirationPanel />
           <GenerationPanel />
+          <InspirationPanel />
           <ObjectLibrary />
           <ObjectCreator />
           <TextureBrowser />
@@ -117,10 +117,10 @@ export function App() {
         </div>
         <EditorCanvas />
         <div className="right-panel">
+          <RenderPanel />
+          <EnvironmentPanel />
           <LayerPanel />
           <PropertyInspector />
-          <EnvironmentPanel />
-          <RenderPanel />
           <ManifestPanel />
         </div>
       </div>

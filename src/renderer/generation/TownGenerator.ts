@@ -168,36 +168,36 @@ export class TownGenerator implements IMapGenerator {
     }
 
     // Generate main roads radiating from center with gentle curves
-    const numMain = Math.floor(3 + complexity * 5)
+    const numMain = Math.floor(4 + complexity * 6)
     for (let i = 0; i < numMain; i++) {
       const angle = (i / numMain) * Math.PI * 2 + (rng() - 0.5) * 0.4
       this.carveOrganicPath(
         roadMap, terrain, cx, cy, angle, w, h,
         Math.floor(w * 0.35 + rng() * w * 0.15),
-        2, // width
+        3, // wider main roads for more building frontage
         0.15, // curviness
         noise, rng
       )
     }
 
     // Generate secondary connecting roads between main roads
-    const numSecondary = Math.floor(complexity * 8)
+    const numSecondary = Math.floor(4 + complexity * 10)
     for (let i = 0; i < numSecondary; i++) {
-      const sx = Math.floor(w * 0.15 + rng() * w * 0.7)
-      const sy = Math.floor(h * 0.15 + rng() * h * 0.7)
+      const sx = Math.floor(w * 0.1 + rng() * w * 0.8)
+      const sy = Math.floor(h * 0.1 + rng() * h * 0.8)
       const angle = rng() * Math.PI * 2
       this.carveOrganicPath(
         roadMap, terrain, sx, sy, angle, w, h,
-        Math.floor(6 + rng() * 12),
-        1, // narrower
+        Math.floor(8 + rng() * 14),
+        2, // medium width
         0.25, // curvier
         noise, rng
       )
     }
 
     // Generate small alleys branching off main roads
-    if (complexity > 0.3) {
-      const numAlleys = Math.floor(complexity * 12)
+    if (complexity > 0.2) {
+      const numAlleys = Math.floor(6 + complexity * 15)
       for (let i = 0; i < numAlleys; i++) {
         // Find a random road tile to branch from
         const bx = Math.floor(rng() * w)
@@ -287,25 +287,28 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    // Building types by footprint
+    // Building types - heavily favor small buildings that fill gaps, creating dense frontage
     const types: { id: string; w: number; h: number; weight: number }[] = [
-      { id: 'building_small', w: 2, h: 2, weight: 3 },
-      { id: 'building_medium', w: 3, h: 3, weight: 2 },
-      { id: 'building_large', w: 4, h: 3, weight: 1 },
-      { id: 'tavern', w: 4, h: 3, weight: 1 },
-      { id: 'shop', w: 2, h: 3, weight: 2 },
-      { id: 'balcony_house', w: 3, h: 2, weight: 2 },
-      { id: 'tower', w: 2, h: 2, weight: 0.5 },
-      { id: 'archway', w: 3, h: 1, weight: 0.3 },
-      { id: 'staircase', w: 2, h: 3, weight: 0.3 },
+      { id: 'row_house', w: 1, h: 2, weight: 6 },        // narrow gap-filler, most common
+      { id: 'building_small', w: 2, h: 2, weight: 5 },   // small house, very common
+      { id: 'corner_building', w: 2, h: 2, weight: 3 },  // intersections
+      { id: 'shop', w: 2, h: 3, weight: 3 },             // commercial
+      { id: 'balcony_house', w: 3, h: 2, weight: 2 },    // residential variety
+      { id: 'building_medium', w: 3, h: 3, weight: 1.5 }, // medium
+      { id: 'tavern', w: 4, h: 3, weight: 0.8 },         // rare landmark
+      { id: 'building_large', w: 4, h: 3, weight: 0.5 }, // rare
+      { id: 'tower', w: 2, h: 2, weight: 0.4 },          // rare landmark
+      { id: 'archway', w: 3, h: 1, weight: 0.5 },        // passage
+      { id: 'staircase', w: 2, h: 3, weight: 0.3 },      // elevation
+      { id: 'town_gate', w: 3, h: 1, weight: 0.2 },      // very rare landmark
     ]
     const totalWeight = types.reduce((s, t) => s + t.weight, 0)
 
-    // Walk along road edges and place buildings tight against them
-    const maxBuildings = Math.floor(10 + complexity * 25 + density * 15)
+    // Much higher building count for dense towns
+    const maxBuildings = Math.floor(25 + complexity * 55 + density * 35)
     let placed = 0
     let attempts = 0
-    const maxAttempts = maxBuildings * 20
+    const maxAttempts = maxBuildings * 50
 
     while (placed < maxBuildings && attempts < maxAttempts) {
       attempts++
@@ -337,9 +340,13 @@ export class TownGenerator implements IMapGenerator {
       }
       if (!free) continue
 
-      // Elevation based on height map + distance from center
+      // Density gradient: prefer placing buildings near center
       const distFromCenter = Math.sqrt((rx - cx) ** 2 + (ry - cy) ** 2)
       const maxDist = Math.sqrt(w * w + h * h) / 2
+      const distNorm = distFromCenter / maxDist
+      // Center: 100% acceptance, edge: 30% acceptance
+      const acceptChance = 1.0 - distNorm * 0.7
+      if (rng() > acceptChance) continue
       const heightVal = heightMap[ry]?.[rx] ?? 0
       const elevation = Math.round((heightVal + distFromCenter / maxDist * 0.5) * 2) / 2
 
@@ -362,6 +369,35 @@ export class TownGenerator implements IMapGenerator {
         }
       }
       placed++
+    }
+
+    // === FILL PASS: Use row houses (1x2) to fill remaining road-adjacent gaps ===
+    // This creates continuous street frontage by plugging narrow holes
+    const fillMax = Math.floor(maxBuildings * 0.5)
+    let filled = 0
+    for (let y = 2; y < h - 3 && filled < fillMax; y++) {
+      for (let x = 2; x < w - 2 && filled < fillMax; x++) {
+        if (occupied[y][x] || !this.isRoadAdjacent(x, y, roadMap, w, h)) continue
+
+        // Try 1x2 row house
+        if (y + 1 < h && !occupied[y + 1][x]) {
+          // Density gradient for fill pass too
+          const fd = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2) / maxDist
+          if (fd > 0.6) continue // only fill in inner 60% of town
+
+          buildings.push({
+            id: uuid(),
+            definitionId: 'row_house',
+            x, y,
+            rotation: 0, scaleX: 1, scaleY: 1,
+            elevation: Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2),
+            properties: { floors: 1 + Math.floor(rng() * 2) }
+          })
+          occupied[y][x] = true
+          occupied[y + 1][x] = true
+          filled++
+        }
+      }
     }
 
     return buildings

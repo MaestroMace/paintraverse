@@ -162,3 +162,36 @@ export function poissonDiskSampling(
 
   return points
 }
+
+// Find the nearest point and return its index + distance (for Voronoi-like ward assignment)
+export function nearestPoint(
+  x: number, y: number,
+  points: { x: number; y: number }[]
+): { index: number; distance: number } {
+  let bestIdx = 0
+  let bestDist = Infinity
+  for (let i = 0; i < points.length; i++) {
+    const dx = x - points[i].x
+    const dy = y - points[i].y
+    const d = dx * dx + dy * dy
+    if (d < bestDist) {
+      bestDist = d
+      bestIdx = i
+    }
+  }
+  return { index: bestIdx, distance: Math.sqrt(bestDist) }
+}
+
+// Noise-perturbed distance for organic ward boundaries
+export function perturbedDistance(
+  x: number, y: number,
+  cx: number, cy: number,
+  noise: SimplexNoise,
+  scale: number = 0.1,
+  amount: number = 3
+): number {
+  const dx = x - cx, dy = y - cy
+  const baseDist = Math.sqrt(dx * dx + dy * dy)
+  const n = noise.noise2D(x * scale, y * scale) * amount
+  return baseDist + n
+}

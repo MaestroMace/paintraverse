@@ -111,6 +111,9 @@ function buildStructure(obj: PlacedObject, def: ObjectDefinition, tileSize: numb
     case 'archway': return buildArchway(obj, def, tileSize, palette)
     case 'staircase': return buildStaircase(obj, def, tileSize)
     case 'clock_tower': return buildClockTower(obj, def, tileSize, palette)
+    case 'row_house': return buildRowHouse(obj, def, tileSize, palette)
+    case 'town_gate': return buildTownGate(obj, def, tileSize)
+    case 'corner_building': return buildCornerBuilding(obj, def, tileSize, palette, hash)
     default: return buildGenericBuilding(obj, def, tileSize, palette)
   }
 }
@@ -626,6 +629,173 @@ function buildStaircase(obj: PlacedObject, def: ObjectDefinition, ts: number): T
     group.add(wall)
   }
 
+  addBuildingShadow(group, w, d)
+  group.position.set(obj.x * ts, (obj.elevation || 0) * ts, obj.y * ts)
+  return group
+}
+
+function buildRowHouse(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: BPalette): THREE.Group {
+  const group = new THREE.Group()
+  const hash = simpleHash(obj.id)
+  const w = def.footprint.w * ts, d = def.footprint.h * ts
+  const floors = (obj.properties.floors as number) || 2
+  const wallH = floors * ts * 0.65
+
+  addWalls(group, w, wallH, d, pal)
+  addTimberFraming(group, w, wallH, d, ts, hash)
+  addEaves(group, w, wallH, d, ts, pal.roof)
+  addPitchedRoof(group, w, wallH, d, ts * 0.4, pal.roof)
+
+  // Narrow door on front
+  const dw = ts * 0.2, dh = ts * 0.4
+  const doorMat = new THREE.MeshLambertMaterial({ color: pal.door })
+  const door = new THREE.Mesh(new THREE.BoxGeometry(dw, dh, 1.5), doorMat)
+  door.position.set(w / 2, dh / 2, d + 0.3)
+  group.add(door)
+
+  // Single window per floor
+  const winGeo = new THREE.BoxGeometry(ts * 0.12, ts * 0.15, 1.5)
+  const winMat = new THREE.MeshLambertMaterial({ color: 0xffcc66, emissive: 0xffaa33, emissiveIntensity: 0.7 })
+  for (let f = 0; f < floors; f++) {
+    const wy = ts * 0.35 + f * ts * 0.65
+    const win = new THREE.Mesh(winGeo, winMat)
+    win.position.set(w / 2, wy, d + 0.3)
+    group.add(win)
+    const winLight = new THREE.PointLight(0xffaa44, 0.25, ts * 2.5)
+    winLight.position.set(w / 2, wy, d + ts * 0.4)
+    group.add(winLight)
+  }
+
+  addFlowerBoxes(group, w, d, floors, ts, hash)
+  addBuildingShadow(group, w, d)
+  group.position.set(obj.x * ts, (obj.elevation || 0) * ts, obj.y * ts)
+  return group
+}
+
+function buildTownGate(obj: PlacedObject, def: ObjectDefinition, ts: number): THREE.Group {
+  const group = new THREE.Group()
+  const w = def.footprint.w * ts, d = def.footprint.h * ts
+  const gateH = ts * 1.8
+  const towerR = ts * 0.3
+  const towerH = ts * 2.4
+
+  const stoneMat = new THREE.MeshLambertMaterial({ color: 0x5a5a60 })
+  const darkMat = new THREE.MeshLambertMaterial({ color: 0x4a4a50 })
+
+  // Two flanking towers (cylindrical)
+  for (const tx of [towerR + 1, w - towerR - 1]) {
+    const tower = new THREE.Mesh(
+      new THREE.CylinderGeometry(towerR, towerR * 1.1, towerH, 8), stoneMat
+    )
+    tower.position.set(tx, towerH / 2, d / 2)
+    group.add(tower)
+
+    // Crenellations (small boxes on top)
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2
+      const cren = new THREE.Mesh(
+        new THREE.BoxGeometry(ts * 0.08, ts * 0.12, ts * 0.08), darkMat
+      )
+      cren.position.set(
+        tx + Math.cos(angle) * towerR * 0.85,
+        towerH + ts * 0.06,
+        d / 2 + Math.sin(angle) * towerR * 0.85
+      )
+      group.add(cren)
+    }
+
+    // Conical tower roof
+    const roofCone = new THREE.Mesh(
+      new THREE.ConeGeometry(towerR * 1.2, ts * 0.5, 8),
+      new THREE.MeshLambertMaterial({ color: 0x4a3a30 })
+    )
+    roofCone.position.set(tx, towerH + ts * 0.35, d / 2)
+    group.add(roofCone)
+
+    // Wall lantern on each tower
+    const lampMat = new THREE.MeshLambertMaterial({ color: 0xffdd44, emissive: 0xffaa00, emissiveIntensity: 0.8 })
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(ts * 0.06, 6, 5), lampMat)
+    lamp.position.set(tx, gateH * 0.7, d / 2 + towerR + 1)
+    group.add(lamp)
+    const light = new THREE.PointLight(0xffaa44, 0.8, ts * 5)
+    light.position.set(tx, gateH * 0.7, d / 2 + towerR)
+    group.add(light)
+  }
+
+  // Connecting wall/beam above the gate
+  const beam = new THREE.Mesh(
+    new THREE.BoxGeometry(w - towerR * 2, ts * 0.5, d + 2), stoneMat
+  )
+  beam.position.set(w / 2, gateH + ts * 0.25, d / 2)
+  group.add(beam)
+
+  // Archway opening
+  const archGeo = new THREE.CylinderGeometry(
+    (w - towerR * 4) / 2, (w - towerR * 4) / 2,
+    d + 4, 12, 1, false, 0, Math.PI
+  )
+  const arch = new THREE.Mesh(archGeo, darkMat)
+  arch.rotation.x = Math.PI / 2
+  arch.rotation.z = Math.PI / 2
+  arch.position.set(w / 2, gateH, d / 2)
+  group.add(arch)
+
+  // Portcullis hint (dark grid)
+  const portMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a })
+  for (let i = -2; i <= 2; i++) {
+    const bar = new THREE.Mesh(
+      new THREE.BoxGeometry(ts * 0.02, gateH * 0.7, ts * 0.02), portMat
+    )
+    bar.position.set(w / 2 + i * ts * 0.15, gateH * 0.35, d / 2)
+    group.add(bar)
+  }
+
+  addBuildingShadow(group, w, d)
+  group.position.set(obj.x * ts, (obj.elevation || 0) * ts, obj.y * ts)
+  return group
+}
+
+function buildCornerBuilding(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: BPalette, hash: number): THREE.Group {
+  const group = new THREE.Group()
+  const w = def.footprint.w * ts, d = def.footprint.h * ts
+  const floors = (obj.properties.floors as number) || 2
+  const wallH = floors * ts * 0.7
+
+  // Main body
+  addWalls(group, w, wallH, d, pal)
+  addTimberFraming(group, w, wallH, d, ts, hash)
+  addEaves(group, w, wallH, d, ts, pal.roof)
+  addPitchedRoof(group, w, wallH, d, ts * 0.45, pal.roof)
+  addDoorWithAwning(group, w / 2, d, ts, pal, hash)
+  addWindows(group, w, d, floors, ts, pal)
+
+  // Chamfered corner: angled face on one corner
+  const chamferSize = ts * 0.5
+  const chamferGeo = new THREE.BoxGeometry(chamferSize * 1.4, wallH, ts * 0.1)
+  const chamferMat = new THREE.MeshLambertMaterial({ color: pal.wall })
+  const chamfer = new THREE.Mesh(chamferGeo, chamferMat)
+  chamfer.rotation.y = Math.PI / 4
+  chamfer.position.set(w - chamferSize * 0.3, wallH / 2, d - chamferSize * 0.3)
+  group.add(chamfer)
+
+  // Awning on the angled corner face
+  const awningColors = [0xaa3333, 0x3355aa, 0x33aa55, 0xcc8833]
+  const awningMat = new THREE.MeshLambertMaterial({ color: awningColors[hash % awningColors.length] })
+  const awning = new THREE.Mesh(
+    new THREE.BoxGeometry(chamferSize * 1.2, ts * 0.03, ts * 0.3), awningMat
+  )
+  awning.rotation.y = Math.PI / 4
+  awning.position.set(w - chamferSize * 0.2, wallH * 0.6, d - chamferSize * 0.1)
+  group.add(awning)
+
+  // Corner window (on the angled face)
+  const winMat = new THREE.MeshLambertMaterial({ color: 0xffcc66, emissive: 0xffaa33, emissiveIntensity: 0.7 })
+  const cornerWin = new THREE.Mesh(new THREE.BoxGeometry(ts * 0.18, ts * 0.18, 1), winMat)
+  cornerWin.rotation.y = Math.PI / 4
+  cornerWin.position.set(w - chamferSize * 0.25, wallH * 0.45, d - chamferSize * 0.25)
+  group.add(cornerWin)
+
+  addFlowerBoxes(group, w, d, floors, ts, hash)
   addBuildingShadow(group, w, d)
   group.position.set(obj.x * ts, (obj.elevation || 0) * ts, obj.y * ts)
   return group
@@ -1527,6 +1697,11 @@ function buildProp(obj: PlacedObject, def: ObjectDefinition, tileSize: number): 
       mesh.position.set(x, ph / 2, z)
       group.add(mesh)
     }
+  }
+
+  // Apply elevation to props (was missing - all props were at ground level)
+  if (obj.elevation) {
+    group.position.y = obj.elevation * tileSize
   }
 
   return group

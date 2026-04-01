@@ -42,8 +42,8 @@ html, body, #root {
 }
 
 .left-panel, .right-panel {
-  width: 240px;
-  min-width: 200px;
+  width: 230px;
+  min-width: 190px;
   background: var(--bg-panel);
   border-right: 1px solid var(--border);
   display: flex;

@@ -1,13 +1,14 @@
 import { useAppStore } from '../../app/store'
 import type { ToolType } from '../../core/types'
+import { renderPixelArt } from '../../renderer3d/RenderPipeline'
 import './Toolbar.css'
 
-const toolButtons: { id: ToolType; label: string; shortcut: string }[] = [
+const toolButtons: { id: ToolType; label: string; shortcut: string; accent?: boolean }[] = [
   { id: 'select', label: 'Select', shortcut: 'V' },
   { id: 'place', label: 'Place', shortcut: 'P' },
   { id: 'erase', label: 'Erase', shortcut: 'E' },
   { id: 'brush', label: 'Brush', shortcut: 'B' },
-  { id: 'camera', label: 'Camera', shortcut: 'C' }
+  { id: 'camera', label: 'Camera', shortcut: 'C', accent: true }
 ]
 
 export function Toolbar() {
@@ -30,7 +31,7 @@ export function Toolbar() {
         {toolButtons.map((t) => (
           <button
             key={t.id}
-            className={activeTool === t.id ? 'active' : ''}
+            className={`${activeTool === t.id ? 'active' : ''} ${t.accent && activeTool !== t.id ? 'tool-accent' : ''}`}
             onClick={() => setActiveTool(t.id)}
             title={`${t.label} (${t.shortcut})`}
           >

@@ -153,6 +153,33 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 2, h: 3 },
     styleSetSlots: []
   },
+  {
+    id: 'row_house',
+    name: 'Row House',
+    category: 'building',
+    tags: ['structure', 'residential', 'narrow'],
+    color: '#A89880',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  {
+    id: 'town_gate',
+    name: 'Town Gate',
+    category: 'building',
+    tags: ['structure', 'landmark', 'passage'],
+    color: '#5A5A60',
+    footprint: { w: 3, h: 1 },
+    styleSetSlots: ['wall']
+  },
+  {
+    id: 'corner_building',
+    name: 'Corner Building',
+    category: 'building',
+    tags: ['structure', 'commercial'],
+    color: '#B8A890',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'awning']
+  },
 
   // === VEGETATION ===
   {

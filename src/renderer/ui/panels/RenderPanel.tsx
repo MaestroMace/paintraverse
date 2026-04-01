@@ -3,11 +3,20 @@ import { useAppStore } from '../../app/store'
 import { renderPixelArt } from '../../renderer3d/RenderPipeline'
 import { PALETTES } from '../../renderer3d/PaletteQuantizer'
 
+const CAMERA_PRESETS = [
+  { label: 'Street Level', elevation: 1.2, fov: 65, desc: 'Low angle, intimate' },
+  { label: 'Eye Level', elevation: 3, fov: 55, desc: 'Standing perspective' },
+  { label: 'Rooftop', elevation: 8, fov: 50, desc: 'Above the buildings' },
+  { label: 'Overview', elevation: 18, fov: 45, desc: 'Cinematic wide shot' },
+  { label: "Bird's Eye", elevation: 35, fov: 40, desc: 'Top-down map view' },
+]
+
 export function RenderPanel() {
   const [collapsed, setCollapsed] = useState(false)
   const [rendering, setRendering] = useState(false)
   const [previewURL, setPreviewURL] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
 
   const map = useAppStore((s) => s.map)
@@ -26,7 +35,6 @@ export function RenderPanel() {
     setRendering(true)
     setError(null)
     setPreviewURL(null)
-
     requestAnimationFrame(() => {
       try {
         const result = renderPixelArt(map, camera, objectDefs, {
@@ -65,123 +73,169 @@ export function RenderPanel() {
     })
   }
 
+  const applyPreset = (preset: typeof CAMERA_PRESETS[0]) => {
+    updateCamera({ elevation: preset.elevation, fov: preset.fov })
+  }
+
   return (
     <div className="panel">
       <div className="panel-header" onClick={() => setCollapsed(!collapsed)}>
-        <span>Pixel Art Render</span>
+        <span>Camera & Render</span>
         <span>{collapsed ? '+' : '-'}</span>
       </div>
       {!collapsed && (
         <div className="panel-content">
-          {/* Camera placement hint */}
-          <div style={{
-            background: 'var(--bg-dark)', borderRadius: 3, padding: '6px 8px',
-            marginBottom: 8, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.4
-          }}>
-            Use the <button
+          {/* Quick action row - always visible */}
+          <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
+            <button
               onClick={() => setActiveTool('camera')}
-              style={{ display: 'inline', padding: '1px 6px', fontSize: 11, verticalAlign: 'baseline' }}
-            >Camera</button> tool (C) to click where you want the camera, then drag toward where it should look.
-            The blue cone shows what's in frame.
+              style={{ flex: 1, padding: '5px 6px', fontSize: 11 }}
+              title="Click on map to place camera, drag to aim (C)"
+            >
+              Place Camera
+            </button>
+            <button onClick={handleCenterCamera} style={{ flex: 1, padding: '5px 6px', fontSize: 11 }}>
+              Auto Center
+            </button>
+            <button
+              onClick={handleRender}
+              className="active"
+              style={{ flex: 1.2, padding: '5px 6px', fontSize: 11, fontWeight: 600 }}
+              disabled={rendering}
+            >
+              {rendering ? '...' : 'Render'}
+            </button>
           </div>
 
-          {/* Camera Position - editable but also set by tool */}
-          <div style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
-            Camera Position
+          {/* Camera angle presets */}
+          <div style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 3 }}>
+            Camera Angle
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr', gap: '3px 6px', fontSize: 12, marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-dim)' }}>From X</span>
-            <input type="number" value={camera.worldX} step={0.5}
-              onChange={(e) => updateCamera({ worldX: Number(e.target.value) })} />
-            <span style={{ color: 'var(--text-dim)' }}>From Y</span>
-            <input type="number" value={camera.worldY} step={0.5}
-              onChange={(e) => updateCamera({ worldY: Number(e.target.value) })} />
-            <span style={{ color: 'var(--text-dim)' }}>Height</span>
-            <input type="range" min={2} max={60} step={0.5} value={camera.elevation}
-              onChange={(e) => updateCamera({ elevation: Number(e.target.value) })} />
-            <span /><span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{camera.elevation.toFixed(1)} tiles up</span>
-            <span style={{ color: 'var(--text-dim)' }}>Look X</span>
-            <input type="number" value={camera.lookAtX} step={0.5}
-              onChange={(e) => updateCamera({ lookAtX: Number(e.target.value) })} />
-            <span style={{ color: 'var(--text-dim)' }}>Look Y</span>
-            <input type="number" value={camera.lookAtY} step={0.5}
-              onChange={(e) => updateCamera({ lookAtY: Number(e.target.value) })} />
-            <span style={{ color: 'var(--text-dim)' }}>FOV</span>
-            <input type="range" min={25} max={90} value={camera.fov}
-              onChange={(e) => updateCamera({ fov: Number(e.target.value) })} />
-            <span /><span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{camera.fov}&deg; (wider = more in frame)</span>
-          </div>
-
-          <button onClick={handleCenterCamera} style={{ width: '100%', marginBottom: 6, fontSize: 11 }}>
-            Auto-position: Cinematic Overview
-          </button>
-
-          {/* Output Settings */}
-          <div style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4, borderTop: '1px solid var(--border)', paddingTop: 6 }}>
-            Output Settings
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr', gap: '3px 6px', fontSize: 12, marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-dim)' }}>Width</span>
-            <input type="number" value={camera.outputWidth}
-              onChange={(e) => updateCamera({ outputWidth: Number(e.target.value) })} />
-            <span style={{ color: 'var(--text-dim)' }}>Height</span>
-            <input type="number" value={camera.outputHeight}
-              onChange={(e) => updateCamera({ outputHeight: Number(e.target.value) })} />
-          </div>
-
-          {/* Palette */}
-          <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 2 }}>Palette</label>
-          <select
-            value={camera.paletteId}
-            onChange={(e) => updateCamera({ paletteId: e.target.value })}
-            style={{ marginBottom: 6 }}
-          >
-            {Object.entries(PALETTES).map(([id, p]) => (
-              <option key={id} value={id}>{p.name}</option>
+          <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', marginBottom: 8 }}>
+            {CAMERA_PRESETS.map((p) => (
+              <button
+                key={p.label}
+                onClick={() => applyPreset(p)}
+                title={p.desc}
+                style={{
+                  padding: '3px 7px', fontSize: 10,
+                  background: Math.abs(camera.elevation - p.elevation) < 1 ? 'var(--accent)' : undefined,
+                  color: Math.abs(camera.elevation - p.elevation) < 1 ? 'white' : undefined,
+                  borderColor: Math.abs(camera.elevation - p.elevation) < 1 ? 'var(--accent)' : undefined
+                }}
+              >
+                {p.label}
+              </button>
             ))}
-          </select>
+          </div>
 
-          {/* Dithering */}
-          <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 2 }}>Dithering</label>
-          <select
-            value={renderOpts.dithering}
-            onChange={(e) => setRenderOpts((o) => ({ ...o, dithering: e.target.value as typeof o.dithering }))}
-            style={{ marginBottom: 6 }}
-          >
-            <option value="none">None</option>
-            <option value="ordered">Ordered (Bayer)</option>
-            <option value="floyd-steinberg">Floyd-Steinberg</option>
-          </select>
-
-          {/* Outlines */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginBottom: 8 }}>
+          {/* Height slider - CRITICAL: min 0.3 for street-level */}
+          <div style={{ marginBottom: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 1 }}>
+              <span style={{ color: 'var(--text-dim)' }}>Height</span>
+              <span>{camera.elevation.toFixed(1)} tiles</span>
+            </div>
             <input
-              type="checkbox"
-              checked={renderOpts.outlines}
-              onChange={(e) => setRenderOpts((o) => ({ ...o, outlines: e.target.checked }))}
+              type="range" min={0.3} max={50} step={0.1} value={camera.elevation}
+              onChange={(e) => updateCamera({ elevation: Number(e.target.value) })}
+              style={{ width: '100%' }}
             />
-            Pixel art outlines
-          </label>
+          </div>
 
-          {/* Render button */}
-          <button
-            onClick={handleRender}
-            className="active"
-            style={{ width: '100%', padding: '8px 10px', fontWeight: 600 }}
-            disabled={rendering}
+          {/* FOV slider */}
+          <div style={{ marginBottom: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 1 }}>
+              <span style={{ color: 'var(--text-dim)' }}>Field of View</span>
+              <span>{camera.fov}&deg;</span>
+            </div>
+            <input
+              type="range" min={20} max={100} value={camera.fov}
+              onChange={(e) => updateCamera({ fov: Number(e.target.value) })}
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          {/* Palette selector - important enough to stay visible */}
+          <div style={{ marginBottom: 6 }}>
+            <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 2 }}>Palette</label>
+            <select
+              value={camera.paletteId}
+              onChange={(e) => updateCamera({ paletteId: e.target.value })}
+            >
+              {Object.entries(PALETTES).map(([id, p]) => (
+                <option key={id} value={id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Advanced settings (collapsed) */}
+          <div
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            style={{
+              fontSize: 10, color: 'var(--text-dim)', cursor: 'pointer',
+              userSelect: 'none', display: 'flex', justifyContent: 'space-between',
+              borderTop: '1px solid var(--border)', paddingTop: 4, marginBottom: 4
+            }}
           >
-            {rendering ? 'Rendering...' : 'Render Pixel Art'}
-          </button>
+            <span>Position & Output</span>
+            <span>{showAdvanced ? '-' : '+'}</span>
+          </div>
 
-          {error && (
-            <div style={{ color: '#d95763', fontSize: 11, marginTop: 4 }}>{error}</div>
+          {showAdvanced && (
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr', gap: '3px 6px', fontSize: 12, marginBottom: 6 }}>
+                <span style={{ color: 'var(--text-dim)' }}>From X</span>
+                <input type="number" value={camera.worldX} step={0.5}
+                  onChange={(e) => updateCamera({ worldX: Number(e.target.value) })} />
+                <span style={{ color: 'var(--text-dim)' }}>From Y</span>
+                <input type="number" value={camera.worldY} step={0.5}
+                  onChange={(e) => updateCamera({ worldY: Number(e.target.value) })} />
+                <span style={{ color: 'var(--text-dim)' }}>Look X</span>
+                <input type="number" value={camera.lookAtX} step={0.5}
+                  onChange={(e) => updateCamera({ lookAtX: Number(e.target.value) })} />
+                <span style={{ color: 'var(--text-dim)' }}>Look Y</span>
+                <input type="number" value={camera.lookAtY} step={0.5}
+                  onChange={(e) => updateCamera({ lookAtY: Number(e.target.value) })} />
+                <span style={{ color: 'var(--text-dim)' }}>Width</span>
+                <input type="number" value={camera.outputWidth}
+                  onChange={(e) => updateCamera({ outputWidth: Number(e.target.value) })} />
+                <span style={{ color: 'var(--text-dim)' }}>Height</span>
+                <input type="number" value={camera.outputHeight}
+                  onChange={(e) => updateCamera({ outputHeight: Number(e.target.value) })} />
+              </div>
+
+              <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 2 }}>Dithering</label>
+              <select
+                value={renderOpts.dithering}
+                onChange={(e) => setRenderOpts((o) => ({ ...o, dithering: e.target.value as typeof o.dithering }))}
+                style={{ marginBottom: 4 }}
+              >
+                <option value="none">None</option>
+                <option value="ordered">Ordered (Bayer)</option>
+                <option value="floyd-steinberg">Floyd-Steinberg</option>
+              </select>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                <input
+                  type="checkbox"
+                  checked={renderOpts.outlines}
+                  onChange={(e) => setRenderOpts((o) => ({ ...o, outlines: e.target.checked }))}
+                />
+                Pixel art outlines
+              </label>
+            </div>
           )}
 
+          {error && (
+            <div style={{ color: '#d95763', fontSize: 11, marginBottom: 4, wordBreak: 'break-word' }}>{error}</div>
+          )}
+
+          {/* Preview */}
           {previewURL && (
-            <div ref={previewRef} style={{ marginTop: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase' }}>
-                  Preview ({camera.outputWidth}x{camera.outputHeight})
+            <div ref={previewRef} style={{ marginTop: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>
+                  {camera.outputWidth}x{camera.outputHeight}
                 </span>
                 <button onClick={handleExport} style={{ fontSize: 10, padding: '2px 8px' }}>
                   Export PNG
