@@ -3,7 +3,8 @@ import type { MapDocument, PlacedObject, ObjectDefinition, EnvironmentState } fr
 
 const TERRAIN_3D_COLORS: Record<number, number> = {
   0: 0x2d5a27, 1: 0x8b7355, 2: 0x708090, 3: 0x4682b4,
-  4: 0xf4e9c8, 5: 0x556b2f, 6: 0x5a5a5a, 7: 0xdcdcdc
+  4: 0xf4e9c8, 5: 0x556b2f, 6: 0x5a5a5a, 7: 0xdcdcdc,
+  8: 0x6a6a68, 9: 0x4a4a48
 }
 
 // Building color variations for visual variety
@@ -87,118 +88,343 @@ function buildTerrain(tiles: number[][], tileSize: number): THREE.Group {
 }
 
 function buildStructure(obj: PlacedObject, def: ObjectDefinition, tileSize: number): THREE.Group {
-  const group = new THREE.Group()
-  const w = def.footprint.w * tileSize
-  const d = def.footprint.h * tileSize
-  const floors = (obj.properties.floors as number) || 1
-  const wallH = floors * tileSize * 0.7
-
-  // Pick a palette based on object ID hash for consistent variety
   const hash = simpleHash(obj.id)
   const palette = BUILDING_PALETTES[hash % BUILDING_PALETTES.length]
 
-  // === Walls ===
-  const wallGeo = new THREE.BoxGeometry(w - 1, wallH, d - 1)
-  const wallMats = [
+  switch (def.id) {
+    case 'tavern': return buildTavern(obj, def, tileSize, palette, hash)
+    case 'shop': return buildShop(obj, def, tileSize, palette, hash)
+    case 'tower': return buildTower(obj, def, tileSize, palette, hash)
+    case 'balcony_house': return buildBalconyHouse(obj, def, tileSize, palette, hash)
+    case 'archway': return buildArchway(obj, def, tileSize, palette)
+    case 'staircase': return buildStaircase(obj, def, tileSize)
+    default: return buildGenericBuilding(obj, def, tileSize, palette)
+  }
+}
+
+interface BPalette { wall: number; roof: number; door: number }
+
+// Shared helpers for building construction
+function addWalls(group: THREE.Group, w: number, h: number, d: number, palette: BPalette): void {
+  const geo = new THREE.BoxGeometry(w - 1, h, d - 1)
+  const mats = [
     new THREE.MeshLambertMaterial({ color: palette.wall }),
     new THREE.MeshLambertMaterial({ color: darken(palette.wall, 0.08) }),
-    new THREE.MeshLambertMaterial({ color: palette.wall }), // top (hidden by roof)
+    new THREE.MeshLambertMaterial({ color: palette.wall }),
     new THREE.MeshLambertMaterial({ color: darken(palette.wall, 0.2) }),
     new THREE.MeshLambertMaterial({ color: darken(palette.wall, 0.04) }),
     new THREE.MeshLambertMaterial({ color: darken(palette.wall, 0.12) }),
   ]
-  const walls = new THREE.Mesh(wallGeo, wallMats)
-  walls.position.set(w / 2, wallH / 2, d / 2)
-  group.add(walls)
+  const mesh = new THREE.Mesh(geo, mats)
+  mesh.position.set(w / 2, h / 2, d / 2)
+  group.add(mesh)
+}
 
-  // === Pitched roof ===
-  const roofH = tileSize * 0.5
-  const roofShape = new THREE.Shape()
-  roofShape.moveTo(-w / 2 - 2, 0)
-  roofShape.lineTo(0, roofH)
-  roofShape.lineTo(w / 2 + 2, 0)
-  roofShape.lineTo(-w / 2 - 2, 0)
+function addPitchedRoof(group: THREE.Group, w: number, h: number, d: number, roofH: number, color: number): void {
+  const shape = new THREE.Shape()
+  shape.moveTo(-w / 2 - 2, 0)
+  shape.lineTo(0, roofH)
+  shape.lineTo(w / 2 + 2, 0)
+  shape.lineTo(-w / 2 - 2, 0)
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: d + 2, bevelEnabled: false })
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color }))
+  mesh.position.set(w / 2, h, -1)
+  group.add(mesh)
+}
 
-  const roofGeo = new THREE.ExtrudeGeometry(roofShape, {
-    depth: d + 2,
-    bevelEnabled: false
-  })
-  const roofMat = new THREE.MeshLambertMaterial({ color: palette.roof })
-  const roof = new THREE.Mesh(roofGeo, roofMat)
-  roof.position.set(w / 2, wallH, -1)
-  group.add(roof)
-
-  // === Door ===
-  const doorW = tileSize * 0.25
-  const doorH = tileSize * 0.45
-  const doorGeo = new THREE.BoxGeometry(doorW, doorH, 1.5)
+function addDoor(group: THREE.Group, x: number, d: number, tileSize: number, palette: BPalette): void {
+  const dw = tileSize * 0.25, dh = tileSize * 0.45
   const doorMat = new THREE.MeshLambertMaterial({ color: palette.door })
-  const door = new THREE.Mesh(doorGeo, doorMat)
-  door.position.set(w / 2, doorH / 2, d + 0.3)
+  const door = new THREE.Mesh(new THREE.BoxGeometry(dw, dh, 1.5), doorMat)
+  door.position.set(x, dh / 2, d + 0.3)
   group.add(door)
-
-  // Door frame
-  const frameGeo = new THREE.BoxGeometry(doorW + 3, doorH + 2, 1)
-  const frameMat = new THREE.MeshLambertMaterial({ color: darken(palette.door, 0.3) })
-  const frame = new THREE.Mesh(frameGeo, frameMat)
-  frame.position.set(w / 2, doorH / 2 + 1, d + 0.1)
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(dw + 3, dh + 2, 1),
+    new THREE.MeshLambertMaterial({ color: darken(palette.door, 0.3) })
+  )
+  frame.position.set(x, dh / 2 + 1, d + 0.1)
   group.add(frame)
+}
 
-  // === Windows (on front and side faces) ===
-  if (def.styleSetSlots.includes('window')) {
-    const winGeo = new THREE.BoxGeometry(tileSize * 0.15, tileSize * 0.18, 1.5)
-    const winMat = new THREE.MeshLambertMaterial({
-      color: 0x87ceeb,
-      emissive: 0x2244aa,
-      emissiveIntensity: 0.2
-    })
-    const shutterMat = new THREE.MeshLambertMaterial({ color: darken(palette.wall, 0.25) })
+function addWindows(group: THREE.Group, w: number, d: number, floors: number, tileSize: number, palette: BPalette): void {
+  const winGeo = new THREE.BoxGeometry(tileSize * 0.15, tileSize * 0.18, 1.5)
+  const winMat = new THREE.MeshLambertMaterial({ color: 0x87ceeb, emissive: 0x2244aa, emissiveIntensity: 0.2 })
+  const shutterMat = new THREE.MeshLambertMaterial({ color: darken(palette.wall, 0.25) })
+  const shutterGeo = new THREE.BoxGeometry(tileSize * 0.04, tileSize * 0.2, 1)
 
-    for (let f = 0; f < floors; f++) {
-      const wy = tileSize * 0.4 + f * tileSize * 0.7
-
-      // Front windows
-      for (let wx = -1; wx <= 1; wx += 2) {
-        const win = new THREE.Mesh(winGeo, winMat)
-        win.position.set(w / 2 + wx * w * 0.25, wy, d + 0.3)
-        group.add(win)
-
-        // Shutters
-        const shutterGeo = new THREE.BoxGeometry(tileSize * 0.04, tileSize * 0.2, 1)
-        for (const sx of [-1, 1]) {
-          const shutter = new THREE.Mesh(shutterGeo, shutterMat)
-          shutter.position.set(
-            w / 2 + wx * w * 0.25 + sx * tileSize * 0.1,
-            wy, d + 0.5
-          )
-          group.add(shutter)
-        }
-      }
-
-      // Side windows
-      if (d > tileSize * 1.5) {
-        const sideWin = new THREE.Mesh(winGeo.clone(), winMat)
-        sideWin.rotation.y = Math.PI / 2
-        sideWin.position.set(w + 0.3, wy, d / 2)
-        group.add(sideWin)
+  for (let f = 0; f < floors; f++) {
+    const wy = tileSize * 0.4 + f * tileSize * 0.7
+    for (let wx = -1; wx <= 1; wx += 2) {
+      const win = new THREE.Mesh(winGeo, winMat)
+      win.position.set(w / 2 + wx * w * 0.25, wy, d + 0.3)
+      group.add(win)
+      for (const sx of [-1, 1]) {
+        const shutter = new THREE.Mesh(shutterGeo, shutterMat)
+        shutter.position.set(w / 2 + wx * w * 0.25 + sx * tileSize * 0.1, wy, d + 0.5)
+        group.add(shutter)
       }
     }
+    if (d > tileSize * 1.5) {
+      const sw = new THREE.Mesh(winGeo.clone(), winMat)
+      sw.rotation.y = Math.PI / 2
+      sw.position.set(w + 0.3, wy, d / 2)
+      group.add(sw)
+    }
   }
+}
 
-  // === Ground shadow plane ===
-  const shadowGeo = new THREE.PlaneGeometry(w + 4, d + 4)
-  shadowGeo.rotateX(-Math.PI / 2)
-  const shadowMat = new THREE.MeshBasicMaterial({
-    color: 0x000000,
-    transparent: true,
-    opacity: 0.15,
-    depthWrite: false
-  })
-  const shadow = new THREE.Mesh(shadowGeo, shadowMat)
+function addBuildingShadow(group: THREE.Group, w: number, d: number): void {
+  const geo = new THREE.PlaneGeometry(w + 4, d + 4)
+  geo.rotateX(-Math.PI / 2)
+  const mat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.15, depthWrite: false })
+  const shadow = new THREE.Mesh(geo, mat)
   shadow.position.set(w / 2 + 2, 0.1, d / 2 + 2)
   group.add(shadow)
+}
 
-  group.position.set(obj.x * tileSize, 0, obj.y * tileSize)
+function buildGenericBuilding(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: BPalette): THREE.Group {
+  const group = new THREE.Group()
+  const w = def.footprint.w * ts, d = def.footprint.h * ts
+  const floors = (obj.properties.floors as number) || 1
+  const wallH = floors * ts * 0.7
+
+  addWalls(group, w, wallH, d, pal)
+  addPitchedRoof(group, w, wallH, d, ts * 0.5, pal.roof)
+  addDoor(group, w / 2, d, ts, pal)
+  if (def.styleSetSlots.includes('window')) addWindows(group, w, d, floors, ts, pal)
+  addBuildingShadow(group, w, d)
+
+  group.position.set(obj.x * ts, 0, obj.y * ts)
+  return group
+}
+
+function buildTavern(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: BPalette, hash: number): THREE.Group {
+  const group = new THREE.Group()
+  const w = def.footprint.w * ts, d = def.footprint.h * ts
+  const wallH = ts * 1.6 // 2-story
+
+  addWalls(group, w, wallH, d, pal)
+  addPitchedRoof(group, w, wallH, d, ts * 0.6, pal.roof)
+  addDoor(group, w / 2, d, ts, pal)
+  addWindows(group, w, d, 2, ts, pal)
+
+  // Chimney
+  const chimGeo = new THREE.BoxGeometry(ts * 0.2, ts * 0.6, ts * 0.2)
+  const chimMat = new THREE.MeshLambertMaterial({ color: 0x5a4a3a })
+  const chimney = new THREE.Mesh(chimGeo, chimMat)
+  chimney.position.set(w * 0.8, wallH + ts * 0.5, d * 0.3)
+  group.add(chimney)
+
+  // Hanging tavern sign
+  const signPoleGeo = new THREE.BoxGeometry(ts * 0.03, ts * 0.3, ts * 0.03)
+  const signPoleMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2a })
+  const signPole = new THREE.Mesh(signPoleGeo, signPoleMat)
+  signPole.position.set(w * 0.3, wallH * 0.5, d + ts * 0.15)
+  group.add(signPole)
+
+  const signBoard = new THREE.Mesh(
+    new THREE.BoxGeometry(ts * 0.4, ts * 0.25, ts * 0.03),
+    new THREE.MeshLambertMaterial({ color: 0xc8a050 })
+  )
+  signBoard.position.set(w * 0.3, wallH * 0.4, d + ts * 0.25)
+  group.add(signBoard)
+
+  // Warm glow from windows at night
+  const glow = new THREE.PointLight(0xffaa44, 0.3, ts * 5)
+  glow.position.set(w / 2, ts * 0.5, d + ts * 0.5)
+  group.add(glow)
+
+  addBuildingShadow(group, w, d)
+  group.position.set(obj.x * ts, 0, obj.y * ts)
+  return group
+}
+
+function buildShop(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: BPalette, hash: number): THREE.Group {
+  const group = new THREE.Group()
+  const w = def.footprint.w * ts, d = def.footprint.h * ts
+  const wallH = ts * 1.2
+
+  addWalls(group, w, wallH, d, pal)
+  addPitchedRoof(group, w, wallH, d, ts * 0.35, pal.roof)
+  addDoor(group, w / 2, d, ts, pal)
+  addWindows(group, w, d, 1, ts, pal)
+
+  // Awning over the front
+  const awningColors = [0xaa3333, 0x3333aa, 0x33aa33, 0xaaaa33]
+  const awningColor = awningColors[hash % awningColors.length]
+  const awningShape = new THREE.Shape()
+  awningShape.moveTo(0, 0)
+  awningShape.lineTo(ts * 0.5, -ts * 0.15)
+  awningShape.lineTo(ts * 0.5, -ts * 0.12)
+  awningShape.lineTo(0, 0.03)
+  const awningGeo = new THREE.ExtrudeGeometry(awningShape, { depth: w - 4, bevelEnabled: false })
+  const awning = new THREE.Mesh(awningGeo, new THREE.MeshLambertMaterial({ color: awningColor }))
+  awning.position.set(2, wallH * 0.55, d + 0.5)
+  awning.rotation.y = Math.PI / 2
+  group.add(awning)
+
+  // Display window (larger glass pane)
+  const displayGeo = new THREE.BoxGeometry(w * 0.6, ts * 0.3, 1)
+  const displayMat = new THREE.MeshLambertMaterial({ color: 0xa8d8ea, emissive: 0x223344, emissiveIntensity: 0.3 })
+  const display = new THREE.Mesh(displayGeo, displayMat)
+  display.position.set(w / 2, ts * 0.35, d + 0.3)
+  group.add(display)
+
+  addBuildingShadow(group, w, d)
+  group.position.set(obj.x * ts, 0, obj.y * ts)
+  return group
+}
+
+function buildTower(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: BPalette, hash: number): THREE.Group {
+  const group = new THREE.Group()
+  const w = def.footprint.w * ts, d = def.footprint.h * ts
+  const wallH = ts * 2.5 // tall!
+
+  // Stone-colored palette override for towers
+  const towerPal = { wall: 0x6a6a70, roof: 0x4a3a30, door: pal.door }
+
+  addWalls(group, w, wallH, d, towerPal)
+
+  // Pointed/conical roof
+  const coneGeo = new THREE.ConeGeometry(w * 0.55, ts * 0.8, 6)
+  const coneMat = new THREE.MeshLambertMaterial({ color: towerPal.roof })
+  const cone = new THREE.Mesh(coneGeo, coneMat)
+  cone.position.set(w / 2, wallH + ts * 0.4, d / 2)
+  group.add(cone)
+
+  // Narrow windows (arrow slits)
+  const slitGeo = new THREE.BoxGeometry(ts * 0.06, ts * 0.2, 1.5)
+  const slitMat = new THREE.MeshLambertMaterial({ color: 0x1a1a2a })
+  for (let f = 0; f < 3; f++) {
+    const sy = ts * 0.5 + f * ts * 0.7
+    const slit = new THREE.Mesh(slitGeo, slitMat)
+    slit.position.set(w / 2, sy, d + 0.3)
+    group.add(slit)
+  }
+
+  addDoor(group, w / 2, d, ts, towerPal)
+  addBuildingShadow(group, w, d)
+  group.position.set(obj.x * ts, 0, obj.y * ts)
+  return group
+}
+
+function buildBalconyHouse(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: BPalette, hash: number): THREE.Group {
+  const group = new THREE.Group()
+  const w = def.footprint.w * ts, d = def.footprint.h * ts
+  const wallH = ts * 1.4 // 2 story
+
+  addWalls(group, w, wallH, d, pal)
+  addPitchedRoof(group, w, wallH, d, ts * 0.45, pal.roof)
+  addDoor(group, w * 0.3, d, ts, pal)
+  addWindows(group, w, d, 2, ts, pal)
+
+  // Balcony on second floor
+  const balconyFloor = new THREE.Mesh(
+    new THREE.BoxGeometry(w * 0.6, ts * 0.04, ts * 0.35),
+    new THREE.MeshLambertMaterial({ color: darken(pal.wall, 0.15) })
+  )
+  balconyFloor.position.set(w * 0.6, ts * 0.7, d + ts * 0.15)
+  group.add(balconyFloor)
+
+  // Railing
+  const railMat = new THREE.MeshLambertMaterial({ color: 0x3a3a3a })
+  const railGeo = new THREE.BoxGeometry(w * 0.6, ts * 0.02, ts * 0.02)
+  const topRail = new THREE.Mesh(railGeo, railMat)
+  topRail.position.set(w * 0.6, ts * 0.88, d + ts * 0.32)
+  group.add(topRail)
+
+  // Railing posts
+  const postGeo = new THREE.BoxGeometry(ts * 0.02, ts * 0.18, ts * 0.02)
+  for (let i = 0; i < 4; i++) {
+    const post = new THREE.Mesh(postGeo, railMat)
+    post.position.set(w * 0.6 - w * 0.25 + i * w * 0.17, ts * 0.79, d + ts * 0.32)
+    group.add(post)
+  }
+
+  // Balcony door
+  const bDoor = new THREE.Mesh(
+    new THREE.BoxGeometry(ts * 0.2, ts * 0.35, 1),
+    new THREE.MeshLambertMaterial({ color: pal.door })
+  )
+  bDoor.position.set(w * 0.6, ts * 0.88, d + 0.3)
+  group.add(bDoor)
+
+  addBuildingShadow(group, w, d)
+  group.position.set(obj.x * ts, 0, obj.y * ts)
+  return group
+}
+
+function buildArchway(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: BPalette): THREE.Group {
+  const group = new THREE.Group()
+  const w = def.footprint.w * ts, d = def.footprint.h * ts
+  const archH = ts * 1.2
+  const pillarW = ts * 0.4
+
+  const stoneMat = new THREE.MeshLambertMaterial({ color: 0x6a6a68 })
+  const darkStoneMat = new THREE.MeshLambertMaterial({ color: 0x555550 })
+
+  // Left pillar
+  const pillarGeo = new THREE.BoxGeometry(pillarW, archH, d)
+  const lPillar = new THREE.Mesh(pillarGeo, stoneMat)
+  lPillar.position.set(pillarW / 2, archH / 2, d / 2)
+  group.add(lPillar)
+
+  // Right pillar
+  const rPillar = new THREE.Mesh(pillarGeo, stoneMat)
+  rPillar.position.set(w - pillarW / 2, archH / 2, d / 2)
+  group.add(rPillar)
+
+  // Top beam
+  const beamGeo = new THREE.BoxGeometry(w, ts * 0.3, d + 2)
+  const beam = new THREE.Mesh(beamGeo, darkStoneMat)
+  beam.position.set(w / 2, archH + ts * 0.15, d / 2)
+  group.add(beam)
+
+  // Arch curve (half-cylinder approximation)
+  const archGeo = new THREE.CylinderGeometry(
+    (w - pillarW * 2) / 2, (w - pillarW * 2) / 2,
+    d, 12, 1, false, 0, Math.PI
+  )
+  const arch = new THREE.Mesh(archGeo, darkStoneMat)
+  arch.rotation.x = Math.PI / 2
+  arch.rotation.z = Math.PI / 2
+  arch.position.set(w / 2, archH, d / 2)
+  group.add(arch)
+
+  addBuildingShadow(group, w, d)
+  group.position.set(obj.x * ts, 0, obj.y * ts)
+  return group
+}
+
+function buildStaircase(obj: PlacedObject, def: ObjectDefinition, ts: number): THREE.Group {
+  const group = new THREE.Group()
+  const w = def.footprint.w * ts, d = def.footprint.h * ts
+  const steps = 6
+  const stepH = ts * 0.12
+  const stepD = d / steps
+
+  const stoneMat = new THREE.MeshLambertMaterial({ color: 0x7a7a78 })
+  const darkMat = new THREE.MeshLambertMaterial({ color: 0x5a5a58 })
+
+  for (let i = 0; i < steps; i++) {
+    const stepGeo = new THREE.BoxGeometry(w, stepH, stepD - 1)
+    const step = new THREE.Mesh(stepGeo, i % 2 === 0 ? stoneMat : darkMat)
+    step.position.set(w / 2, stepH / 2 + i * stepH, d - i * stepD - stepD / 2)
+    group.add(step)
+  }
+
+  // Side walls
+  const wallH = steps * stepH + ts * 0.2
+  const wallGeo = new THREE.BoxGeometry(ts * 0.1, wallH, d)
+  const wallMat = new THREE.MeshLambertMaterial({ color: 0x6a6a68 })
+  for (const sx of [ts * 0.05, w - ts * 0.05]) {
+    const wall = new THREE.Mesh(wallGeo, wallMat)
+    wall.position.set(sx, wallH / 2, d / 2)
+    group.add(wall)
+  }
+
+  addBuildingShadow(group, w, d)
+  group.position.set(obj.x * ts, 0, obj.y * ts)
   return group
 }
 
@@ -394,7 +620,6 @@ function buildProp(obj: PlacedObject, def: ObjectDefinition, tileSize: number): 
       stone.position.set(x, tileSize * 0.175, z)
       group.add(stone)
 
-      // Roof supports
       const supportGeo = new THREE.BoxGeometry(tileSize * 0.03, tileSize * 0.5, tileSize * 0.03)
       const woodMat = new THREE.MeshLambertMaterial({ color: 0x5a3a1a })
       for (const sx of [-1, 1]) {
@@ -403,7 +628,6 @@ function buildProp(obj: PlacedObject, def: ObjectDefinition, tileSize: number): 
         group.add(support)
       }
 
-      // Mini roof
       const roofGeo = new THREE.BoxGeometry(tileSize * 0.5, tileSize * 0.03, tileSize * 0.35)
       const roofMat = new THREE.MeshLambertMaterial({ color: 0x5a3a1a })
       const roof = new THREE.Mesh(roofGeo, roofMat)
@@ -411,6 +635,372 @@ function buildProp(obj: PlacedObject, def: ObjectDefinition, tileSize: number): 
       group.add(roof)
 
       addGroundShadow(group, x, z, tileSize * 0.4)
+      break
+    }
+
+    // === TIER 2: STREET FURNITURE ===
+
+    case 'wall_lantern': {
+      // Wall-mounted bracket
+      const bracketMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2a })
+      const bracket = new THREE.Mesh(
+        new THREE.BoxGeometry(tileSize * 0.04, tileSize * 0.04, tileSize * 0.2),
+        bracketMat
+      )
+      bracket.position.set(x, tileSize * 0.55, z)
+      group.add(bracket)
+
+      // Vertical mount
+      const mount = new THREE.Mesh(
+        new THREE.BoxGeometry(tileSize * 0.03, tileSize * 0.15, tileSize * 0.03),
+        bracketMat
+      )
+      mount.position.set(x, tileSize * 0.5, z - tileSize * 0.08)
+      group.add(mount)
+
+      // Lantern body (hexagonal)
+      const lanternGeo = new THREE.CylinderGeometry(tileSize * 0.06, tileSize * 0.05, tileSize * 0.12, 6)
+      const lanternMat = new THREE.MeshLambertMaterial({
+        color: 0xffcc44, emissive: 0xffaa00, emissiveIntensity: 0.85
+      })
+      const lantern = new THREE.Mesh(lanternGeo, lanternMat)
+      lantern.position.set(x, tileSize * 0.52, z + tileSize * 0.08)
+      group.add(lantern)
+
+      // Lantern cap
+      const cap = new THREE.Mesh(
+        new THREE.ConeGeometry(tileSize * 0.07, tileSize * 0.05, 6),
+        bracketMat
+      )
+      cap.position.set(x, tileSize * 0.61, z + tileSize * 0.08)
+      group.add(cap)
+
+      // Warm point light
+      const light = new THREE.PointLight(0xffaa44, 0.5, tileSize * 4)
+      light.position.set(x, tileSize * 0.5, z + tileSize * 0.08)
+      group.add(light)
+      break
+    }
+
+    case 'hanging_sign': {
+      // Pole extending from wall
+      const poleMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2a })
+      const pole = new THREE.Mesh(
+        new THREE.BoxGeometry(tileSize * 0.03, tileSize * 0.03, tileSize * 0.35),
+        poleMat
+      )
+      pole.position.set(x, tileSize * 0.6, z)
+      group.add(pole)
+
+      // Chain links (simplified as thin rods)
+      for (const sx of [-tileSize * 0.08, tileSize * 0.08]) {
+        const chain = new THREE.Mesh(
+          new THREE.BoxGeometry(tileSize * 0.01, tileSize * 0.1, tileSize * 0.01),
+          poleMat
+        )
+        chain.position.set(x + sx, tileSize * 0.53, z + tileSize * 0.15)
+        group.add(chain)
+      }
+
+      // Sign board
+      const signColors = [0xc8a050, 0xa06830, 0x8a5a2a, 0xb88040]
+      const signBoard = new THREE.Mesh(
+        new THREE.BoxGeometry(tileSize * 0.3, tileSize * 0.2, tileSize * 0.03),
+        new THREE.MeshLambertMaterial({ color: signColors[hash % signColors.length] })
+      )
+      signBoard.position.set(x, tileSize * 0.46, z + tileSize * 0.15)
+      group.add(signBoard)
+      break
+    }
+
+    case 'barrel': {
+      const woodMat = new THREE.MeshLambertMaterial({ color: 0x6b4226 })
+      const bandMat = new THREE.MeshLambertMaterial({ color: 0x3a3a3a })
+
+      const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(tileSize * 0.18, tileSize * 0.15, tileSize * 0.35, 8),
+        woodMat
+      )
+      body.position.set(x, tileSize * 0.175, z)
+      group.add(body)
+
+      // Metal bands
+      for (const by of [0.06, 0.28]) {
+        const band = new THREE.Mesh(
+          new THREE.TorusGeometry(tileSize * 0.17, tileSize * 0.01, 4, 8),
+          bandMat
+        )
+        band.rotation.x = Math.PI / 2
+        band.position.set(x, tileSize * by, z)
+        group.add(band)
+      }
+
+      addGroundShadow(group, x, z, tileSize * 0.25)
+      break
+    }
+
+    case 'barrel_stack': {
+      const woodMat = new THREE.MeshLambertMaterial({ color: 0x5a3a1a })
+      const bandMat = new THREE.MeshLambertMaterial({ color: 0x3a3a3a })
+      const barrelGeo = new THREE.CylinderGeometry(tileSize * 0.16, tileSize * 0.13, tileSize * 0.3, 8)
+
+      // Bottom row: 2 barrels
+      for (const bx of [-tileSize * 0.14, tileSize * 0.14]) {
+        const b = new THREE.Mesh(barrelGeo, woodMat)
+        b.position.set(x + bx, tileSize * 0.15, z)
+        group.add(b)
+      }
+
+      // Top barrel
+      const top = new THREE.Mesh(barrelGeo, woodMat)
+      top.position.set(x, tileSize * 0.42, z)
+      group.add(top)
+
+      addGroundShadow(group, x, z, tileSize * 0.35)
+      break
+    }
+
+    case 'crate': {
+      const woodMat = new THREE.MeshLambertMaterial({ color: 0x8b7355 })
+      const trimMat = new THREE.MeshLambertMaterial({ color: 0x6a5a40 })
+
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(tileSize * 0.3, tileSize * 0.3, tileSize * 0.3),
+        woodMat
+      )
+      body.position.set(x, tileSize * 0.15, z)
+      group.add(body)
+
+      // Cross braces on front
+      const braceGeo = new THREE.BoxGeometry(tileSize * 0.02, tileSize * 0.32, tileSize * 0.01)
+      const b1 = new THREE.Mesh(braceGeo, trimMat)
+      b1.rotation.z = 0.7
+      b1.position.set(x, tileSize * 0.15, z + tileSize * 0.16)
+      group.add(b1)
+      const b2 = new THREE.Mesh(braceGeo, trimMat)
+      b2.rotation.z = -0.7
+      b2.position.set(x, tileSize * 0.15, z + tileSize * 0.16)
+      group.add(b2)
+
+      addGroundShadow(group, x, z, tileSize * 0.2)
+      break
+    }
+
+    case 'crate_stack': {
+      const woodMat = new THREE.MeshLambertMaterial({ color: 0x7a6a50 })
+      const crateGeo = new THREE.BoxGeometry(tileSize * 0.28, tileSize * 0.25, tileSize * 0.28)
+
+      // Bottom crates
+      for (const cx2 of [-tileSize * 0.12, tileSize * 0.12]) {
+        const c = new THREE.Mesh(crateGeo, woodMat)
+        c.position.set(x + cx2, tileSize * 0.125, z)
+        group.add(c)
+      }
+
+      // Top crate (offset)
+      const topCrate = new THREE.Mesh(crateGeo, new THREE.MeshLambertMaterial({ color: 0x8a7a5a }))
+      topCrate.position.set(x + tileSize * 0.04, tileSize * 0.375, z - tileSize * 0.02)
+      topCrate.rotation.y = 0.3
+      group.add(topCrate)
+
+      addGroundShadow(group, x, z, tileSize * 0.35)
+      break
+    }
+
+    case 'cafe_table': {
+      const metalMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2a })
+      const tableMat = new THREE.MeshLambertMaterial({ color: 0xb8a088 })
+
+      // Table top
+      const tableTop = new THREE.Mesh(
+        new THREE.CylinderGeometry(tileSize * 0.2, tileSize * 0.2, tileSize * 0.02, 8),
+        tableMat
+      )
+      tableTop.position.set(x, tileSize * 0.32, z)
+      group.add(tableTop)
+
+      // Table leg
+      const leg = new THREE.Mesh(
+        new THREE.CylinderGeometry(tileSize * 0.02, tileSize * 0.04, tileSize * 0.3, 6),
+        metalMat
+      )
+      leg.position.set(x, tileSize * 0.15, z)
+      group.add(leg)
+
+      // Two chairs
+      const chairMat = new THREE.MeshLambertMaterial({ color: 0x5a4a3a })
+      for (const cz of [-tileSize * 0.25, tileSize * 0.25]) {
+        // Seat
+        const seat = new THREE.Mesh(
+          new THREE.BoxGeometry(tileSize * 0.12, tileSize * 0.02, tileSize * 0.12),
+          chairMat
+        )
+        seat.position.set(x, tileSize * 0.2, z + cz)
+        group.add(seat)
+
+        // Back
+        const back = new THREE.Mesh(
+          new THREE.BoxGeometry(tileSize * 0.12, tileSize * 0.12, tileSize * 0.015),
+          chairMat
+        )
+        back.position.set(x, tileSize * 0.27, z + cz + (cz > 0 ? tileSize * 0.06 : -tileSize * 0.06))
+        group.add(back)
+
+        // Legs
+        const chairLegGeo = new THREE.BoxGeometry(tileSize * 0.015, tileSize * 0.19, tileSize * 0.015)
+        for (const lx of [-1, 1]) {
+          for (const lz2 of [-1, 1]) {
+            const cl = new THREE.Mesh(chairLegGeo, metalMat)
+            cl.position.set(
+              x + lx * tileSize * 0.05,
+              tileSize * 0.095,
+              z + cz + lz2 * tileSize * 0.05
+            )
+            group.add(cl)
+          }
+        }
+      }
+
+      addGroundShadow(group, x, z, tileSize * 0.35)
+      break
+    }
+
+    case 'potted_plant': {
+      // Terracotta pot
+      const potMat = new THREE.MeshLambertMaterial({ color: 0xb06030 })
+      const pot = new THREE.Mesh(
+        new THREE.CylinderGeometry(tileSize * 0.1, tileSize * 0.07, tileSize * 0.15, 8),
+        potMat
+      )
+      pot.position.set(x, tileSize * 0.075, z)
+      group.add(pot)
+
+      // Pot rim
+      const rim = new THREE.Mesh(
+        new THREE.TorusGeometry(tileSize * 0.1, tileSize * 0.015, 4, 8),
+        potMat
+      )
+      rim.rotation.x = Math.PI / 2
+      rim.position.set(x, tileSize * 0.15, z)
+      group.add(rim)
+
+      // Plant (bushy sphere)
+      const greenVars = [0x3a8a3a, 0x2a7a2a, 0x4a9a4a]
+      const plantMat = new THREE.MeshLambertMaterial({ color: greenVars[hash % 3] })
+      const plant = new THREE.Mesh(
+        new THREE.SphereGeometry(tileSize * 0.15, 6, 5),
+        plantMat
+      )
+      plant.position.set(x, tileSize * 0.28, z)
+      group.add(plant)
+
+      // A couple extra small leaf clusters
+      const leaf2 = new THREE.Mesh(
+        new THREE.SphereGeometry(tileSize * 0.08, 5, 4),
+        new THREE.MeshLambertMaterial({ color: darken(greenVars[hash % 3], 0.1) })
+      )
+      leaf2.position.set(x + tileSize * 0.08, tileSize * 0.22, z + tileSize * 0.05)
+      group.add(leaf2)
+      break
+    }
+
+    case 'planter_box': {
+      const boxW = tileSize * 1.4
+      const boxMat = new THREE.MeshLambertMaterial({ color: 0x6a5030 })
+
+      // Wooden box
+      const box = new THREE.Mesh(
+        new THREE.BoxGeometry(boxW, tileSize * 0.15, tileSize * 0.3),
+        boxMat
+      )
+      box.position.set(x, tileSize * 0.075, z)
+      group.add(box)
+
+      // Dirt
+      const dirt = new THREE.Mesh(
+        new THREE.BoxGeometry(boxW - 2, tileSize * 0.03, tileSize * 0.26),
+        new THREE.MeshLambertMaterial({ color: 0x5a4a30 })
+      )
+      dirt.position.set(x, tileSize * 0.14, z)
+      group.add(dirt)
+
+      // Plants sticking out
+      const greenMat = new THREE.MeshLambertMaterial({ color: 0x3a8a3a })
+      for (let i = 0; i < 4; i++) {
+        const px2 = x - boxW * 0.35 + i * boxW * 0.25
+        const plantBall = new THREE.Mesh(
+          new THREE.SphereGeometry(tileSize * 0.08 + (hash + i) % 3 * tileSize * 0.02, 5, 4),
+          greenMat
+        )
+        plantBall.position.set(px2, tileSize * 0.22, z)
+        group.add(plantBall)
+      }
+
+      addGroundShadow(group, x, z, tileSize * 0.7)
+      break
+    }
+
+    case 'fence': {
+      const woodMat = new THREE.MeshLambertMaterial({ color: 0x6a5030 })
+      const fw = tileSize * 1.8
+      const fh = tileSize * 0.4
+
+      // Posts
+      const postGeo = new THREE.BoxGeometry(tileSize * 0.06, fh + tileSize * 0.1, tileSize * 0.06)
+      for (const px2 of [-fw * 0.45, 0, fw * 0.45]) {
+        const post = new THREE.Mesh(postGeo, woodMat)
+        post.position.set(x + px2, (fh + tileSize * 0.1) / 2, z)
+        group.add(post)
+      }
+
+      // Horizontal rails
+      const railGeo = new THREE.BoxGeometry(fw, tileSize * 0.03, tileSize * 0.03)
+      for (const ry of [fh * 0.4, fh * 0.85]) {
+        const rail = new THREE.Mesh(railGeo, woodMat)
+        rail.position.set(x, ry, z)
+        group.add(rail)
+      }
+
+      // Pickets
+      const picketGeo = new THREE.BoxGeometry(tileSize * 0.03, fh * 0.7, tileSize * 0.02)
+      for (let i = -4; i <= 4; i++) {
+        const picket = new THREE.Mesh(picketGeo, woodMat)
+        picket.position.set(x + i * fw * 0.1, fh * 0.5, z)
+        group.add(picket)
+      }
+      break
+    }
+
+    case 'stone_wall': {
+      const stoneMat = new THREE.MeshLambertMaterial({ color: 0x707068 })
+      const darkMat = new THREE.MeshLambertMaterial({ color: 0x5a5a55 })
+      const ww = tileSize * 1.8
+      const wh = tileSize * 0.5
+
+      // Main wall body
+      const wallBody = new THREE.Mesh(
+        new THREE.BoxGeometry(ww, wh, tileSize * 0.25),
+        stoneMat
+      )
+      wallBody.position.set(x, wh / 2, z)
+      group.add(wallBody)
+
+      // Cap stones
+      const capGeo = new THREE.BoxGeometry(ww + 2, tileSize * 0.06, tileSize * 0.3)
+      const cap = new THREE.Mesh(capGeo, darkMat)
+      cap.position.set(x, wh + tileSize * 0.03, z)
+      group.add(cap)
+
+      // Stone line details (horizontal mortar lines)
+      const mortarMat = new THREE.MeshLambertMaterial({ color: 0x8a8a80 })
+      for (const my of [wh * 0.35, wh * 0.65]) {
+        const mortar = new THREE.Mesh(
+          new THREE.BoxGeometry(ww + 1, tileSize * 0.01, tileSize * 0.26),
+          mortarMat
+        )
+        mortar.position.set(x, my, z)
+        group.add(mortar)
+      }
       break
     }
 

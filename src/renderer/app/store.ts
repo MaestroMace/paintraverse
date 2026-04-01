@@ -69,38 +69,95 @@ function createDefaultMap(): MapDocument {
 // === DEFAULT OBJECT DEFINITIONS ===
 
 const defaultObjectDefs: ObjectDefinition[] = [
+  // === BUILDINGS (Tier 1 Architecture) ===
   {
     id: 'building_small',
-    name: 'Small Building',
+    name: 'Small House',
     category: 'building',
-    tags: ['structure'],
+    tags: ['structure', 'residential'],
     color: '#8B7355',
     footprint: { w: 2, h: 2 },
     styleSetSlots: ['wall', 'roof', 'door']
   },
   {
     id: 'building_medium',
-    name: 'Medium Building',
+    name: 'Town House',
     category: 'building',
-    tags: ['structure'],
+    tags: ['structure', 'residential'],
     color: '#A0896C',
     footprint: { w: 3, h: 3 },
     styleSetSlots: ['wall', 'roof', 'door', 'window']
   },
   {
     id: 'building_large',
-    name: 'Large Building',
+    name: 'Large House',
     category: 'building',
-    tags: ['structure'],
+    tags: ['structure', 'residential'],
     color: '#6B5B4A',
     footprint: { w: 4, h: 3 },
     styleSetSlots: ['wall', 'roof', 'door', 'window']
   },
   {
+    id: 'tavern',
+    name: 'Tavern',
+    category: 'building',
+    tags: ['structure', 'commercial', 'social'],
+    color: '#7A5A3A',
+    footprint: { w: 4, h: 3 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'sign']
+  },
+  {
+    id: 'shop',
+    name: 'Shop',
+    category: 'building',
+    tags: ['structure', 'commercial'],
+    color: '#9A7A5A',
+    footprint: { w: 2, h: 3 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'awning']
+  },
+  {
+    id: 'tower',
+    name: 'Tower',
+    category: 'building',
+    tags: ['structure', 'landmark'],
+    color: '#606070',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'window']
+  },
+  {
+    id: 'balcony_house',
+    name: 'Balcony House',
+    category: 'building',
+    tags: ['structure', 'residential'],
+    color: '#B09878',
+    footprint: { w: 3, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'balcony']
+  },
+  {
+    id: 'archway',
+    name: 'Archway',
+    category: 'building',
+    tags: ['structure', 'passage'],
+    color: '#707060',
+    footprint: { w: 3, h: 1 },
+    styleSetSlots: ['wall']
+  },
+  {
+    id: 'staircase',
+    name: 'Staircase',
+    category: 'building',
+    tags: ['structure', 'elevation'],
+    color: '#808078',
+    footprint: { w: 2, h: 3 },
+    styleSetSlots: []
+  },
+
+  // === VEGETATION ===
+  {
     id: 'tree',
     name: 'Tree',
     category: 'vegetation',
-    tags: ['nature', 'prop'],
+    tags: ['nature'],
     color: '#2D5A27',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
@@ -109,35 +166,138 @@ const defaultObjectDefs: ObjectDefinition[] = [
     id: 'bush',
     name: 'Bush',
     category: 'vegetation',
-    tags: ['nature', 'prop'],
+    tags: ['nature'],
     color: '#3A7A33',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
   },
   {
+    id: 'potted_plant',
+    name: 'Potted Plant',
+    category: 'vegetation',
+    tags: ['nature', 'decoration'],
+    color: '#3A8A3A',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'planter_box',
+    name: 'Planter Box',
+    category: 'vegetation',
+    tags: ['nature', 'decoration'],
+    color: '#5A7A3A',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+
+  // === INFRASTRUCTURE ===
+  {
     id: 'lamppost',
     name: 'Lamppost',
     category: 'infrastructure',
-    tags: ['prop', 'light'],
+    tags: ['light'],
     color: '#4A4A4A',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
   },
   {
+    id: 'wall_lantern',
+    name: 'Wall Lantern',
+    category: 'infrastructure',
+    tags: ['light', 'mounted'],
+    color: '#8A6A2A',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'fence',
+    name: 'Fence',
+    category: 'infrastructure',
+    tags: ['barrier'],
+    color: '#6A5030',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'stone_wall',
+    name: 'Stone Wall',
+    category: 'infrastructure',
+    tags: ['barrier'],
+    color: '#707068',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+
+  // === PROPS (Street Furniture) ===
+  {
     id: 'bench',
     name: 'Bench',
     category: 'prop',
-    tags: ['prop', 'furniture'],
+    tags: ['furniture', 'seating'],
     color: '#8B6914',
     footprint: { w: 2, h: 1 },
     styleSetSlots: []
   },
   {
     id: 'sign',
-    name: 'Sign',
+    name: 'Sign Post',
     category: 'prop',
-    tags: ['prop', 'info'],
+    tags: ['info'],
     color: '#CD853F',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'hanging_sign',
+    name: 'Hanging Sign',
+    category: 'prop',
+    tags: ['info', 'commercial'],
+    color: '#B8860B',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'barrel',
+    name: 'Barrel',
+    category: 'prop',
+    tags: ['container', 'storage'],
+    color: '#6B4226',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'barrel_stack',
+    name: 'Barrel Stack',
+    category: 'prop',
+    tags: ['container', 'storage'],
+    color: '#5A3A1A',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'crate',
+    name: 'Crate',
+    category: 'prop',
+    tags: ['container', 'storage'],
+    color: '#8B7355',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'crate_stack',
+    name: 'Crate Stack',
+    category: 'prop',
+    tags: ['container', 'storage'],
+    color: '#7A6A50',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'cafe_table',
+    name: 'Cafe Table',
+    category: 'prop',
+    tags: ['furniture', 'social'],
+    color: '#B8A088',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
   },
@@ -145,7 +305,7 @@ const defaultObjectDefs: ObjectDefinition[] = [
     id: 'fountain',
     name: 'Fountain',
     category: 'prop',
-    tags: ['prop', 'water', 'decoration'],
+    tags: ['water', 'decoration', 'landmark'],
     color: '#4682B4',
     footprint: { w: 2, h: 2 },
     styleSetSlots: []
@@ -154,7 +314,7 @@ const defaultObjectDefs: ObjectDefinition[] = [
     id: 'well',
     name: 'Well',
     category: 'prop',
-    tags: ['prop', 'water'],
+    tags: ['water'],
     color: '#696969',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []

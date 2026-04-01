@@ -11,7 +11,9 @@ const TERRAIN_COLORS: Record<number, number> = {
   4: 0xf4e9c8, // sand
   5: 0x556b2f, // dark grass
   6: 0x3a3a3a, // road/paved
-  7: 0xdcdcdc  // snow
+  7: 0xdcdcdc, // snow
+  8: 0x6a6a68, // cobblestone
+  9: 0x4a4a48  // dark cobblestone
 }
 
 export const TERRAIN_NAMES: Record<number, string> = {
@@ -22,7 +24,9 @@ export const TERRAIN_NAMES: Record<number, string> = {
   4: 'Sand',
   5: 'Dark Grass',
   6: 'Road',
-  7: 'Snow'
+  7: 'Snow',
+  8: 'Cobblestone',
+  9: 'Dark Cobble'
 }
 
 // Chunk size in tiles - render groups of tiles into a single texture

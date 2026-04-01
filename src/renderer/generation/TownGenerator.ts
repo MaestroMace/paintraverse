@@ -161,7 +161,7 @@ export class TownGenerator implements IMapGenerator {
         for (let x = minX; x <= maxX; x++) {
           for (let dy = 0; dy < road.width; dy++) {
             const y = road.y1 + dy
-            if (y >= 0 && y < h) terrain[y][x] = 6 // road tile
+            if (y >= 0 && y < h) terrain[y][x] = 8 // cobblestone
           }
         }
       } else {
@@ -171,7 +171,7 @@ export class TownGenerator implements IMapGenerator {
         for (let y = minY; y <= maxY; y++) {
           for (let dx = 0; dx < road.width; dx++) {
             const x = road.x1 + dx
-            if (x >= 0 && x < w) terrain[y][x] = 6 // road tile
+            if (x >= 0 && x < w) terrain[y][x] = 8 // cobblestone
           }
         }
       }
@@ -280,17 +280,32 @@ export class TownGenerator implements IMapGenerator {
     rng: () => number
   ): PlacedObject[] {
     const buildings: PlacedObject[] = []
-    const buildingTypes = ['building_small', 'building_medium', 'building_large']
+
+    // Building types by size category
+    const large4x3 = ['building_large', 'tavern']
+    const medium3x3 = ['building_medium']
+    const medium3x2 = ['balcony_house']
+    const medium2x3 = ['shop']
+    const small2x2 = ['building_small', 'tower']
+    const special3x1 = ['archway']
+    const special2x3 = ['staircase']
 
     for (const parcel of parcels) {
-      // Pick building type based on parcel size
       let defId: string
+      const roll = rng()
+
       if (parcel.w >= 4 && parcel.h >= 3) {
-        defId = 'building_large'
+        defId = large4x3[Math.floor(rng() * large4x3.length)]
       } else if (parcel.w >= 3 && parcel.h >= 3) {
-        defId = 'building_medium'
+        defId = medium3x3[Math.floor(rng() * medium3x3.length)]
+      } else if (parcel.w >= 3 && parcel.h >= 2) {
+        defId = roll > 0.7 ? special3x1[0] : medium3x2[Math.floor(rng() * medium3x2.length)]
+      } else if (parcel.w >= 2 && parcel.h >= 3) {
+        defId = roll > 0.6 ? special2x3[0] : medium2x3[Math.floor(rng() * medium2x3.length)]
+      } else if (parcel.w >= 2 && parcel.h >= 2) {
+        defId = small2x2[Math.floor(rng() * small2x2.length)]
       } else {
-        defId = rng() > 0.5 ? 'building_small' : buildingTypes[Math.floor(rng() * 2)]
+        defId = 'building_small'
       }
 
       buildings.push({
@@ -332,9 +347,10 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    // Place lampposts along roads
+    // === Lampposts + wall lanterns along roads (alternating) ===
     const lampFreq = assetFrequencies['lamppost'] ?? 0.5
     const lampSpacing = Math.max(3, Math.floor(8 - lampFreq * 5))
+    let lampCount = 0
     for (const road of roads) {
       if (road.y1 === road.y2) {
         const minX = Math.max(0, Math.min(road.x1, road.x2))
@@ -342,8 +358,10 @@ export class TownGenerator implements IMapGenerator {
         for (let x = minX; x <= maxX; x += lampSpacing) {
           const y = road.y1 - 1
           if (y >= 0 && y < h && !occupied[y][x]) {
-            props.push(this.createProp('lamppost', x, y))
+            const lightType = lampCount % 3 === 0 ? 'wall_lantern' : 'lamppost'
+            props.push(this.createProp(lightType, x, y))
             occupied[y][x] = true
+            lampCount++
           }
         }
       } else {
@@ -352,14 +370,16 @@ export class TownGenerator implements IMapGenerator {
         for (let y = minY; y <= maxY; y += lampSpacing) {
           const x = road.x1 - 1
           if (x >= 0 && x < w && !occupied[y][x]) {
-            props.push(this.createProp('lamppost', x, y))
+            const lightType = lampCount % 3 === 0 ? 'wall_lantern' : 'lamppost'
+            props.push(this.createProp(lightType, x, y))
             occupied[y][x] = true
+            lampCount++
           }
         }
       }
     }
 
-    // Scatter benches near roads
+    // === Benches ===
     const benchFreq = assetFrequencies['bench'] ?? 0.3
     const numBenches = Math.floor(density * benchFreq * w * h * 0.003)
     for (let i = 0; i < numBenches; i++) {
@@ -372,20 +392,61 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    // Scatter signs
+    // === Signs (mix of post signs and hanging signs) ===
     const signFreq = assetFrequencies['sign'] ?? 0.3
-    const numSigns = Math.floor(density * signFreq * w * h * 0.002)
+    const numSigns = Math.floor(density * signFreq * w * h * 0.003)
     for (let i = 0; i < numSigns; i++) {
       const x = Math.floor(rng() * w)
       const y = Math.floor(rng() * h)
       if (!occupied[y]?.[x]) {
-        props.push(this.createProp('sign', x, y))
+        const signType = rng() > 0.5 ? 'hanging_sign' : 'sign'
+        props.push(this.createProp(signType, x, y))
         occupied[y][x] = true
       }
     }
 
-    // Place fountains in open areas (town square feel)
-    const fountainFreq = assetFrequencies['fountain'] ?? 0.2
+    // === Barrels and crates near buildings ===
+    const storageCount = Math.floor(density * w * h * 0.004)
+    const storageTypes = ['barrel', 'barrel_stack', 'crate', 'crate_stack']
+    for (let i = 0; i < storageCount; i++) {
+      const x = Math.floor(rng() * w)
+      const y = Math.floor(rng() * h)
+      if (!occupied[y]?.[x]) {
+        props.push(this.createProp(storageTypes[Math.floor(rng() * storageTypes.length)], x, y))
+        occupied[y][x] = true
+      }
+    }
+
+    // === Cafe tables near commercial areas ===
+    const cafeCount = Math.floor(density * w * h * 0.002)
+    for (let i = 0; i < cafeCount; i++) {
+      const x = Math.floor(rng() * w)
+      const y = Math.floor(rng() * h)
+      if (!occupied[y]?.[x]) {
+        props.push(this.createProp('cafe_table', x, y))
+        occupied[y][x] = true
+      }
+    }
+
+    // === Potted plants and planter boxes ===
+    const planterCount = Math.floor(density * w * h * 0.003)
+    for (let i = 0; i < planterCount; i++) {
+      const x = Math.floor(rng() * w)
+      const y = Math.floor(rng() * h)
+      if (!occupied[y]?.[x]) {
+        if (rng() > 0.6 && x + 1 < w && !occupied[y]?.[x + 1]) {
+          props.push(this.createProp('planter_box', x, y))
+          occupied[y][x] = true
+          occupied[y][x + 1] = true
+        } else {
+          props.push(this.createProp('potted_plant', x, y))
+          occupied[y][x] = true
+        }
+      }
+    }
+
+    // === Fountain (town centerpiece) ===
+    const fountainFreq = assetFrequencies['fountain'] ?? 0.3
     const numFountains = Math.max(0, Math.floor(density * fountainFreq * 2))
     for (let i = 0; i < numFountains; i++) {
       const x = Math.floor(w * 0.3 + rng() * w * 0.4)
@@ -399,7 +460,7 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    // Place wells
+    // === Wells ===
     const wellFreq = assetFrequencies['well'] ?? 0.2
     const numWells = Math.floor(density * wellFreq * 2)
     for (let i = 0; i < numWells; i++) {
@@ -408,6 +469,19 @@ export class TownGenerator implements IMapGenerator {
       if (!occupied[y]?.[x]) {
         props.push(this.createProp('well', x, y))
         occupied[y][x] = true
+      }
+    }
+
+    // === Fences and stone walls at edges / boundaries ===
+    const fenceCount = Math.floor(density * w * h * 0.001)
+    for (let i = 0; i < fenceCount; i++) {
+      const x = Math.floor(rng() * (w - 2))
+      const y = Math.floor(rng() * h)
+      if (!occupied[y]?.[x] && !occupied[y]?.[x + 1]) {
+        const fenceType = rng() > 0.5 ? 'fence' : 'stone_wall'
+        props.push(this.createProp(fenceType, x, y))
+        occupied[y][x] = true
+        occupied[y][x + 1] = true
       }
     }
 
