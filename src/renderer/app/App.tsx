@@ -7,6 +7,7 @@ import { PropertyInspector } from '../ui/panels/PropertyInspector'
 import { LayerPanel } from '../ui/panels/LayerPanel'
 import { TextureBrowser } from '../ui/panels/TextureBrowser'
 import { StyleSetEditor } from '../ui/panels/StyleSetEditor'
+import { ObjectCreator } from '../ui/panels/ObjectCreator'
 import { GenerationPanel } from '../ui/panels/GenerationPanel'
 import { EnvironmentPanel } from '../ui/panels/EnvironmentPanel'
 import { RenderPanel } from '../ui/panels/RenderPanel'
@@ -106,6 +107,7 @@ export function App() {
         <div className="left-panel">
           <GenerationPanel />
           <ObjectLibrary />
+          <ObjectCreator />
           <TextureBrowser />
           <StyleSetEditor />
         </div>

@@ -318,6 +318,71 @@ const defaultObjectDefs: ObjectDefinition[] = [
     color: '#696969',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
+  },
+
+  // === TIER 3: LANDMARKS & ENVIRONMENT ===
+  {
+    id: 'clock_tower',
+    name: 'Clock Tower',
+    category: 'building',
+    tags: ['structure', 'landmark'],
+    color: '#5A5A68',
+    footprint: { w: 3, h: 3 },
+    styleSetSlots: ['wall', 'roof', 'window']
+  },
+  {
+    id: 'bridge',
+    name: 'Bridge',
+    category: 'infrastructure',
+    tags: ['passage', 'water'],
+    color: '#7A7A70',
+    footprint: { w: 4, h: 2 },
+    styleSetSlots: []
+  },
+  {
+    id: 'water_channel',
+    name: 'Water Channel',
+    category: 'infrastructure',
+    tags: ['water', 'terrain'],
+    color: '#3A6A9A',
+    footprint: { w: 1, h: 4 },
+    styleSetSlots: []
+  },
+  {
+    id: 'market_stall',
+    name: 'Market Stall',
+    category: 'prop',
+    tags: ['commercial', 'social'],
+    color: '#AA4444',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: []
+  },
+  {
+    id: 'street_lamp_double',
+    name: 'Double Lamp',
+    category: 'infrastructure',
+    tags: ['light'],
+    color: '#3A3A3A',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'wagon',
+    name: 'Wagon',
+    category: 'prop',
+    tags: ['transport', 'storage'],
+    color: '#6A5030',
+    footprint: { w: 3, h: 2 },
+    styleSetSlots: []
+  },
+  {
+    id: 'statue',
+    name: 'Statue',
+    category: 'prop',
+    tags: ['decoration', 'landmark'],
+    color: '#8A8A88',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
   }
 ]
 
@@ -383,6 +448,10 @@ interface AppState {
   setActiveTool: (tool: ToolType) => void
   setSelectedDefinitionId: (id: string | null) => void
   setBrushTileId: (id: number) => void
+
+  // Object definitions
+  addObjectDefinition: (def: ObjectDefinition) => void
+  removeObjectDefinition: (id: string) => void
 
   // Camera
   setRenderCamera: (camera: RenderCamera) => void
@@ -539,6 +608,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   setActiveTool: (tool) => set({ activeTool: tool }),
   setSelectedDefinitionId: (id) => set({ selectedDefinitionId: id }),
   setBrushTileId: (id) => set({ brushTileId: id }),
+
+  // Object definitions
+  addObjectDefinition: (def) =>
+    set((state) => ({ objectDefinitions: [...state.objectDefinitions, def], dirty: true })),
+
+  removeObjectDefinition: (id) =>
+    set((state) => ({
+      objectDefinitions: state.objectDefinitions.filter((d) => d.id !== id),
+      dirty: true
+    })),
 
   // Camera
   setRenderCamera: (camera) => set({ renderCamera: camera }),

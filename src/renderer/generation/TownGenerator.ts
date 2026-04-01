@@ -485,6 +485,41 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
+    // === Market stalls (2x2, near center) ===
+    const stallCount = Math.floor(density * 2)
+    for (let i = 0; i < stallCount; i++) {
+      const x = Math.floor(w * 0.25 + rng() * w * 0.5)
+      const y = Math.floor(h * 0.25 + rng() * h * 0.5)
+      if (x + 1 < w && y + 1 < h &&
+        !occupied[y][x] && !occupied[y][x + 1] &&
+        !occupied[y + 1]?.[x] && !occupied[y + 1]?.[x + 1]) {
+        props.push(this.createProp('market_stall', x, y))
+        occupied[y][x] = occupied[y][x + 1] = true
+        occupied[y + 1][x] = occupied[y + 1][x + 1] = true
+      }
+    }
+
+    // === Statues (rare, near center) ===
+    if (density > 0.3 && rng() > 0.4) {
+      const x = Math.floor(w * 0.35 + rng() * w * 0.3)
+      const y = Math.floor(h * 0.35 + rng() * h * 0.3)
+      if (!occupied[y]?.[x]) {
+        props.push(this.createProp('statue', x, y))
+        occupied[y][x] = true
+      }
+    }
+
+    // === Double lamps (at key intersections - replace some regular lamps) ===
+    const doubleLampCount = Math.floor(density * 3)
+    for (let i = 0; i < doubleLampCount; i++) {
+      const x = Math.floor(rng() * w)
+      const y = Math.floor(rng() * h)
+      if (!occupied[y]?.[x]) {
+        props.push(this.createProp('street_lamp_double', x, y))
+        occupied[y][x] = true
+      }
+    }
+
     return props
   }
 

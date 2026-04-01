@@ -98,6 +98,7 @@ function buildStructure(obj: PlacedObject, def: ObjectDefinition, tileSize: numb
     case 'balcony_house': return buildBalconyHouse(obj, def, tileSize, palette, hash)
     case 'archway': return buildArchway(obj, def, tileSize, palette)
     case 'staircase': return buildStaircase(obj, def, tileSize)
+    case 'clock_tower': return buildClockTower(obj, def, tileSize, palette)
     default: return buildGenericBuilding(obj, def, tileSize, palette)
   }
 }
@@ -423,6 +424,70 @@ function buildStaircase(obj: PlacedObject, def: ObjectDefinition, ts: number): T
     group.add(wall)
   }
 
+  addBuildingShadow(group, w, d)
+  group.position.set(obj.x * ts, 0, obj.y * ts)
+  return group
+}
+
+function buildClockTower(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: BPalette): THREE.Group {
+  const group = new THREE.Group()
+  const w = def.footprint.w * ts, d = def.footprint.h * ts
+  const baseH = ts * 1.2
+  const towerH = ts * 3.5
+
+  const stoneMat = new THREE.MeshLambertMaterial({ color: 0x5a5a68 })
+  const darkMat = new THREE.MeshLambertMaterial({ color: 0x4a4a58 })
+
+  // Wide base
+  const baseGeo = new THREE.BoxGeometry(w, baseH, d)
+  const base = new THREE.Mesh(baseGeo, stoneMat)
+  base.position.set(w / 2, baseH / 2, d / 2)
+  group.add(base)
+
+  // Narrow tower shaft
+  const shaftW = w * 0.6, shaftD = d * 0.6
+  const shaftGeo = new THREE.BoxGeometry(shaftW, towerH - baseH, shaftD)
+  const shaft = new THREE.Mesh(shaftGeo, darkMat)
+  shaft.position.set(w / 2, baseH + (towerH - baseH) / 2, d / 2)
+  group.add(shaft)
+
+  // Clock face (front)
+  const clockBg = new THREE.Mesh(
+    new THREE.CircleGeometry(ts * 0.35, 16),
+    new THREE.MeshLambertMaterial({ color: 0xe8e0c8 })
+  )
+  clockBg.position.set(w / 2, towerH - ts * 0.5, d / 2 + shaftD / 2 + 0.5)
+  group.add(clockBg)
+
+  // Clock hands
+  const handMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a })
+  const hourHand = new THREE.Mesh(new THREE.BoxGeometry(ts * 0.02, ts * 0.2, 0.5), handMat)
+  hourHand.position.set(w / 2, towerH - ts * 0.45, d / 2 + shaftD / 2 + 1)
+  hourHand.rotation.z = 0.8
+  group.add(hourHand)
+  const minHand = new THREE.Mesh(new THREE.BoxGeometry(ts * 0.015, ts * 0.28, 0.5), handMat)
+  minHand.position.set(w / 2, towerH - ts * 0.4, d / 2 + shaftD / 2 + 1.2)
+  minHand.rotation.z = -0.3
+  group.add(minHand)
+
+  // Pointed roof
+  const roofGeo = new THREE.ConeGeometry(shaftW * 0.6, ts * 1.0, 4)
+  const roofMat = new THREE.MeshLambertMaterial({ color: 0x3a3a4a })
+  const roof = new THREE.Mesh(roofGeo, roofMat)
+  roof.position.set(w / 2, towerH + ts * 0.5, d / 2)
+  roof.rotation.y = Math.PI / 4
+  group.add(roof)
+
+  // Windows on shaft
+  const winMat = new THREE.MeshLambertMaterial({ color: 0x87ceeb, emissive: 0x2244aa, emissiveIntensity: 0.2 })
+  for (let i = 0; i < 3; i++) {
+    const wy = baseH + ts * 0.5 + i * ts * 0.7
+    const win = new THREE.Mesh(new THREE.BoxGeometry(ts * 0.1, ts * 0.15, 1), winMat)
+    win.position.set(w / 2, wy, d / 2 + shaftD / 2 + 0.3)
+    group.add(win)
+  }
+
+  addDoor(group, w / 2, d, ts, pal)
   addBuildingShadow(group, w, d)
   group.position.set(obj.x * ts, 0, obj.y * ts)
   return group
@@ -968,6 +1033,251 @@ function buildProp(obj: PlacedObject, def: ObjectDefinition, tileSize: number): 
         picket.position.set(x + i * fw * 0.1, fh * 0.5, z)
         group.add(picket)
       }
+      break
+    }
+
+    // === TIER 3: LANDMARKS & ENVIRONMENT ===
+
+    case 'bridge': {
+      const bw = def.footprint.w * tileSize
+      const bd = def.footprint.h * tileSize
+      const stoneMat = new THREE.MeshLambertMaterial({ color: 0x7a7a70 })
+      const darkMat = new THREE.MeshLambertMaterial({ color: 0x5a5a55 })
+
+      // Bridge deck
+      const deckGeo = new THREE.BoxGeometry(bw, tileSize * 0.12, bd)
+      const deck = new THREE.Mesh(deckGeo, stoneMat)
+      deck.position.set(x, tileSize * 0.35, z)
+      group.add(deck)
+
+      // Arch underneath
+      const archGeo = new THREE.CylinderGeometry(bd * 0.4, bd * 0.4, bw - 4, 12, 1, false, 0, Math.PI)
+      const arch = new THREE.Mesh(archGeo, darkMat)
+      arch.rotation.z = Math.PI / 2
+      arch.rotation.y = Math.PI / 2
+      arch.position.set(x, tileSize * 0.15, z)
+      group.add(arch)
+
+      // Railings
+      const railMat = new THREE.MeshLambertMaterial({ color: 0x5a5a55 })
+      for (const rz of [-bd / 2 + 2, bd / 2 - 2]) {
+        const rail = new THREE.Mesh(
+          new THREE.BoxGeometry(bw, tileSize * 0.2, tileSize * 0.04), railMat
+        )
+        rail.position.set(x, tileSize * 0.5, z + rz)
+        group.add(rail)
+
+        // Railing posts
+        for (let i = -2; i <= 2; i++) {
+          const post = new THREE.Mesh(
+            new THREE.BoxGeometry(tileSize * 0.04, tileSize * 0.25, tileSize * 0.04), railMat
+          )
+          post.position.set(x + i * bw * 0.2, tileSize * 0.48, z + rz)
+          group.add(post)
+        }
+      }
+
+      addGroundShadow(group, x, z, bw * 0.4)
+      break
+    }
+
+    case 'water_channel': {
+      const cw = def.footprint.w * tileSize
+      const cd = def.footprint.h * tileSize
+      const stoneMat = new THREE.MeshLambertMaterial({ color: 0x6a6a68 })
+
+      // Stone edges
+      for (const cx2 of [-cw * 0.4, cw * 0.4]) {
+        const edge = new THREE.Mesh(
+          new THREE.BoxGeometry(tileSize * 0.15, tileSize * 0.15, cd), stoneMat
+        )
+        edge.position.set(x + cx2, tileSize * 0.05, z)
+        group.add(edge)
+      }
+
+      // Water surface (slightly below ground level)
+      const waterMat = new THREE.MeshLambertMaterial({
+        color: 0x3a6a9a, transparent: true, opacity: 0.7,
+        emissive: 0x112244, emissiveIntensity: 0.1
+      })
+      const water = new THREE.Mesh(
+        new THREE.BoxGeometry(cw * 0.6, tileSize * 0.02, cd), waterMat
+      )
+      water.position.set(x, -tileSize * 0.02, z)
+      group.add(water)
+      break
+    }
+
+    case 'market_stall': {
+      const sw = def.footprint.w * tileSize * 0.9
+      const sd = def.footprint.h * tileSize * 0.9
+      const woodMat = new THREE.MeshLambertMaterial({ color: 0x6a5030 })
+
+      // Counter/table
+      const counter = new THREE.Mesh(
+        new THREE.BoxGeometry(sw, tileSize * 0.04, sd * 0.6), woodMat
+      )
+      counter.position.set(x, tileSize * 0.35, z + sd * 0.1)
+      group.add(counter)
+
+      // Poles
+      const poleMat = new THREE.MeshLambertMaterial({ color: 0x4a3a20 })
+      const poleGeo = new THREE.CylinderGeometry(tileSize * 0.03, tileSize * 0.03, tileSize * 0.9, 6)
+      for (const px2 of [-sw * 0.4, sw * 0.4]) {
+        for (const pz of [-sd * 0.15, sd * 0.35]) {
+          const pole = new THREE.Mesh(poleGeo, poleMat)
+          pole.position.set(x + px2, tileSize * 0.45, z + pz)
+          group.add(pole)
+        }
+      }
+
+      // Canopy (colored fabric)
+      const canopyColors = [0xaa3333, 0xcc8833, 0x3355aa, 0x339944]
+      const canopyMat = new THREE.MeshLambertMaterial({ color: canopyColors[hash % canopyColors.length] })
+      const canopy = new THREE.Mesh(
+        new THREE.BoxGeometry(sw + 4, tileSize * 0.03, sd + 2), canopyMat
+      )
+      canopy.position.set(x, tileSize * 0.88, z + sd * 0.05)
+      group.add(canopy)
+
+      // Goods on counter (small colored boxes)
+      const goodColors = [0xddaa44, 0xaa4444, 0x44aa44, 0x8866cc]
+      for (let i = 0; i < 4; i++) {
+        const good = new THREE.Mesh(
+          new THREE.BoxGeometry(tileSize * 0.1, tileSize * 0.08, tileSize * 0.1),
+          new THREE.MeshLambertMaterial({ color: goodColors[(hash + i) % goodColors.length] })
+        )
+        good.position.set(x - sw * 0.3 + i * sw * 0.2, tileSize * 0.41, z + sd * 0.1)
+        group.add(good)
+      }
+
+      addGroundShadow(group, x, z, tileSize * 0.8)
+      break
+    }
+
+    case 'street_lamp_double': {
+      const metalMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2a })
+      const lampMat = new THREE.MeshLambertMaterial({
+        color: 0xffdd44, emissive: 0xffaa00, emissiveIntensity: 0.9
+      })
+
+      // Base
+      const base = new THREE.Mesh(
+        new THREE.CylinderGeometry(tileSize * 0.08, tileSize * 0.1, tileSize * 0.1, 6), metalMat
+      )
+      base.position.set(x, tileSize * 0.05, z)
+      group.add(base)
+
+      // Pole
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(tileSize * 0.025, tileSize * 0.035, tileSize * 1.3, 6), metalMat
+      )
+      pole.position.set(x, tileSize * 0.7, z)
+      group.add(pole)
+
+      // Two arms + lamps
+      for (const side of [-1, 1]) {
+        const arm = new THREE.Mesh(
+          new THREE.BoxGeometry(tileSize * 0.25, tileSize * 0.02, tileSize * 0.02), metalMat
+        )
+        arm.position.set(x + side * tileSize * 0.12, tileSize * 1.32, z)
+        group.add(arm)
+
+        const lamp = new THREE.Mesh(
+          new THREE.CylinderGeometry(tileSize * 0.05, tileSize * 0.035, tileSize * 0.07, 6), lampMat
+        )
+        lamp.position.set(x + side * tileSize * 0.24, tileSize * 1.28, z)
+        group.add(lamp)
+      }
+
+      const light = new THREE.PointLight(0xffaa44, 0.8, tileSize * 6)
+      light.position.set(x, tileSize * 1.3, z)
+      group.add(light)
+      break
+    }
+
+    case 'wagon': {
+      const woodMat = new THREE.MeshLambertMaterial({ color: 0x6a5030 })
+      const metalMat = new THREE.MeshLambertMaterial({ color: 0x3a3a3a })
+      const ww = def.footprint.w * tileSize * 0.8
+      const wd = def.footprint.h * tileSize * 0.7
+
+      // Wagon bed
+      const bed = new THREE.Mesh(new THREE.BoxGeometry(ww, tileSize * 0.1, wd), woodMat)
+      bed.position.set(x, tileSize * 0.3, z)
+      group.add(bed)
+
+      // Side walls
+      for (const sz of [-wd / 2, wd / 2]) {
+        const side = new THREE.Mesh(
+          new THREE.BoxGeometry(ww, tileSize * 0.2, tileSize * 0.03), woodMat
+        )
+        side.position.set(x, tileSize * 0.45, z + sz)
+        group.add(side)
+      }
+      // Back wall
+      const back = new THREE.Mesh(
+        new THREE.BoxGeometry(tileSize * 0.03, tileSize * 0.2, wd), woodMat
+      )
+      back.position.set(x - ww / 2, tileSize * 0.45, z)
+      group.add(back)
+
+      // Wheels
+      const wheelGeo = new THREE.TorusGeometry(tileSize * 0.15, tileSize * 0.025, 6, 12)
+      for (const wx of [-ww * 0.35, ww * 0.25]) {
+        for (const wz of [-wd / 2 - 2, wd / 2 + 2]) {
+          const wheel = new THREE.Mesh(wheelGeo, metalMat)
+          wheel.rotation.y = Math.PI / 2
+          wheel.position.set(x + wx, tileSize * 0.15, z + wz)
+          group.add(wheel)
+        }
+      }
+
+      // Tongue (pull bar)
+      const tongue = new THREE.Mesh(
+        new THREE.BoxGeometry(tileSize * 0.6, tileSize * 0.03, tileSize * 0.03), woodMat
+      )
+      tongue.position.set(x + ww / 2 + tileSize * 0.25, tileSize * 0.25, z)
+      tongue.rotation.z = 0.15
+      group.add(tongue)
+
+      addGroundShadow(group, x, z, tileSize * 1.2)
+      break
+    }
+
+    case 'statue': {
+      const stoneMat = new THREE.MeshLambertMaterial({ color: 0x8a8a88 })
+      const darkMat = new THREE.MeshLambertMaterial({ color: 0x6a6a68 })
+
+      // Pedestal
+      const pedestal = new THREE.Mesh(
+        new THREE.BoxGeometry(tileSize * 0.35, tileSize * 0.25, tileSize * 0.35), darkMat
+      )
+      pedestal.position.set(x, tileSize * 0.125, z)
+      group.add(pedestal)
+
+      // Figure (simplified: body + head)
+      const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(tileSize * 0.08, tileSize * 0.1, tileSize * 0.4, 8), stoneMat
+      )
+      body.position.set(x, tileSize * 0.45, z)
+      group.add(body)
+
+      const head = new THREE.Mesh(
+        new THREE.SphereGeometry(tileSize * 0.07, 8, 6), stoneMat
+      )
+      head.position.set(x, tileSize * 0.72, z)
+      group.add(head)
+
+      // Outstretched arm
+      const arm = new THREE.Mesh(
+        new THREE.BoxGeometry(tileSize * 0.25, tileSize * 0.03, tileSize * 0.03), stoneMat
+      )
+      arm.position.set(x + tileSize * 0.1, tileSize * 0.55, z)
+      arm.rotation.z = -0.4
+      group.add(arm)
+
+      addGroundShadow(group, x, z, tileSize * 0.3)
       break
     }
 
