@@ -204,19 +204,192 @@ function addBuildingShadow(group: THREE.Group, w: number, d: number): void {
   group.add(shadow)
 }
 
+// Phase B: Timber framing - dark wood beams on building facades
+function addTimberFraming(group: THREE.Group, w: number, wallH: number, d: number, ts: number, hash: number): void {
+  const timberMat = new THREE.MeshLambertMaterial({ color: 0x2a1a0a })
+  const beamThickness = ts * 0.04
+  const beamDepth = 1.5
+
+  // Pattern varies by building hash
+  const pattern = hash % 3
+
+  // Horizontal beams at each floor level
+  const floorCount = Math.max(1, Math.round(wallH / (ts * 0.7)))
+  for (let f = 0; f <= floorCount; f++) {
+    const y = f * (wallH / floorCount)
+    // Front face
+    const hBeam = new THREE.Mesh(
+      new THREE.BoxGeometry(w + 2, beamThickness, beamDepth),
+      timberMat
+    )
+    hBeam.position.set(w / 2, y, d + 0.8)
+    group.add(hBeam)
+  }
+
+  // Vertical corner posts
+  for (const vx of [1, w - 1]) {
+    const post = new THREE.Mesh(
+      new THREE.BoxGeometry(beamThickness, wallH, beamDepth),
+      timberMat
+    )
+    post.position.set(vx, wallH / 2, d + 0.8)
+    group.add(post)
+  }
+
+  // Mid-posts (1-2 depending on width)
+  const midCount = Math.max(1, Math.floor(w / ts) - 1)
+  for (let i = 1; i <= midCount; i++) {
+    const vx = (w / (midCount + 1)) * i
+    const post = new THREE.Mesh(
+      new THREE.BoxGeometry(beamThickness, wallH, beamDepth),
+      timberMat
+    )
+    post.position.set(vx, wallH / 2, d + 0.8)
+    group.add(post)
+  }
+
+  // Diagonal braces (pattern 1 and 2 only)
+  if (pattern >= 1 && floorCount >= 1) {
+    const sectionW = w / (midCount + 1)
+    for (let i = 0; i <= midCount; i++) {
+      const sx = (w / (midCount + 1)) * i + sectionW / 2
+      const braceLen = Math.sqrt(sectionW * sectionW + (wallH / floorCount) * (wallH / floorCount)) * 0.4
+      const braceAngle = Math.atan2(wallH / floorCount, sectionW)
+      const brace = new THREE.Mesh(
+        new THREE.BoxGeometry(braceLen, beamThickness, beamDepth),
+        timberMat
+      )
+      brace.position.set(sx, wallH * 0.35, d + 0.8)
+      brace.rotation.z = pattern === 1 ? braceAngle : -braceAngle
+      group.add(brace)
+    }
+  }
+}
+
+// Phase B: Eaves - overhanging edge at roofline
+function addEaves(group: THREE.Group, w: number, wallH: number, d: number, ts: number, roofColor: number): void {
+  const eaveMat = new THREE.MeshLambertMaterial({ color: darken(roofColor, 0.15) })
+  const overhang = ts * 0.15
+
+  // Front eave
+  const frontEave = new THREE.Mesh(
+    new THREE.BoxGeometry(w + overhang * 2, ts * 0.04, ts * 0.12),
+    eaveMat
+  )
+  frontEave.position.set(w / 2, wallH, d + overhang / 2)
+  group.add(frontEave)
+
+  // Side eaves
+  for (const sx of [0 - overhang / 2, w + overhang / 2]) {
+    const sideEave = new THREE.Mesh(
+      new THREE.BoxGeometry(ts * 0.12, ts * 0.04, d + overhang * 2),
+      eaveMat
+    )
+    sideEave.position.set(sx, wallH, d / 2)
+    group.add(sideEave)
+  }
+
+  // Cornice strip (decorative line just below eave)
+  const corniceMat = new THREE.MeshLambertMaterial({ color: darken(roofColor, 0.05) })
+  const cornice = new THREE.Mesh(
+    new THREE.BoxGeometry(w + 1, ts * 0.03, ts * 0.06),
+    corniceMat
+  )
+  cornice.position.set(w / 2, wallH - ts * 0.03, d + 0.5)
+  group.add(cornice)
+}
+
+// Phase B: Flower boxes under windows (some buildings)
+function addFlowerBoxes(group: THREE.Group, w: number, d: number, floors: number, ts: number, hash: number): void {
+  if (hash % 3 !== 0) return // only 1 in 3 buildings get flower boxes
+
+  const boxMat = new THREE.MeshLambertMaterial({ color: 0x5a3a1a })
+  const greenMat = new THREE.MeshLambertMaterial({ color: 0x3a7a30 })
+  const flowerColors = [0xdd4444, 0xddaa44, 0xdd44aa, 0x44aadd]
+
+  for (let f = 0; f < Math.min(floors, 2); f++) {
+    const wy = ts * 0.28 + f * ts * 0.7
+    // One flower box per floor on front face
+    const fbx = w / 2 + (hash % 2 === 0 ? w * 0.25 : -w * 0.25)
+    // Box
+    const box = new THREE.Mesh(
+      new THREE.BoxGeometry(ts * 0.2, ts * 0.05, ts * 0.08),
+      boxMat
+    )
+    box.position.set(fbx, wy, d + ts * 0.08)
+    group.add(box)
+    // Plants
+    for (let p = -1; p <= 1; p++) {
+      const plant = new THREE.Mesh(
+        new THREE.SphereGeometry(ts * 0.04, 4, 3),
+        greenMat
+      )
+      plant.position.set(fbx + p * ts * 0.06, wy + ts * 0.05, d + ts * 0.08)
+      group.add(plant)
+    }
+    // Flower dot
+    const flower = new THREE.Mesh(
+      new THREE.SphereGeometry(ts * 0.02, 4, 3),
+      new THREE.MeshLambertMaterial({ color: flowerColors[hash % flowerColors.length] })
+    )
+    flower.position.set(fbx, wy + ts * 0.07, d + ts * 0.1)
+    group.add(flower)
+  }
+}
+
+// Phase B: Enhanced door with awning/overhang
+function addDoorWithAwning(group: THREE.Group, x: number, d: number, ts: number, pal: BPalette, hash: number): void {
+  addDoor(group, x, d, ts, pal)
+
+  // Step/threshold
+  const step = new THREE.Mesh(
+    new THREE.BoxGeometry(ts * 0.4, ts * 0.04, ts * 0.12),
+    new THREE.MeshLambertMaterial({ color: darken(pal.wall, 0.2) })
+  )
+  step.position.set(x, ts * 0.02, d + ts * 0.06)
+  group.add(step)
+
+  // Small awning over door (every other building)
+  if (hash % 2 === 0) {
+    const awningMat = new THREE.MeshLambertMaterial({ color: darken(pal.roof, 0.1) })
+    const awning = new THREE.Mesh(
+      new THREE.BoxGeometry(ts * 0.45, ts * 0.03, ts * 0.15),
+      awningMat
+    )
+    awning.position.set(x, ts * 0.5, d + ts * 0.08)
+    group.add(awning)
+    // Awning brackets
+    const bracketMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2a })
+    for (const bx of [-ts * 0.15, ts * 0.15]) {
+      const bracket = new THREE.Mesh(
+        new THREE.BoxGeometry(ts * 0.02, ts * 0.08, ts * 0.02),
+        bracketMat
+      )
+      bracket.position.set(x + bx, ts * 0.47, d + ts * 0.12)
+      group.add(bracket)
+    }
+  }
+}
+
 function buildGenericBuilding(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: BPalette): THREE.Group {
   const group = new THREE.Group()
+  const hash = simpleHash(obj.id)
   const w = def.footprint.w * ts, d = def.footprint.h * ts
   const floors = (obj.properties.floors as number) || 1
   const wallH = floors * ts * 0.7
 
   addWalls(group, w, wallH, d, pal)
+  addTimberFraming(group, w, wallH, d, ts, hash)
+  addEaves(group, w, wallH, d, ts, pal.roof)
   addPitchedRoof(group, w, wallH, d, ts * 0.5, pal.roof)
-  addDoor(group, w / 2, d, ts, pal)
-  if (def.styleSetSlots.includes('window')) addWindows(group, w, d, floors, ts, pal)
+  addDoorWithAwning(group, w / 2, d, ts, pal, hash)
+  if (def.styleSetSlots.includes('window')) {
+    addWindows(group, w, d, floors, ts, pal)
+    addFlowerBoxes(group, w, d, floors, ts, hash)
+  }
   addBuildingShadow(group, w, d)
 
-  group.position.set(obj.x * ts, 0, obj.y * ts)
+  group.position.set(obj.x * ts, obj.elevation * ts, obj.y * ts)
   return group
 }
 
@@ -226,9 +399,12 @@ function buildTavern(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: 
   const wallH = ts * 1.6 // 2-story
 
   addWalls(group, w, wallH, d, pal)
+  addTimberFraming(group, w, wallH, d, ts, hash)
+  addEaves(group, w, wallH, d, ts, pal.roof)
   addPitchedRoof(group, w, wallH, d, ts * 0.6, pal.roof)
-  addDoor(group, w / 2, d, ts, pal)
+  addDoorWithAwning(group, w / 2, d, ts, pal, hash)
   addWindows(group, w, d, 2, ts, pal)
+  addFlowerBoxes(group, w, d, 2, ts, hash)
 
   // Chimney
   const chimGeo = new THREE.BoxGeometry(ts * 0.2, ts * 0.6, ts * 0.2)
@@ -257,7 +433,7 @@ function buildTavern(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: 
   group.add(glow)
 
   addBuildingShadow(group, w, d)
-  group.position.set(obj.x * ts, 0, obj.y * ts)
+  group.position.set(obj.x * ts, obj.elevation * ts, obj.y * ts)
   return group
 }
 
@@ -267,6 +443,8 @@ function buildShop(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: BP
   const wallH = ts * 1.2
 
   addWalls(group, w, wallH, d, pal)
+  addTimberFraming(group, w, wallH, d, ts, hash)
+  addEaves(group, w, wallH, d, ts, pal.roof)
   addPitchedRoof(group, w, wallH, d, ts * 0.35, pal.roof)
   addDoor(group, w / 2, d, ts, pal)
   addWindows(group, w, d, 1, ts, pal)
@@ -285,15 +463,15 @@ function buildShop(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: BP
   awning.rotation.y = Math.PI / 2
   group.add(awning)
 
-  // Display window (larger glass pane)
+  // Display window (larger glass pane) - warm glow at night
   const displayGeo = new THREE.BoxGeometry(w * 0.6, ts * 0.3, 1)
-  const displayMat = new THREE.MeshLambertMaterial({ color: 0xa8d8ea, emissive: 0x223344, emissiveIntensity: 0.3 })
+  const displayMat = new THREE.MeshLambertMaterial({ color: 0xffcc66, emissive: 0xffaa33, emissiveIntensity: 0.6 })
   const display = new THREE.Mesh(displayGeo, displayMat)
   display.position.set(w / 2, ts * 0.35, d + 0.3)
   group.add(display)
 
   addBuildingShadow(group, w, d)
-  group.position.set(obj.x * ts, 0, obj.y * ts)
+  group.position.set(obj.x * ts, (obj.elevation || 0) * ts, obj.y * ts)
   return group
 }
 
@@ -326,7 +504,7 @@ function buildTower(obj: PlacedObject, def: ObjectDefinition, ts: number, pal: B
 
   addDoor(group, w / 2, d, ts, towerPal)
   addBuildingShadow(group, w, d)
-  group.position.set(obj.x * ts, 0, obj.y * ts)
+  group.position.set(obj.x * ts, (obj.elevation || 0) * ts, obj.y * ts)
   return group
 }
 
@@ -336,9 +514,12 @@ function buildBalconyHouse(obj: PlacedObject, def: ObjectDefinition, ts: number,
   const wallH = ts * 1.4 // 2 story
 
   addWalls(group, w, wallH, d, pal)
+  addTimberFraming(group, w, wallH, d, ts, hash)
+  addEaves(group, w, wallH, d, ts, pal.roof)
   addPitchedRoof(group, w, wallH, d, ts * 0.45, pal.roof)
-  addDoor(group, w * 0.3, d, ts, pal)
+  addDoorWithAwning(group, w * 0.3, d, ts, pal, hash)
   addWindows(group, w, d, 2, ts, pal)
+  addFlowerBoxes(group, w, d, 2, ts, hash)
 
   // Balcony on second floor
   const balconyFloor = new THREE.Mesh(
@@ -372,7 +553,7 @@ function buildBalconyHouse(obj: PlacedObject, def: ObjectDefinition, ts: number,
   group.add(bDoor)
 
   addBuildingShadow(group, w, d)
-  group.position.set(obj.x * ts, 0, obj.y * ts)
+  group.position.set(obj.x * ts, (obj.elevation || 0) * ts, obj.y * ts)
   return group
 }
 
@@ -414,7 +595,7 @@ function buildArchway(obj: PlacedObject, def: ObjectDefinition, ts: number, pal:
   group.add(arch)
 
   addBuildingShadow(group, w, d)
-  group.position.set(obj.x * ts, 0, obj.y * ts)
+  group.position.set(obj.x * ts, (obj.elevation || 0) * ts, obj.y * ts)
   return group
 }
 
@@ -446,7 +627,7 @@ function buildStaircase(obj: PlacedObject, def: ObjectDefinition, ts: number): T
   }
 
   addBuildingShadow(group, w, d)
-  group.position.set(obj.x * ts, 0, obj.y * ts)
+  group.position.set(obj.x * ts, (obj.elevation || 0) * ts, obj.y * ts)
   return group
 }
 
@@ -510,7 +691,7 @@ function buildClockTower(obj: PlacedObject, def: ObjectDefinition, ts: number, p
 
   addDoor(group, w / 2, d, ts, pal)
   addBuildingShadow(group, w, d)
-  group.position.set(obj.x * ts, 0, obj.y * ts)
+  group.position.set(obj.x * ts, (obj.elevation || 0) * ts, obj.y * ts)
   return group
 }
 

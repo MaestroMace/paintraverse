@@ -24,7 +24,7 @@ export class TownGenerator implements IMapGenerator {
     const parcels = this.generateParcels(width, height, roads, complexity, rng)
 
     // Place buildings
-    const buildings = this.placeBuildings(parcels, density, rng)
+    const buildings = this.placeBuildings(parcels, density, rng, width, height)
 
     // Scatter props
     const props = this.scatterProps(width, height, roads, buildings, density, config.assetFrequencies, rng)
@@ -161,7 +161,7 @@ export class TownGenerator implements IMapGenerator {
         for (let x = minX; x <= maxX; x++) {
           for (let dy = 0; dy < road.width; dy++) {
             const y = road.y1 + dy
-            if (y >= 0 && y < h) terrain[y][x] = 8 // cobblestone
+            if (y >= 0 && y < h) terrain[y][x] = (x + y) % 3 === 0 ? 9 : 8 // varied cobblestone
           }
         }
       } else {
@@ -171,7 +171,7 @@ export class TownGenerator implements IMapGenerator {
         for (let y = minY; y <= maxY; y++) {
           for (let dx = 0; dx < road.width; dx++) {
             const x = road.x1 + dx
-            if (x >= 0 && x < w) terrain[y][x] = 8 // cobblestone
+            if (x >= 0 && x < w) terrain[y][x] = (x + y) % 3 === 0 ? 9 : 8 // varied cobblestone
           }
         }
       }
@@ -213,7 +213,7 @@ export class TownGenerator implements IMapGenerator {
     }
 
     // Try to place parcels near roads
-    const maxParcels = Math.floor(5 + complexity * 20)
+    const maxParcels = Math.floor(8 + complexity * 30)
     let attempts = 0
     while (parcels.length < maxParcels && attempts < maxParcels * 10) {
       attempts++
@@ -277,7 +277,9 @@ export class TownGenerator implements IMapGenerator {
   private placeBuildings(
     parcels: { x: number; y: number; w: number; h: number }[],
     _density: number,
-    rng: () => number
+    rng: () => number,
+    width: number,
+    height: number
   ): PlacedObject[] {
     const buildings: PlacedObject[] = []
 
@@ -308,6 +310,15 @@ export class TownGenerator implements IMapGenerator {
         defId = 'building_small'
       }
 
+      // Elevation variation - buildings further from center get slight elevation
+      const cx = width / 2, cy = height / 2
+      const distFromCenter = Math.sqrt(
+        (parcel.x - cx) * (parcel.x - cx) + (parcel.y - cy) * (parcel.y - cy)
+      )
+      const maxDist = Math.sqrt(cx * cx + cy * cy)
+      const elevationBase = (distFromCenter / maxDist) * 1.5
+      const elevation = Math.floor(elevationBase + rng() * 0.8) * 0.5
+
       buildings.push({
         id: uuid(),
         definitionId: defId,
@@ -316,7 +327,7 @@ export class TownGenerator implements IMapGenerator {
         rotation: 0,
         scaleX: 1,
         scaleY: 1,
-        elevation: 0,
+        elevation,
         properties: { floors: 1 + Math.floor(rng() * 3) }
       })
     }
@@ -344,6 +355,48 @@ export class TownGenerator implements IMapGenerator {
           const cy = b.y + dy
           if (cx >= 0 && cx < w && cy >= 0 && cy < h) occupied[cy][cx] = true
         }
+      }
+    }
+
+    // === Building-adjacent props (clustered near each building for lived-in feel) ===
+    for (const b of buildings) {
+      const bw = 3, bh = 3 // approximate footprint
+      const adjacentSpots: { x: number; y: number }[] = []
+      // Collect free tiles adjacent to building
+      for (let dx = -1; dx <= bw; dx++) {
+        for (const dy of [-1, bh]) {
+          const ax = b.x + dx, ay = b.y + dy
+          if (ax >= 0 && ax < w && ay >= 0 && ay < h && !occupied[ay][ax]) {
+            adjacentSpots.push({ x: ax, y: ay })
+          }
+        }
+      }
+      for (let dy = 0; dy < bh; dy++) {
+        for (const dx of [-1, bw]) {
+          const ax = b.x + dx, ay = b.y + dy
+          if (ax >= 0 && ax < w && ay >= 0 && ay < h && !occupied[ay][ax]) {
+            adjacentSpots.push({ x: ax, y: ay })
+          }
+        }
+      }
+
+      // Place 1-3 contextual props per building
+      const propsPerBuilding = Math.min(adjacentSpots.length, 1 + Math.floor(rng() * 3))
+      const buildingProps: string[] = []
+      if (b.definitionId === 'tavern' || b.definitionId === 'shop') {
+        buildingProps.push('barrel', 'crate', 'hanging_sign', 'potted_plant')
+      } else if (b.definitionId === 'building_small' || b.definitionId === 'building_medium' || b.definitionId === 'balcony_house') {
+        buildingProps.push('potted_plant', 'planter_box', 'barrel')
+      } else {
+        buildingProps.push('crate', 'barrel', 'potted_plant')
+      }
+
+      for (let i = 0; i < propsPerBuilding && adjacentSpots.length > 0; i++) {
+        const spotIdx = Math.floor(rng() * adjacentSpots.length)
+        const spot = adjacentSpots.splice(spotIdx, 1)[0]
+        const propId = buildingProps[Math.floor(rng() * buildingProps.length)]
+        props.push(this.createProp(propId, spot.x, spot.y))
+        occupied[spot.y][spot.x] = true
       }
     }
 
