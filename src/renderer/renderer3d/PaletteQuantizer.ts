@@ -126,7 +126,7 @@ const BAYER_4x4 = [
   [12, 4, 14, 6],
   [3, 11, 1, 9],
   [15, 7, 13, 5]
-].map((row) => row.map((v) => (v / 16 - 0.5) * 32))
+].map((row) => row.map((v) => (v / 16 - 0.5) * 16))
 
 function orderedDither(imageData: ImageData, palette: Palette): void {
   const { width, data } = imageData

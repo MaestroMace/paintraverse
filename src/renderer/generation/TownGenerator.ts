@@ -309,6 +309,7 @@ export class TownGenerator implements IMapGenerator {
     let placed = 0
     let attempts = 0
     const maxAttempts = maxBuildings * 50
+    const maxDist = Math.sqrt(w * w + h * h) / 2
 
     while (placed < maxBuildings && attempts < maxAttempts) {
       attempts++
@@ -342,7 +343,6 @@ export class TownGenerator implements IMapGenerator {
 
       // Density gradient: prefer placing buildings near center
       const distFromCenter = Math.sqrt((rx - cx) ** 2 + (ry - cy) ** 2)
-      const maxDist = Math.sqrt(w * w + h * h) / 2
       const distNorm = distFromCenter / maxDist
       // Center: 100% acceptance, edge: 30% acceptance
       const acceptChance = 1.0 - distNorm * 0.7
