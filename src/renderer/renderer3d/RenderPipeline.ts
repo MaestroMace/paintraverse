@@ -136,7 +136,7 @@ function applyColorGrading(imageData: ImageData, timeOfDay: number): void {
 
   if (!isNight && !isDusk) return // only grade night/dusk scenes
 
-  const warmStrength = isNight ? 0.15 : 0.08
+  const warmStrength = isNight ? 0.08 : 0.04
 
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i], g = data[i + 1], b = data[i + 2]
@@ -144,19 +144,19 @@ function applyColorGrading(imageData: ImageData, timeOfDay: number): void {
 
     if (lum < 0.3) {
       // Dark pixels → push toward purple-blue (not gray)
-      data[i] = Math.max(0, r * 0.85 + 8)           // slight red tint
-      data[i + 1] = Math.max(0, g * 0.8)              // reduce green
-      data[i + 2] = Math.min(255, b * 1.1 + 15)       // boost blue
+      data[i] = Math.max(0, r * 0.9 + 4)              // slight red tint
+      data[i + 1] = Math.max(0, g * 0.88)              // reduce green slightly
+      data[i + 2] = Math.min(255, b * 1.05 + 8)        // mild blue boost
     } else if (lum < 0.6) {
-      // Midtones → warm shift
-      data[i] = Math.min(255, r + warmStrength * 40)   // boost red
-      data[i + 1] = Math.min(255, g + warmStrength * 15) // slight green
-      data[i + 2] = Math.max(0, b - warmStrength * 20)  // reduce blue
+      // Midtones → mild warm shift
+      data[i] = Math.min(255, r + warmStrength * 20)    // boost red
+      data[i + 1] = Math.min(255, g + warmStrength * 8) // slight green
+      data[i + 2] = Math.max(0, b - warmStrength * 10)  // reduce blue
     } else {
-      // Highlights → push toward warm amber (light sources)
-      data[i] = Math.min(255, r + warmStrength * 30)
-      data[i + 1] = Math.min(255, g + warmStrength * 10)
-      data[i + 2] = Math.max(0, b - warmStrength * 15)
+      // Highlights → mild warm amber push
+      data[i] = Math.min(255, r + warmStrength * 15)
+      data[i + 1] = Math.min(255, g + warmStrength * 5)
+      data[i + 2] = Math.max(0, b - warmStrength * 8)
     }
   }
 }
@@ -180,12 +180,12 @@ function applyBloom(imageData: ImageData, width: number, height: number): void {
     }
   }
 
-  // 5x5 box blur (two passes for a wider spread)
+  // Single box blur pass (less homogenization)
   const blurred = boxBlur(bright, width, height)
-  const blurred2 = boxBlur(blurred, width, height)
 
-  // Composite bloom back onto original at 25% opacity
-  const bloomStrength = 0.25
+  // Composite bloom back at 12% opacity (subtle glow, not color wash)
+  const bloomStrength = 0.12
+  const blurred2 = blurred
   for (let i = 0; i < data.length; i += 4) {
     const idx = (i / 4) * 3
     data[i] = Math.min(255, data[i] + blurred2[idx] * bloomStrength)

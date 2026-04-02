@@ -107,10 +107,10 @@ function findNearestColor(
 
   for (const [pr, pg, pb] of palette.colors) {
     // Weighted Euclidean distance (perceptually weighted)
-    const dr = (r - pr) * 0.299
-    const dg = (g - pg) * 0.587
-    const db = (b - pb) * 0.114
-    const dist = dr * dr + dg * dg + db * db
+    const dr = r - pr
+    const dg = g - pg
+    const db = b - pb
+    const dist = 2 * dr * dr + 4 * dg * dg + 3 * db * db
     if (dist < bestDist) {
       bestDist = dist
       best = [pr, pg, pb]

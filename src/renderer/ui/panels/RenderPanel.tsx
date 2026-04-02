@@ -59,6 +59,67 @@ export function RenderPanel() {
     link.click()
   }
 
+  const handleDebugPackage = () => {
+    // Gather all current settings and state into a debug bundle
+    const debugData: Record<string, unknown> = {
+      timestamp: new Date().toISOString(),
+      camera: { ...camera },
+      renderOptions: { ...renderOpts, paletteId: camera.paletteId },
+      environment: { ...map.environment },
+      mapInfo: {
+        name: map.name,
+        gridWidth: map.gridWidth,
+        gridHeight: map.gridHeight,
+        tileSize: map.tileSize,
+        layerCount: map.layers.length,
+        layers: map.layers.map((l) => ({
+          name: l.name,
+          type: l.type,
+          objectCount: l.objects.length,
+          visible: l.visible
+        }))
+      },
+      totalObjects: map.layers.reduce((sum, l) => sum + l.objects.length, 0),
+      buildingPalettes: buildingPalettes ? buildingPalettes.length : 'default'
+    }
+
+    // Capture overhead view from the editor canvas
+    const editorCanvas = document.querySelector('canvas') as HTMLCanvasElement | null
+    const overheadURL = editorCanvas ? editorCanvas.toDataURL('image/png') : null
+
+    // Build a single HTML file with everything embedded
+    const html = `<!DOCTYPE html>
+<html><head><title>Debug Package - ${map.name}</title>
+<style>
+body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; max-width: 1200px; margin: 0 auto; }
+h1 { color: #fff; border-bottom: 1px solid #333; padding-bottom: 8px; }
+h2 { color: #aaa; margin-top: 24px; }
+.images { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }
+.images div { flex: 1; min-width: 300px; }
+.images img { width: 100%; image-rendering: pixelated; border: 2px solid #333; border-radius: 4px; }
+pre { background: #0d0d1a; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; line-height: 1.5; }
+.label { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 4px; }
+</style></head><body>
+<h1>Debug Package</h1>
+<p>${new Date().toLocaleString()}</p>
+
+<div class="images">
+${previewURL ? `<div><div class="label">Rendered Output (${camera.outputWidth}x${camera.outputHeight})</div><img src="${previewURL}" /></div>` : '<div><div class="label">No render available</div></div>'}
+${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="${overheadURL}" /></div>` : ''}
+</div>
+
+<h2>Settings</h2>
+<pre>${JSON.stringify(debugData, null, 2)}</pre>
+</body></html>`
+
+    const blob = new Blob([html], { type: 'text/html' })
+    const link = document.createElement('a')
+    link.download = `${map.name.replace(/\s+/g, '_')}_debug_${Date.now()}.html`
+    link.href = URL.createObjectURL(blob)
+    link.click()
+    URL.revokeObjectURL(link.href)
+  }
+
   const handleCenterCamera = () => {
     const cx = map.gridWidth / 2
     const cy = map.gridHeight / 2
@@ -237,9 +298,14 @@ export function RenderPanel() {
                 <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>
                   {camera.outputWidth}x{camera.outputHeight}
                 </span>
-                <button onClick={handleExport} style={{ fontSize: 10, padding: '2px 8px' }}>
-                  Export PNG
-                </button>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button onClick={handleExport} style={{ fontSize: 10, padding: '2px 8px' }}>
+                    Export PNG
+                  </button>
+                  <button onClick={handleDebugPackage} style={{ fontSize: 10, padding: '2px 8px' }} title="Download render + overhead + all settings as a single HTML file">
+                    Debug Pkg
+                  </button>
+                </div>
               </div>
               <img
                 src={previewURL}
