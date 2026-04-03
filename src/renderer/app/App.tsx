@@ -1,21 +1,15 @@
-import { useEffect } from 'react'
-import { EditorCanvas } from '../editor/EditorCanvas'
+import { useEffect, useState } from 'react'
 import { Toolbar } from '../ui/toolbar/Toolbar'
-import { ManifestPanel } from '../ui/panels/ManifestPanel'
-import { ObjectLibrary } from '../ui/panels/ObjectLibrary'
-import { PropertyInspector } from '../ui/panels/PropertyInspector'
-import { LayerPanel } from '../ui/panels/LayerPanel'
-import { TextureBrowser } from '../ui/panels/TextureBrowser'
-import { StyleSetEditor } from '../ui/panels/StyleSetEditor'
-import { ObjectCreator } from '../ui/panels/ObjectCreator'
-import { InspirationPanel } from '../ui/panels/InspirationPanel'
-import { GenerationPanel } from '../ui/panels/GenerationPanel'
-import { EnvironmentPanel } from '../ui/panels/EnvironmentPanel'
-import { RenderPanel } from '../ui/panels/RenderPanel'
+import { ModeSelector } from '../ui/menu/ModeSelector'
+import { LandscapeMode } from '../ui/modes/LandscapeMode'
+import { AssetCreatorMode } from '../ui/modes/AssetCreatorMode'
+import { TransitionOverlay } from '../ui/effects/TransitionOverlay'
+import { SparkleField } from '../ui/effects/SparkleField'
 // Ensure generators are registered
 import '../generation/GeneratorRegistry'
 import { useAppStore } from './store'
 import './App.css'
+import './kh1-theme.css'
 
 // Declare the Electron API type on window
 declare global {
@@ -35,6 +29,21 @@ declare global {
 export function App() {
   const projectName = useAppStore((s) => s.projectName)
   const dirty = useAppStore((s) => s.dirty)
+  const appMode = useAppStore((s) => s.appMode)
+  const [transitioning, setTransitioning] = useState(false)
+  const [prevMode, setPrevMode] = useState(appMode)
+
+  // Detect mode changes for transition
+  useEffect(() => {
+    if (appMode !== prevMode) {
+      setTransitioning(true)
+      const t = setTimeout(() => {
+        setTransitioning(false)
+        setPrevMode(appMode)
+      }, 500)
+      return () => clearTimeout(t)
+    }
+  }, [appMode, prevMode])
 
   // Wire up menu actions from Electron
   useEffect(() => {
@@ -103,31 +112,39 @@ export function App() {
     })
   }, [])
 
+  // Menu mode - full screen selector
+  if (appMode === 'menu') {
+    return (
+      <div className="app">
+        <ModeSelector />
+        <TransitionOverlay active={transitioning} />
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       <Toolbar />
-      <div className="app-body">
-        <div className="left-panel">
-          <GenerationPanel />
-          <InspirationPanel />
-          <ObjectLibrary />
-          <ObjectCreator />
-          <TextureBrowser />
-          <StyleSetEditor />
+
+      {appMode === 'landscape' && <LandscapeMode />}
+      {appMode === 'asset-creator' && (
+        <div className="app-body">
+          <AssetCreatorMode />
         </div>
-        <EditorCanvas />
-        <div className="right-panel">
-          <RenderPanel />
-          <EnvironmentPanel />
-          <LayerPanel />
-          <PropertyInspector />
-          <ManifestPanel />
-        </div>
-      </div>
+      )}
+
       <div className="status-bar">
         <span>{projectName}{dirty ? ' *' : ''}</span>
-        <span>Grid: {useAppStore.getState().map.gridWidth}x{useAppStore.getState().map.gridHeight}</span>
+        <span className="status-mode">{appMode === 'landscape' ? 'Landscape Editor' : 'Asset Creator'}</span>
+        {appMode === 'landscape' && (
+          <span>Grid: {useAppStore.getState().map.gridWidth}x{useAppStore.getState().map.gridHeight}</span>
+        )}
       </div>
+
+      {/* Subtle sparkle overlay on the whole app */}
+      <SparkleField count={8} color="rgba(100, 160, 255, 0.3)" />
+
+      <TransitionOverlay active={transitioning} />
     </div>
   )
 }

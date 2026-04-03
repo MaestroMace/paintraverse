@@ -11,7 +11,10 @@ import type {
   RenderCamera,
   ToolType,
   Command,
-  EnvironmentState
+  EnvironmentState,
+  AppMode,
+  SearchResult,
+  GeneratedAsset
 } from '../core/types'
 import type { ExtractedPalette } from '../inspiration/PaletteExtractor'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
@@ -418,6 +421,9 @@ const defaultObjectDefs: ObjectDefinition[] = [
 // === STORE ===
 
 interface AppState {
+  // App mode
+  appMode: AppMode
+
   // Document
   map: MapDocument
   projectName: string
@@ -452,9 +458,19 @@ interface AppState {
   inspirationPalette: ExtractedPalette | null
   buildingPalettes: BuildingPalette[] | null  // null = use defaults
 
+  // Search & Asset Generation
+  searchResults: SearchResult[]
+  searchQuery: string
+  searchLoading: boolean
+  generatedAssets: GeneratedAsset[]
+  selectedSearchResult: SearchResult | null
+
   // Undo/redo
   undoStack: Command[]
   redoStack: Command[]
+
+  // Mode
+  setAppMode: (mode: AppMode) => void
 
   // Map operations
   setMap: (map: MapDocument) => void
@@ -509,6 +525,15 @@ interface AppState {
   updateManifestEntry: (id: string, updates: Partial<ManifestEntry>) => void
   removeManifestEntry: (id: string) => void
 
+  // Search & Asset Generation
+  setSearchResults: (results: SearchResult[]) => void
+  setSearchQuery: (query: string) => void
+  setSearchLoading: (loading: boolean) => void
+  setSelectedSearchResult: (result: SearchResult | null) => void
+  addGeneratedAsset: (asset: GeneratedAsset) => void
+  updateGeneratedAsset: (id: string, updates: Partial<GeneratedAsset>) => void
+  removeGeneratedAsset: (id: string) => void
+
   // Undo/redo
   executeCommand: (cmd: Command) => void
   undo: () => void
@@ -521,6 +546,7 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set, get) => ({
   // Initial state
+  appMode: 'menu' as AppMode,
   map: createDefaultMap(),
   projectName: 'Untitled Project',
   projectPath: null,
@@ -551,8 +577,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   inspirationImage: null,
   inspirationPalette: null,
   buildingPalettes: null,
+  searchResults: [],
+  searchQuery: '',
+  searchLoading: false,
+  generatedAssets: [],
+  selectedSearchResult: null,
   undoStack: [],
   redoStack: [],
+
+  // Mode
+  setAppMode: (mode) => set({ appMode: mode }),
 
   // Map operations
   setMap: (map) => set({ map, dirty: true }),
@@ -715,6 +749,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       manifest: state.manifest.filter((e) => e.id !== id),
       dirty: true
+    })),
+
+  // Search & Asset Generation
+  setSearchResults: (results) => set({ searchResults: results }),
+  setSearchQuery: (query) => set({ searchQuery: query }),
+  setSearchLoading: (loading) => set({ searchLoading: loading }),
+  setSelectedSearchResult: (result) => set({ selectedSearchResult: result }),
+  addGeneratedAsset: (asset) =>
+    set((state) => ({ generatedAssets: [...state.generatedAssets, asset] })),
+  updateGeneratedAsset: (id, updates) =>
+    set((state) => ({
+      generatedAssets: state.generatedAssets.map((a) =>
+        a.id === id ? { ...a, ...updates } : a
+      )
+    })),
+  removeGeneratedAsset: (id) =>
+    set((state) => ({
+      generatedAssets: state.generatedAssets.filter((a) => a.id !== id)
     })),
 
   // Undo/redo
