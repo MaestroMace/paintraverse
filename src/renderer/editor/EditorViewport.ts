@@ -40,18 +40,34 @@ export class EditorViewport {
   }
 
   async init(canvas: HTMLCanvasElement): Promise<void> {
-    // Force WebGL1 for max compatibility (Ivy Bridge etc.), fallback to Canvas2D
-    await this.app.init({
+    // Pre-check: can we actually get a WebGL context?
+    const testCanvas = document.createElement('canvas')
+    const gl = testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl')
+    if (!gl) {
+      throw new Error('WebGL is not available. Software rendering may not be supported.')
+    }
+    // Clean up the test context
+    const ext = (gl as WebGLRenderingContext).getExtension('WEBGL_lose_context')
+    if (ext) ext.loseContext()
+
+    // Race PixiJS init against a 6-second timeout
+    const initPromise = this.app.init({
       canvas,
       resizeTo: canvas.parentElement!,
       backgroundColor: 0x080c1a,
       antialias: false,
-      resolution: 1, // Force 1x to reduce GPU pressure
+      resolution: 1,
       autoDensity: true,
       preferWebGLVersion: 1,
       preference: 'webgl',
-      hello: false // suppress console banner
+      hello: false
     })
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('PixiJS init timed out after 6s. WebGL context may be stuck.')), 6000)
+    })
+
+    await Promise.race([initPromise, timeoutPromise])
 
     // Pass app to terrain layer for RenderTexture support
     this.terrainLayer.setApp(this.app)

@@ -38,17 +38,9 @@ export function EditorCanvas() {
     const viewport = new EditorViewport()
     viewportRef.current = viewport
 
-    // Timeout: if init takes more than 8 seconds, it's stuck on GPU
-    const initTimeout = setTimeout(() => {
-      if (!destroyed) {
-        setInitError('Canvas initialization timed out. GPU/WebGL may not be available. Try reloading the app.')
-        setIsLoading(false)
-      }
-    }, 8000)
-
+    // EditorViewport.init() has its own 6s internal timeout race
     viewport.init(canvas).then(() => {
       if (destroyed) return
-      clearTimeout(initTimeout)
       setIsLoading(false)
 
       viewport.updateFromMap(map, objectDefinitions)
@@ -121,9 +113,8 @@ export function EditorCanvas() {
       activeToolRef.current.onActivate?.(viewport)
     }).catch((err) => {
       if (destroyed) return
-      clearTimeout(initTimeout)
       console.error('EditorCanvas init failed:', err)
-      setInitError(`Canvas failed to initialize: ${err?.message || err}. Try reloading or check GPU drivers.`)
+      setInitError(`${err?.message || 'Canvas failed to initialize'}`)
       setIsLoading(false)
     })
 
@@ -134,7 +125,6 @@ export function EditorCanvas() {
 
     return () => {
       destroyed = true
-      clearTimeout(initTimeout)
       window.removeEventListener('resize', handleResize)
       viewport.destroy()
     }
