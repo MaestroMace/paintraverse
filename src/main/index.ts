@@ -2,6 +2,14 @@ import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync } from 'fs'
 
+// GPU fallback: disable GPU sandbox and enable software rendering if needed
+app.commandLine.appendSwitch('disable-gpu-sandbox')
+app.commandLine.appendSwitch('no-sandbox')
+// Prefer ANGLE with OpenGL ES for better compatibility
+app.commandLine.appendSwitch('use-angle', 'default')
+// Allow software fallback if hardware accel fails
+app.commandLine.appendSwitch('enable-unsafe-swiftshader')
+
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
