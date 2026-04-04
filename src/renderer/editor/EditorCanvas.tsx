@@ -38,13 +38,13 @@ export function EditorCanvas() {
     const viewport = new EditorViewport()
     viewportRef.current = viewport
 
-    // Timeout: if init takes more than 10 seconds, it's stuck
+    // Timeout: if init takes more than 8 seconds, it's stuck on GPU
     const initTimeout = setTimeout(() => {
-      if (isLoading && !destroyed) {
-        setInitError('Canvas initialization timed out. GPU/WebGL may not be available in this environment.')
+      if (!destroyed) {
+        setInitError('Canvas initialization timed out. GPU/WebGL may not be available. Try reloading the app.')
         setIsLoading(false)
       }
-    }, 10000)
+    }, 8000)
 
     viewport.init(canvas).then(() => {
       if (destroyed) return

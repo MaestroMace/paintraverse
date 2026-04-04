@@ -40,16 +40,17 @@ export class EditorViewport {
   }
 
   async init(canvas: HTMLCanvasElement): Promise<void> {
-    // Try WebGL with fallback options for environments without full GPU support
+    // Force WebGL1 for max compatibility (Ivy Bridge etc.), fallback to Canvas2D
     await this.app.init({
       canvas,
       resizeTo: canvas.parentElement!,
       backgroundColor: 0x080c1a,
       antialias: false,
-      resolution: window.devicePixelRatio || 1,
+      resolution: 1, // Force 1x to reduce GPU pressure
       autoDensity: true,
-      preferWebGLVersion: 2,
-      preference: 'webgl'
+      preferWebGLVersion: 1,
+      preference: 'webgl',
+      hello: false // suppress console banner
     })
 
     // Pass app to terrain layer for RenderTexture support
