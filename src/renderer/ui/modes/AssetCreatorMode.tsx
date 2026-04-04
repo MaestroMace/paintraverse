@@ -1,35 +1,69 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useAppStore } from '../../app/store'
-import type { SearchResult, GeneratedAsset } from '../../core/types'
+import type { SearchResult, GeneratedAsset, ObjectDefinition } from '../../core/types'
 import { v4 as uuid } from 'uuid'
 import './AssetCreatorMode.css'
 
-// Simulated search - in production this would hit a real API
-function simulateSearch(query: string): Promise<SearchResult[]> {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      const results: SearchResult[] = Array.from({ length: 12 }, (_, i) => ({
-        id: uuid(),
-        url: '',
-        thumbnailUrl: '',
-        title: `${query} reference ${i + 1}`,
-        source: ['Pixabay', 'Unsplash', 'OpenGameArt'][i % 3],
-        width: 256,
-        height: 256
-      }))
-      resolve(results)
-    }, 800 + Math.random() * 600)
+// Pixabay API - free tier, 100 requests/minute
+const PIXABAY_API_KEY = '47870702-a612da6d3e72a8e3c6e5c71b8'
+const PIXABAY_BASE = 'https://pixabay.com/api/'
+
+async function searchPixabay(query: string, page: number = 1): Promise<SearchResult[]> {
+  const params = new URLSearchParams({
+    key: PIXABAY_API_KEY,
+    q: query,
+    image_type: 'illustration',
+    per_page: '20',
+    page: String(page),
+    safesearch: 'true'
   })
+
+  try {
+    const res = await fetch(`${PIXABAY_BASE}?${params}`)
+    if (!res.ok) throw new Error(`Pixabay API error: ${res.status}`)
+    const data = await res.json()
+
+    return (data.hits || []).map((hit: any) => ({
+      id: String(hit.id),
+      url: hit.largeImageURL || hit.webformatURL,
+      thumbnailUrl: hit.previewURL,
+      title: hit.tags || 'Untitled',
+      source: 'Pixabay',
+      width: hit.imageWidth || hit.webformatWidth,
+      height: hit.imageHeight || hit.webformatHeight
+    }))
+  } catch (err) {
+    console.warn('Pixabay search failed, using fallback:', err)
+    return fallbackSearch(query)
+  }
 }
 
-// Simulated 3D generation pipeline
+// Fallback if API fails (e.g. no network in Electron dev)
+function fallbackSearch(query: string): SearchResult[] {
+  const colors = ['#8B4513', '#4682B4', '#2E8B57', '#CD853F', '#708090', '#DAA520', '#6B8E23', '#B8860B']
+  return Array.from({ length: 12 }, (_, i) => ({
+    id: uuid(),
+    url: '',
+    thumbnailUrl: '',
+    title: `${query} - ${['sword', 'shield', 'potion', 'chest', 'helm', 'staff', 'gem', 'scroll', 'ring', 'lantern', 'key', 'tome'][i]}`,
+    source: 'Local',
+    width: 256,
+    height: 256,
+    _color: colors[i % colors.length]
+  })) as SearchResult[]
+}
+
+// Simulated 3D generation pipeline (placeholder for real AI API)
 function simulateGenerate(prompt: string, onProgress: (status: string) => void): Promise<string> {
   return new Promise((resolve) => {
     const steps = [
       'Analyzing prompt...',
-      'Generating base mesh...',
-      'Applying textures...',
-      'Optimizing geometry...',
+      'Generating base geometry...',
+      'Sculpting details...',
+      'UV unwrapping...',
+      'Applying materials...',
+      'Baking textures...',
+      'Optimizing mesh...',
       'Finalizing asset...'
     ]
     let i = 0
@@ -41,8 +75,25 @@ function simulateGenerate(prompt: string, onProgress: (status: string) => void):
         clearInterval(interval)
         resolve('generated-model-url')
       }
-    }, 700)
+    }, 600)
   })
+}
+
+// Convert a generated asset to an ObjectDefinition for the landscape editor
+function assetToObjectDefinition(asset: GeneratedAsset, footprint: { w: number; h: number }): ObjectDefinition {
+  return {
+    id: `gen_${asset.id}`,
+    name: asset.name,
+    category: 'custom',
+    tags: ['generated', 'ai-asset'],
+    color: '#DAA520',
+    footprint,
+    styleSetSlots: [],
+    render3d: {
+      type: 'billboard',
+      height: footprint.h
+    }
+  }
 }
 
 export function AssetCreatorMode() {
@@ -57,11 +108,18 @@ export function AssetCreatorMode() {
   const setSelectedSearchResult = useAppStore((s) => s.setSelectedSearchResult)
   const addGeneratedAsset = useAppStore((s) => s.addGeneratedAsset)
   const updateGeneratedAsset = useAppStore((s) => s.updateGeneratedAsset)
+  const addObjectDefinition = useAppStore((s) => s.addObjectDefinition)
+  const setAppMode = useAppStore((s) => s.setAppMode)
 
   const [activeTab, setActiveTab] = useState<'search' | 'generate' | 'library'>('search')
   const [generatePrompt, setGeneratePrompt] = useState('')
   const [generateStatus, setGenerateStatus] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
+  const [assetStyle, setAssetStyle] = useState('Low Poly')
+  const [assetPolyCount, setAssetPolyCount] = useState('Low (<500)')
+  const [footprintW, setFootprintW] = useState(1)
+  const [footprintH, setFootprintH] = useState(1)
+  const [addedToLandscape, setAddedToLandscape] = useState<Set<string>>(new Set())
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -75,7 +133,7 @@ export function AssetCreatorMode() {
     setSearchLoading(true)
     setSelectedSearchResult(null)
     try {
-      const results = await simulateSearch(searchQuery)
+      const results = await searchPixabay(searchQuery)
       setSearchResults(results)
     } finally {
       setSearchLoading(false)
@@ -85,6 +143,7 @@ export function AssetCreatorMode() {
   const handleGenerate = useCallback(async () => {
     if (!generatePrompt.trim() || isGenerating) return
     setIsGenerating(true)
+    setGenerateStatus('')
 
     const asset: GeneratedAsset = {
       id: uuid(),
@@ -113,6 +172,16 @@ export function AssetCreatorMode() {
       setIsGenerating(false)
     }
   }, [generatePrompt, isGenerating])
+
+  const handleAddToLandscape = useCallback((asset: GeneratedAsset) => {
+    const def = assetToObjectDefinition(asset, { w: footprintW, h: footprintH })
+    addObjectDefinition(def)
+    setAddedToLandscape((prev) => new Set(prev).add(asset.id))
+  }, [footprintW, footprintH])
+
+  const handleGoToLandscape = useCallback(() => {
+    setAppMode('landscape')
+  }, [])
 
   return (
     <div className="asset-creator">
@@ -150,6 +219,10 @@ export function AssetCreatorMode() {
             <span className="ac-stat-value">{generatedAssets.filter(a => a.status === 'complete').length}</span>
             <span className="ac-stat-label">Ready</span>
           </div>
+          <div className="ac-stat">
+            <span className="ac-stat-value">{addedToLandscape.size}</span>
+            <span className="ac-stat-label">In Editor</span>
+          </div>
         </div>
       </div>
 
@@ -175,7 +248,7 @@ export function AssetCreatorMode() {
                   onClick={handleSearch}
                   disabled={searchLoading}
                 >
-                  {searchLoading ? 'Searching...' : 'SCAN'}
+                  {searchLoading ? 'Scanning...' : 'SCAN'}
                 </button>
               </div>
               {searchLoading && (
@@ -191,7 +264,7 @@ export function AssetCreatorMode() {
                 <div className="ac-empty-state">
                   <span className="ac-empty-icon">{'\u{1F50D}'}</span>
                   <p>Enter a query to search for reference images</p>
-                  <p className="ac-empty-hint">Try: "medieval sword", "crystal potion", "sci-fi helmet"</p>
+                  <p className="ac-empty-hint">Try: "medieval sword", "crystal potion", "pixel art character"</p>
                 </div>
               )}
               <div className="search-grid">
@@ -201,9 +274,13 @@ export function AssetCreatorMode() {
                     className={`search-result-card ${selectedResult?.id === r.id ? 'selected' : ''}`}
                     onClick={() => setSelectedSearchResult(r)}
                   >
-                    <div className="search-result-placeholder">
-                      <span>{r.title.charAt(0).toUpperCase()}</span>
-                    </div>
+                    {r.thumbnailUrl ? (
+                      <img src={r.thumbnailUrl} alt={r.title} loading="lazy" />
+                    ) : (
+                      <div className="search-result-placeholder" style={{ background: (r as any)._color || 'rgba(100,140,255,0.1)' }}>
+                        <span>{r.title.charAt(0).toUpperCase()}</span>
+                      </div>
+                    )}
                     <div className="search-result-overlay">
                       <span className="search-result-title">{r.title}</span>
                       <span className="search-result-source">{r.source}</span>
@@ -216,21 +293,32 @@ export function AssetCreatorMode() {
             {/* Selected result detail */}
             {selectedResult && (
               <div className="ac-result-detail kh-panel">
-                <div className="ac-detail-header">
-                  <span className="ac-detail-title">{selectedResult.title}</span>
-                  <span className="ac-detail-source">{selectedResult.source}</span>
+                <div className="ac-detail-preview">
+                  {selectedResult.thumbnailUrl ? (
+                    <img src={selectedResult.url || selectedResult.thumbnailUrl} alt={selectedResult.title} />
+                  ) : (
+                    <div className="ac-detail-placeholder">
+                      <span>{selectedResult.title.charAt(0).toUpperCase()}</span>
+                    </div>
+                  )}
                 </div>
-                <div className="ac-detail-actions">
-                  <button
-                    className="kh-btn primary"
-                    onClick={() => {
-                      setGeneratePrompt(`3D game asset based on: ${selectedResult.title}`)
-                      setActiveTab('generate')
-                    }}
-                  >
-                    Use as Reference {'\u2192'}
-                  </button>
-                  <button className="kh-btn">Save to Library</button>
+                <div className="ac-detail-info">
+                  <div className="ac-detail-header">
+                    <span className="ac-detail-title">{selectedResult.title}</span>
+                    <span className="ac-detail-source">{selectedResult.source} &middot; {selectedResult.width}x{selectedResult.height}</span>
+                  </div>
+                  <div className="ac-detail-actions">
+                    <button
+                      className="kh-btn primary"
+                      onClick={() => {
+                        setGeneratePrompt(`3D game asset inspired by: ${selectedResult.title}`)
+                        setActiveTab('generate')
+                      }}
+                    >
+                      Use as Reference {'\u2192'}
+                    </button>
+                    <button className="kh-btn">Save to Library</button>
+                  </div>
                 </div>
               </div>
             )}
@@ -259,7 +347,7 @@ export function AssetCreatorMode() {
                 <div className="ac-gen-options">
                   <label className="ac-gen-option">
                     <span>Style:</span>
-                    <select>
+                    <select value={assetStyle} onChange={(e) => setAssetStyle(e.target.value)}>
                       <option>Low Poly</option>
                       <option>Pixel Art 3D</option>
                       <option>Stylized</option>
@@ -268,11 +356,19 @@ export function AssetCreatorMode() {
                   </label>
                   <label className="ac-gen-option">
                     <span>Poly Count:</span>
-                    <select>
+                    <select value={assetPolyCount} onChange={(e) => setAssetPolyCount(e.target.value)}>
                       <option>Low (&lt;500)</option>
                       <option>Medium (&lt;2000)</option>
                       <option>High (&lt;5000)</option>
                     </select>
+                  </label>
+                  <label className="ac-gen-option">
+                    <span>Footprint:</span>
+                    <div className="ac-footprint-inputs">
+                      <input type="number" min={1} max={6} value={footprintW} onChange={(e) => setFootprintW(Math.max(1, parseInt(e.target.value) || 1))} />
+                      <span>x</span>
+                      <input type="number" min={1} max={6} value={footprintH} onChange={(e) => setFootprintH(Math.max(1, parseInt(e.target.value) || 1))} />
+                    </div>
                   </label>
                 </div>
                 <button
@@ -306,8 +402,23 @@ export function AssetCreatorMode() {
                 ) : generatedAssets.length > 0 && generatedAssets[generatedAssets.length - 1].status === 'complete' ? (
                   <div className="ac-preview-complete">
                     <span className="ac-preview-icon">{'\u{1F3AE}'}</span>
-                    <span>Asset ready! Add to your project.</span>
-                    <button className="kh-btn primary">Add to Library</button>
+                    <span>Asset ready!</span>
+                    <div className="ac-preview-actions">
+                      <button
+                        className="kh-btn primary"
+                        onClick={() => handleAddToLandscape(generatedAssets[generatedAssets.length - 1])}
+                        disabled={addedToLandscape.has(generatedAssets[generatedAssets.length - 1].id)}
+                      >
+                        {addedToLandscape.has(generatedAssets[generatedAssets.length - 1].id)
+                          ? '\u2713 Added to Editor'
+                          : 'Add to Landscape Editor'}
+                      </button>
+                      {addedToLandscape.has(generatedAssets[generatedAssets.length - 1].id) && (
+                        <button className="kh-btn" onClick={handleGoToLandscape}>
+                          Open Landscape {'\u2192'}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="ac-preview-empty">
@@ -344,8 +455,27 @@ export function AssetCreatorMode() {
                       <span className="ac-library-card-name">{asset.name}</span>
                       <span className="ac-library-card-status">{asset.status}</span>
                     </div>
+                    {asset.status === 'complete' && (
+                      <div className="ac-library-card-actions">
+                        <button
+                          className="kh-btn"
+                          onClick={() => handleAddToLandscape(asset)}
+                          disabled={addedToLandscape.has(asset.id)}
+                        >
+                          {addedToLandscape.has(asset.id) ? '\u2713 In Editor' : 'Add to Editor'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {addedToLandscape.size > 0 && (
+              <div className="ac-library-footer">
+                <button className="kh-btn primary" onClick={handleGoToLandscape}>
+                  Open Landscape Editor ({addedToLandscape.size} assets ready) {'\u2192'}
+                </button>
               </div>
             )}
           </div>
@@ -354,12 +484,17 @@ export function AssetCreatorMode() {
 
       {/* Bottom asset drawer */}
       <div className="asset-drawer">
-        <div className="asset-drawer-item" title="Add new">
+        <div className="asset-drawer-item" title="Generate new" onClick={() => setActiveTab('generate')}>
           <span style={{ fontSize: 20, color: 'var(--text-dim)' }}>+</span>
         </div>
         {generatedAssets.filter(a => a.status === 'complete').map((asset) => (
-          <div key={asset.id} className="asset-drawer-item" title={asset.name}>
-            <span style={{ fontSize: 16 }}>{'\u{1F4A0}'}</span>
+          <div
+            key={asset.id}
+            className={`asset-drawer-item ${addedToLandscape.has(asset.id) ? 'selected' : ''}`}
+            title={asset.name}
+            onClick={() => handleAddToLandscape(asset)}
+          >
+            <span style={{ fontSize: 16 }}>{addedToLandscape.has(asset.id) ? '\u2705' : '\u{1F4A0}'}</span>
           </div>
         ))}
       </div>

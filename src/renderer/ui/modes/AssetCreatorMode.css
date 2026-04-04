@@ -234,8 +234,42 @@
 .ac-result-detail {
   padding: 12px 16px;
   display: flex;
+  gap: 16px;
   align-items: center;
-  justify-content: space-between;
+}
+
+.ac-detail-preview {
+  width: 80px;
+  height: 80px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(100, 140, 255, 0.15);
+  flex-shrink: 0;
+  background: rgba(16, 22, 44, 0.8);
+}
+
+.ac-detail-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ac-detail-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 700;
+  color: rgba(100, 140, 255, 0.2);
+}
+
+.ac-detail-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .ac-detail-header {
@@ -345,6 +379,22 @@
   font-size: 13px !important;
 }
 
+.ac-footprint-inputs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ac-footprint-inputs input {
+  width: 44px !important;
+  text-align: center;
+}
+
+.ac-footprint-inputs span {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
 /* Progress */
 .ac-gen-progress {
   padding: 12px 16px;
@@ -447,6 +497,12 @@
   gap: 12px;
 }
 
+.ac-preview-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 /* Library */
 .ac-library-panel {
   display: flex;
@@ -525,6 +581,18 @@
   font-size: 10px;
   color: var(--text-dim);
   text-transform: uppercase;
+}
+
+.ac-library-card-actions {
+  margin-top: 4px;
+}
+
+.ac-library-footer {
+  padding: 16px 0;
+  display: flex;
+  justify-content: center;
+  border-top: 1px solid var(--border);
+  margin-top: 16px;
 }
 
 /* Bottom drawer */
