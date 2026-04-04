@@ -2,16 +2,17 @@ import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync } from 'fs'
 
-// GPU fallback: force software rendering for compatibility
+// GPU/rendering: force software rendering and fix shared memory in sandboxed envs
 app.commandLine.appendSwitch('disable-gpu')
 app.commandLine.appendSwitch('disable-gpu-compositing')
 app.commandLine.appendSwitch('disable-gpu-sandbox')
 app.commandLine.appendSwitch('no-sandbox')
-app.commandLine.appendSwitch('disable-software-rasterizer')
 app.commandLine.appendSwitch('enable-unsafe-swiftshader')
 app.commandLine.appendSwitch('use-gl', 'swiftshader')
-// Fix shared memory issues
+// Shared memory fixes
 app.commandLine.appendSwitch('disable-dev-shm-usage')
+app.commandLine.appendSwitch('disable-features', 'SharedArrayBuffer')
+app.commandLine.appendSwitch('single-process')
 
 let mainWindow: BrowserWindow | null = null
 
@@ -25,7 +26,9 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: false,
+      webgl: true
     }
   })
 
