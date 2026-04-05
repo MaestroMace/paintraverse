@@ -212,28 +212,25 @@ export function EditorCanvas() {
     )
   }
 
-  // Loading state
-  if (isLoading) {
-    return (
-      <div style={{
-        flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-        justifyContent: 'center', gap: 12, background: 'var(--bg-dark)'
-      }}>
-        <div style={{
-          width: 32, height: 32, border: '2px solid rgba(240, 192, 64, 0.2)',
-          borderTopColor: 'var(--accent)', borderRadius: '50%',
-          animation: 'spin 1s linear infinite'
-        }} />
-        <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>
-          Initializing canvas...
-        </div>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      </div>
-    )
-  }
-
   return (
     <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      {isLoading && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 12,
+          background: 'var(--bg-dark)', zIndex: 10
+        }}>
+          <div style={{
+            width: 32, height: 32, border: '2px solid rgba(240, 192, 64, 0.2)',
+            borderTopColor: 'var(--accent)', borderRadius: '50%',
+            animation: 'spin 1s linear infinite'
+          }} />
+          <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>
+            Initializing canvas...
+          </div>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
       <canvas
         ref={canvasRef}
         style={{ width: '100%', height: '100%', display: 'block' }}
