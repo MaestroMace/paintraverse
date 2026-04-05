@@ -58,6 +58,7 @@ export function buildScene(
   }
 
   applyLighting(scene, map.environment)
+  buildSky(scene, map.environment)
   return scene
 }
 
@@ -1748,14 +1749,14 @@ function applyLighting(scene: THREE.Scene, env: EnvironmentState): void {
     ambientIntensity = 0.5 - p * 0.3
     sunColor = 0xff6633
     sunIntensity = (1 - p) * 0.7
-    skyColor = lerpColor(0xff8844, 0x0a0a1a, p)
+    skyColor = lerpColor(0xff8844, 0x0c0a20, p)
   } else {
-    // Night - deep purple-blue ambience, the foundation for warm light contrast
-    ambientColor = 0x0a0820
-    ambientIntensity = 0.2
-    sunColor = 0x2233aa
-    sunIntensity = 0.05
-    skyColor = 0x060412
+    // Night - moonlit blue ambience, visible but moody
+    ambientColor = 0x1a1840
+    ambientIntensity = 0.35
+    sunColor = 0x4466cc  // Moonlight - cool blue
+    sunIntensity = 0.15
+    skyColor = 0x0c0a20
   }
 
   scene.add(new THREE.AmbientLight(ambientColor, ambientIntensity))
@@ -1774,8 +1775,8 @@ function applyLighting(scene: THREE.Scene, env: EnvironmentState): void {
 
   // Hemisphere light - sky above, warm ground bounce below
   const isNight = t < 5 || t >= 19
-  const groundColor = isNight ? 0x1a1008 : 0x3a5a2a
-  const hemiLight = new THREE.HemisphereLight(skyColor, groundColor, isNight ? 0.1 : 0.15)
+  const groundColor = isNight ? 0x1a1810 : 0x3a5a2a
+  const hemiLight = new THREE.HemisphereLight(skyColor, groundColor, isNight ? 0.18 : 0.15)
   scene.add(hemiLight)
 
   // At night, add a subtle warm ground-bounce fill from below
@@ -1794,9 +1795,220 @@ function applyLighting(scene: THREE.Scene, env: EnvironmentState): void {
   } else if (env.weather === 'rain' || env.weather === 'storm') {
     scene.fog = new THREE.FogExp2(0x667788, 0.0008 + env.weatherIntensity * 0.002)
   } else if (isNight) {
-    // Subtle night fog for depth - deep purple-blue
-    scene.fog = new THREE.FogExp2(0x060412, 0.0006)
+    // Subtle night fog for depth - dark blue
+    scene.fog = new THREE.FogExp2(0x0c0a20, 0.0005)
   }
+}
+
+// ── Sky: stars, moon, clouds, gradient ──
+
+function buildSky(scene: THREE.Scene, env: EnvironmentState): void {
+  const t = env.timeOfDay
+  const isNight = t < 5 || t >= 19
+  const isDawn = t >= 5 && t < 7
+  const isDusk = t >= 17 && t < 19
+
+  // Sky dome - vertical gradient instead of flat color
+  const skyGeo = new THREE.SphereGeometry(800, 16, 12)
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    uniforms: {
+      uTopColor: { value: new THREE.Color(getSkyTopColor(t)) },
+      uBottomColor: { value: new THREE.Color(getSkyBottomColor(t)) },
+      uHorizonColor: { value: new THREE.Color(getSkyHorizonColor(t)) },
+    },
+    vertexShader: `
+      varying vec3 vWorldPos;
+      void main() {
+        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uTopColor;
+      uniform vec3 uBottomColor;
+      uniform vec3 uHorizonColor;
+      varying vec3 vWorldPos;
+      void main() {
+        float h = normalize(vWorldPos).y;
+        vec3 col;
+        if (h > 0.0) {
+          // Above horizon: blend horizon → top
+          float t = clamp(h * 2.0, 0.0, 1.0);
+          col = mix(uHorizonColor, uTopColor, t * t);
+        } else {
+          // Below horizon: blend horizon → bottom (ground glow)
+          float t = clamp(-h * 4.0, 0.0, 1.0);
+          col = mix(uHorizonColor, uBottomColor, t);
+        }
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `
+  })
+  const skyDome = new THREE.Mesh(skyGeo, skyMat)
+  scene.add(skyDome)
+  // Override the flat background - the dome handles it now
+  scene.background = null
+
+  // Stars - visible at night, dawn, and dusk
+  const starVisibility = getStarVisibility(t)
+  if (starVisibility > 0 && env.celestial.starDensity > 0) {
+    const starCount = Math.floor(200 * env.celestial.starDensity)
+    const starPositions = new Float32Array(starCount * 3)
+    const starSizes = new Float32Array(starCount)
+    const starColors = new Float32Array(starCount * 3)
+
+    // Seeded pseudo-random for consistent star field
+    let seed = 12345
+    const rand = () => { seed = (seed * 16807 + 0) % 2147483647; return seed / 2147483647 }
+
+    for (let i = 0; i < starCount; i++) {
+      // Distribute on upper hemisphere
+      const theta = rand() * Math.PI * 2
+      const phi = rand() * Math.PI * 0.45 + 0.05 // 5° to 50° above horizon
+      const r = 750
+      starPositions[i * 3] = r * Math.cos(phi) * Math.cos(theta)
+      starPositions[i * 3 + 1] = r * Math.sin(phi)
+      starPositions[i * 3 + 2] = r * Math.cos(phi) * Math.sin(theta)
+
+      // Vary star sizes - a few bright ones, many dim
+      const brightness = rand()
+      starSizes[i] = brightness > 0.92 ? 3.5 : brightness > 0.7 ? 2.0 : 1.2
+
+      // Vary star colors: white, blue-white, warm yellow
+      const colorRoll = rand()
+      if (colorRoll > 0.85) {
+        // Warm star
+        starColors[i * 3] = 1.0; starColors[i * 3 + 1] = 0.9; starColors[i * 3 + 2] = 0.7
+      } else if (colorRoll > 0.6) {
+        // Blue-white star
+        starColors[i * 3] = 0.8; starColors[i * 3 + 1] = 0.85; starColors[i * 3 + 2] = 1.0
+      } else {
+        // White star
+        starColors[i * 3] = 1.0; starColors[i * 3 + 1] = 1.0; starColors[i * 3 + 2] = 1.0
+      }
+
+      // Apply visibility fade
+      starColors[i * 3] *= starVisibility
+      starColors[i * 3 + 1] *= starVisibility
+      starColors[i * 3 + 2] *= starVisibility
+    }
+
+    const starGeo = new THREE.BufferGeometry()
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3))
+    starGeo.setAttribute('size', new THREE.BufferAttribute(starSizes, 1))
+    starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3))
+
+    const starMat = new THREE.PointsMaterial({
+      size: 2.5,
+      sizeAttenuation: false,
+      vertexColors: true,
+      transparent: true,
+      depthWrite: false,
+    })
+    scene.add(new THREE.Points(starGeo, starMat))
+  }
+
+  // Clouds - layered flat planes at different heights
+  const weather = env.weather
+  const wantClouds = weather === 'clear' || weather === 'fog' || weather === 'rain' || weather === 'storm'
+  if (wantClouds) {
+    const cloudDensity = weather === 'clear' ? 0.3 : weather === 'fog' ? 0.7 : 0.9
+    const cloudCount = Math.floor(8 + cloudDensity * 16)
+
+    let cseed = 54321
+    const crand = () => { cseed = (cseed * 16807 + 0) % 2147483647; return cseed / 2147483647 }
+
+    const cloudGroup = new THREE.Group()
+    const cloudColor = getCloudColor(t, weather)
+
+    for (let i = 0; i < cloudCount; i++) {
+      // Each cloud is a cluster of 2-4 overlapping flat ellipses
+      const cx = (crand() - 0.5) * 1200
+      const cz = (crand() - 0.5) * 1200
+      const cy = 300 + crand() * 150
+      const clusterSize = 2 + Math.floor(crand() * 3)
+
+      for (let j = 0; j < clusterSize; j++) {
+        const w = 40 + crand() * 80
+        const h = 20 + crand() * 40
+        const cloudGeo = new THREE.PlaneGeometry(w, h)
+        const opacity = (0.25 + crand() * 0.35) * cloudDensity
+        const cloudMat = new THREE.MeshBasicMaterial({
+          color: cloudColor,
+          transparent: true,
+          opacity,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        })
+        const cloud = new THREE.Mesh(cloudGeo, cloudMat)
+        cloud.position.set(
+          cx + (crand() - 0.5) * w * 0.6,
+          cy + (crand() - 0.5) * 10,
+          cz + (crand() - 0.5) * h * 0.6
+        )
+        cloud.rotation.x = -Math.PI / 2 // Face downward
+        cloud.rotation.z = crand() * Math.PI
+        cloudGroup.add(cloud)
+      }
+    }
+    scene.add(cloudGroup)
+  }
+}
+
+function getSkyTopColor(t: number): number {
+  if (t >= 7 && t < 17) return 0x2a4a80      // Deep blue zenith
+  if (t >= 5 && t < 7) {
+    const p = (t - 5) / 2
+    return lerpColor(0x0a0820, 0x2a4a80, p)
+  }
+  if (t >= 17 && t < 19) {
+    const p = (t - 17) / 2
+    return lerpColor(0x2a4a80, 0x0a0820, p)
+  }
+  return 0x0a0820                              // Deep indigo night
+}
+
+function getSkyHorizonColor(t: number): number {
+  if (t >= 7 && t < 17) return 0xa0c8e8       // Pale blue-white haze
+  if (t >= 5 && t < 7) {
+    const p = (t - 5) / 2
+    return lerpColor(0x1a1830, 0xffaa66, p)    // Night → warm dawn band
+  }
+  if (t >= 17 && t < 19) {
+    const p = (t - 17) / 2
+    return lerpColor(0xff8855, 0x1a1830, p)    // Sunset → night
+  }
+  return 0x141230                              // Faint purple glow at horizon
+}
+
+function getSkyBottomColor(t: number): number {
+  if (t >= 7 && t < 17) return 0xc8dce8       // Light haze below horizon
+  if (t >= 5 && t < 7) {
+    const p = (t - 5) / 2
+    return lerpColor(0x0c0a18, 0xddaa77, p)
+  }
+  if (t >= 17 && t < 19) {
+    const p = (t - 17) / 2
+    return lerpColor(0xcc7744, 0x0c0a18, p)
+  }
+  return 0x0c0a18
+}
+
+function getStarVisibility(t: number): number {
+  if (t >= 7 && t < 17) return 0               // No stars during day
+  if (t >= 5 && t < 7) return 1 - (t - 5) / 2  // Fade out at dawn
+  if (t >= 17 && t < 19) return (t - 17) / 2    // Fade in at dusk
+  return 1                                       // Full at night
+}
+
+function getCloudColor(t: number, weather: string): number {
+  const isStorm = weather === 'storm'
+  if (t >= 7 && t < 17) return isStorm ? 0x556677 : 0xe8e0d8  // Day: warm white or dark gray
+  if (t >= 5 && t < 7) return isStorm ? 0x443344 : 0xcc9977    // Dawn: lit from below
+  if (t >= 17 && t < 19) return isStorm ? 0x443344 : 0xbb7755  // Dusk: warm underlit
+  return isStorm ? 0x1a1a2a : 0x2a2840                          // Night: dark silhouettes
 }
 
 function darken(color: number, amount: number): number {
