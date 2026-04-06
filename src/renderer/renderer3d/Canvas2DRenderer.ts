@@ -16,12 +16,24 @@ const TERRAIN_COLORS: Record<number, number> = {
 }
 
 const DEFAULT_BUILDING_PALETTES = [
-  { wall: 0x9e8b76, roof: 0x8b4513, door: 0x4a3520 },
-  { wall: 0xa09080, roof: 0x6b3a2a, door: 0x3a2a1a },
-  { wall: 0xb8a898, roof: 0x7a4a3a, door: 0x5a4030 },
-  { wall: 0x8a7a6a, roof: 0x5a3020, door: 0x4a3020 },
-  { wall: 0xc8b8a0, roof: 0x8a5a40, door: 0x6a4a30 },
-  { wall: 0x7a8a7a, roof: 0x4a6a4a, door: 0x3a4a3a },
+  // Timber-framed (warm)
+  { wall: 0xd8c8a8, roof: 0x8b4513, door: 0x4a3520 },
+  { wall: 0xc8b898, roof: 0x6b3a2a, door: 0x3a2a1a },
+  // Stone (cool grey)
+  { wall: 0x9a9a9a, roof: 0x5a5a6a, door: 0x4a4a50 },
+  { wall: 0x8a8a8a, roof: 0x484858, door: 0x3a3a42 },
+  // Plaster (white/cream)
+  { wall: 0xe8e0d0, roof: 0x8a5a40, door: 0x5a4030 },
+  { wall: 0xf0e8d8, roof: 0x7a4a3a, door: 0x6a4a30 },
+  // Red brick
+  { wall: 0xb06040, roof: 0x5a3020, door: 0x4a3020 },
+  { wall: 0xa05838, roof: 0x6a3828, door: 0x3a2218 },
+  // Dark timber (poor quarter)
+  { wall: 0x6a5a48, roof: 0x4a3a28, door: 0x3a2a1a },
+  { wall: 0x5a4a38, roof: 0x3a2a20, door: 0x2a1a10 },
+  // Noble (light stone, copper roof)
+  { wall: 0xc8c0b0, roof: 0x5a8a6a, door: 0x4a6a5a },
+  { wall: 0xd0c8b8, roof: 0x4a7a5a, door: 0x3a5a4a },
 ]
 
 const PROP_COLORS: Record<string, { body: number; accent?: number }> = {
@@ -56,6 +68,16 @@ interface Lighting {
   sunR: number; sunG: number; sunB: number
   skyColor: number
   fogDensity: number
+  isNight: boolean
+  isDusk: boolean
+}
+
+// Building heights by definition ID (in tile units)
+const BUILDING_HEIGHTS: Record<string, number> = {
+  building_small: 1.6, building_medium: 2.2, building_large: 2.8,
+  tavern: 2.0, shop: 1.8, tower: 3.5, clock_tower: 4.5,
+  balcony_house: 2.4, row_house: 2.0, corner_building: 2.2,
+  archway: 2.5, staircase: 1.0, town_gate: 3.0,
 }
 
 interface Drawable {
@@ -195,7 +217,8 @@ function addBuildingDrawables(
   const palette = palettes[hash % palettes.length]
   const fw = def.footprint.w * ts
   const fd = def.footprint.h * ts
-  const height = ts * (1.2 + (hash % 3) * 0.4) // 1.2 to 2.0 tiles tall
+  const baseH = BUILDING_HEIGHTS[def.id] ?? 1.8
+  const height = ts * (baseH + (hash % 3) * 0.15) // slight per-instance variation
   const x0 = obj.x * ts, z0 = obj.y * ts
 
   // 8 corners of the box
@@ -223,11 +246,12 @@ function addBuildingDrawables(
   const showLeft = camPos.x < centerX
   const showBack = camPos.z > centerZ
 
-  // Top face (always visible from above)
+  // Top face (always visible from above) — roof with ridge line
   const topColor = shadeFace(palette.roof, 0, 1, 0, lighting)
   const topFogged = applyFog(topColor, avgDepth, lighting)
+  const ridgeColor = hexToCSS(darken(topFogged, 0.2))
   drawables.push({
-    depth: avgDepth - 0.01, // draw slightly after walls
+    depth: avgDepth - 0.01,
     draw: (ctx) => {
       ctx.fillStyle = hexToCSS(topFogged)
       ctx.beginPath()
@@ -237,6 +261,17 @@ function addBuildingDrawables(
       ctx.lineTo(pp[7].sx, pp[7].sy)
       ctx.closePath()
       ctx.fill()
+      // Roof ridge line (front-to-back midpoint)
+      const midFrontX = (pp[4].sx + pp[5].sx) / 2
+      const midFrontY = (pp[4].sy + pp[5].sy) / 2
+      const midBackX = (pp[7].sx + pp[6].sx) / 2
+      const midBackY = (pp[7].sy + pp[6].sy) / 2
+      ctx.strokeStyle = ridgeColor
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      ctx.moveTo(midFrontX, midFrontY)
+      ctx.lineTo(midBackX, midBackY)
+      ctx.stroke()
     }
   })
 
@@ -262,15 +297,16 @@ function addBuildingDrawables(
         ctx.fill()
 
         // Draw windows on this face (2 rows of 2)
-        const isNight = lighting.skyColor === 0x0c0a20
-        if (isNight) {
-          const winColor = '#ffcc66'
-          const winW = (facePoints[1].sx - facePoints[0].sx) * 0.12
-          const winH = (facePoints[0].sy - facePoints[3].sy) * 0.12
+        const faceW = Math.abs(facePoints[1].sx - facePoints[0].sx)
+        const faceH = Math.abs(facePoints[0].sy - facePoints[3].sy)
+        if (faceW > 6 && faceH > 6) {
+          const winW = faceW * 0.12
+          const winH = faceH * 0.14
+          const winColor = lighting.isNight || lighting.isDusk ? '#ffcc66' : hexToCSS(darken(wallFogged, 0.15))
           for (let row = 0; row < 2; row++) {
             for (let col = 0; col < 2; col++) {
               const t = 0.25 + col * 0.5
-              const u = 0.3 + row * 0.35
+              const u = 0.25 + row * 0.35
               const wx = facePoints[0].sx + (facePoints[1].sx - facePoints[0].sx) * t
               const wy = facePoints[0].sy + (facePoints[3].sy - facePoints[0].sy) * u
               ctx.fillStyle = winColor
@@ -282,21 +318,29 @@ function addBuildingDrawables(
     })
   }
 
-  // Shadow on ground
-  const shadowColor = 'rgba(0,0,0,0.12)'
-  drawables.push({
-    depth: avgDepth + 0.02,
-    draw: (ctx) => {
-      ctx.fillStyle = shadowColor
-      ctx.beginPath()
-      ctx.moveTo(pp[0].sx, pp[0].sy)
-      ctx.lineTo(pp[1].sx, pp[1].sy)
-      ctx.lineTo(pp[2].sx, pp[2].sy)
-      ctx.lineTo(pp[3].sx, pp[3].sy)
-      ctx.closePath()
-      ctx.fill()
-    }
-  })
+  // Directional shadow — offset ground footprint in sun direction
+  const shadowOffX = -lighting.sunDirX * height * 0.5
+  const shadowOffZ = -lighting.sunDirZ * height * 0.5
+  const s0 = project(x0 + shadowOffX, 0, z0 + shadowOffZ)
+  const s1 = project(x0 + fw + shadowOffX, 0, z0 + shadowOffZ)
+  const s2 = project(x0 + fw + shadowOffX, 0, z0 + fd + shadowOffZ)
+  const s3 = project(x0 + shadowOffX, 0, z0 + fd + shadowOffZ)
+  if (s0 && s1 && s2 && s3) {
+    const shadowOpacity = lighting.isNight ? 0.15 : 0.35
+    drawables.push({
+      depth: avgDepth + 0.02,
+      draw: (ctx) => {
+        ctx.fillStyle = `rgba(0,0,0,${shadowOpacity})`
+        ctx.beginPath()
+        ctx.moveTo(s0.sx, s0.sy)
+        ctx.lineTo(s1.sx, s1.sy)
+        ctx.lineTo(s2.sx, s2.sy)
+        ctx.lineTo(s3.sx, s3.sy)
+        ctx.closePath()
+        ctx.fill()
+      }
+    })
+  }
 }
 
 // ── Prop drawing ──
@@ -341,6 +385,23 @@ function addPropDrawables(
         ctx.fill()
       }
     })
+  } else if (def.id === 'bush' || def.id === 'hedge') {
+    const bushR = Math.max(3, Math.abs(top.sy - base.sy) * 0.5 + 3)
+    drawables.push({
+      depth: base.depth,
+      draw: (ctx) => {
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.15)'
+        ctx.beginPath()
+        ctx.ellipse(base.sx + 1, base.sy, bushR, bushR * 0.4, 0, 0, Math.PI * 2)
+        ctx.fill()
+        // Bush body
+        ctx.fillStyle = hexToCSS(foggedBody)
+        ctx.beginPath()
+        ctx.ellipse(base.sx, base.sy - bushR * 0.3, bushR, bushR * 0.7, 0, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    })
   } else if (def.id === 'lamppost' || def.id === 'double_lamp' || def.id === 'wall_lantern') {
     const lampTop = project(cx, ts * 1.1, cz)
     if (!lampTop) return
@@ -351,25 +412,98 @@ function addPropDrawables(
       draw: (ctx) => {
         ctx.fillStyle = hexToCSS(foggedBody)
         ctx.fillRect(base.sx - poleW / 2, lampTop.sy, poleW, base.sy - lampTop.sy)
-        // Lamp glow
+        // Lamp glow — larger and brighter at night
+        const isLit = lighting.isNight || lighting.isDusk
         const glowColor = applyFog(colors.accent || 0xffdd44, base.depth, lighting)
         ctx.fillStyle = hexToCSS(glowColor)
-        const r = Math.max(3, Math.abs(lampTop.sy - base.sy) * 0.15)
+        const r = isLit ? Math.max(5, Math.abs(lampTop.sy - base.sy) * 0.25) : Math.max(2, Math.abs(lampTop.sy - base.sy) * 0.1)
         ctx.beginPath()
         ctx.arc(base.sx, lampTop.sy, r, 0, Math.PI * 2)
         ctx.fill()
+        // Ground glow pool at night
+        if (isLit) {
+          ctx.fillStyle = 'rgba(255,200,80,0.08)'
+          ctx.beginPath()
+          ctx.ellipse(base.sx, base.sy, r * 3, r * 1.5, 0, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
+    })
+  } else if (def.id === 'fountain' || def.id === 'fountain_grand' || def.id === 'well' || def.id === 'well_grand') {
+    const topH = project(cx, ts * 0.5, cz)
+    if (!topH) return
+    const rBase = Math.max(4, def.footprint.w * 5)
+    const accentColor = colors.accent ? applyFog(shadeFace(colors.accent, 0, 1, 0, lighting), base.depth, lighting) : foggedBody
+    drawables.push({
+      depth: base.depth,
+      draw: (ctx) => {
+        // Stone base
+        ctx.fillStyle = hexToCSS(foggedBody)
+        ctx.beginPath()
+        ctx.ellipse(base.sx, base.sy, rBase, rBase * 0.4, 0, 0, Math.PI * 2)
+        ctx.fill()
+        // Water/interior
+        ctx.fillStyle = hexToCSS(accentColor)
+        ctx.beginPath()
+        ctx.ellipse(base.sx, base.sy - 1, rBase * 0.7, rBase * 0.28, 0, 0, Math.PI * 2)
+        ctx.fill()
+        // Pillar
+        const pillarH = Math.abs(topH.sy - base.sy) * 0.5
+        ctx.fillStyle = hexToCSS(foggedBody)
+        ctx.fillRect(base.sx - 1, base.sy - pillarH, 2, pillarH)
+      }
+    })
+  } else if (def.id === 'barrel' || def.id === 'crate') {
+    const objH = Math.max(4, Math.abs(top.sy - base.sy) * 0.6 + 3)
+    const objW = Math.max(4, def.footprint.w * 5)
+    drawables.push({
+      depth: base.depth,
+      draw: (ctx) => {
+        if (def.id === 'barrel') {
+          // Rounded barrel shape
+          ctx.fillStyle = hexToCSS(foggedBody)
+          ctx.beginPath()
+          ctx.ellipse(base.sx, base.sy - objH / 2, objW / 2, objH / 2, 0, 0, Math.PI * 2)
+          ctx.fill()
+          // Metal band
+          ctx.strokeStyle = hexToCSS(darken(foggedBody, 0.3))
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.ellipse(base.sx, base.sy - objH / 2, objW / 2 - 1, objH * 0.15, 0, 0, Math.PI * 2)
+          ctx.stroke()
+        } else {
+          // Box crate
+          ctx.fillStyle = hexToCSS(foggedBody)
+          ctx.fillRect(base.sx - objW / 2, base.sy - objH, objW, objH)
+          ctx.strokeStyle = hexToCSS(darken(foggedBody, 0.25))
+          ctx.lineWidth = 1
+          ctx.strokeRect(base.sx - objW / 2, base.sy - objH, objW, objH)
+        }
+      }
+    })
+  } else if (def.id === 'fence' || def.id === 'stone_wall') {
+    const fenceH = Math.max(3, Math.abs(top.sy - base.sy) * 0.3 + 2)
+    const fenceW = Math.max(6, def.footprint.w * ts * 0.3)
+    drawables.push({
+      depth: base.depth,
+      draw: (ctx) => {
+        ctx.fillStyle = hexToCSS(foggedBody)
+        ctx.fillRect(base.sx - fenceW / 2, base.sy - fenceH, fenceW, fenceH)
       }
     })
   } else {
-    // Generic prop: colored rectangle
-    const hw = Math.max(3, Math.abs(top.sx - base.sx) * 0.3 + def.footprint.w * 4)
-    const hh = Math.max(3, Math.abs(top.sy - base.sy) || 6)
+    // Generic prop: colored rectangle with slight 3D effect
+    const hw = Math.max(4, def.footprint.w * 5)
+    const hh = Math.max(4, Math.abs(top.sy - base.sy) * 0.4 + 4)
 
     drawables.push({
       depth: base.depth,
       draw: (ctx) => {
         ctx.fillStyle = hexToCSS(foggedBody)
         ctx.fillRect(base.sx - hw / 2, base.sy - hh, hw, hh)
+        ctx.strokeStyle = hexToCSS(darken(foggedBody, 0.2))
+        ctx.lineWidth = 0.5
+        ctx.strokeRect(base.sx - hw / 2, base.sy - hh, hw, hh)
       }
     })
   }
@@ -441,7 +575,19 @@ function computeLighting(env: EnvironmentState): Lighting {
   }
 
   const sunAngleRad = (env.celestial.sunAngle * Math.PI) / 180
-  const sdx = Math.cos(sunAngleRad), sdy = 0.7, sdz = Math.sin(sunAngleRad)
+  // Sun Y component varies by time: low at dawn/dusk (long shadows), high at noon
+  let sunElevation: number
+  if (t >= 7 && t < 17) {
+    const dayP = (t - 7) / 10
+    sunElevation = 0.3 + Math.sin(dayP * Math.PI) * 0.5 // 0.3 at edges, 0.8 at noon
+  } else if (t >= 5 && t < 7) {
+    sunElevation = 0.15 + ((t - 5) / 2) * 0.15 // dawn: very low
+  } else if (t >= 17 && t < 19) {
+    sunElevation = 0.3 - ((t - 17) / 2) * 0.15 // dusk: dropping low
+  } else {
+    sunElevation = 0.2 // night: moonlight from moderate angle
+  }
+  const sdx = Math.cos(sunAngleRad), sdy = sunElevation, sdz = Math.sin(sunAngleRad)
   const sdLen = Math.sqrt(sdx * sdx + sdy * sdy + sdz * sdz)
 
   const ar = ((ambientColor >> 16) & 0xff) / 255 * ambientIntensity
@@ -453,6 +599,7 @@ function computeLighting(env: EnvironmentState): Lighting {
   const sb = (sunColor & 0xff) / 255 * sunIntensity
 
   const isNight = t < 5 || t >= 19
+  const isDusk = t >= 17 && t < 19
   let fogDensity = 0
   if (env.weather === 'fog') fogDensity = 0.0015 + env.weatherIntensity * 0.004
   else if (env.weather === 'rain' || env.weather === 'storm') fogDensity = 0.0008 + env.weatherIntensity * 0.002
@@ -464,6 +611,8 @@ function computeLighting(env: EnvironmentState): Lighting {
     sunR: sr, sunG: sg, sunB: sb,
     skyColor,
     fogDensity,
+    isNight,
+    isDusk,
   }
 }
 
@@ -491,6 +640,13 @@ function applyFog(color: number, depth: number, lighting: Lighting): number {
 }
 
 // ── Utilities ──
+
+function darken(color: number, amount: number): number {
+  const r = Math.max(0, ((color >> 16) & 0xff) * (1 - amount))
+  const g = Math.max(0, ((color >> 8) & 0xff) * (1 - amount))
+  const b = Math.max(0, (color & 0xff) * (1 - amount))
+  return (Math.floor(r) << 16) | (Math.floor(g) << 8) | Math.floor(b)
+}
 
 function hexToCSS(color: number): string {
   return '#' + ((color >> 16) & 0xff).toString(16).padStart(2, '0')

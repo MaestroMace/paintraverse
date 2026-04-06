@@ -124,13 +124,15 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
     const cx = map.gridWidth / 2
     const cy = map.gridHeight / 2
     const mapSize = Math.max(map.gridWidth, map.gridHeight)
+    // Position camera southwest of center, looking at center, at moderate height
+    // Closer to the action for better framing
     updateCamera({
-      worldX: cx - mapSize * 0.35,
-      worldY: cy + mapSize * 0.45,
+      worldX: cx - mapSize * 0.2,
+      worldY: cy + mapSize * 0.25,
       lookAtX: cx,
       lookAtY: cy,
-      elevation: mapSize * 0.4,
-      fov: 50
+      elevation: mapSize * 0.25,
+      fov: 55
     })
   }
 
