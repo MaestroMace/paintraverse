@@ -25,6 +25,23 @@ const DEFAULT_OPTIONS: RenderOptions = {
   outlineThreshold: 80
 }
 
+// Cache the WebGL renderer — context creation is expensive under SwiftShader
+let _cachedRenderer: THREE.WebGLRenderer | null = null
+
+function getOrCreateRenderer(w: number, h: number): THREE.WebGLRenderer {
+  if (!_cachedRenderer) {
+    _cachedRenderer = new THREE.WebGLRenderer({
+      antialias: false,
+      preserveDrawingBuffer: true,
+      alpha: false
+    })
+    _cachedRenderer.outputColorSpace = THREE.SRGBColorSpace
+    _cachedRenderer.setPixelRatio(1)
+  }
+  _cachedRenderer.setSize(w, h)
+  return _cachedRenderer
+}
+
 export function renderPixelArt(
   map: MapDocument,
   camera: RenderCamera,
@@ -40,15 +57,8 @@ export function renderPixelArt(
   // Build the 3D scene from map data
   const scene = buildScene(map, objectDefs)
 
-  // Create Three.js renderer at pixel art resolution
-  const renderer = new THREE.WebGLRenderer({
-    antialias: false,
-    preserveDrawingBuffer: true,
-    alpha: false
-  })
-  renderer.setSize(outputWidth, outputHeight)
-  renderer.setPixelRatio(1) // Force 1:1 pixel mapping
-  renderer.outputColorSpace = THREE.SRGBColorSpace
+  // Reuse cached renderer (WebGL context creation is expensive under SwiftShader)
+  const renderer = getOrCreateRenderer(outputWidth, outputHeight)
 
   // Create camera from RenderCamera spec
   const cam = new THREE.PerspectiveCamera(camera.fov, outputWidth / outputHeight, 1, 10000)
@@ -76,7 +86,7 @@ export function renderPixelArt(
   for (let y = 0; y < outputHeight; y++) {
     const srcRow = (outputHeight - 1 - y) * outputWidth * 4
     const dstRow = y * outputWidth * 4
-    flipped.set(pixels.slice(srcRow, srcRow + outputWidth * 4), dstRow)
+    flipped.set(pixels.subarray(srcRow, srcRow + outputWidth * 4), dstRow)
   }
 
   let imageData = new ImageData(flipped, outputWidth, outputHeight)
@@ -105,8 +115,7 @@ export function renderPixelArt(
   const ctx = outputCanvas.getContext('2d')!
   ctx.putImageData(imageData, 0, 0)
 
-  // Clean up Three.js resources
-  renderer.dispose()
+  // Clean up Three.js scene resources (renderer is cached and reused)
   scene.traverse((obj) => {
     if (obj instanceof THREE.Mesh) {
       obj.geometry.dispose()
@@ -195,30 +204,39 @@ function applyBloom(imageData: ImageData, width: number, height: number): void {
 }
 
 function boxBlur(src: Float32Array, width: number, height: number): Float32Array {
+  const tmp = new Float32Array(src.length)
   const dst = new Float32Array(src.length)
   const radius = 2
 
+  // Separable blur: horizontal pass
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       let r = 0, g = 0, b = 0, count = 0
-
-      for (let dy = -radius; dy <= radius; dy++) {
-        for (let dx = -radius; dx <= radius; dx++) {
-          const nx = x + dx, ny = y + dy
-          if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-            const idx = (ny * width + nx) * 3
-            r += src[idx]
-            g += src[idx + 1]
-            b += src[idx + 2]
-            count++
-          }
+      for (let dx = -radius; dx <= radius; dx++) {
+        const nx = x + dx
+        if (nx >= 0 && nx < width) {
+          const idx = (y * width + nx) * 3
+          r += src[idx]; g += src[idx + 1]; b += src[idx + 2]; count++
         }
       }
-
       const idx = (y * width + x) * 3
-      dst[idx] = r / count
-      dst[idx + 1] = g / count
-      dst[idx + 2] = b / count
+      tmp[idx] = r / count; tmp[idx + 1] = g / count; tmp[idx + 2] = b / count
+    }
+  }
+
+  // Separable blur: vertical pass
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let r = 0, g = 0, b = 0, count = 0
+      for (let dy = -radius; dy <= radius; dy++) {
+        const ny = y + dy
+        if (ny >= 0 && ny < height) {
+          const idx = (ny * width + x) * 3
+          r += tmp[idx]; g += tmp[idx + 1]; b += tmp[idx + 2]; count++
+        }
+      }
+      const idx = (y * width + x) * 3
+      dst[idx] = r / count; dst[idx + 1] = g / count; dst[idx + 2] = b / count
     }
   }
 

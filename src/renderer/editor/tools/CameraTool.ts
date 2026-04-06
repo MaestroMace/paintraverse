@@ -77,5 +77,6 @@ export class CameraTool implements ITool {
     const cam = useAppStore.getState().renderCamera
     const ts = useAppStore.getState().map.tileSize
     this.viewport.overlayLayer.showCameraFrustum(cam, ts)
+    this.viewport.requestRender()
   }
 }

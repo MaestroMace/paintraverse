@@ -64,8 +64,7 @@ export class EditorViewport {
       autoDensity: true,
       preferWebGLVersion: 1,
       preference: 'webgl',
-      hello: false,
-      autoStart: false
+      hello: false
     })
 
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -73,6 +72,10 @@ export class EditorViewport {
     })
 
     await Promise.race([initPromise, timeoutPromise])
+
+    // Throttle idle rendering to 1 FPS (keeps event system alive, near-zero cost)
+    // Explicit requestRender() calls handle on-demand frames during interaction
+    this.app.ticker.maxFPS = 1
 
     // Pass app to terrain layer for RenderTexture support
     this.terrainLayer.setApp(this.app)
@@ -163,6 +166,7 @@ export class EditorViewport {
 
     stage.on('pointerleave', () => {
       this.overlayLayer.clearPreview()
+      this.requestRender()
     })
 
     // Zoom with scroll wheel - smooth

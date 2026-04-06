@@ -1819,6 +1819,7 @@ function buildSky(scene: THREE.Scene, env: EnvironmentState): void {
       uHorizonColor: { value: new THREE.Color(getSkyHorizonColor(t)) },
     },
     vertexShader: `
+      precision mediump float;
       varying vec3 vWorldPos;
       void main() {
         vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
@@ -1826,6 +1827,7 @@ function buildSky(scene: THREE.Scene, env: EnvironmentState): void {
       }
     `,
     fragmentShader: `
+      precision mediump float;
       uniform vec3 uTopColor;
       uniform vec3 uBottomColor;
       uniform vec3 uHorizonColor;
@@ -1910,7 +1912,7 @@ function buildSky(scene: THREE.Scene, env: EnvironmentState): void {
     scene.add(new THREE.Points(starGeo, starMat))
   }
 
-  // Clouds - layered flat planes at different heights
+  // Clouds - layered flat planes at different heights (shared geometry + materials)
   const weather = env.weather
   const wantClouds = weather === 'clear' || weather === 'fog' || weather === 'rain' || weather === 'storm'
   if (wantClouds) {
@@ -1923,8 +1925,17 @@ function buildSky(scene: THREE.Scene, env: EnvironmentState): void {
     const cloudGroup = new THREE.Group()
     const cloudColor = getCloudColor(t, weather)
 
+    // Shared unit geometry — scale per-mesh instead of per-geometry
+    const unitGeo = new THREE.PlaneGeometry(1, 1)
+    // Pre-create opacity-bucketed materials (4 buckets to reduce material count)
+    const opacityBuckets = [0.15, 0.25, 0.35, 0.5].map((o) =>
+      new THREE.MeshBasicMaterial({
+        color: cloudColor, transparent: true,
+        opacity: o * cloudDensity, side: THREE.DoubleSide, depthWrite: false,
+      })
+    )
+
     for (let i = 0; i < cloudCount; i++) {
-      // Each cloud is a cluster of 2-4 overlapping flat ellipses
       const cx = (crand() - 0.5) * 1200
       const cz = (crand() - 0.5) * 1200
       const cy = 300 + crand() * 150
@@ -1933,22 +1944,15 @@ function buildSky(scene: THREE.Scene, env: EnvironmentState): void {
       for (let j = 0; j < clusterSize; j++) {
         const w = 40 + crand() * 80
         const h = 20 + crand() * 40
-        const cloudGeo = new THREE.PlaneGeometry(w, h)
-        const opacity = (0.25 + crand() * 0.35) * cloudDensity
-        const cloudMat = new THREE.MeshBasicMaterial({
-          color: cloudColor,
-          transparent: true,
-          opacity,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        })
-        const cloud = new THREE.Mesh(cloudGeo, cloudMat)
+        const bucketIdx = Math.min(3, Math.floor(crand() * 4))
+        const cloud = new THREE.Mesh(unitGeo, opacityBuckets[bucketIdx])
+        cloud.scale.set(w, h, 1)
         cloud.position.set(
           cx + (crand() - 0.5) * w * 0.6,
           cy + (crand() - 0.5) * 10,
           cz + (crand() - 0.5) * h * 0.6
         )
-        cloud.rotation.x = -Math.PI / 2 // Face downward
+        cloud.rotation.x = -Math.PI / 2
         cloud.rotation.z = crand() * Math.PI
         cloudGroup.add(cloud)
       }

@@ -84,6 +84,7 @@ export function EditorCanvas() {
             viewport.overlayLayer.showPlacementPreview(
               tileX, tileY, def.footprint.w, def.footprint.h, ts, valid
             )
+            viewport.requestRender()
           }
         } else if (tool.name === 'brush') {
           if (tileX >= 0 && tileY >= 0 && tileX < gw && tileY < gh) {
@@ -91,6 +92,7 @@ export function EditorCanvas() {
           } else {
             viewport.overlayLayer.clearPreview()
           }
+          viewport.requestRender()
         } else if (tool.name === 'select' || tool.name === 'erase') {
           const allObjects = viewport.getAllObjects()
           const worldX = tileX * ts + ts / 2
@@ -100,13 +102,18 @@ export function EditorCanvas() {
                    worldY >= o.y && worldY <= o.y + o.height
           )
           store.setHoveredObjectId(hit?.id ?? null)
-          if (!hit) viewport.overlayLayer.clearPreview()
+          if (!hit) {
+            viewport.overlayLayer.clearPreview()
+            viewport.requestRender()
+          }
         } else if (tool.name === 'camera') {
           if (tileX >= 0 && tileY >= 0 && tileX < gw && tileY < gh) {
             viewport.overlayLayer.showTileHighlight(tileX, tileY, ts)
           }
+          viewport.requestRender()
         } else {
           viewport.overlayLayer.clearPreview()
+          viewport.requestRender()
         }
       }
 
@@ -156,6 +163,7 @@ export function EditorCanvas() {
       canvasRef.current.style.cursor = activeToolRef.current.cursor
     }
     vp.overlayLayer.clearPreview()
+    vp.requestRender()
   }, [activeTool, initError])
 
   // Keyboard shortcuts
