@@ -1804,126 +1804,78 @@ function applyLighting(scene: THREE.Scene, env: EnvironmentState): void {
 
 function buildSky(scene: THREE.Scene, env: EnvironmentState): void {
   const t = env.timeOfDay
-  const isNight = t < 5 || t >= 19
-  const isDawn = t >= 5 && t < 7
-  const isDusk = t >= 17 && t < 19
 
-  // Sky dome - try gradient shader, fall back to flat color if shader compilation fails
-  const skyGeo = new THREE.SphereGeometry(800, 16, 12)
-  const topColor = getSkyTopColor(t)
+  // Sky: use a large inverted box with MeshBasicMaterial (no custom shaders).
+  // SwiftShader crashes on ShaderMaterial and THREE.Points, so we use only
+  // built-in materials for maximum compatibility.
   const horizonColor = getSkyHorizonColor(t)
-  const bottomColor = getSkyBottomColor(t)
+  const topColor = getSkyTopColor(t)
 
-  let skyMat: THREE.Material
-  try {
-    const shaderMat = new THREE.ShaderMaterial({
-      side: THREE.BackSide,
-      depthWrite: false,
-      uniforms: {
-        uTopColor: { value: new THREE.Color(topColor) },
-        uBottomColor: { value: new THREE.Color(bottomColor) },
-        uHorizonColor: { value: new THREE.Color(horizonColor) },
-      },
-      vertexShader: `
-        precision mediump float;
-        varying vec3 vWorldPos;
-        void main() {
-          vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        precision mediump float;
-        uniform vec3 uTopColor;
-        uniform vec3 uBottomColor;
-        uniform vec3 uHorizonColor;
-        varying vec3 vWorldPos;
-        void main() {
-          float h = normalize(vWorldPos).y;
-          vec3 col;
-          if (h > 0.0) {
-            float t = clamp(h * 2.0, 0.0, 1.0);
-            col = mix(uHorizonColor, uTopColor, t * t);
-          } else {
-            float t = clamp(-h * 4.0, 0.0, 1.0);
-            col = mix(uHorizonColor, uBottomColor, t);
-          }
-          gl_FragColor = vec4(col, 1.0);
-        }
-      `
-    })
-    skyMat = shaderMat
-  } catch {
-    // Shader compilation failed — fall back to flat MeshBasicMaterial
-    skyMat = new THREE.MeshBasicMaterial({
-      color: horizonColor, side: THREE.BackSide, depthWrite: false
-    })
+  // Sky dome — simple hemisphere with vertex colors for gradient (no custom shader)
+  const skyGeo = new THREE.SphereGeometry(800, 12, 8, 0, Math.PI * 2, 0, Math.PI)
+  const colors = new Float32Array(skyGeo.attributes.position.count * 3)
+  const pos = skyGeo.attributes.position
+  const topR = ((topColor >> 16) & 0xff) / 255
+  const topG = ((topColor >> 8) & 0xff) / 255
+  const topB = (topColor & 0xff) / 255
+  const horR = ((horizonColor >> 16) & 0xff) / 255
+  const horG = ((horizonColor >> 8) & 0xff) / 255
+  const horB = (horizonColor & 0xff) / 255
+
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i)
+    const h = y / 800 // -1 to 1
+    const blend = Math.max(0, Math.min(1, h * 2)) // 0 at horizon, 1 at top
+    colors[i * 3] = horR + (topR - horR) * blend
+    colors[i * 3 + 1] = horG + (topG - horG) * blend
+    colors[i * 3 + 2] = horB + (topB - horB) * blend
   }
+  skyGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
 
-  const skyDome = new THREE.Mesh(skyGeo, skyMat)
-  scene.add(skyDome)
+  const skyMat = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    side: THREE.BackSide,
+    depthWrite: false,
+  })
+  scene.add(new THREE.Mesh(skyGeo, skyMat))
   scene.background = null
 
-  // Stars - visible at night, dawn, and dusk
+  // Stars — small white sphere meshes (not Points, which use shaders that crash SwiftShader)
   const starVisibility = getStarVisibility(t)
-  if (starVisibility > 0 && env.celestial.starDensity > 0) {
-    const starCount = Math.floor(200 * env.celestial.starDensity)
-    const starPositions = new Float32Array(starCount * 3)
-    const starSizes = new Float32Array(starCount)
-    const starColors = new Float32Array(starCount * 3)
+  if (starVisibility > 0.1 && env.celestial.starDensity > 0) {
+    const starCount = Math.floor(80 * env.celestial.starDensity) // fewer, simpler stars
+    const starGeo = new THREE.SphereGeometry(1.5, 3, 2) // tiny low-poly sphere, shared
+    const starGroup = new THREE.Group()
 
-    // Seeded pseudo-random for consistent star field
     let seed = 12345
     const rand = () => { seed = (seed * 16807 + 0) % 2147483647; return seed / 2147483647 }
 
+    // Pre-create 3 star materials (color variants × visibility)
+    const starMats = [
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(starVisibility, starVisibility, starVisibility) }),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(starVisibility * 0.8, starVisibility * 0.85, starVisibility) }),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(starVisibility, starVisibility * 0.9, starVisibility * 0.7) }),
+    ]
+
     for (let i = 0; i < starCount; i++) {
-      // Distribute on upper hemisphere
       const theta = rand() * Math.PI * 2
-      const phi = rand() * Math.PI * 0.45 + 0.05 // 5° to 50° above horizon
+      const phi = rand() * Math.PI * 0.45 + 0.05
       const r = 750
-      starPositions[i * 3] = r * Math.cos(phi) * Math.cos(theta)
-      starPositions[i * 3 + 1] = r * Math.sin(phi)
-      starPositions[i * 3 + 2] = r * Math.cos(phi) * Math.sin(theta)
+      const x = r * Math.cos(phi) * Math.cos(theta)
+      const y = r * Math.sin(phi)
+      const z = r * Math.cos(phi) * Math.sin(theta)
 
-      // Vary star sizes - a few bright ones, many dim
-      const brightness = rand()
-      starSizes[i] = brightness > 0.92 ? 3.5 : brightness > 0.7 ? 2.0 : 1.2
-
-      // Vary star colors: white, blue-white, warm yellow
-      const colorRoll = rand()
-      if (colorRoll > 0.85) {
-        // Warm star
-        starColors[i * 3] = 1.0; starColors[i * 3 + 1] = 0.9; starColors[i * 3 + 2] = 0.7
-      } else if (colorRoll > 0.6) {
-        // Blue-white star
-        starColors[i * 3] = 0.8; starColors[i * 3 + 1] = 0.85; starColors[i * 3 + 2] = 1.0
-      } else {
-        // White star
-        starColors[i * 3] = 1.0; starColors[i * 3 + 1] = 1.0; starColors[i * 3 + 2] = 1.0
-      }
-
-      // Apply visibility fade
-      starColors[i * 3] *= starVisibility
-      starColors[i * 3 + 1] *= starVisibility
-      starColors[i * 3 + 2] *= starVisibility
+      const matIdx = Math.min(2, Math.floor(rand() * 3))
+      const star = new THREE.Mesh(starGeo, starMats[matIdx])
+      const scale = rand() > 0.9 ? 2.5 : rand() > 0.6 ? 1.5 : 1.0
+      star.scale.setScalar(scale)
+      star.position.set(x, y, z)
+      starGroup.add(star)
     }
-
-    const starGeo = new THREE.BufferGeometry()
-    starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3))
-    starGeo.setAttribute('size', new THREE.BufferAttribute(starSizes, 1))
-    starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3))
-
-    const starMat = new THREE.PointsMaterial({
-      size: 2.5,
-      sizeAttenuation: false,
-      vertexColors: true,
-      transparent: true,
-      depthWrite: false,
-    })
-    scene.add(new THREE.Points(starGeo, starMat))
+    scene.add(starGroup)
   }
 
-  // Clouds - layered flat planes at different heights (shared geometry + materials)
+  // Clouds — flat planes with shared geometry + materials (all MeshBasicMaterial)
   const weather = env.weather
   const wantClouds = weather === 'clear' || weather === 'fog' || weather === 'rain' || weather === 'storm'
   if (wantClouds) {
@@ -1935,10 +1887,7 @@ function buildSky(scene: THREE.Scene, env: EnvironmentState): void {
 
     const cloudGroup = new THREE.Group()
     const cloudColor = getCloudColor(t, weather)
-
-    // Shared unit geometry — scale per-mesh instead of per-geometry
     const unitGeo = new THREE.PlaneGeometry(1, 1)
-    // Pre-create opacity-bucketed materials (4 buckets to reduce material count)
     const opacityBuckets = [0.15, 0.25, 0.35, 0.5].map((o) =>
       new THREE.MeshBasicMaterial({
         color: cloudColor, transparent: true,

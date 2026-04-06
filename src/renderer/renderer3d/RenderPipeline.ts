@@ -25,53 +25,7 @@ const DEFAULT_OPTIONS: RenderOptions = {
   outlineThreshold: 80
 }
 
-// Cache the WebGL renderer — context creation is expensive under SwiftShader
-let _cachedRenderer: THREE.WebGLRenderer | null = null
-
-function getOrCreateRenderer(w: number, h: number): THREE.WebGLRenderer {
-  if (_cachedRenderer) {
-    // Check for lost context (SwiftShader can lose context under pressure)
-    const gl = _cachedRenderer.getContext()
-    if (gl.isContextLost()) {
-      _cachedRenderer.dispose()
-      _cachedRenderer = null
-    }
-  }
-  if (!_cachedRenderer) {
-    _cachedRenderer = new THREE.WebGLRenderer({
-      antialias: false,
-      preserveDrawingBuffer: true,
-      alpha: false
-    })
-    _cachedRenderer.outputColorSpace = THREE.SRGBColorSpace
-    _cachedRenderer.setPixelRatio(1)
-  }
-  _cachedRenderer.setSize(w, h)
-  return _cachedRenderer
-}
-
 export function renderPixelArt(
-  map: MapDocument,
-  camera: RenderCamera,
-  objectDefs: ObjectDefinition[],
-  options: Partial<RenderOptions> = {},
-  buildingPalettes?: BuildingPalette[] | null
-): RenderResult {
-  // Try render, retry once with fresh renderer if it fails
-  try {
-    return doRender(map, camera, objectDefs, options, buildingPalettes)
-  } catch (firstErr) {
-    console.warn('Render failed, retrying with fresh renderer:', firstErr)
-    // Dispose stale renderer and retry
-    if (_cachedRenderer) {
-      try { _cachedRenderer.dispose() } catch { /* ignore */ }
-      _cachedRenderer = null
-    }
-    return doRender(map, camera, objectDefs, options, buildingPalettes)
-  }
-}
-
-function doRender(
   map: MapDocument,
   camera: RenderCamera,
   objectDefs: ObjectDefinition[],
@@ -82,8 +36,20 @@ function doRender(
   const opts = { ...DEFAULT_OPTIONS, ...options }
   const { outputWidth, outputHeight } = camera
 
+  // Build scene
   const scene = buildScene(map, objectDefs)
-  const renderer = getOrCreateRenderer(outputWidth, outputHeight)
+
+  // Create renderer fresh each time. Do NOT cache — SwiftShader crashes when
+  // multiple WebGL contexts coexist (PixiJS already has one for the 2D editor).
+  // Creating and disposing per render is slower but stable.
+  const renderer = new THREE.WebGLRenderer({
+    antialias: false,
+    preserveDrawingBuffer: true,
+    alpha: false
+  })
+  renderer.setSize(outputWidth, outputHeight)
+  renderer.setPixelRatio(1)
+  renderer.outputColorSpace = THREE.SRGBColorSpace
 
   const cam = new THREE.PerspectiveCamera(camera.fov, outputWidth / outputHeight, 1, 10000)
   cam.position.set(
@@ -97,13 +63,34 @@ function doRender(
     camera.lookAtY * map.tileSize
   )
 
+  // Render and read pixels
   renderer.render(scene, cam)
 
   const gl = renderer.getContext()
   const pixels = new Uint8Array(outputWidth * outputHeight * 4)
   gl.readPixels(0, 0, outputWidth, outputHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
 
-  // Flip Y (WebGL reads bottom-up)
+  // Dispose renderer and scene immediately — free the WebGL context
+  renderer.dispose()
+  const disposedGeos = new Set<THREE.BufferGeometry>()
+  const disposedMats = new Set<THREE.Material>()
+  scene.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      if (!disposedGeos.has(obj.geometry)) {
+        disposedGeos.add(obj.geometry)
+        obj.geometry.dispose()
+      }
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
+      for (const m of mats) {
+        if (!disposedMats.has(m)) {
+          disposedMats.add(m)
+          m.dispose()
+        }
+      }
+    }
+  })
+
+  // Post-processing (CPU only — no WebGL needed)
   const flipped = new Uint8ClampedArray(outputWidth * outputHeight * 4)
   for (let y = 0; y < outputHeight; y++) {
     const srcRow = (outputHeight - 1 - y) * outputWidth * 4
@@ -128,25 +115,6 @@ function doRender(
   outputCanvas.height = outputHeight
   const ctx = outputCanvas.getContext('2d')!
   ctx.putImageData(imageData, 0, 0)
-
-  // Clean up scene resources (renderer is cached). Use Set to avoid double-disposing shared geometry.
-  const disposedGeos = new Set<THREE.BufferGeometry>()
-  const disposedMats = new Set<THREE.Material>()
-  scene.traverse((obj) => {
-    if (obj instanceof THREE.Mesh) {
-      if (!disposedGeos.has(obj.geometry)) {
-        disposedGeos.add(obj.geometry)
-        obj.geometry.dispose()
-      }
-      const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
-      for (const m of mats) {
-        if (!disposedMats.has(m)) {
-          disposedMats.add(m)
-          m.dispose()
-        }
-      }
-    }
-  })
 
   return {
     canvas: outputCanvas,
