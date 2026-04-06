@@ -39,15 +39,30 @@ export function renderPixelArt(
   // Build scene
   const scene = buildScene(map, objectDefs)
 
-  // Create renderer fresh each time. Do NOT cache — SwiftShader crashes when
-  // multiple WebGL contexts coexist (PixiJS already has one for the 2D editor).
-  // Creating and disposing per render is slower but stable.
-  const renderer = new THREE.WebGLRenderer({
+  // Create an explicit WebGL1 context on an offscreen canvas.
+  // Three.js v0.183 defaults to WebGL2 which crashes SwiftShader.
+  // By passing our own WebGL1 context, we bypass that entirely.
+  const offCanvas = document.createElement('canvas')
+  offCanvas.width = outputWidth
+  offCanvas.height = outputHeight
+  const gl = offCanvas.getContext('webgl', {
     antialias: false,
     preserveDrawingBuffer: true,
-    alpha: false
+    alpha: false,
+    depth: true,
+    stencil: false,
+  }) as WebGLRenderingContext | null
+
+  if (!gl) {
+    throw new Error('Failed to create WebGL1 context for 3D render')
+  }
+
+  const renderer = new THREE.WebGLRenderer({
+    canvas: offCanvas,
+    context: gl,
+    antialias: false,
   })
-  renderer.setSize(outputWidth, outputHeight)
+  renderer.setSize(outputWidth, outputHeight, false) // false = don't set CSS size
   renderer.setPixelRatio(1)
   renderer.outputColorSpace = THREE.SRGBColorSpace
 
@@ -66,12 +81,12 @@ export function renderPixelArt(
   // Render and read pixels
   renderer.render(scene, cam)
 
-  const gl = renderer.getContext()
   const pixels = new Uint8Array(outputWidth * outputHeight * 4)
   gl.readPixels(0, 0, outputWidth, outputHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
 
   // Dispose renderer and scene immediately — free the WebGL context
   renderer.dispose()
+  renderer.forceContextLoss()
   const disposedGeos = new Set<THREE.BufferGeometry>()
   const disposedMats = new Set<THREE.Material>()
   scene.traverse((obj) => {
