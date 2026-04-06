@@ -29,6 +29,14 @@ const DEFAULT_OPTIONS: RenderOptions = {
 let _cachedRenderer: THREE.WebGLRenderer | null = null
 
 function getOrCreateRenderer(w: number, h: number): THREE.WebGLRenderer {
+  if (_cachedRenderer) {
+    // Check for lost context (SwiftShader can lose context under pressure)
+    const gl = _cachedRenderer.getContext()
+    if (gl.isContextLost()) {
+      _cachedRenderer.dispose()
+      _cachedRenderer = null
+    }
+  }
   if (!_cachedRenderer) {
     _cachedRenderer = new THREE.WebGLRenderer({
       antialias: false,
@@ -49,18 +57,34 @@ export function renderPixelArt(
   options: Partial<RenderOptions> = {},
   buildingPalettes?: BuildingPalette[] | null
 ): RenderResult {
-  // Apply building palette overrides before building the scene
+  // Try render, retry once with fresh renderer if it fails
+  try {
+    return doRender(map, camera, objectDefs, options, buildingPalettes)
+  } catch (firstErr) {
+    console.warn('Render failed, retrying with fresh renderer:', firstErr)
+    // Dispose stale renderer and retry
+    if (_cachedRenderer) {
+      try { _cachedRenderer.dispose() } catch { /* ignore */ }
+      _cachedRenderer = null
+    }
+    return doRender(map, camera, objectDefs, options, buildingPalettes)
+  }
+}
+
+function doRender(
+  map: MapDocument,
+  camera: RenderCamera,
+  objectDefs: ObjectDefinition[],
+  options: Partial<RenderOptions> = {},
+  buildingPalettes?: BuildingPalette[] | null
+): RenderResult {
   setBuildingPaletteOverride(buildingPalettes || null)
   const opts = { ...DEFAULT_OPTIONS, ...options }
   const { outputWidth, outputHeight } = camera
 
-  // Build the 3D scene from map data
   const scene = buildScene(map, objectDefs)
-
-  // Reuse cached renderer (WebGL context creation is expensive under SwiftShader)
   const renderer = getOrCreateRenderer(outputWidth, outputHeight)
 
-  // Create camera from RenderCamera spec
   const cam = new THREE.PerspectiveCamera(camera.fov, outputWidth / outputHeight, 1, 10000)
   cam.position.set(
     camera.worldX * map.tileSize,
@@ -73,10 +97,8 @@ export function renderPixelArt(
     camera.lookAtY * map.tileSize
   )
 
-  // Render
   renderer.render(scene, cam)
 
-  // Read pixels
   const gl = renderer.getContext()
   const pixels = new Uint8Array(outputWidth * outputHeight * 4)
   gl.readPixels(0, 0, outputWidth, outputHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
@@ -91,38 +113,37 @@ export function renderPixelArt(
 
   let imageData = new ImageData(flipped, outputWidth, outputHeight)
 
-  // === PRE-QUANTIZATION PROCESSING ===
-
-  // A3: Color grading - warm shift for night scenes, purple-blue shadows
   applyColorGrading(imageData, map.environment.timeOfDay)
-
-  // A4: Bloom/glow approximation - soft halos around bright light sources
   applyBloom(imageData, outputWidth, outputHeight)
 
-  // Apply palette quantization
   const palette = PALETTES[opts.paletteId] || PALETTES['db32']
   imageData = quantizeImageData(imageData, palette, opts.dithering)
 
-  // Apply outlines
   if (opts.outlines) {
     imageData = applyOutlines(imageData)
   }
 
-  // Write to output canvas
   const outputCanvas = document.createElement('canvas')
   outputCanvas.width = outputWidth
   outputCanvas.height = outputHeight
   const ctx = outputCanvas.getContext('2d')!
   ctx.putImageData(imageData, 0, 0)
 
-  // Clean up Three.js scene resources (renderer is cached and reused)
+  // Clean up scene resources (renderer is cached). Use Set to avoid double-disposing shared geometry.
+  const disposedGeos = new Set<THREE.BufferGeometry>()
+  const disposedMats = new Set<THREE.Material>()
   scene.traverse((obj) => {
     if (obj instanceof THREE.Mesh) {
-      obj.geometry.dispose()
-      if (Array.isArray(obj.material)) {
-        obj.material.forEach((m) => m.dispose())
-      } else {
-        obj.material.dispose()
+      if (!disposedGeos.has(obj.geometry)) {
+        disposedGeos.add(obj.geometry)
+        obj.geometry.dispose()
+      }
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
+      for (const m of mats) {
+        if (!disposedMats.has(m)) {
+          disposedMats.add(m)
+          m.dispose()
+        }
       }
     }
   })

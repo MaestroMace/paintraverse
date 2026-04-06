@@ -1808,49 +1808,60 @@ function buildSky(scene: THREE.Scene, env: EnvironmentState): void {
   const isDawn = t >= 5 && t < 7
   const isDusk = t >= 17 && t < 19
 
-  // Sky dome - vertical gradient instead of flat color
+  // Sky dome - try gradient shader, fall back to flat color if shader compilation fails
   const skyGeo = new THREE.SphereGeometry(800, 16, 12)
-  const skyMat = new THREE.ShaderMaterial({
-    side: THREE.BackSide,
-    depthWrite: false,
-    uniforms: {
-      uTopColor: { value: new THREE.Color(getSkyTopColor(t)) },
-      uBottomColor: { value: new THREE.Color(getSkyBottomColor(t)) },
-      uHorizonColor: { value: new THREE.Color(getSkyHorizonColor(t)) },
-    },
-    vertexShader: `
-      precision mediump float;
-      varying vec3 vWorldPos;
-      void main() {
-        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      precision mediump float;
-      uniform vec3 uTopColor;
-      uniform vec3 uBottomColor;
-      uniform vec3 uHorizonColor;
-      varying vec3 vWorldPos;
-      void main() {
-        float h = normalize(vWorldPos).y;
-        vec3 col;
-        if (h > 0.0) {
-          // Above horizon: blend horizon → top
-          float t = clamp(h * 2.0, 0.0, 1.0);
-          col = mix(uHorizonColor, uTopColor, t * t);
-        } else {
-          // Below horizon: blend horizon → bottom (ground glow)
-          float t = clamp(-h * 4.0, 0.0, 1.0);
-          col = mix(uHorizonColor, uBottomColor, t);
+  const topColor = getSkyTopColor(t)
+  const horizonColor = getSkyHorizonColor(t)
+  const bottomColor = getSkyBottomColor(t)
+
+  let skyMat: THREE.Material
+  try {
+    const shaderMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      uniforms: {
+        uTopColor: { value: new THREE.Color(topColor) },
+        uBottomColor: { value: new THREE.Color(bottomColor) },
+        uHorizonColor: { value: new THREE.Color(horizonColor) },
+      },
+      vertexShader: `
+        precision mediump float;
+        varying vec3 vWorldPos;
+        void main() {
+          vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
-        gl_FragColor = vec4(col, 1.0);
-      }
-    `
-  })
+      `,
+      fragmentShader: `
+        precision mediump float;
+        uniform vec3 uTopColor;
+        uniform vec3 uBottomColor;
+        uniform vec3 uHorizonColor;
+        varying vec3 vWorldPos;
+        void main() {
+          float h = normalize(vWorldPos).y;
+          vec3 col;
+          if (h > 0.0) {
+            float t = clamp(h * 2.0, 0.0, 1.0);
+            col = mix(uHorizonColor, uTopColor, t * t);
+          } else {
+            float t = clamp(-h * 4.0, 0.0, 1.0);
+            col = mix(uHorizonColor, uBottomColor, t);
+          }
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `
+    })
+    skyMat = shaderMat
+  } catch {
+    // Shader compilation failed — fall back to flat MeshBasicMaterial
+    skyMat = new THREE.MeshBasicMaterial({
+      color: horizonColor, side: THREE.BackSide, depthWrite: false
+    })
+  }
+
   const skyDome = new THREE.Mesh(skyGeo, skyMat)
   scene.add(skyDome)
-  // Override the flat background - the dome handles it now
   scene.background = null
 
   // Stars - visible at night, dawn, and dusk
