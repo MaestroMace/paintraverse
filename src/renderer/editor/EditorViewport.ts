@@ -98,7 +98,11 @@ export class EditorViewport {
     this._renderScheduled = true
     requestAnimationFrame(() => {
       this._renderScheduled = false
-      this.app.render()
+      try {
+        this.app.render()
+      } catch (e) {
+        console.error('[viewport] app.render() CRASHED:', e)
+      }
     })
   }
 
@@ -226,25 +230,31 @@ export class EditorViewport {
   }
 
   updateFromMap(map: MapDocument, objectDefs: ObjectDefinition[]): void {
+    console.log('[viewport] grid update...')
     this.grid.update(map.gridWidth, map.gridHeight, map.tileSize)
 
     const terrainLayer = map.layers.find((l) => l.type === 'terrain')
     if (terrainLayer) {
+      console.log('[viewport] terrain update...')
       this.terrainLayer.update(terrainLayer, map.tileSize)
     }
 
     const structureLayer = map.layers.find((l) => l.type === 'structure')
     if (structureLayer) {
+      console.log('[viewport] structure update...', structureLayer.objects.length, 'objects')
       this.structureLayer.update(structureLayer, map.tileSize, objectDefs)
     }
 
     const propLayer = map.layers.find((l) => l.type === 'prop')
     if (propLayer) {
+      console.log('[viewport] prop update...', propLayer.objects.length, 'objects')
       this.propLayer.update(propLayer, map.tileSize, objectDefs)
     }
 
     this._objectBoundsCache = null
+    console.log('[viewport] requesting render...')
     this.requestRender()
+    console.log('[viewport] updateFromMap complete')
   }
 
   updateSelection(selectedIds: string[], hoveredId: string | null, tileSize: number): void {

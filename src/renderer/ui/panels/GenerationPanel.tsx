@@ -29,11 +29,22 @@ export function GenerationPanel() {
   const [lastSeed, setLastSeed] = useState<number | null>(null)
 
   const handleGenerate = () => {
-    const gen = getGenerator(config.mapType)
-    if (!gen) return
-    const map = gen.generate(config)
-    setMap(map)
-    setLastSeed(config.seed)
+    try {
+      console.log('[generate] starting generation...')
+      const gen = getGenerator(config.mapType)
+      if (!gen) return
+      console.log('[generate] calling gen.generate()...')
+      const map = gen.generate(config)
+      console.log('[generate] map created:', map.gridWidth, 'x', map.gridHeight,
+        'structures:', map.layers.find(l => l.type === 'structure')?.objects.length,
+        'props:', map.layers.find(l => l.type === 'prop')?.objects.length)
+      console.log('[generate] calling setMap()...')
+      setMap(map)
+      console.log('[generate] setMap() complete')
+      setLastSeed(config.seed)
+    } catch (e) {
+      console.error('[generate] CRASH:', e)
+    }
   }
 
   const handleRandomSeed = () => {
