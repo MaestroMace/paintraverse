@@ -1,4 +1,4 @@
-import { Container, Graphics, Text } from 'pixi.js'
+import { Container, Sprite, Texture } from 'pixi.js'
 import type { MapLayer, ObjectDefinition, PlacedObject } from '../../core/types'
 
 export interface ObjectBounds {
@@ -10,17 +10,17 @@ export interface ObjectBounds {
   height: number
 }
 
-interface CachedObject {
-  graphics: Graphics
-  label: Text
-  objSnapshot: string // JSON of the PlacedObject for dirty check
-}
-
+/**
+ * StructureLayer renders all buildings to a single Canvas2D texture.
+ * This avoids flooding SwiftShader with hundreds of PixiJS Graphics draw calls.
+ */
 export class StructureLayer {
   container: Container
-  private cache: Map<string, CachedObject> = new Map()
+  private sprite: Sprite | null = null
   private _layerId = ''
   private _defMap: Map<string, ObjectDefinition> = new Map()
+  private _bounds: ObjectBounds[] = []
+  private _lastSnap = ''
 
   constructor() {
     this.container = new Container()
@@ -28,128 +28,111 @@ export class StructureLayer {
 
   update(layer: MapLayer, tileSize: number, objectDefs: ObjectDefinition[]): void {
     this._layerId = layer.id
-
-    // Build def lookup map
     this._defMap.clear()
     for (const d of objectDefs) this._defMap.set(d.id, d)
 
-    // Diff: find added, removed, changed objects
-    const currentIds = new Set(layer.objects.map((o) => o.id))
-    const cachedIds = new Set(this.cache.keys())
+    // Quick dirty check: stringify object ids+positions
+    const snap = layer.objects.map(o => `${o.id}|${o.definitionId}|${o.x}|${o.y}`).join(';')
+    if (snap === this._lastSnap) return
+    this._lastSnap = snap
 
-    // Remove objects no longer present
-    for (const id of cachedIds) {
-      if (!currentIds.has(id)) {
-        const entry = this.cache.get(id)!
-        this.container.removeChild(entry.graphics)
-        this.container.removeChild(entry.label)
-        entry.graphics.destroy()
-        entry.label.destroy()
-        this.cache.delete(id)
-      }
+    this.rebuildAll(layer, tileSize)
+  }
+
+  private rebuildAll(layer: MapLayer, tileSize: number): void {
+    if (this.sprite) {
+      this.container.removeChild(this.sprite)
+      this.sprite.texture.destroy(true)
+      this.sprite.destroy()
+      this.sprite = null
     }
+    this._bounds = []
 
-    // Add or update objects
+    if (layer.objects.length === 0) return
+
+    // Find bounding box of all objects
+    let maxX = 0, maxY = 0
     for (const obj of layer.objects) {
-      const snap = `${obj.definitionId}|${obj.x}|${obj.y}|${obj.rotation}`
-      const existing = this.cache.get(obj.id)
+      const def = this._defMap.get(obj.definitionId)
+      if (!def) continue
+      maxX = Math.max(maxX, (obj.x + def.footprint.w) * tileSize)
+      maxY = Math.max(maxY, (obj.y + def.footprint.h) * tileSize)
+    }
+    if (maxX === 0 || maxY === 0) return
 
-      if (existing && existing.objSnapshot === snap) {
-        continue // unchanged, skip
-      }
+    const canvas = document.createElement('canvas')
+    canvas.width = maxX
+    canvas.height = maxY
+    const ctx = canvas.getContext('2d')!
 
-      // Remove old version if exists
-      if (existing) {
-        this.container.removeChild(existing.graphics)
-        this.container.removeChild(existing.label)
-        existing.graphics.destroy()
-        existing.label.destroy()
-      }
-
-      // Create new
+    for (const obj of layer.objects) {
       const def = this._defMap.get(obj.definitionId)
       if (!def) continue
 
-      const { graphics, label } = this.createObjectGraphics(obj, def, tileSize)
-      this.container.addChild(graphics)
-      this.container.addChild(label)
-      this.cache.set(obj.id, { graphics, label, objSnapshot: snap })
+      const x = obj.x * tileSize
+      const y = obj.y * tileSize
+      const w = def.footprint.w * tileSize
+      const h = def.footprint.h * tileSize
+      const color = def.color || '#808080'
+
+      // Building body
+      ctx.fillStyle = color
+      ctx.fillRect(x, y, w, h)
+
+      // Border
+      ctx.strokeStyle = darkenCSS(color, 0.3)
+      ctx.lineWidth = 2
+      ctx.strokeRect(x + 1, y + 1, w - 2, h - 2)
+
+      // Roof highlight
+      ctx.strokeStyle = lightenCSS(color, 0.2)
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(x + 2, y + 2)
+      ctx.lineTo(x + w - 2, y + 2)
+      ctx.stroke()
+
+      // Door
+      const doorW = Math.min(tileSize * 0.4, w * 0.3)
+      const doorH = Math.min(tileSize * 0.6, h * 0.4)
+      ctx.fillStyle = darkenCSS(color, 0.4)
+      ctx.fillRect(x + w / 2 - doorW / 2, y + h - doorH, doorW, doorH)
+
+      // Label
+      ctx.fillStyle = '#ffffff'
+      ctx.font = `${Math.min(11, tileSize * 0.35)}px monospace`
+      ctx.shadowColor = '#000000'
+      ctx.shadowOffsetX = 1
+      ctx.shadowOffsetY = 1
+      ctx.fillText(def.name, x + 3, y + Math.min(13, tileSize * 0.4))
+      ctx.shadowOffsetX = 0
+      ctx.shadowOffsetY = 0
+
+      this._bounds.push({ id: obj.id, layerId: this._layerId, x, y, width: w, height: h })
     }
-  }
 
-  private createObjectGraphics(
-    obj: PlacedObject, def: ObjectDefinition, tileSize: number
-  ): { graphics: Graphics; label: Text } {
-    const g = new Graphics()
-    const w = def.footprint.w * tileSize
-    const h = def.footprint.h * tileSize
-    const color = parseInt(def.color.replace('#', ''), 16)
-
-    // Building body with slight 3D effect
-    g.rect(0, 0, w, h)
-    g.fill(color)
-
-    // Darker border
-    g.setStrokeStyle({ width: 2, color: darkenHex(color, 0.3) })
-    g.rect(0, 0, w, h)
-    g.stroke()
-
-    // Roof highlight (top edge)
-    g.setStrokeStyle({ width: 1, color: lightenHex(color, 0.2) })
-    g.moveTo(1, 1)
-    g.lineTo(w - 1, 1)
-    g.stroke()
-
-    // Door indicator
-    const doorW = Math.min(tileSize * 0.4, w * 0.3)
-    const doorH = Math.min(tileSize * 0.6, h * 0.4)
-    g.rect(w / 2 - doorW / 2, h - doorH, doorW, doorH)
-    g.fill(darkenHex(color, 0.4))
-
-    g.x = obj.x * tileSize
-    g.y = obj.y * tileSize
-
-    const label = new Text({
-      text: def.name,
-      style: {
-        fontSize: Math.min(11, tileSize * 0.35),
-        fill: 0xffffff,
-        fontFamily: 'monospace',
-        dropShadow: { color: 0x000000, distance: 1, blur: 0 }
-      }
-    })
-    label.x = g.x + 3
-    label.y = g.y + 2
-
-    return { graphics: g, label }
+    const texture = Texture.from(canvas)
+    this.sprite = new Sprite(texture)
+    this.container.addChild(this.sprite)
   }
 
   getObjectBounds(): ObjectBounds[] {
-    const bounds: ObjectBounds[] = []
-    for (const [id, entry] of this.cache) {
-      bounds.push({
-        id,
-        layerId: this._layerId,
-        x: entry.graphics.x,
-        y: entry.graphics.y,
-        width: entry.graphics.width,
-        height: entry.graphics.height
-      })
-    }
-    return bounds
+    return this._bounds
   }
 }
 
-function darkenHex(color: number, amount: number): number {
-  const r = Math.max(0, ((color >> 16) & 0xff) * (1 - amount))
-  const g = Math.max(0, ((color >> 8) & 0xff) * (1 - amount))
-  const b = Math.max(0, (color & 0xff) * (1 - amount))
-  return (Math.floor(r) << 16) | (Math.floor(g) << 8) | Math.floor(b)
+function darkenCSS(hex: string, amount: number): string {
+  const c = parseInt(hex.replace('#', ''), 16)
+  const r = Math.max(0, Math.floor(((c >> 16) & 0xff) * (1 - amount)))
+  const g = Math.max(0, Math.floor(((c >> 8) & 0xff) * (1 - amount)))
+  const b = Math.max(0, Math.floor((c & 0xff) * (1 - amount)))
+  return '#' + r.toString(16).padStart(2, '0') + g.toString(16).padStart(2, '0') + b.toString(16).padStart(2, '0')
 }
 
-function lightenHex(color: number, amount: number): number {
-  const r = Math.min(255, ((color >> 16) & 0xff) * (1 + amount))
-  const g = Math.min(255, ((color >> 8) & 0xff) * (1 + amount))
-  const b = Math.min(255, (color & 0xff) * (1 + amount))
-  return (Math.floor(r) << 16) | (Math.floor(g) << 8) | Math.floor(b)
+function lightenCSS(hex: string, amount: number): string {
+  const c = parseInt(hex.replace('#', ''), 16)
+  const r = Math.min(255, Math.floor(((c >> 16) & 0xff) * (1 + amount)))
+  const g = Math.min(255, Math.floor(((c >> 8) & 0xff) * (1 + amount)))
+  const b = Math.min(255, Math.floor((c & 0xff) * (1 + amount)))
+  return '#' + r.toString(16).padStart(2, '0') + g.toString(16).padStart(2, '0') + b.toString(16).padStart(2, '0')
 }

@@ -1,4 +1,4 @@
-import { Container, Graphics } from 'pixi.js'
+import { Container, Sprite, Texture } from 'pixi.js'
 import type { MapLayer } from '../../core/types'
 
 // Terrain tile colors
@@ -28,12 +28,20 @@ export const TERRAIN_NAMES: Record<number, string> = {
   9: 'Dark Cobble'
 }
 
-const CHUNK_SIZE = 16
+function hexToRGB(hex: number): string {
+  return '#' + ((hex >> 16) & 0xff).toString(16).padStart(2, '0')
+    + ((hex >> 8) & 0xff).toString(16).padStart(2, '0')
+    + (hex & 0xff).toString(16).padStart(2, '0')
+}
 
+/**
+ * TerrainLayer renders the entire terrain as a single Sprite with a Canvas2D-generated texture.
+ * This avoids flooding PixiJS/SwiftShader with thousands of Graphics draw calls.
+ * A 48x48 map at 32px tiles = one 1536x1536 Canvas2D image → one PixiJS Sprite.
+ */
 export class TerrainLayer {
   container: Container
-  private chunks: Map<string, Graphics> = new Map()
-  private dirtyChunks: Set<string> = new Set()
+  private sprite: Sprite | null = null
   private lastTiles: number[][] | null = null
   private lastTileSize = 0
 
@@ -41,7 +49,6 @@ export class TerrainLayer {
     this.container = new Container()
   }
 
-  // setApp no longer needed — we don't use RenderTexture
   setApp(_app: unknown): void { /* no-op for API compatibility */ }
 
   update(layer: MapLayer, tileSize: number): void {
@@ -51,6 +58,7 @@ export class TerrainLayer {
     const gridH = tiles.length
     const gridW = gridH > 0 ? tiles[0].length : 0
 
+    // Full rebuild if tileSize changed or first load
     if (tileSize !== this.lastTileSize || !this.lastTiles) {
       this.rebuildAll(tiles, tileSize, gridW, gridH)
       this.lastTiles = tiles
@@ -58,80 +66,59 @@ export class TerrainLayer {
       return
     }
 
-    // Fast diff: only check rows whose reference changed
-    for (let y = 0; y < gridH; y++) {
+    // Incremental: check if any tiles changed
+    let dirty = false
+    for (let y = 0; y < gridH && !dirty; y++) {
       if (tiles[y] !== this.lastTiles[y]) {
         for (let x = 0; x < gridW; x++) {
           if (tiles[y][x] !== this.lastTiles[y][x]) {
-            const ck = `${Math.floor(x / CHUNK_SIZE)},${Math.floor(y / CHUNK_SIZE)}`
-            this.dirtyChunks.add(ck)
+            dirty = true
+            break
           }
         }
       }
     }
 
-    for (const ck of this.dirtyChunks) {
-      const [cx, cy] = ck.split(',').map(Number)
-      this.renderChunk(cx, cy, tiles, tileSize, gridW, gridH)
+    if (dirty) {
+      this.rebuildAll(tiles, tileSize, gridW, gridH)
     }
-    this.dirtyChunks.clear()
 
     this.lastTiles = tiles
   }
 
   private rebuildAll(tiles: number[][], tileSize: number, gridW: number, gridH: number): void {
-    for (const g of this.chunks.values()) {
-      this.container.removeChild(g)
-      g.destroy()
+    // Remove old sprite
+    if (this.sprite) {
+      this.container.removeChild(this.sprite)
+      this.sprite.texture.destroy(true)
+      this.sprite.destroy()
+      this.sprite = null
     }
-    this.chunks.clear()
 
-    const chunksX = Math.ceil(gridW / CHUNK_SIZE)
-    const chunksY = Math.ceil(gridH / CHUNK_SIZE)
+    if (gridW === 0 || gridH === 0) return
 
-    for (let cy = 0; cy < chunksY; cy++) {
-      for (let cx = 0; cx < chunksX; cx++) {
-        this.renderChunk(cx, cy, tiles, tileSize, gridW, gridH)
-      }
-    }
-  }
+    // Draw terrain to an offscreen Canvas2D (pure CPU, no WebGL)
+    const canvas = document.createElement('canvas')
+    canvas.width = gridW * tileSize
+    canvas.height = gridH * tileSize
+    const ctx = canvas.getContext('2d')!
 
-  private renderChunk(
-    cx: number, cy: number,
-    tiles: number[][], tileSize: number,
-    gridW: number, gridH: number
-  ): void {
-    const key = `${cx},${cy}`
-    const startX = cx * CHUNK_SIZE
-    const startY = cy * CHUNK_SIZE
-    const endX = Math.min(startX + CHUNK_SIZE, gridW)
-    const endY = Math.min(startY + CHUNK_SIZE, gridH)
-
-    // Draw tiles directly as Graphics — no RenderTexture needed.
-    // RenderTexture calls PixiJS's WebGL renderer.render() which crashes
-    // SwiftShader when many chunks are created at once (e.g. map generation).
-    const g = new Graphics()
-    for (let y = startY; y < endY; y++) {
-      for (let x = startX; x < endX; x++) {
+    for (let y = 0; y < gridH; y++) {
+      for (let x = 0; x < gridW; x++) {
         const tileId = tiles[y]?.[x] ?? 0
         const color = TERRAIN_COLORS[tileId] ?? TERRAIN_COLORS[0]
-        g.rect(x * tileSize, y * tileSize, tileSize, tileSize)
-        g.fill(color)
+        ctx.fillStyle = hexToRGB(color)
+        ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize)
       }
     }
 
-    // Replace or create chunk
-    const existing = this.chunks.get(key)
-    if (existing) {
-      this.container.removeChild(existing)
-      existing.destroy()
-    }
-    this.container.addChild(g)
-    this.chunks.set(key, g)
+    // Create PixiJS texture from the canvas (uploads as a single GPU texture)
+    const texture = Texture.from(canvas)
+    this.sprite = new Sprite(texture)
+    this.container.addChild(this.sprite)
   }
 
-  markTileDirty(tileX: number, tileY: number): void {
-    const ck = `${Math.floor(tileX / CHUNK_SIZE)},${Math.floor(tileY / CHUNK_SIZE)}`
-    this.dirtyChunks.add(ck)
+  markTileDirty(_tileX: number, _tileY: number): void {
+    // Next update() call will detect the change via reference diff
   }
 }

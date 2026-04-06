@@ -1,18 +1,18 @@
-import { Container, Graphics, Text } from 'pixi.js'
+import { Container, Sprite, Texture } from 'pixi.js'
 import type { MapLayer, ObjectDefinition, PlacedObject } from '../../core/types'
 import type { ObjectBounds } from './StructureLayer'
 
-interface CachedProp {
-  graphics: Graphics
-  label: Text
-  objSnapshot: string
-}
-
+/**
+ * PropLayer renders all props to a single Canvas2D texture.
+ * Same approach as StructureLayer — avoids SwiftShader crash from too many draw calls.
+ */
 export class PropLayer {
   container: Container
-  private cache: Map<string, CachedProp> = new Map()
+  private sprite: Sprite | null = null
   private _layerId = ''
   private _defMap: Map<string, ObjectDefinition> = new Map()
+  private _bounds: ObjectBounds[] = []
+  private _lastSnap = ''
 
   constructor() {
     this.container = new Container()
@@ -20,122 +20,138 @@ export class PropLayer {
 
   update(layer: MapLayer, tileSize: number, objectDefs: ObjectDefinition[]): void {
     this._layerId = layer.id
-
     this._defMap.clear()
     for (const d of objectDefs) this._defMap.set(d.id, d)
 
-    const currentIds = new Set(layer.objects.map((o) => o.id))
-    const cachedIds = new Set(this.cache.keys())
+    const snap = layer.objects.map(o => `${o.id}|${o.definitionId}|${o.x}|${o.y}`).join(';')
+    if (snap === this._lastSnap) return
+    this._lastSnap = snap
 
-    // Remove deleted
-    for (const id of cachedIds) {
-      if (!currentIds.has(id)) {
-        const entry = this.cache.get(id)!
-        this.container.removeChild(entry.graphics)
-        this.container.removeChild(entry.label)
-        entry.graphics.destroy()
-        entry.label.destroy()
-        this.cache.delete(id)
-      }
+    this.rebuildAll(layer, tileSize)
+  }
+
+  private rebuildAll(layer: MapLayer, tileSize: number): void {
+    if (this.sprite) {
+      this.container.removeChild(this.sprite)
+      this.sprite.texture.destroy(true)
+      this.sprite.destroy()
+      this.sprite = null
     }
+    this._bounds = []
 
-    // Add or update
+    if (layer.objects.length === 0) return
+
+    let maxX = 0, maxY = 0
     for (const obj of layer.objects) {
-      const snap = `${obj.definitionId}|${obj.x}|${obj.y}|${obj.rotation}`
-      const existing = this.cache.get(obj.id)
+      const def = this._defMap.get(obj.definitionId)
+      if (!def) continue
+      maxX = Math.max(maxX, (obj.x + def.footprint.w) * tileSize)
+      maxY = Math.max(maxY, (obj.y + def.footprint.h) * tileSize)
+    }
+    if (maxX === 0 || maxY === 0) return
 
-      if (existing && existing.objSnapshot === snap) continue
+    const canvas = document.createElement('canvas')
+    canvas.width = maxX
+    canvas.height = maxY
+    const ctx = canvas.getContext('2d')!
 
-      if (existing) {
-        this.container.removeChild(existing.graphics)
-        this.container.removeChild(existing.label)
-        existing.graphics.destroy()
-        existing.label.destroy()
-      }
-
+    for (const obj of layer.objects) {
       const def = this._defMap.get(obj.definitionId)
       if (!def) continue
 
-      const { graphics, label } = this.createPropGraphics(obj, def, tileSize)
-      this.container.addChild(graphics)
-      this.container.addChild(label)
-      this.cache.set(obj.id, { graphics, label, objSnapshot: snap })
-    }
-  }
+      const px = obj.x * tileSize
+      const py = obj.y * tileSize
+      const w = def.footprint.w * tileSize
+      const h = def.footprint.h * tileSize
+      const color = def.color || '#808080'
 
-  private createPropGraphics(
-    obj: PlacedObject, def: ObjectDefinition, tileSize: number
-  ): { graphics: Graphics; label: Text } {
-    const g = new Graphics()
-    const w = def.footprint.w * tileSize
-    const h = def.footprint.h * tileSize
-    const color = parseInt(def.color.replace('#', ''), 16)
+      if (def.footprint.w === 1 && def.footprint.h === 1) {
+        const cx = px + tileSize / 2
+        const cy = py + tileSize / 2
+        const r = tileSize * 0.32
 
-    if (def.footprint.w === 1 && def.footprint.h === 1) {
-      // Small props: draw as diamond/circle with shadow
-      const cx = tileSize / 2
-      const cy = tileSize / 2
-      const radius = tileSize * 0.32
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.2)'
+        ctx.beginPath()
+        ctx.arc(cx + 1, cy + 1, r, 0, Math.PI * 2)
+        ctx.fill()
 
-      // Shadow
-      g.circle(cx + 1, cy + 1, radius)
-      g.fill({ color: 0x000000, alpha: 0.2 })
+        // Body
+        ctx.fillStyle = color
+        ctx.beginPath()
+        ctx.arc(cx, cy, r, 0, Math.PI * 2)
+        ctx.fill()
 
-      // Body
-      g.circle(cx, cy, radius)
-      g.fill(color)
-      g.setStrokeStyle({ width: 1, color: darkenColor(color, 0.3) })
-      g.circle(cx, cy, radius)
-      g.stroke()
-    } else {
-      // Larger props: rounded rectangle with shadow
-      g.roundRect(3, 3, w - 4, h - 4, 4)
-      g.fill({ color: 0x000000, alpha: 0.15 })
-      g.roundRect(2, 2, w - 4, h - 4, 4)
-      g.fill(color)
-      g.setStrokeStyle({ width: 1, color: darkenColor(color, 0.3) })
-      g.roundRect(2, 2, w - 4, h - 4, 4)
-      g.stroke()
-    }
+        ctx.strokeStyle = darkenCSS(color, 0.3)
+        ctx.lineWidth = 1
+        ctx.stroke()
 
-    g.x = obj.x * tileSize
-    g.y = obj.y * tileSize
+        // Label (first letter)
+        ctx.fillStyle = '#ffffff'
+        ctx.font = `${Math.min(9, tileSize * 0.3)}px monospace`
+        ctx.shadowColor = '#000000'
+        ctx.shadowOffsetX = 1
+        ctx.shadowOffsetY = 1
+        ctx.fillText(def.name[0], px + tileSize * 0.33, py + tileSize * 0.55)
+        ctx.shadowOffsetX = 0
+        ctx.shadowOffsetY = 0
+      } else {
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.15)'
+        roundRect(ctx, px + 3, py + 3, w - 4, h - 4, 4)
+        ctx.fill()
 
-    const isSmall = def.footprint.w === 1 && def.footprint.h === 1
-    const label = new Text({
-      text: isSmall ? def.name[0] : def.name,
-      style: {
-        fontSize: Math.min(isSmall ? 9 : 10, tileSize * 0.3),
-        fill: 0xffffff,
-        fontFamily: 'monospace',
-        dropShadow: { color: 0x000000, distance: 1, blur: 0 }
+        // Body
+        ctx.fillStyle = color
+        roundRect(ctx, px + 2, py + 2, w - 4, h - 4, 4)
+        ctx.fill()
+
+        ctx.strokeStyle = darkenCSS(color, 0.3)
+        ctx.lineWidth = 1
+        ctx.stroke()
+
+        // Label
+        ctx.fillStyle = '#ffffff'
+        ctx.font = `${Math.min(10, tileSize * 0.3)}px monospace`
+        ctx.shadowColor = '#000000'
+        ctx.shadowOffsetX = 1
+        ctx.shadowOffsetY = 1
+        ctx.fillText(def.name, px + 3, py + Math.min(12, tileSize * 0.35))
+        ctx.shadowOffsetX = 0
+        ctx.shadowOffsetY = 0
       }
-    })
-    label.x = g.x + (isSmall ? tileSize * 0.33 : 3)
-    label.y = g.y + (isSmall ? tileSize * 0.33 : 2)
 
-    return { graphics: g, label }
+      this._bounds.push({ id: obj.id, layerId: this._layerId, x: px, y: py, width: w, height: h })
+    }
+
+    const texture = Texture.from(canvas)
+    this.sprite = new Sprite(texture)
+    this.container.addChild(this.sprite)
   }
 
   getObjectBounds(): ObjectBounds[] {
-    const bounds: ObjectBounds[] = []
-    for (const [id, entry] of this.cache) {
-      bounds.push({
-        id,
-        layerId: this._layerId,
-        x: entry.graphics.x,
-        y: entry.graphics.y,
-        width: entry.graphics.width,
-        height: entry.graphics.height
-      })
-    }
-    return bounds
+    return this._bounds
   }
 }
 
-function darkenColor(color: number, amount: number): number {
-  const r = Math.max(0, ((color >> 16) & 0xff) * (1 - amount))
-  const g = Math.max(0, ((color >> 8) & 0xff) * (1 - amount))
-  const b = Math.max(0, (color & 0xff) * (1 - amount))
-  return (Math.floor(r) << 16) | (Math.floor(g) << 8) | Math.floor(b)
+function darkenCSS(hex: string, amount: number): string {
+  const c = parseInt(hex.replace('#', ''), 16)
+  const r = Math.max(0, Math.floor(((c >> 16) & 0xff) * (1 - amount)))
+  const g = Math.max(0, Math.floor(((c >> 8) & 0xff) * (1 - amount)))
+  const b = Math.max(0, Math.floor((c & 0xff) * (1 - amount)))
+  return '#' + r.toString(16).padStart(2, '0') + g.toString(16).padStart(2, '0') + b.toString(16).padStart(2, '0')
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.lineTo(x + w - r, y)
+  ctx.arcTo(x + w, y, x + w, y + r, r)
+  ctx.lineTo(x + w, y + h - r)
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
+  ctx.lineTo(x + r, y + h)
+  ctx.arcTo(x, y + h, x, y + h - r, r)
+  ctx.lineTo(x, y + r)
+  ctx.arcTo(x, y, x + r, y, r)
+  ctx.closePath()
 }
