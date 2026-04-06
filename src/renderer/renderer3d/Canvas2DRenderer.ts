@@ -378,20 +378,20 @@ function addPropDrawables(
 // ── View matrix (camera look-at) ──
 
 function buildViewMatrix(eye: Vec3, target: Vec3): number[] {
-  // Forward direction (camera looks along -Z in camera space)
+  // Forward direction
   let fx = target.x - eye.x, fy = target.y - eye.y, fz = target.z - eye.z
   const fLen = Math.sqrt(fx * fx + fy * fy + fz * fz) || 1
   fx /= fLen; fy /= fLen; fz /= fLen
 
-  // Right = forward × up (up = 0,1,0)
-  let rx = fy * 0 - fz * 1 // simplified cross with (0,1,0)... wait
-  // cross(forward, up) where up = (0,1,0)
-  rx = fz; const ry = 0; let rz = -fx
+  // Right = forward × up, where up = (0, 1, 0)
+  // cross(f, u) = (fy*0 - fz*1, fz*0 - fx*0, fx*1 - fy*0) = (-fz, 0, fx)
+  let rx = -fz, rz = fx
   const rLen = Math.sqrt(rx * rx + rz * rz) || 1
   rx /= rLen; rz /= rLen
+  const ry = 0
 
   // True up = right × forward
-  const ux = ry * fz - rz * fy // simplified since ry=0
+  const ux = ry * fz - rz * fy
   const uy = rz * fx - rx * fz
   const uz = rx * fy - ry * fx
 
@@ -399,7 +399,7 @@ function buildViewMatrix(eye: Vec3, target: Vec3): number[] {
   return [
     rx, ry, rz,   // right
     ux, uy, uz,   // up
-    -fx, -fy, -fz // forward (negated because camera looks along -Z)
+    -fx, -fy, -fz // forward (negated — camera looks along -Z)
   ]
 }
 
