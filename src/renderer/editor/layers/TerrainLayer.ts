@@ -58,17 +58,19 @@ export class TerrainLayer {
     // If tileSize changed or first load, mark everything dirty
     if (tileSize !== this.lastTileSize || !this.lastTiles) {
       this.rebuildAll(tiles, tileSize, gridW, gridH)
-      this.lastTiles = tiles.map((r) => [...r])
+      this.lastTiles = tiles
       this.lastTileSize = tileSize
       return
     }
 
-    // Diff against last tiles - only mark changed chunks dirty
+    // Fast diff: only check rows whose reference changed (store only clones changed rows)
     for (let y = 0; y < gridH; y++) {
-      for (let x = 0; x < gridW; x++) {
-        if (tiles[y][x] !== this.lastTiles[y]?.[x]) {
-          const ck = `${Math.floor(x / CHUNK_SIZE)},${Math.floor(y / CHUNK_SIZE)}`
-          this.dirtyChunks.add(ck)
+      if (tiles[y] !== this.lastTiles[y]) {
+        for (let x = 0; x < gridW; x++) {
+          if (tiles[y][x] !== this.lastTiles[y][x]) {
+            const ck = `${Math.floor(x / CHUNK_SIZE)},${Math.floor(y / CHUNK_SIZE)}`
+            this.dirtyChunks.add(ck)
+          }
         }
       }
     }
@@ -80,8 +82,8 @@ export class TerrainLayer {
     }
     this.dirtyChunks.clear()
 
-    // Update cache
-    this.lastTiles = tiles.map((r) => [...r])
+    // Store reference (no cloning needed — store creates new row arrays for changes)
+    this.lastTiles = tiles
   }
 
   private rebuildAll(tiles: number[][], tileSize: number, gridW: number, gridH: number): void {

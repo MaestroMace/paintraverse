@@ -22,6 +22,10 @@ export class EditorViewport {
   private _lastPanX = 0
   private _lastPanY = 0
   private _spaceHeld = false
+  private _renderScheduled = false
+  private _lastHoverTileX = -1
+  private _lastHoverTileY = -1
+  private _objectBoundsCache: ReturnType<EditorViewport['getAllObjects']> | null = null
 
   // Callbacks
   onTileClick?: (tileX: number, tileY: number, event: FederatedPointerEvent) => void
@@ -60,7 +64,8 @@ export class EditorViewport {
       autoDensity: true,
       preferWebGLVersion: 1,
       preference: 'webgl',
-      hello: false
+      hello: false,
+      autoStart: false
     })
 
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -81,6 +86,17 @@ export class EditorViewport {
 
     this.setupInteraction()
     this.centerView(32, 32, 32)
+    this.requestRender()
+  }
+
+  /** Coalesce render requests — at most one render per animation frame */
+  requestRender(): void {
+    if (this._renderScheduled) return
+    this._renderScheduled = true
+    requestAnimationFrame(() => {
+      this._renderScheduled = false
+      this.app.render()
+    })
   }
 
   centerView(gridWidth: number, gridHeight: number, tileSize: number): void {
@@ -121,8 +137,12 @@ export class EditorViewport {
 
       const tile = this.screenToTile(e.globalX, e.globalY)
 
-      // Always fire hover for preview feedback
-      this.onTileHover?.(tile.x, tile.y, e)
+      // Only fire hover when tile coordinate changes (not every pixel)
+      if (tile.x !== this._lastHoverTileX || tile.y !== this._lastHoverTileY) {
+        this._lastHoverTileX = tile.x
+        this._lastHoverTileY = tile.y
+        this.onTileHover?.(tile.x, tile.y, e)
+      }
 
       // Drag support for tools
       if (e.buttons === 1 && !this._spaceHeld) {
@@ -181,6 +201,7 @@ export class EditorViewport {
     this.worldContainer.x = this._panX
     this.worldContainer.y = this._panY
     this.worldContainer.scale.set(this._zoom)
+    this.requestRender()
   }
 
   screenToTile(screenX: number, screenY: number): { x: number; y: number } {
@@ -217,17 +238,24 @@ export class EditorViewport {
     if (propLayer) {
       this.propLayer.update(propLayer, map.tileSize, objectDefs)
     }
+
+    this._objectBoundsCache = null
+    this.requestRender()
   }
 
   updateSelection(selectedIds: string[], hoveredId: string | null, tileSize: number): void {
     this.overlayLayer.updateSelection(selectedIds, hoveredId, tileSize, this.getAllObjects())
+    this.requestRender()
   }
 
   getAllObjects() {
-    return [
-      ...this.structureLayer.getObjectBounds(),
-      ...this.propLayer.getObjectBounds()
-    ]
+    if (!this._objectBoundsCache) {
+      this._objectBoundsCache = [
+        ...this.structureLayer.getObjectBounds(),
+        ...this.propLayer.getObjectBounds()
+      ]
+    }
+    return this._objectBoundsCache
   }
 
   updateLayerVisibility(layers: MapDocument['layers']): void {
@@ -244,10 +272,12 @@ export class EditorViewport {
           break
       }
     }
+    this.requestRender()
   }
 
   resize(): void {
     this.app.resize()
+    this.requestRender()
   }
 
   destroy(): void {

@@ -2,16 +2,13 @@ import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync } from 'fs'
 
-// GPU/rendering: route through ANGLE→SwiftShader (software GL) and skip Vulkan
-// DO NOT use --disable-gpu: it kills SwiftShader too since it runs as a GPU process
-// DO NOT use --single-process: GPU crashes take down the window
+// GPU/rendering: use native GL via ANGLE, disable Vulkan (incomplete on Ivy Bridge)
 app.commandLine.appendSwitch('no-sandbox')
 app.commandLine.appendSwitch('disable-gpu-sandbox')
 app.commandLine.appendSwitch('in-process-gpu')
 app.commandLine.appendSwitch('disable-vulkan')
 app.commandLine.appendSwitch('use-gl', 'angle')
-app.commandLine.appendSwitch('use-angle', 'swiftshader')
-app.commandLine.appendSwitch('enable-unsafe-swiftshader')
+app.commandLine.appendSwitch('use-angle', 'gl')
 app.commandLine.appendSwitch('disable-dev-shm-usage')
 
 let mainWindow: BrowserWindow | null = null

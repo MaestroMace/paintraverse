@@ -660,21 +660,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       dirty: true
     })),
 
-  // Terrain operations
+  // Terrain operations — only clone the changed row, skip no-ops
   paintTerrain: (layerId, x, y, tileId) =>
-    set((state) => ({
-      map: {
-        ...state.map,
-        layers: state.map.layers.map((l) => {
-          if (l.id !== layerId || !l.terrainTiles) return l
-          const newTiles = l.terrainTiles.map((row, ry) =>
-            ry === y ? row.map((t, rx) => (rx === x ? tileId : t)) : row
-          )
-          return { ...l, terrainTiles: newTiles }
-        })
-      },
-      dirty: true
-    })),
+    set((state) => {
+      const layers = state.map.layers.map((l) => {
+        if (l.id !== layerId || !l.terrainTiles) return l
+        if (l.terrainTiles[y]?.[x] === tileId) return l // no-op: already this tile
+        const newRow = [...l.terrainTiles[y]]
+        newRow[x] = tileId
+        const newTiles = [...l.terrainTiles]
+        newTiles[y] = newRow
+        return { ...l, terrainTiles: newTiles }
+      })
+      if (layers === state.map.layers) return state // nothing changed
+      return { map: { ...state.map, layers }, dirty: true }
+    }),
 
   // Selection
   setSelectedObjectIds: (ids) => set({ selectedObjectIds: ids }),

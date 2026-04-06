@@ -1915,7 +1915,7 @@ function buildSky(scene: THREE.Scene, env: EnvironmentState): void {
   const wantClouds = weather === 'clear' || weather === 'fog' || weather === 'rain' || weather === 'storm'
   if (wantClouds) {
     const cloudDensity = weather === 'clear' ? 0.3 : weather === 'fog' ? 0.7 : 0.9
-    const cloudCount = Math.floor(8 + cloudDensity * 16)
+    const cloudCount = Math.floor(4 + cloudDensity * 8)
 
     let cseed = 54321
     const crand = () => { cseed = (cseed * 16807 + 0) % 2147483647; return cseed / 2147483647 }

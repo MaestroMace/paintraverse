@@ -130,14 +130,20 @@ export function EditorCanvas() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update map rendering when data changes
+  // Update map rendering when map data changes (not on hover)
   useEffect(() => {
     const vp = viewportRef.current
     if (!vp || initError) return
     vp.updateFromMap(map, objectDefinitions)
     vp.updateLayerVisibility(map.layers)
+  }, [map, objectDefinitions, initError]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update selection/hover overlay only (lightweight)
+  useEffect(() => {
+    const vp = viewportRef.current
+    if (!vp || initError) return
     vp.updateSelection(selectedObjectIds, hoveredObjectId, map.tileSize)
-  }, [map, objectDefinitions, selectedObjectIds, hoveredObjectId, initError])
+  }, [selectedObjectIds, hoveredObjectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Switch tools
   useEffect(() => {
