@@ -27,23 +27,21 @@ export function GenerationPanel() {
   })
 
   const [lastSeed, setLastSeed] = useState<number | null>(null)
+  const [genError, setGenError] = useState<string | null>(null)
 
   const handleGenerate = () => {
+    setGenError(null)
     try {
-      console.log('[generate] starting generation...')
       const gen = getGenerator(config.mapType)
-      if (!gen) return
-      console.log('[generate] calling gen.generate()...')
+      if (!gen) {
+        setGenError('No generator found for type: ' + config.mapType)
+        return
+      }
       const map = gen.generate(config)
-      console.log('[generate] map created:', map.gridWidth, 'x', map.gridHeight,
-        'structures:', map.layers.find(l => l.type === 'structure')?.objects.length,
-        'props:', map.layers.find(l => l.type === 'prop')?.objects.length)
-      console.log('[generate] calling setMap()...')
       setMap(map)
-      console.log('[generate] setMap() complete')
       setLastSeed(config.seed)
     } catch (e) {
-      console.error('[generate] CRASH:', e)
+      setGenError(String(e))
     }
   }
 
@@ -186,7 +184,12 @@ export function GenerationPanel() {
                 </button>
               </div>
 
-              {lastSeed !== null && (
+              {genError && (
+                <div style={{ fontSize: 11, color: '#d95763', marginTop: 4, wordBreak: 'break-word' }}>
+                  {genError}
+                </div>
+              )}
+              {lastSeed !== null && !genError && (
                 <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4, textAlign: 'center' }}>
                   Last seed: {lastSeed}
                 </div>

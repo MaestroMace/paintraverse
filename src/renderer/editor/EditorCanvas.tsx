@@ -141,15 +141,9 @@ export function EditorCanvas() {
   useEffect(() => {
     const vp = viewportRef.current
     if (!vp || initError) return
-    try {
-      console.log('[canvas] updateFromMap starting...', map.gridWidth, 'x', map.gridHeight)
-      vp.updateFromMap(map, objectDefinitions)
-      console.log('[canvas] updateFromMap done, updating visibility...')
-      vp.updateLayerVisibility(map.layers)
-      console.log('[canvas] all updates complete')
-    } catch (e) {
-      console.error('[canvas] CRASH in updateFromMap:', e)
-    }
+    vp.updateFromMap(map, objectDefinitions)
+    vp.updateLayerVisibility(map.layers)
+    vp.centerView(map.gridWidth, map.gridHeight, map.tileSize)
   }, [map, objectDefinitions, initError]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update selection/hover overlay only (lightweight)
