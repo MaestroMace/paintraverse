@@ -140,16 +140,16 @@ export function EditorCanvas() {
   // Update map rendering when map data changes (not on hover)
   useEffect(() => {
     const vp = viewportRef.current
-    if (!vp || initError) return
+    if (!vp || initError || isLoading) return
     vp.updateFromMap(map, objectDefinitions)
     vp.updateLayerVisibility(map.layers)
     vp.centerView(map.gridWidth, map.gridHeight, map.tileSize)
-  }, [map, objectDefinitions, initError]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [map, objectDefinitions, initError, isLoading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update selection/hover overlay only (lightweight)
   useEffect(() => {
     const vp = viewportRef.current
-    if (!vp || initError) return
+    if (!vp || initError || isLoading) return
     vp.updateSelection(selectedObjectIds, hoveredObjectId, map.tileSize)
   }, [selectedObjectIds, hoveredObjectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
