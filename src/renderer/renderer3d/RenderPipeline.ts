@@ -36,12 +36,10 @@ export function renderPixelArt(
   const opts = { ...DEFAULT_OPTIONS, ...options }
   const { outputWidth, outputHeight } = camera
 
-  // Build scene
+  console.log('[render] building scene...')
   const scene = buildScene(map, objectDefs)
 
-  // Create an explicit WebGL1 context on an offscreen canvas.
-  // Three.js v0.183 defaults to WebGL2 which crashes SwiftShader.
-  // By passing our own WebGL1 context, we bypass that entirely.
+  console.log('[render] creating WebGL1 context...')
   const offCanvas = document.createElement('canvas')
   offCanvas.width = outputWidth
   offCanvas.height = outputHeight
@@ -56,13 +54,15 @@ export function renderPixelArt(
   if (!gl) {
     throw new Error('Failed to create WebGL1 context for 3D render')
   }
+  console.log('[render] WebGL1 context OK, vendor:', gl.getParameter(gl.VENDOR), 'renderer:', gl.getParameter(gl.RENDERER))
 
+  console.log('[render] creating Three.js renderer...')
   const renderer = new THREE.WebGLRenderer({
     canvas: offCanvas,
     context: gl,
     antialias: false,
   })
-  renderer.setSize(outputWidth, outputHeight, false) // false = don't set CSS size
+  renderer.setSize(outputWidth, outputHeight, false)
   renderer.setPixelRatio(1)
   renderer.outputColorSpace = THREE.SRGBColorSpace
 
@@ -78,13 +78,14 @@ export function renderPixelArt(
     camera.lookAtY * map.tileSize
   )
 
-  // Render and read pixels
+  console.log('[render] calling renderer.render()...')
   renderer.render(scene, cam)
+  console.log('[render] render complete, reading pixels...')
 
   const pixels = new Uint8Array(outputWidth * outputHeight * 4)
   gl.readPixels(0, 0, outputWidth, outputHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+  console.log('[render] readPixels complete, disposing...')
 
-  // Dispose renderer and scene immediately — free the WebGL context
   renderer.dispose()
   renderer.forceContextLoss()
   const disposedGeos = new Set<THREE.BufferGeometry>()

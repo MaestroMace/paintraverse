@@ -58,7 +58,9 @@ export function buildScene(
   }
 
   applyLighting(scene, map.environment)
-  buildSky(scene, map.environment)
+  // NOTE: buildSky() removed — sky dome, stars, and clouds were crashing
+  // SwiftShader. The flat scene.background color set by applyLighting() is
+  // used instead. Sky features can be re-added once rendering is stable.
   return scene
 }
 
