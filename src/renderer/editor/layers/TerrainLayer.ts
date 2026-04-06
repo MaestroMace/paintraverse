@@ -1,6 +1,5 @@
-import { Container, Graphics, RenderTexture, Sprite } from 'pixi.js'
+import { Container, Graphics } from 'pixi.js'
 import type { MapLayer } from '../../core/types'
-import type { Application } from 'pixi.js'
 
 // Terrain tile colors
 const TERRAIN_COLORS: Record<number, number> = {
@@ -29,33 +28,29 @@ export const TERRAIN_NAMES: Record<number, string> = {
   9: 'Dark Cobble'
 }
 
-// Chunk size in tiles - render groups of tiles into a single texture
 const CHUNK_SIZE = 16
 
 export class TerrainLayer {
   container: Container
-  private chunks: Map<string, { sprite: Sprite; texture: RenderTexture }> = new Map()
+  private chunks: Map<string, Graphics> = new Map()
   private dirtyChunks: Set<string> = new Set()
   private lastTiles: number[][] | null = null
   private lastTileSize = 0
-  private app: Application | null = null
 
   constructor() {
     this.container = new Container()
   }
 
-  setApp(app: Application): void {
-    this.app = app
-  }
+  // setApp no longer needed — we don't use RenderTexture
+  setApp(_app: unknown): void { /* no-op for API compatibility */ }
 
   update(layer: MapLayer, tileSize: number): void {
-    if (!layer.terrainTiles || !this.app) return
+    if (!layer.terrainTiles) return
 
     const tiles = layer.terrainTiles
     const gridH = tiles.length
     const gridW = gridH > 0 ? tiles[0].length : 0
 
-    // If tileSize changed or first load, mark everything dirty
     if (tileSize !== this.lastTileSize || !this.lastTiles) {
       this.rebuildAll(tiles, tileSize, gridW, gridH)
       this.lastTiles = tiles
@@ -63,7 +58,7 @@ export class TerrainLayer {
       return
     }
 
-    // Fast diff: only check rows whose reference changed (store only clones changed rows)
+    // Fast diff: only check rows whose reference changed
     for (let y = 0; y < gridH; y++) {
       if (tiles[y] !== this.lastTiles[y]) {
         for (let x = 0; x < gridW; x++) {
@@ -75,23 +70,19 @@ export class TerrainLayer {
       }
     }
 
-    // Only re-render dirty chunks
     for (const ck of this.dirtyChunks) {
       const [cx, cy] = ck.split(',').map(Number)
       this.renderChunk(cx, cy, tiles, tileSize, gridW, gridH)
     }
     this.dirtyChunks.clear()
 
-    // Store reference (no cloning needed — store creates new row arrays for changes)
     this.lastTiles = tiles
   }
 
   private rebuildAll(tiles: number[][], tileSize: number, gridW: number, gridH: number): void {
-    // Dispose old chunks
-    for (const { sprite, texture } of this.chunks.values()) {
-      this.container.removeChild(sprite)
-      sprite.destroy()
-      texture.destroy()
+    for (const g of this.chunks.values()) {
+      this.container.removeChild(g)
+      g.destroy()
     }
     this.chunks.clear()
 
@@ -110,45 +101,33 @@ export class TerrainLayer {
     tiles: number[][], tileSize: number,
     gridW: number, gridH: number
   ): void {
-    if (!this.app) return
-
     const key = `${cx},${cy}`
     const startX = cx * CHUNK_SIZE
     const startY = cy * CHUNK_SIZE
     const endX = Math.min(startX + CHUNK_SIZE, gridW)
     const endY = Math.min(startY + CHUNK_SIZE, gridH)
-    const pixelW = (endX - startX) * tileSize
-    const pixelH = (endY - startY) * tileSize
 
-    // Draw tiles into a temporary Graphics
+    // Draw tiles directly as Graphics — no RenderTexture needed.
+    // RenderTexture calls PixiJS's WebGL renderer.render() which crashes
+    // SwiftShader when many chunks are created at once (e.g. map generation).
     const g = new Graphics()
     for (let y = startY; y < endY; y++) {
       for (let x = startX; x < endX; x++) {
         const tileId = tiles[y]?.[x] ?? 0
         const color = TERRAIN_COLORS[tileId] ?? TERRAIN_COLORS[0]
-        g.rect((x - startX) * tileSize, (y - startY) * tileSize, tileSize, tileSize)
+        g.rect(x * tileSize, y * tileSize, tileSize, tileSize)
         g.fill(color)
       }
     }
 
-    // Get or create render texture + sprite for this chunk
-    let entry = this.chunks.get(key)
-    if (entry) {
-      // Reuse existing texture - re-render into it
-      entry.texture.resize(pixelW, pixelH)
-      this.app.renderer.render({ container: g, target: entry.texture, clear: true })
-    } else {
-      const texture = RenderTexture.create({ width: pixelW, height: pixelH })
-      this.app.renderer.render({ container: g, target: texture, clear: true })
-      const sprite = new Sprite(texture)
-      sprite.x = startX * tileSize
-      sprite.y = startY * tileSize
-      this.container.addChild(sprite)
-      entry = { sprite, texture }
-      this.chunks.set(key, entry)
+    // Replace or create chunk
+    const existing = this.chunks.get(key)
+    if (existing) {
+      this.container.removeChild(existing)
+      existing.destroy()
     }
-
-    g.destroy()
+    this.container.addChild(g)
+    this.chunks.set(key, g)
   }
 
   markTileDirty(tileX: number, tileY: number): void {
