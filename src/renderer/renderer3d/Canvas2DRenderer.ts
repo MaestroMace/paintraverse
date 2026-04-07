@@ -149,6 +149,26 @@ const HAS_CHIMNEY: Set<string> = new Set([
   'bakery', 'inn', 'half_timber', 'mansion',
 ])
 
+// Buildings with jettied (overhanging) upper floors — classic medieval
+const HAS_JETTY = new Set([
+  'row_house', 'narrow_house', 'balcony_house', 'tavern', 'inn', 'building_medium',
+])
+
+// Buildings that get dormers on their roof
+const HAS_DORMER = new Set([
+  'mansion', 'guild_hall', 'building_large', 'inn', 'row_house', 'balcony_house',
+])
+
+// Buildings with stepped gables (Dutch/Flemish style)
+const HAS_STEPPED_GABLE = new Set([
+  'guild_hall', 'warehouse', 'corner_building',
+])
+
+// Buildings with turret/round corner tower
+const HAS_TURRET = new Set([
+  'mansion', 'town_gate', 'watchtower',
+])
+
 interface Drawable {
   depth: number
   draw: (ctx: CanvasRenderingContext2D) => void
@@ -259,6 +279,22 @@ export function renderCanvas2D(
           depth: avgDepth,
           draw: (ctx) => {
             drawPoly(ctx, validCorners, hexToCSS(foggedColor))
+            // Cobblestone texture pattern
+            if (tileId === 8 || tileId === 9) {
+              ctx.strokeStyle = `rgba(0,0,0,0.06)`
+              ctx.lineWidth = 0.3
+              const tileW = Math.abs(validCorners[1].sx - validCorners[0].sx)
+              const tileH2 = Math.abs(validCorners[0].sy - validCorners[3].sy)
+              if (tileW > 3 && tileH2 > 2) {
+                const cx2 = (validCorners[0].sx + validCorners[2].sx) / 2
+                const cy2 = (validCorners[0].sy + validCorners[2].sy) / 2
+                // Cross pattern suggesting stone blocks
+                ctx.beginPath()
+                ctx.moveTo(cx2, validCorners[0].sy); ctx.lineTo(cx2, validCorners[3].sy); ctx.stroke()
+                ctx.beginPath()
+                ctx.moveTo(validCorners[0].sx, cy2); ctx.lineTo(validCorners[1].sx, cy2); ctx.stroke()
+              }
+            }
             // Moss patches on cobblestone
             if ((tileId === 8 || tileId === 9) && ((tx * 7 + ty * 13) % 5 === 0)) {
               ctx.fillStyle = 'rgba(45,90,39,0.12)'
@@ -316,9 +352,44 @@ export function renderCanvas2D(
         drawables.push({
           depth: figBase.depth - 0.001,
           draw: (ctx) => {
-            ctx.fillStyle = 'rgba(40,30,20,0.55)'
-            ctx.fillRect(figBase.sx - 0.5, figBase.sy - 3, 1, 2) // body
-            ctx.fillRect(figBase.sx - 0.5, figBase.sy - 4, 1, 1) // head
+            const figType = figHash % 5
+            const shade = `rgba(${40 + figHash % 30},${25 + figHash % 20},${15 + figHash % 15},0.55)`
+            ctx.fillStyle = shade
+            if (figType === 0) {
+              // Cloaked figure (wider body)
+              ctx.beginPath()
+              ctx.moveTo(figBase.sx - 1.2, figBase.sy)
+              ctx.lineTo(figBase.sx - 0.8, figBase.sy - 3)
+              ctx.lineTo(figBase.sx + 0.8, figBase.sy - 3)
+              ctx.lineTo(figBase.sx + 1.2, figBase.sy)
+              ctx.closePath(); ctx.fill()
+              ctx.fillRect(figBase.sx - 0.5, figBase.sy - 4, 1, 1)
+            } else if (figType === 1) {
+              // Figure with hat
+              ctx.fillRect(figBase.sx - 0.5, figBase.sy - 3, 1, 2)
+              ctx.fillRect(figBase.sx - 0.5, figBase.sy - 4, 1, 1)
+              ctx.fillRect(figBase.sx - 1, figBase.sy - 4.5, 2, 0.5) // brim
+            } else if (figType === 2) {
+              // Figure carrying something
+              ctx.fillRect(figBase.sx - 0.5, figBase.sy - 3, 1, 2)
+              ctx.fillRect(figBase.sx - 0.5, figBase.sy - 4, 1, 1)
+              ctx.fillRect(figBase.sx + 0.5, figBase.sy - 3, 1.5, 1) // bundle
+              ctx.fillStyle = `rgba(120,90,50,0.4)`
+              ctx.fillRect(figBase.sx + 0.5, figBase.sy - 3, 1.5, 1)
+            } else if (figType === 3) {
+              // Two figures (pair walking)
+              ctx.fillRect(figBase.sx - 0.5, figBase.sy - 3, 1, 2)
+              ctx.fillRect(figBase.sx - 0.5, figBase.sy - 4, 1, 1)
+              ctx.fillRect(figBase.sx + 1.5, figBase.sy - 2.5, 0.8, 1.5)
+              ctx.fillRect(figBase.sx + 1.5, figBase.sy - 3.3, 0.8, 0.8)
+            } else {
+              // Basic figure
+              ctx.fillRect(figBase.sx - 0.5, figBase.sy - 3, 1, 2)
+              ctx.fillRect(figBase.sx - 0.5, figBase.sy - 4, 1, 1)
+            }
+            // Legs (all types)
+            ctx.fillRect(figBase.sx - 0.5, figBase.sy - 1, 0.4, 1)
+            ctx.fillRect(figBase.sx + 0.1, figBase.sy - 1, 0.4, 1)
           }
         })
       }
@@ -593,6 +664,76 @@ function addBuildingDrawables(
     }
   }
 
+  // ── DORMERS (small windowed projections on roof) ──
+  if (HAS_DORMER.has(def.id) && (roofStyle === 'gabled' || roofStyle === 'hipped' || roofStyle === 'steep') && ridgeFront) {
+    const numDormers = 1 + hash % 2
+    for (let di = 0; di < numDormers; di++) {
+      const dt = (di + 1) / (numDormers + 1) // spread evenly
+      const dormX = x0 + fw * dt
+      const dormZ = z0 + fd * 0.3
+      const dormBase = project(dormX, height + roofHeight * 0.15, dormZ)
+      const dormTop = project(dormX, height + roofHeight * 0.5, dormZ)
+      if (dormBase && dormTop) {
+        const dormW2 = Math.max(3, fw * 0.12)
+        const dormH2 = Math.abs(dormTop.sy - dormBase.sy)
+        drawables.push({
+          depth: avgDepth - 0.025,
+          draw: (ctx) => {
+            // Dormer front wall
+            ctx.fillStyle = hexToCSS(applyFog(palette.wall, avgDepth, lighting))
+            ctx.fillRect(dormBase.sx - dormW2 / 2, dormTop.sy, dormW2, dormH2)
+            // Dormer roof peak
+            ctx.fillStyle = roofDark
+            ctx.beginPath()
+            ctx.moveTo(dormBase.sx - dormW2 * 0.7, dormTop.sy)
+            ctx.lineTo(dormBase.sx, dormTop.sy - dormH2 * 0.5)
+            ctx.lineTo(dormBase.sx + dormW2 * 0.7, dormTop.sy)
+            ctx.closePath(); ctx.fill()
+            // Dormer window
+            const isLit = lighting.isNight || lighting.isDusk
+            ctx.fillStyle = isLit ? '#ffcc66' : hexToCSS(darken(applyFog(palette.wall, avgDepth, lighting), 0.18))
+            ctx.fillRect(dormBase.sx - dormW2 * 0.25, dormTop.sy + dormH2 * 0.15, dormW2 * 0.5, dormH2 * 0.6)
+          }
+        })
+      }
+    }
+  }
+
+  // ── TURRET (round corner tower) ──
+  if (HAS_TURRET.has(def.id)) {
+    const turX = hash % 2 === 0 ? x0 : x0 + fw
+    const turZ = z0
+    const turBase = project(turX, 0, turZ)
+    const turTop = project(turX, height + roofHeight * 0.4, turZ)
+    const turPeak = project(turX, height + roofHeight * 0.9, turZ)
+    if (turBase && turTop && turPeak) {
+      const turR = Math.max(2.5, fw * 0.1)
+      drawables.push({
+        depth: avgDepth - 0.015,
+        draw: (ctx) => {
+          // Cylindrical shaft
+          ctx.fillStyle = hexToCSS(applyFog(darken(palette.wall, 0.05), avgDepth, lighting))
+          ctx.fillRect(turBase.sx - turR, turTop.sy, turR * 2, turBase.sy - turTop.sy)
+          // Round top
+          ctx.beginPath()
+          ctx.arc(turBase.sx, turTop.sy, turR, Math.PI, 0)
+          ctx.fill()
+          // Conical cap
+          ctx.fillStyle = roofDark
+          ctx.beginPath()
+          ctx.moveTo(turBase.sx - turR * 1.2, turTop.sy)
+          ctx.lineTo(turBase.sx, turPeak.sy)
+          ctx.lineTo(turBase.sx + turR * 1.2, turTop.sy)
+          ctx.closePath(); ctx.fill()
+          // Arrow slit
+          ctx.fillStyle = hexToCSS(darken(applyFog(palette.wall, avgDepth, lighting), 0.3))
+          const slitY = turTop.sy + (turBase.sy - turTop.sy) * 0.4
+          ctx.fillRect(turBase.sx - 0.3, slitY - 2, 0.6, 4)
+        }
+      })
+    }
+  }
+
   // ── BIRDS ON ROOFTOPS ──
   if (hash % 7 === 0 && ridgeCenter) { // ~15% of buildings
     const numBirds = 1 + hash % 2
@@ -640,6 +781,51 @@ function addBuildingDrawables(
         ctx.moveTo(fp[0].sx, fp[0].sy)
         for (let i = 1; i < fp.length; i++) ctx.lineTo(fp[i].sx, fp[i].sy)
         ctx.closePath(); ctx.fill()
+
+        // Shadow pool at building base
+        ctx.fillStyle = 'rgba(0,0,0,0.08)'
+        ctx.fillRect(Math.min(fp[0].sx, fp[1].sx), fp[0].sy - 1, faceW, 2)
+
+        // Exposed brick patches on older buildings
+        if ((def.id === 'building_small' || def.id === 'row_house' || def.id === 'warehouse' || def.id === 'half_timber') && faceW > 8) {
+          const patchHash = (hash * 7 + face.nx * 3) & 0xffff
+          if (patchHash % 4 === 0) {
+            const px = fp[0].sx + faceW * (0.3 + (patchHash % 30) / 100)
+            const py = fp[0].sy - faceH * (0.2 + (patchHash % 20) / 100)
+            const pw = faceW * 0.15, ph = faceH * 0.12
+            ctx.fillStyle = hexToCSS(applyFog(0x8a5a3a, avgDepth, lighting))
+            ctx.fillRect(px, py, pw, ph)
+            // Brick mortar lines
+            ctx.strokeStyle = hexToCSS(darken(applyFog(0x8a5a3a, avgDepth, lighting), 0.15))
+            ctx.lineWidth = 0.2
+            for (let by = 0; by < 3; by++) {
+              const bly = py + ph * (by + 0.5) / 3
+              ctx.beginPath(); ctx.moveTo(px, bly); ctx.lineTo(px + pw, bly); ctx.stroke()
+            }
+          }
+        }
+
+        // Ivy climbing on side walls
+        if (hash % 6 === 0 && !face.isFront && faceH > 8) {
+          const ivyX = fp[0].sx + faceW * (0.1 + (hash % 30) / 50)
+          const ivyBot = fp[0].sy
+          const ivyH = faceH * (0.3 + (hash % 20) / 50)
+          // Vine stem
+          ctx.strokeStyle = 'rgba(40,80,30,0.3)'
+          ctx.lineWidth = 0.5
+          ctx.beginPath()
+          ctx.moveTo(ivyX, ivyBot)
+          ctx.quadraticCurveTo(ivyX + 2, ivyBot - ivyH * 0.5, ivyX - 1, ivyBot - ivyH)
+          ctx.stroke()
+          // Leaf clusters
+          const ivyGreen = applyFog(0x3a7a2a, avgDepth, lighting)
+          ctx.fillStyle = hexToCSS(ivyGreen)
+          for (let li = 0; li < 5; li++) {
+            const lx = ivyX + Math.sin(li * 1.8) * 1.5
+            const ly = ivyBot - ivyH * (li / 5) - 1
+            ctx.beginPath(); ctx.arc(lx, ly, 1.2 + (li % 2) * 0.4, 0, Math.PI * 2); ctx.fill()
+          }
+        }
 
         // Cornice molding bands on noble buildings
         if ((def.id === 'mansion' || def.id === 'guild_hall' || def.id === 'building_large') && faceH > 10) {
@@ -754,7 +940,18 @@ function addBuildingDrawables(
             const doorY = fp[0].sy
             const doorColor = applyFog(shadeFace(palette.door, face.nx, face.ny, face.nz, lighting), avgDepth, lighting)
             ctx.fillStyle = hexToCSS(doorColor)
-            ctx.fillRect(doorX - doorW / 2, doorY - doorH, doorW, doorH)
+            // Arched door top for larger buildings
+            const isArchedDoor = def.id === 'chapel' || def.id === 'guild_hall' || def.id === 'mansion' || def.id === 'town_gate' || def.id === 'archway'
+            if (isArchedDoor) {
+              ctx.beginPath()
+              ctx.moveTo(doorX - doorW / 2, doorY)
+              ctx.lineTo(doorX - doorW / 2, doorY - doorH * 0.6)
+              ctx.arc(doorX, doorY - doorH * 0.6, doorW / 2, Math.PI, 0)
+              ctx.lineTo(doorX + doorW / 2, doorY)
+              ctx.closePath(); ctx.fill()
+            } else {
+              ctx.fillRect(doorX - doorW / 2, doorY - doorH, doorW, doorH)
+            }
             // Door frame
             ctx.strokeStyle = hexToCSS(darken(doorColor, 0.2))
             ctx.lineWidth = 0.5
@@ -779,6 +976,53 @@ function addBuildingDrawables(
           ctx.lineTo(fp[1].sx + faceW * 0.05, awningY + awningH)
           ctx.lineTo(fp[0].sx - faceW * 0.05, awningY + awningH)
           ctx.closePath(); ctx.fill()
+        }
+
+        // Jettied upper floor (overhanging second story)
+        if (HAS_JETTY.has(def.id) && faceH > 10) {
+          const jettyY = fp[0].sy - faceH * 0.45
+          const overhang = faceW * 0.04
+          // Overhang floor plate
+          ctx.fillStyle = hexToCSS(darken(wallFogged, 0.12))
+          ctx.fillRect(Math.min(fp[0].sx, fp[1].sx) - overhang, jettyY - 1, faceW + overhang * 2, 2)
+          // Upper floor slightly wider (jetty)
+          ctx.fillStyle = hexToCSS(wallFogged)
+          ctx.fillRect(Math.min(fp[0].sx, fp[1].sx) - overhang, fp[3].sy, faceW + overhang * 2, jettyY - fp[3].sy + 1)
+          // Support bracket corbels
+          ctx.fillStyle = hexToCSS(darken(wallFogged, 0.2))
+          const numBrackets = Math.max(2, Math.floor(faceW / 8))
+          for (let bi = 0; bi < numBrackets; bi++) {
+            const bx = fp[0].sx + faceW * ((bi + 0.5) / numBrackets)
+            ctx.beginPath()
+            ctx.moveTo(bx - 1, jettyY)
+            ctx.lineTo(bx, jettyY + 2)
+            ctx.lineTo(bx + 1, jettyY)
+            ctx.closePath(); ctx.fill()
+          }
+        }
+
+        // Stepped gable on gable-facing walls
+        if (HAS_STEPPED_GABLE.has(def.id) && !face.isFront && faceH > 10 && (roofStyle === 'gabled' || roofStyle === 'steep')) {
+          const steps = 3 + hash % 2
+          const stepW = faceW * 0.1
+          const stepH = faceH * 0.06
+          ctx.fillStyle = hexToCSS(wallFogged)
+          for (let si = 0; si < steps; si++) {
+            const sx2 = fp[0].sx + faceW * 0.5 + (si + 1) * stepW * 0.5
+            const sy2 = fp[3].sy + si * stepH
+            ctx.fillRect(sx2 - stepW / 2, sy2, stepW, stepH)
+            // Mirror on left side
+            const sx3 = fp[0].sx + faceW * 0.5 - (si + 1) * stepW * 0.5
+            ctx.fillRect(sx3 - stepW / 2, sy2, stepW, stepH)
+          }
+        }
+
+        // Door step (raised stone threshold)
+        if (face.isFront && faceW > 6) {
+          const stepW = faceW * 0.2
+          const doorX2 = fp[0].sx + faceW * 0.5
+          ctx.fillStyle = hexToCSS(darken(wallFogged, 0.15))
+          ctx.fillRect(doorX2 - stepW / 2, fp[0].sy, stepW, 1.5)
         }
 
         // Balcony projection (balcony_house, mansion, inn)
@@ -851,18 +1095,45 @@ function addPropDrawables(
     drawables.push({
       depth: base.depth,
       draw: (ctx) => {
+        // Trunk with slight taper
         ctx.fillStyle = hexToCSS(foggedBody)
-        ctx.fillRect(base.sx - trunkW / 2, trunkTop.sy, trunkW, base.sy - trunkTop.sy)
-        // Canopy circle
-        const r = Math.max(4, Math.abs(canopyTop.sy - trunkTop.sy) * 0.7)
-        ctx.fillStyle = hexToCSS(foggedAccent)
+        const tw = trunkW * 0.7
         ctx.beginPath()
-        ctx.arc(trunkTop.sx, trunkTop.sy - r * 0.3, r, 0, Math.PI * 2)
+        ctx.moveTo(base.sx - trunkW / 2, base.sy)
+        ctx.lineTo(base.sx - tw / 2, trunkTop.sy)
+        ctx.lineTo(base.sx + tw / 2, trunkTop.sy)
+        ctx.lineTo(base.sx + trunkW / 2, base.sy)
+        ctx.closePath(); ctx.fill()
+        // Multi-lobe canopy (3-4 overlapping circles)
+        const r = Math.max(4, Math.abs(canopyTop.sy - trunkTop.sy) * 0.7)
+        const treeHash = simpleHash(obj.id)
+        const lobes = 3 + (treeHash % 2)
+        // Shadow lobe
+        ctx.fillStyle = hexToCSS(darken(foggedAccent, 0.12))
+        ctx.beginPath()
+        ctx.arc(trunkTop.sx + 1, trunkTop.sy - r * 0.15, r * 0.9, 0, Math.PI * 2)
+        ctx.fill()
+        // Main lobes
+        for (let li = 0; li < lobes; li++) {
+          const angle = (li / lobes) * Math.PI * 2 + treeHash * 0.3
+          const lx = trunkTop.sx + Math.cos(angle) * r * 0.35
+          const ly = trunkTop.sy - r * 0.3 + Math.sin(angle) * r * 0.25
+          const lr = r * (0.55 + (treeHash + li) % 3 * 0.08)
+          ctx.fillStyle = li % 2 === 0 ? hexToCSS(foggedAccent) : hexToCSS(darken(foggedAccent, 0.06))
+          ctx.beginPath()
+          ctx.arc(lx, ly, lr, 0, Math.PI * 2)
+          ctx.fill()
+        }
+        // Highlight lobe (lit side)
+        ctx.fillStyle = hexToCSS(lighten(foggedAccent, 0.08))
+        ctx.beginPath()
+        ctx.arc(trunkTop.sx - r * 0.2, trunkTop.sy - r * 0.5, r * 0.35, 0, Math.PI * 2)
         ctx.fill()
       }
     })
   } else if (def.id === 'bush' || def.id === 'hedge') {
     const bushR = Math.max(3, Math.abs(top.sy - base.sy) * 0.5 + 3)
+    const bushHash = simpleHash(obj.id)
     drawables.push({
       depth: base.depth,
       draw: (ctx) => {
@@ -871,11 +1142,53 @@ function addPropDrawables(
         ctx.beginPath()
         ctx.ellipse(base.sx + 1, base.sy, bushR, bushR * 0.4, 0, 0, Math.PI * 2)
         ctx.fill()
-        // Bush body
-        ctx.fillStyle = hexToCSS(foggedBody)
-        ctx.beginPath()
-        ctx.ellipse(base.sx, base.sy - bushR * 0.3, bushR, bushR * 0.7, 0, 0, Math.PI * 2)
-        ctx.fill()
+        if (def.id === 'hedge') {
+          // Rectangular hedge with rounded top
+          ctx.fillStyle = hexToCSS(foggedBody)
+          const hw = bushR * 1.5, hh = bushR * 0.8
+          ctx.beginPath()
+          ctx.moveTo(base.sx - hw, base.sy)
+          ctx.lineTo(base.sx - hw, base.sy - hh * 0.6)
+          ctx.quadraticCurveTo(base.sx - hw, base.sy - hh, base.sx - hw * 0.5, base.sy - hh)
+          ctx.lineTo(base.sx + hw * 0.5, base.sy - hh)
+          ctx.quadraticCurveTo(base.sx + hw, base.sy - hh, base.sx + hw, base.sy - hh * 0.6)
+          ctx.lineTo(base.sx + hw, base.sy)
+          ctx.closePath(); ctx.fill()
+          // Trim line
+          ctx.strokeStyle = hexToCSS(darken(foggedBody, 0.1))
+          ctx.lineWidth = 0.3
+          ctx.beginPath()
+          ctx.moveTo(base.sx - hw, base.sy - hh * 0.5)
+          ctx.lineTo(base.sx + hw, base.sy - hh * 0.5)
+          ctx.stroke()
+        } else {
+          // Multi-blob organic bush
+          const numBlobs = 2 + bushHash % 2
+          for (let bi = 0; bi < numBlobs; bi++) {
+            const bx = base.sx + (bi - numBlobs * 0.5 + 0.5) * bushR * 0.6
+            const by = base.sy - bushR * 0.35
+            const br = bushR * (0.5 + (bushHash + bi) % 3 * 0.1)
+            ctx.fillStyle = bi % 2 === 0 ? hexToCSS(foggedBody) : hexToCSS(darken(foggedBody, 0.05))
+            ctx.beginPath()
+            ctx.arc(bx, by, br, 0, Math.PI * 2)
+            ctx.fill()
+          }
+          // Highlight on top
+          ctx.fillStyle = hexToCSS(lighten(foggedBody, 0.06))
+          ctx.beginPath()
+          ctx.arc(base.sx - bushR * 0.15, base.sy - bushR * 0.55, bushR * 0.3, 0, Math.PI * 2)
+          ctx.fill()
+          // Flower dots (occasional)
+          if (bushHash % 4 === 0) {
+            const flowerColors = [0xff6688, 0xffaa44, 0xdd88dd]
+            for (let fi = 0; fi < 2; fi++) {
+              ctx.fillStyle = hexToCSS(applyFog(flowerColors[(bushHash + fi) % 3], base.depth, lighting))
+              ctx.beginPath()
+              ctx.arc(base.sx + (fi * 2 - 1) * bushR * 0.3, base.sy - bushR * 0.4 - fi, 0.8, 0, Math.PI * 2)
+              ctx.fill()
+            }
+          }
+        }
       }
     })
   } else if (def.id === 'lamppost' || def.id === 'double_lamp' || def.id === 'wall_lantern') {
@@ -928,6 +1241,29 @@ function addPropDrawables(
         const pillarH = Math.abs(topH.sy - base.sy) * 0.5
         ctx.fillStyle = hexToCSS(foggedBody)
         ctx.fillRect(base.sx - 1, base.sy - pillarH, 2, pillarH)
+        // Well: bucket and rope
+        if (def.id === 'well' || def.id === 'well_grand') {
+          // Roof crossbeam
+          ctx.fillStyle = hexToCSS(darken(foggedBody, 0.15))
+          ctx.fillRect(base.sx - rBase * 0.5, base.sy - pillarH, rBase, 1)
+          // Rope
+          ctx.strokeStyle = hexToCSS(darken(foggedBody, 0.25))
+          ctx.lineWidth = 0.4
+          ctx.beginPath()
+          ctx.moveTo(base.sx + rBase * 0.2, base.sy - pillarH)
+          ctx.lineTo(base.sx + rBase * 0.2, base.sy - pillarH * 0.3)
+          ctx.stroke()
+          // Bucket
+          ctx.fillStyle = hexToCSS(darken(foggedBody, 0.3))
+          ctx.fillRect(base.sx + rBase * 0.2 - 1, base.sy - pillarH * 0.3, 2, 2)
+          // Crank handle
+          ctx.strokeStyle = hexToCSS(darken(foggedBody, 0.2))
+          ctx.lineWidth = 0.6
+          ctx.beginPath()
+          ctx.moveTo(base.sx + 1, base.sy - pillarH)
+          ctx.lineTo(base.sx + 2.5, base.sy - pillarH - 1.5)
+          ctx.stroke()
+        }
         // Fountain spray particles
         if (def.id === 'fountain' || def.id === 'fountain_grand') {
           for (let si = 0; si < 4; si++) {
@@ -1079,10 +1415,39 @@ function addPropDrawables(
         // Sign board
         const accentFogged = colors.accent ? applyFog(colors.accent, base.depth, lighting) : foggedBody
         ctx.fillStyle = hexToCSS(accentFogged)
-        ctx.fillRect(base.sx + 1, base.sy - signH * 1.1, 5, signH * 0.5)
+        ctx.fillRect(base.sx + 1, base.sy - signH * 1.1, 6, signH * 0.5)
         ctx.strokeStyle = hexToCSS(darken(foggedBody, 0.3))
         ctx.lineWidth = 0.5
-        ctx.strokeRect(base.sx + 1, base.sy - signH * 1.1, 5, signH * 0.5)
+        ctx.strokeRect(base.sx + 1, base.sy - signH * 1.1, 6, signH * 0.5)
+        // Sign icon (varied per hash)
+        const signType = simpleHash(obj.id) % 4
+        const iconX = base.sx + 4, iconY = base.sy - signH * 0.9
+        ctx.fillStyle = hexToCSS(darken(accentFogged, 0.4))
+        if (signType === 0) {
+          // Tankard (tavern)
+          ctx.fillRect(iconX - 1, iconY - 1, 2, 2.5)
+          ctx.fillRect(iconX + 1, iconY, 0.8, 1.5)
+        } else if (signType === 1) {
+          // Key (inn)
+          ctx.beginPath(); ctx.arc(iconX, iconY - 0.5, 1, 0, Math.PI * 2); ctx.fill()
+          ctx.fillRect(iconX - 0.3, iconY + 0.5, 0.6, 2)
+        } else if (signType === 2) {
+          // Star shape
+          ctx.beginPath()
+          for (let si = 0; si < 5; si++) {
+            const a = (si / 5) * Math.PI * 2 - Math.PI / 2
+            const r2 = si % 2 === 0 ? 1.5 : 0.7
+            const method = si === 0 ? 'moveTo' : 'lineTo'
+            ctx[method](iconX + Math.cos(a) * r2, iconY + Math.sin(a) * r2)
+          }
+          ctx.closePath(); ctx.fill()
+        } else {
+          // Crossed tools (smithy)
+          ctx.lineWidth = 0.6
+          ctx.strokeStyle = hexToCSS(darken(accentFogged, 0.4))
+          ctx.beginPath(); ctx.moveTo(iconX - 1.5, iconY - 1.5); ctx.lineTo(iconX + 1.5, iconY + 1.5); ctx.stroke()
+          ctx.beginPath(); ctx.moveTo(iconX + 1.5, iconY - 1.5); ctx.lineTo(iconX - 1.5, iconY + 1.5); ctx.stroke()
+        }
       }
     })
   } else if (def.id === 'cafe_table') {
@@ -1145,6 +1510,27 @@ function addPropDrawables(
         // Handle/tongue
         ctx.fillStyle = hexToCSS(darken(foggedBody, 0.15))
         ctx.fillRect(base.sx + wW / 2, base.sy - wH * 0.7, wW * 0.2, 1.5)
+        // Cargo on wagon (varied)
+        const cargoType = simpleHash(obj.id) % 3
+        if (cargoType === 0) {
+          // Hay/grain sacks
+          ctx.fillStyle = hexToCSS(applyFog(0xc8a850, base.depth, lighting))
+          ctx.beginPath()
+          ctx.ellipse(base.sx, base.sy - wH * 0.85, wW * 0.3, wH * 0.2, 0, 0, Math.PI * 2)
+          ctx.fill()
+        } else if (cargoType === 1) {
+          // Barrels
+          ctx.fillStyle = hexToCSS(applyFog(0x8a6a3a, base.depth, lighting))
+          ctx.beginPath(); ctx.ellipse(base.sx - wW * 0.15, base.sy - wH * 0.8, 2, 2.5, 0, 0, Math.PI * 2); ctx.fill()
+          ctx.beginPath(); ctx.ellipse(base.sx + wW * 0.15, base.sy - wH * 0.8, 2, 2.5, 0, 0, Math.PI * 2); ctx.fill()
+        } else {
+          // Crates stacked
+          ctx.fillStyle = hexToCSS(applyFog(0x7a6a4a, base.depth, lighting))
+          ctx.fillRect(base.sx - wW * 0.25, base.sy - wH * 1.0, wW * 0.5, wH * 0.35)
+          ctx.strokeStyle = hexToCSS(darken(applyFog(0x7a6a4a, base.depth, lighting), 0.2))
+          ctx.lineWidth = 0.3
+          ctx.strokeRect(base.sx - wW * 0.25, base.sy - wH * 1.0, wW * 0.5, wH * 0.35)
+        }
       }
     })
   } else if (def.id === 'barrel_stack' || def.id === 'crate_stack') {
@@ -1200,10 +1586,42 @@ function addPropDrawables(
         ctx.lineWidth = 1
         ctx.beginPath(); ctx.moveTo(base.sx - msW / 2, base.sy); ctx.lineTo(base.sx - msW / 2, base.sy - msH * 0.9); ctx.stroke()
         ctx.beginPath(); ctx.moveTo(base.sx + msW / 2, base.sy); ctx.lineTo(base.sx + msW / 2, base.sy - msH * 0.85); ctx.stroke()
-        // Goods on counter
-        ctx.fillStyle = hexToCSS(accentFogged)
-        for (let i = 0; i < 3; i++) {
-          ctx.fillRect(base.sx - msW * 0.3 + i * msW * 0.2, base.sy - msH * 0.42, msW * 0.12, msH * 0.07)
+        // Goods on counter — varied per stall
+        const stallType = simpleHash(obj.id) % 4
+        if (stallType === 0) {
+          // Fruit/vegetable stall
+          const fruitColors = [0xcc3333, 0xffaa22, 0x44aa33]
+          for (let i = 0; i < 4; i++) {
+            ctx.fillStyle = hexToCSS(applyFog(fruitColors[i % 3], base.depth, lighting))
+            ctx.beginPath()
+            ctx.arc(base.sx - msW * 0.3 + i * msW * 0.18, base.sy - msH * 0.42, 1.3, 0, Math.PI * 2)
+            ctx.fill()
+          }
+        } else if (stallType === 1) {
+          // Bread/bakery stall
+          ctx.fillStyle = hexToCSS(applyFog(0xc8a050, base.depth, lighting))
+          for (let i = 0; i < 3; i++) {
+            ctx.beginPath()
+            ctx.ellipse(base.sx - msW * 0.25 + i * msW * 0.22, base.sy - msH * 0.41, 1.8, 1, 0, 0, Math.PI * 2)
+            ctx.fill()
+          }
+        } else if (stallType === 2) {
+          // Cloth/fabric stall — colored rolls
+          const clothColors = [0x3355aa, 0xaa3344, 0x44aa66]
+          for (let i = 0; i < 3; i++) {
+            ctx.fillStyle = hexToCSS(applyFog(clothColors[i], base.depth, lighting))
+            ctx.fillRect(base.sx - msW * 0.3 + i * msW * 0.2, base.sy - msH * 0.48, msW * 0.12, msH * 0.13)
+          }
+        } else {
+          // Pottery/crafts
+          ctx.fillStyle = hexToCSS(applyFog(0xa07050, base.depth, lighting))
+          for (let i = 0; i < 3; i++) {
+            const px = base.sx - msW * 0.25 + i * msW * 0.2
+            ctx.beginPath()
+            ctx.moveTo(px - 1, base.sy - msH * 0.38)
+            ctx.quadraticCurveTo(px, base.sy - msH * 0.5, px + 1, base.sy - msH * 0.38)
+            ctx.closePath(); ctx.fill()
+          }
         }
       }
     })
@@ -1704,6 +2122,13 @@ function darken(color: number, amount: number): number {
   const r = Math.max(0, ((color >> 16) & 0xff) * (1 - amount))
   const g = Math.max(0, ((color >> 8) & 0xff) * (1 - amount))
   const b = Math.max(0, (color & 0xff) * (1 - amount))
+  return (Math.floor(r) << 16) | (Math.floor(g) << 8) | Math.floor(b)
+}
+
+function lighten(color: number, amount: number): number {
+  const r = Math.min(255, ((color >> 16) & 0xff) * (1 + amount) + 255 * amount * 0.3)
+  const g = Math.min(255, ((color >> 8) & 0xff) * (1 + amount) + 255 * amount * 0.3)
+  const b = Math.min(255, (color & 0xff) * (1 + amount) + 255 * amount * 0.3)
   return (Math.floor(r) << 16) | (Math.floor(g) << 8) | Math.floor(b)
 }
 
