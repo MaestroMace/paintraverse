@@ -93,6 +93,19 @@ const DISTRICT_DENSITY: Record<DistrictType, number> = {
   waterfront: 0.8, temple: 0.6, slum: 1.3, garden: 0.4,
 }
 
+// District elevation bias — temples and nobles on the heights, waterfront at sea level
+// Applied as a modifier to the height map during building placement
+const DISTRICT_ELEVATION_BIAS: Record<DistrictType, number> = {
+  temple: 0.8,     // acropolis — always seek the high ground
+  noble: 0.5,      // elevated mansions overlooking the town
+  garden: 0.3,     // hillside gardens with views
+  residential: 0,  // neutral
+  artisan: -0.1,   // slightly lower, workshop districts
+  market: -0.2,    // accessible center, ground level
+  waterfront: -0.4, // down by the water
+  slum: -0.3,      // low-lying areas
+}
+
 
 export class TownGenerator implements IMapGenerator {
   readonly type = 'town'
@@ -142,13 +155,20 @@ export class TownGenerator implements IMapGenerator {
     // 9. Place buildings with district awareness
     const buildings = this.placeBuildings(
       width, height, roadMap, waterMap, heightMap, districtMap, districts,
-      complexity, density, rng, mainCenter, terrainTiles
+      complexity, density, rng, mainCenter, terrainTiles, noise
     )
 
     // 10. Place landmarks
     const landmarks = this.placeLandmarks(
-      width, height, roadMap, waterMap, districts, districtMap, buildings,
+      width, height, roadMap, waterMap, districts, districtMap, buildings, heightMap,
       complexity, rng, mainCenter
+    )
+
+    // 10b. Hidden passages & garden courtyards (Parisian passages + Kyoto tsuboniwa)
+    const hiddenCourtyards = this.carveHiddenPassages(
+      terrainTiles, roadMap, waterMap, heightMap,
+      [...buildings, ...landmarks], districtMap, districts,
+      width, height, rng, noise
     )
 
     // 11. Carve alleys between building clusters
@@ -181,7 +201,7 @@ export class TownGenerator implements IMapGenerator {
 
     // Build layers
     const allStructures = [...buildings, ...landmarks, ...gates, ...bridges]
-    const allProps = [...props, ...lights, ...plazaProps, ...vegetation]
+    const allProps = [...props, ...lights, ...plazaProps, ...vegetation, ...hiddenCourtyards]
 
     const terrainLayer: MapLayer = {
       id: uuid(), name: 'Terrain', type: 'terrain',
@@ -221,13 +241,24 @@ export class TownGenerator implements IMapGenerator {
 
 
   // === HEIGHT MAP ===
+  // Piranesi-inspired dramatic terrain: clear plateaus, steep drops, terraced ridges
   private generateHeightMap(w: number, h: number, noise: SimplexNoise): number[][] {
     const map: number[][] = []
     for (let y = 0; y < h; y++) {
       const row: number[] = []
       for (let x = 0; x < w; x++) {
-        const n = noise.fbm(x * 0.03, y * 0.03, 2, 2, 0.5)
-        row.push(Math.max(0, (n + 0.5) * 1.5))
+        // Base terrain with two octaves for natural ridgelines
+        const n1 = noise.fbm(x * 0.03, y * 0.03, 2, 2, 0.5)
+        const n2 = noise.fbm(x * 0.06 + 50, y * 0.06 + 50, 2, 2, 0.5)
+        const raw = (n1 * 0.7 + n2 * 0.3 + 0.5) * 2.0
+
+        // Terrace quantization — snap to plateaus for dramatic stepping
+        // Creates 0, 0.5, 1.0, 1.5, 2.0 elevation bands
+        const terraced = Math.round(raw * 2) / 2
+
+        // Smooth edges slightly so transitions aren't too harsh
+        const blend = terraced * 0.7 + raw * 0.3
+        row.push(Math.max(0, Math.min(blend, 2.5)))
       }
       map.push(row)
     }
@@ -489,21 +520,36 @@ export class TownGenerator implements IMapGenerator {
 
 
   // === PLAZA ===
+  // Golden ratio proportions (phi ~= 1.618) with organic asymmetric edges
   private carvePlaza(
     terrain: number[][], cx: number, cy: number, radius: number,
     w: number, h: number, tilePrimary: number
   ): void {
-    for (let y = cy - radius - 1; y <= cy + radius + 1; y++) {
-      for (let x = cx - radius - 1; x <= cx + radius + 1; x++) {
+    const PHI = 1.618
+    // Elliptical plaza with golden ratio aspect ratio
+    const rX = radius
+    const rY = Math.max(2, Math.round(radius / PHI))
+    // Organic edge noise — multiple harmonics for natural imperfection
+    for (let y = cy - rY - 2; y <= cy + rY + 2; y++) {
+      for (let x = cx - rX - 2; x <= cx + rX + 2; x++) {
         if (x < 0 || x >= w || y < 0 || y >= h) continue
         const dx = x - cx, dy = y - cy
-        const dist = Math.sqrt(dx * dx + dy * dy)
-        const edgeNoise = Math.sin(Math.atan2(dy, dx) * 5) * 0.8
-        if (dist < radius + edgeNoise) {
-          if (dist < radius * 0.6) {
-            terrain[y][x] = tilePrimary // center tile
+        const angle = Math.atan2(dy, dx)
+        // Normalized elliptical distance
+        const ellDist = Math.sqrt((dx / rX) ** 2 + (dy / rY) ** 2)
+        // Multi-harmonic edge noise for wabi-sabi imperfection
+        const edgeNoise = Math.sin(angle * 3) * 0.12
+          + Math.sin(angle * 7 + 1.3) * 0.06
+          + Math.sin(angle * 13 + 2.7) * 0.04
+        if (ellDist < 1.0 + edgeNoise) {
+          if (ellDist < 0.5) {
+            terrain[y][x] = tilePrimary // inner sanctum
+          } else if (ellDist < 0.75) {
+            // Golden inner ring — alternating pattern
+            terrain[y][x] = (x + y) % 3 === 0 ? tilePrimary : 8
           } else {
-            terrain[y][x] = (x + y) % 4 === 0 ? 9 : 8 // cobblestone edge
+            // Outer ring — cobblestone with accent variation
+            terrain[y][x] = (x + y) % 5 === 0 ? 9 : 8
           }
         }
       }
@@ -530,10 +576,14 @@ export class TownGenerator implements IMapGenerator {
       this.markCircle(roadMap, d.center.x, d.center.y, r, w, h)
     }
 
-    // BOULEVARDS: Connect main center to each district center (width 4)
+    // BOULEVARDS: Connect main center to each district center
+    // Temple and noble districts get grand processional ways (width 5)
+    // Others get standard boulevards (width 4)
     for (const d of districts) {
+      const boulWidth = (d.type === 'temple' || d.type === 'noble') ? 5 : 4
+      const curviness = d.type === 'temple' ? 0.05 : 0.1 // Temples get straighter, more formal approaches
       this.carveRoad(roadMap, terrain, center.x, center.y, d.center.x, d.center.y,
-        w, h, 4, 0.1, noise, rng, waterMap)
+        w, h, boulWidth, curviness, noise, rng, waterMap)
     }
 
     // MAIN STREETS: Radiate from center with curves (width 3)
@@ -727,7 +777,7 @@ export class TownGenerator implements IMapGenerator {
     districtMap: number[][], districts: District[],
     complexity: number, density: number,
     rng: () => number, center: { x: number; y: number },
-    terrainTiles: number[][]
+    terrainTiles: number[][], noise: SimplexNoise
   ): PlacedObject[] {
     const buildings: PlacedObject[] = []
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
@@ -795,15 +845,37 @@ export class TownGenerator implements IMapGenerator {
       const centerBonus = distNorm < 0.3 ? 1 : 0
       const hillBonus = heightVal > 1.0 ? 1 : 0
       const floors = Math.min(baseFloors + centerBonus + hillBonus, 4)
-      const elevation = Math.min(Math.round(heightVal * 2) / 2, 2)
+      // Apply district elevation bias — temples rise, waterfronts sink
+      const elevBias = DISTRICT_ELEVATION_BIAS[dType] || 0
+      const rawElev = heightVal + elevBias
+      const elevation = Math.max(0, Math.min(Math.round(rawElev * 2) / 2, 2.5))
+
+      // Nomura-inspired micro-variation: each building subtly unique
+      // Scale jitter creates interlocking asymmetry — no two buildings identical
+      const scaleJitter = 0.92 + rng() * 0.16 // 0.92-1.08 range
+      const scaleY = 0.94 + rng() * 0.12       // slight vertical variety
+      // Architectural style varies by district and noise
+      const styleNoise = noise.noise2D(rx * 0.2, ry * 0.2)
+      const style = styleNoise > 0.3 ? 'ornate'
+        : styleNoise > -0.1 ? 'standard'
+        : dType === 'slum' ? 'weathered' : 'rustic'
 
       buildings.push({
         id: uuid(),
         definitionId: type.id,
         x: rx, y: ry,
-        rotation: 0, scaleX: 1, scaleY: 1,
+        rotation: 0, scaleX: scaleJitter, scaleY,
         elevation,
-        properties: { floors, district: district?.type || 'none' }
+        properties: {
+          floors, district: district?.type || 'none',
+          style,
+          // Facade details driven by district character
+          hasAwning: dType === 'market' || (dType === 'residential' && rng() > 0.6),
+          hasBalcony: type.id === 'balcony_house' || (dType === 'noble' && rng() > 0.5),
+          hasFlowerBox: dType === 'garden' || dType === 'noble' || (dType === 'residential' && rng() > 0.7),
+          hasShutters: dType !== 'slum' && rng() > 0.4,
+          chimneyPos: rng() > 0.5 ? 'left' : 'right',
+        }
       })
 
       for (let dy = 0; dy < bh; dy++) {
@@ -888,7 +960,7 @@ export class TownGenerator implements IMapGenerator {
     w: number, h: number,
     roadMap: boolean[][], waterMap: boolean[][],
     districts: District[], districtMap: number[][],
-    buildings: PlacedObject[],
+    buildings: PlacedObject[], heightMap: number[][],
     complexity: number, rng: () => number,
     center: { x: number; y: number }
   ): PlacedObject[] {
@@ -968,37 +1040,97 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    // Archways at district boundaries where roads cross
+    // Archways at district boundaries where roads cross — Piranesi monumental gates
     let archways = 0
-    for (let y = 3; y < h - 3 && archways < 4; y += 4) {
-      for (let x = 3; x < w - 5 && archways < 4; x += 4) {
+    for (let y = 3; y < h - 3 && archways < 6; y += 3) {
+      for (let x = 3; x < w - 5 && archways < 6; x += 3) {
         if (!roadMap[y][x]) continue
-        // Check if this road tile is at a district boundary
         const d1 = districtMap[y]?.[x] ?? -1
         const d2 = districtMap[y]?.[x + 2] ?? -1
         const d3 = districtMap[y + 1]?.[x] ?? -1
-        if (d1 === d2 && d1 === d3) continue // Same district
+        if (d1 === d2 && d1 === d3) continue
         if (this.areaFree(occupied, x, y, 3, 1, w, h)) {
-          landmarks.push(this.createObj('archway', x, y))
+          landmarks.push(this.createObj('archway', x, y, 0.5)) // slight elevation for grandeur
           this.markArea(occupied, x, y, 3, 1, w, h)
+          // Flanking wall lanterns for drama
+          if (x > 0 && !occupied[y][x - 1]) {
+            landmarks.push(this.createObj('wall_lantern', x - 1, y))
+            occupied[y][x - 1] = true
+          }
+          if (x + 3 < w && !occupied[y][x + 3]) {
+            landmarks.push(this.createObj('wall_lantern', x + 3, y))
+            occupied[y][x + 3] = true
+          }
           archways++
         }
       }
     }
 
-    // Staircases where height changes significantly
-    if (complexity > 0.3) {
+    // Colonnades in temple and noble districts — Piranesi's dramatic covered walkways
+    for (const d of districts) {
+      if (d.type !== 'temple' && d.type !== 'noble') continue
+      // Place a row of stone walls along one side of the plaza — colonnade effect
+      const colDir = rng() > 0.5 ? 1 : -1 // left or right of center
+      const colX = d.center.x + colDir * Math.floor(d.radius * 0.5)
+      let colsPlaced = 0
+      for (let dy = -3; dy <= 3 && colsPlaced < 4; dy += 2) {
+        const cy = d.center.y + dy
+        if (colX >= 0 && colX + 1 < w && cy >= 0 && cy < h) {
+          if (this.areaFree(occupied, colX, cy, 2, 1, w, h)) {
+            landmarks.push(this.createObj('stone_wall', colX, cy, 0.3))
+            this.markArea(occupied, colX, cy, 2, 1, w, h)
+            colsPlaced++
+          }
+        }
+      }
+    }
+
+    // Processional ways — stone-paved approaches to temple districts
+    for (const d of districts) {
+      if (d.type !== 'temple') continue
+      // Place archway + statue sequence approaching the temple
+      const approaches = [
+        { dx: -4, dy: 0 }, { dx: 4, dy: 0 }, { dx: 0, dy: -4 }, { dx: 0, dy: 4 }
+      ]
+      for (const ap of approaches) {
+        const ax = d.center.x + ap.dx, ay = d.center.y + ap.dy
+        if (ax < 0 || ax >= w || ay < 0 || ay >= h) continue
+        if (roadMap[ay]?.[ax] && !occupied[ay][ax]) {
+          landmarks.push(this.createObj('statue', ax, ay, 0.5))
+          occupied[ay][ax] = true
+          break
+        }
+      }
+    }
+
+    // Grand staircases — Piranesi dramatic, placed where elevation changes
+    // More staircases, placed specifically at elevation transitions
+    if (complexity > 0.2) {
       let staircasesPlaced = 0
-      for (let attempt = 0; attempt < 50 && staircasesPlaced < 5; attempt++) {
+      const maxStairs = Math.floor(4 + complexity * 6)
+      for (let attempt = 0; attempt < 80 && staircasesPlaced < maxStairs; attempt++) {
         const sx = Math.floor(3 + rng() * (w - 8))
         const sy = Math.floor(3 + rng() * (h - 8))
-        if (this.isRoadAdjacent(sx, sy, roadMap, w, h) && !occupied[sy][sx]) {
-          const spot = this.findFreeSpot(occupied, sx, sy, 2, 3, w, h, 3)
-          if (spot) {
-            landmarks.push(this.createObj('staircase', spot.x, spot.y, 0))
-            this.markArea(occupied, spot.x, spot.y, 2, 3, w, h)
-            staircasesPlaced++
+        if (!this.isRoadAdjacent(sx, sy, roadMap, w, h) || occupied[sy][sx]) continue
+
+        // Prefer placement at elevation changes (Piranesi's dramatic steps)
+        const spot = this.findFreeSpot(occupied, sx, sy, 2, 3, w, h, 4)
+        if (!spot) continue
+
+        // Check for elevation difference nearby
+        const elHere = heightMap[spot.y]?.[spot.x] ?? 0
+        let hasElevChange = false
+        for (let dy = -2; dy <= 2 && !hasElevChange; dy++) {
+          for (let dx = -2; dx <= 2 && !hasElevChange; dx++) {
+            const el2 = heightMap[spot.y + dy]?.[spot.x + dx] ?? 0
+            if (Math.abs(el2 - elHere) > 0.4) hasElevChange = true
           }
+        }
+        // Place staircase — prefer elevation changes but allow some random placement too
+        if (hasElevChange || rng() > 0.6) {
+          landmarks.push(this.createObj('staircase', spot.x, spot.y, 0))
+          this.markArea(occupied, spot.x, spot.y, 2, 3, w, h)
+          staircasesPlaced++
         }
       }
     }
@@ -1036,11 +1168,11 @@ export class TownGenerator implements IMapGenerator {
     return gates
   }
 
-  // === ALLEYS BETWEEN BUILDINGS ===
+  // === ALLEYS & INTIMATE SPACES ===
+  // Creates narrow alleys, alcoves, and L-shaped nooks between building clusters
   private carveAlleys(terrain: number[][], buildings: PlacedObject[], w: number, h: number): void {
     const buildingMap = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
     for (const b of buildings) {
-      // Use approximate footprint based on known definitions
       const fp = this.getFootprint(b.definitionId)
       for (let dy = 0; dy < fp.h; dy++) {
         for (let dx = 0; dx < fp.w; dx++) {
@@ -1058,8 +1190,32 @@ export class TownGenerator implements IMapGenerator {
         const topB = y > 0 && buildingMap[y - 1][x]
         const botB = y < h - 1 && buildingMap[y + 1][x]
 
+        // Narrow passage between buildings
         if ((leftB && rightB) || (topB && botB)) {
           terrain[y][x] = 9 // dark cobblestone for alleys
+        }
+
+        // L-shaped alcoves: building on two adjacent sides (corner nooks)
+        const cornerNook = (leftB && topB && !rightB && !botB) ||
+                           (rightB && topB && !leftB && !botB) ||
+                           (leftB && botB && !rightB && !topB) ||
+                           (rightB && botB && !leftB && !topB)
+        if (cornerNook) {
+          terrain[y][x] = 8 // lighter cobble for alcoves (intimate feel)
+        }
+
+        // Setback detection: building on one side, open on others = covered walkway feel
+        const totalWalls = (leftB ? 1 : 0) + (rightB ? 1 : 0) + (topB ? 1 : 0) + (botB ? 1 : 0)
+        if (totalWalls === 1 && terrain[y][x] !== 8 && terrain[y][x] !== 9) {
+          // Count more distant buildings (2 tiles away) for deeper setbacks
+          let distantWalls = 0
+          if (x > 1 && buildingMap[y][x - 2]) distantWalls++
+          if (x < w - 2 && buildingMap[y][x + 2]) distantWalls++
+          if (y > 1 && buildingMap[y - 2][x]) distantWalls++
+          if (y < h - 2 && buildingMap[y + 2][x]) distantWalls++
+          if (distantWalls >= 1) {
+            terrain[y][x] = 8 // covered walkway / arcade feel
+          }
         }
       }
     }
@@ -1536,6 +1692,132 @@ export class TownGenerator implements IMapGenerator {
     }
 
     return vegetation
+  }
+
+  // === HIDDEN PASSAGES & GARDEN COURTYARDS ===
+  // Parisian covered passages that open into Kyoto-inspired tsuboniwa (courtyard gardens)
+  private carveHiddenPassages(
+    terrain: number[][], roadMap: boolean[][], waterMap: boolean[][], heightMap: number[][],
+    buildings: PlacedObject[], districtMap: number[][], districts: District[],
+    w: number, h: number, rng: () => number, noise: SimplexNoise
+  ): PlacedObject[] {
+    const courtProps: PlacedObject[] = []
+    const buildingMap = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
+    for (const b of buildings) {
+      const fp = this.getFootprint(b.definitionId)
+      for (let dy = 0; dy < fp.h; dy++) {
+        for (let dx = 0; dx < fp.w; dx++) {
+          const bx = b.x + dx, by = b.y + dy
+          if (bx < w && by < h) buildingMap[by][bx] = true
+        }
+      }
+    }
+
+    const courtyardsPlaced = new Set<string>()
+    const maxCourtyards = Math.floor(3 + districts.length * 1.5)
+
+    // Search for potential hidden courtyard sites
+    for (let attempt = 0; attempt < 200 && courtyardsPlaced.size < maxCourtyards; attempt++) {
+      const sx = 4 + Math.floor(rng() * (w - 10))
+      const sy = 4 + Math.floor(rng() * (h - 10))
+      const key = `${Math.floor(sx / 5)},${Math.floor(sy / 5)}`
+      if (courtyardsPlaced.has(key)) continue
+
+      // Need a 3x3 clear area surrounded by buildings on at least 3 sides
+      let clearArea = true
+      for (let dy = 0; dy < 3 && clearArea; dy++) {
+        for (let dx = 0; dx < 3 && clearArea; dx++) {
+          if (buildingMap[sy + dy]?.[sx + dx] || waterMap[sy + dy]?.[sx + dx] || roadMap[sy + dy]?.[sx + dx]) {
+            clearArea = false
+          }
+        }
+      }
+      if (!clearArea) continue
+
+      // Count surrounding building walls
+      let wallSides = 0
+      // Top wall
+      let topWall = false
+      for (let dx = 0; dx < 3; dx++) { if (buildingMap[sy - 1]?.[sx + dx]) topWall = true }
+      // Bottom wall
+      let botWall = false
+      for (let dx = 0; dx < 3; dx++) { if (buildingMap[sy + 3]?.[sx + dx]) botWall = true }
+      // Left wall
+      let leftWall = false
+      for (let dy = 0; dy < 3; dy++) { if (buildingMap[sy + dy]?.[sx - 1]) leftWall = true }
+      // Right wall
+      let rightWall = false
+      for (let dy = 0; dy < 3; dy++) { if (buildingMap[sy + dy]?.[sx + 3]) rightWall = true }
+      wallSides = (topWall ? 1 : 0) + (botWall ? 1 : 0) + (leftWall ? 1 : 0) + (rightWall ? 1 : 0)
+
+      if (wallSides < 3) continue
+
+      courtyardsPlaced.add(key)
+
+      // Determine courtyard style based on district
+      const dId = districtMap[sy + 1]?.[sx + 1] ?? -1
+      const district = districts.find(d => d.id === dId)
+      const dType = district?.type || 'residential'
+
+      // Paint courtyard ground — Kyoto-inspired varied surfaces
+      for (let dy = 0; dy < 3; dy++) {
+        for (let dx = 0; dx < 3; dx++) {
+          const tx = sx + dx, ty = sy + dy
+          if (tx >= w || ty >= h) continue
+          if (dType === 'noble' || dType === 'temple') {
+            terrain[ty][tx] = 2 // stone (zen garden feel)
+          } else if (dType === 'garden') {
+            terrain[ty][tx] = (dx + dy) % 2 === 0 ? 0 : 5 // grass/dark grass mosaic
+          } else {
+            terrain[ty][tx] = (dx === 1 && dy === 1) ? 2 : 8 // cobble with stone center
+          }
+        }
+      }
+
+      // Place courtyard features based on style
+      const cx = sx + 1, cy2 = sy + 1 // center of courtyard
+      if (dType === 'garden' || dType === 'noble') {
+        // Kyoto tsuboniwa: tree + potted plants
+        courtProps.push(this.createObj('tree', cx, cy2))
+        if (sx < w && !buildingMap[sy][sx]) {
+          courtProps.push(this.createObj('potted_plant', sx, sy))
+        }
+        if (sx + 2 < w && sy + 2 < h && !buildingMap[sy + 2][sx + 2]) {
+          courtProps.push(this.createObj('potted_plant', sx + 2, sy + 2))
+        }
+      } else if (dType === 'temple') {
+        // Zen: statue center + lanterns
+        courtProps.push(this.createObj('statue', cx, cy2))
+        if (!buildingMap[sy][sx]) courtProps.push(this.createObj('wall_lantern', sx, sy))
+        if (sx + 2 < w && !buildingMap[sy][sx + 2]) courtProps.push(this.createObj('wall_lantern', sx + 2, sy))
+      } else if (dType === 'market' || dType === 'artisan') {
+        // Workshop yard: well + barrels
+        courtProps.push(this.createObj('well', cx, cy2))
+        if (!buildingMap[sy][sx]) courtProps.push(this.createObj('barrel_stack', sx, sy))
+      } else {
+        // Residential: well + bench
+        courtProps.push(this.createObj('well', cx, cy2))
+        if (sx + 2 < w && sy + 2 < h) {
+          courtProps.push(this.createObj('bench', sx, sy + 2))
+        }
+      }
+
+      // Carve the passage — a 1-tile-wide opening through the open wall side
+      const openSide = !topWall ? 'top' : !botWall ? 'bottom' : !leftWall ? 'left' : 'right'
+      let px: number, py: number
+      switch (openSide) {
+        case 'top':    px = sx + 1; py = sy - 1; break
+        case 'bottom': px = sx + 1; py = sy + 3; break
+        case 'left':   px = sx - 1; py = sy + 1; break
+        case 'right':  px = sx + 3; py = sy + 1; break
+      }
+      // Paint passage tiles
+      if (px >= 0 && px < w && py >= 0 && py < h) {
+        terrain[py][px] = 9 // dark cobblestone (narrow passage)
+      }
+    }
+
+    return courtProps
   }
 
   // === BUILDING-SPECIFIC PROPS ===
