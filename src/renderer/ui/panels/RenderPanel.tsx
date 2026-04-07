@@ -137,7 +137,21 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
   }
 
   const applyPreset = (preset: typeof CAMERA_PRESETS[0]) => {
-    updateCamera({ elevation: preset.elevation, fov: preset.fov })
+    const cx = map.gridWidth / 2
+    const cy = map.gridHeight / 2
+    const mapSize = Math.max(map.gridWidth, map.gridHeight)
+    // Lower cameras stay closer to buildings; higher cameras pull back
+    const dist = 0.1 + preset.elevation * 0.02
+    // At low elevation, look slightly ahead into the buildings
+    const lookAhead = Math.max(0, 0.15 - preset.elevation * 0.005) * mapSize
+    updateCamera({
+      worldX: cx - mapSize * dist,
+      worldY: cy + mapSize * dist,
+      lookAtX: cx + lookAhead * 0.3,
+      lookAtY: cy - lookAhead * 0.3,
+      elevation: preset.elevation,
+      fov: preset.fov,
+    })
   }
 
   return (
@@ -148,33 +162,50 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
       </div>
       {!collapsed && (
         <div className="panel-content">
-          {/* Quick action row - always visible */}
-          <div style={{ display: 'flex', gap: 3, marginBottom: 8 }}>
-            <button
-              onClick={() => setActiveTool('camera')}
-              style={{ flex: 1, padding: '5px 6px', fontSize: 11 }}
-              title="Click on map to place camera, drag to aim (C)"
-            >
-              Place Camera
-            </button>
-            <button onClick={handleCenterCamera} style={{ flex: 1, padding: '5px 6px', fontSize: 11 }}>
-              Auto Center
-            </button>
-            <button
-              onClick={handleRender}
-              className="active"
-              style={{ flex: 1.2, padding: '5px 6px', fontSize: 11, fontWeight: 600 }}
-              disabled={rendering}
-            >
-              {rendering ? '...' : 'Render'}
-            </button>
-          </div>
+          {/* Render button - always at top, full width, prominent */}
+          <button
+            onClick={handleRender}
+            className="active"
+            style={{ width: '100%', padding: '7px 6px', fontSize: 12, fontWeight: 700, marginBottom: 6 }}
+            disabled={rendering}
+          >
+            {rendering ? 'Rendering...' : 'Render'}
+          </button>
 
-          {/* Camera angle presets */}
-          <div style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 3 }}>
-            Camera Angle
-          </div>
-          <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', marginBottom: 8 }}>
+          {error && (
+            <div style={{ color: '#d95763', fontSize: 11, marginBottom: 4, wordBreak: 'break-word' }}>{error}</div>
+          )}
+
+          {/* Preview - immediately below render button */}
+          {previewURL && (
+            <div ref={previewRef} style={{ marginBottom: 6 }}>
+              <img
+                src={previewURL}
+                alt="Pixel art render"
+                style={{
+                  width: '100%',
+                  maxHeight: 180,
+                  objectFit: 'contain',
+                  imageRendering: 'pixelated',
+                  border: '1px solid var(--border)',
+                  borderRadius: 3,
+                  background: '#000',
+                  marginBottom: 3
+                }}
+              />
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button onClick={handleExport} style={{ flex: 1, fontSize: 10, padding: '2px 8px' }}>
+                  Export PNG
+                </button>
+                <button onClick={handleDebugPackage} style={{ flex: 1, fontSize: 10, padding: '2px 8px' }} title="Download render + overhead + all settings as a single HTML file">
+                  Debug Pkg
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Camera presets + palette - compact, always visible */}
+          <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', marginBottom: 4 }}>
             {CAMERA_PRESETS.map((p) => (
               <button
                 key={p.label}
@@ -192,46 +223,22 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
             ))}
           </div>
 
-          {/* Height slider - CRITICAL: min 0.3 for street-level */}
-          <div style={{ marginBottom: 6 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 1 }}>
-              <span style={{ color: 'var(--text-dim)' }}>Height</span>
-              <span>{camera.elevation.toFixed(1)} tiles</span>
-            </div>
-            <input
-              type="range" min={0.3} max={50} step={0.1} value={camera.elevation}
-              onChange={(e) => updateCamera({ elevation: Number(e.target.value) })}
-              style={{ width: '100%' }}
-            />
-          </div>
-
-          {/* FOV slider */}
-          <div style={{ marginBottom: 6 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 1 }}>
-              <span style={{ color: 'var(--text-dim)' }}>Field of View</span>
-              <span>{camera.fov}&deg;</span>
-            </div>
-            <input
-              type="range" min={20} max={100} value={camera.fov}
-              onChange={(e) => updateCamera({ fov: Number(e.target.value) })}
-              style={{ width: '100%' }}
-            />
-          </div>
-
-          {/* Palette selector - important enough to stay visible */}
-          <div style={{ marginBottom: 6 }}>
-            <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 2 }}>Palette</label>
+          <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
             <select
               value={camera.paletteId}
               onChange={(e) => updateCamera({ paletteId: e.target.value })}
+              style={{ flex: 1 }}
             >
               {Object.entries(PALETTES).map(([id, p]) => (
                 <option key={id} value={id}>{p.name}</option>
               ))}
             </select>
+            <button onClick={handleCenterCamera} style={{ padding: '3px 8px', fontSize: 10 }}>
+              Center
+            </button>
           </div>
 
-          {/* Advanced settings (collapsed) */}
+          {/* All adjustable controls - collapsed by default */}
           <div
             onClick={() => setShowAdvanced(!showAdvanced)}
             style={{
@@ -240,12 +247,46 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
               borderTop: '1px solid var(--border)', paddingTop: 4, marginBottom: 4
             }}
           >
-            <span>Position & Output</span>
+            <span>Adjust</span>
             <span>{showAdvanced ? '-' : '+'}</span>
           </div>
 
           {showAdvanced && (
             <div style={{ marginBottom: 6 }}>
+              {/* Height slider */}
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 1 }}>
+                  <span style={{ color: 'var(--text-dim)' }}>Height</span>
+                  <span>{camera.elevation.toFixed(1)} tiles</span>
+                </div>
+                <input
+                  type="range" min={0.3} max={50} step={0.1} value={camera.elevation}
+                  onChange={(e) => updateCamera({ elevation: Number(e.target.value) })}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              {/* FOV slider */}
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 1 }}>
+                  <span style={{ color: 'var(--text-dim)' }}>Field of View</span>
+                  <span>{camera.fov}&deg;</span>
+                </div>
+                <input
+                  type="range" min={20} max={100} value={camera.fov}
+                  onChange={(e) => updateCamera({ fov: Number(e.target.value) })}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <button
+                onClick={() => setActiveTool('camera')}
+                style={{ width: '100%', padding: '4px 6px', fontSize: 11, marginBottom: 6 }}
+                title="Click on map to place camera, drag to aim (C)"
+              >
+                Place Camera on Map
+              </button>
+
               <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr', gap: '3px 6px', fontSize: 12, marginBottom: 6 }}>
                 <span style={{ color: 'var(--text-dim)' }}>From X</span>
                 <input type="number" value={camera.worldX} step={0.5}
@@ -286,40 +327,6 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
                 />
                 Pixel art outlines
               </label>
-            </div>
-          )}
-
-          {error && (
-            <div style={{ color: '#d95763', fontSize: 11, marginBottom: 4, wordBreak: 'break-word' }}>{error}</div>
-          )}
-
-          {/* Preview */}
-          {previewURL && (
-            <div ref={previewRef} style={{ marginTop: 4 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-                <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>
-                  {camera.outputWidth}x{camera.outputHeight}
-                </span>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <button onClick={handleExport} style={{ fontSize: 10, padding: '2px 8px' }}>
-                    Export PNG
-                  </button>
-                  <button onClick={handleDebugPackage} style={{ fontSize: 10, padding: '2px 8px' }} title="Download render + overhead + all settings as a single HTML file">
-                    Debug Pkg
-                  </button>
-                </div>
-              </div>
-              <img
-                src={previewURL}
-                alt="Pixel art render"
-                style={{
-                  width: '100%',
-                  imageRendering: 'pixelated',
-                  border: '1px solid var(--border)',
-                  borderRadius: 3,
-                  background: '#000'
-                }}
-              />
             </div>
           )}
         </div>

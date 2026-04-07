@@ -68,16 +68,33 @@ function applyColorGrading(imageData: ImageData, timeOfDay: number): void {
   const { data } = imageData
   const isNight = timeOfDay < 5 || timeOfDay >= 19
   const isDusk = timeOfDay >= 17 && timeOfDay < 19
+  const isGoldenHour = timeOfDay >= 15 && timeOfDay < 17
+  const isDawn = timeOfDay >= 5 && timeOfDay < 7
 
-  if (!isNight && !isDusk) return
+  if (!isNight && !isDusk && !isGoldenHour && !isDawn) return
 
-  const warmStrength = isNight ? 0.08 : 0.04
+  let warmStrength: number
+  if (isNight) warmStrength = 0.08
+  else if (isDusk) warmStrength = 0.04 + ((timeOfDay - 17) / 2) * 0.04
+  else if (isGoldenHour) {
+    const p = (timeOfDay - 15) / 2
+    warmStrength = 0.02 + p * 0.02
+  } else {
+    const p = 1 - (timeOfDay - 5) / 2
+    warmStrength = 0.02 + p * 0.03
+  }
 
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i], g = data[i + 1], b = data[i + 2]
     const lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255
 
-    if (lum < 0.3) {
+    if (isGoldenHour || isDawn) {
+      // Subtle warm shift across all tones
+      data[i] = Math.min(255, r + warmStrength * 15)
+      data[i + 1] = Math.min(255, g + warmStrength * 6)
+      data[i + 2] = Math.max(0, b - warmStrength * 8)
+    } else if (lum < 0.3) {
+      // Night/dusk shadows: cool blue push
       data[i] = Math.max(0, r * 0.9 + 4)
       data[i + 1] = Math.max(0, g * 0.88)
       data[i + 2] = Math.min(255, b * 1.05 + 8)

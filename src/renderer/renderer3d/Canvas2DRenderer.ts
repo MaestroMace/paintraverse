@@ -114,9 +114,27 @@ export function renderCanvas2D(
   // Compute lighting
   const lighting = computeLighting(map.environment)
 
-  // Fill sky background
-  ctx.fillStyle = hexToCSS(lighting.skyColor)
-  ctx.fillRect(0, 0, W, H)
+  // Fill sky background with gradient
+  const horizonY = Math.floor(H * 0.75)
+  const zenithCSS = hexToCSS(darken(lighting.skyColor, 0.25))
+  const skyCSS = hexToCSS(lighting.skyColor)
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, horizonY)
+  skyGrad.addColorStop(0, zenithCSS)
+  skyGrad.addColorStop(0.7, skyCSS)
+  if (lighting.isDusk) {
+    skyGrad.addColorStop(0.92, skyCSS)
+    skyGrad.addColorStop(1.0, hexToCSS(lerpColor(lighting.skyColor, 0xff8844, 0.4)))
+  } else if (!lighting.isNight) {
+    skyGrad.addColorStop(0.95, skyCSS)
+    skyGrad.addColorStop(1.0, hexToCSS(lerpColor(lighting.skyColor, 0xffeedd, 0.15)))
+  } else {
+    skyGrad.addColorStop(1.0, skyCSS)
+  }
+  ctx.fillStyle = skyGrad
+  ctx.fillRect(0, 0, W, horizonY)
+  // Below horizon: slightly darker blend
+  ctx.fillStyle = hexToCSS(darken(lighting.skyColor, 0.1))
+  ctx.fillRect(0, horizonY, W, H - horizonY)
 
   // Collect all drawables
   const drawables: Drawable[] = []
