@@ -74,7 +74,7 @@ function createDefaultMap(): MapDocument {
 // === DEFAULT OBJECT DEFINITIONS ===
 
 const defaultObjectDefs: ObjectDefinition[] = [
-  // === BUILDINGS (Tier 1 Architecture) ===
+  // === BUILDINGS — Heritage Architecture ===
   {
     id: 'building_small',
     name: 'Small House',
@@ -182,6 +182,124 @@ const defaultObjectDefs: ObjectDefinition[] = [
     color: '#B8A890',
     footprint: { w: 2, h: 2 },
     styleSetSlots: ['wall', 'roof', 'door', 'window', 'awning']
+  },
+  // --- New heritage buildings ---
+  {
+    id: 'chapel',
+    name: 'Chapel',
+    category: 'building',
+    tags: ['structure', 'religious', 'landmark'],
+    color: '#A0A098',
+    footprint: { w: 3, h: 4 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  {
+    id: 'guild_hall',
+    name: 'Guild Hall',
+    category: 'building',
+    tags: ['structure', 'commercial', 'landmark'],
+    color: '#8A7A68',
+    footprint: { w: 4, h: 4 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'banner']
+  },
+  {
+    id: 'warehouse',
+    name: 'Warehouse',
+    category: 'building',
+    tags: ['structure', 'commercial', 'storage'],
+    color: '#6A5A48',
+    footprint: { w: 4, h: 3 },
+    styleSetSlots: ['wall', 'roof', 'door']
+  },
+  {
+    id: 'watchtower',
+    name: 'Watchtower',
+    category: 'building',
+    tags: ['structure', 'military', 'landmark'],
+    color: '#5A5A5A',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'window']
+  },
+  {
+    id: 'mansion',
+    name: 'Mansion',
+    category: 'building',
+    tags: ['structure', 'residential', 'noble'],
+    color: '#C8B8A0',
+    footprint: { w: 5, h: 4 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'balcony']
+  },
+  {
+    id: 'bakery',
+    name: 'Bakery',
+    category: 'building',
+    tags: ['structure', 'commercial'],
+    color: '#B89878',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'awning']
+  },
+  {
+    id: 'apothecary',
+    name: 'Apothecary',
+    category: 'building',
+    tags: ['structure', 'commercial'],
+    color: '#7A8A6A',
+    footprint: { w: 2, h: 3 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'sign']
+  },
+  {
+    id: 'inn',
+    name: 'Inn',
+    category: 'building',
+    tags: ['structure', 'commercial', 'social'],
+    color: '#9A7A58',
+    footprint: { w: 3, h: 3 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'sign', 'balcony']
+  },
+  {
+    id: 'temple',
+    name: 'Temple',
+    category: 'building',
+    tags: ['structure', 'religious', 'landmark'],
+    color: '#B0A890',
+    footprint: { w: 5, h: 5 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  {
+    id: 'covered_market',
+    name: 'Covered Market',
+    category: 'building',
+    tags: ['structure', 'commercial'],
+    color: '#8A7A60',
+    footprint: { w: 4, h: 3 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'bell_tower',
+    name: 'Bell Tower',
+    category: 'building',
+    tags: ['structure', 'landmark'],
+    color: '#9A9A90',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'window']
+  },
+  {
+    id: 'half_timber',
+    name: 'Half-Timber House',
+    category: 'building',
+    tags: ['structure', 'residential'],
+    color: '#C8B090',
+    footprint: { w: 3, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  {
+    id: 'narrow_house',
+    name: 'Narrow House',
+    category: 'building',
+    tags: ['structure', 'residential'],
+    color: '#A89070',
+    footprint: { w: 1, h: 3 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
   },
 
   // === VEGETATION ===
@@ -415,7 +533,98 @@ const defaultObjectDefs: ObjectDefinition[] = [
     color: '#8A8A88',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
-  }
+  },
+  // --- New props: life and heritage ---
+  {
+    id: 'horse_post',
+    name: 'Horse Post',
+    category: 'prop',
+    tags: ['transport'],
+    color: '#5A4A30',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'flower_box',
+    name: 'Flower Box',
+    category: 'vegetation',
+    tags: ['nature', 'decoration'],
+    color: '#8A5A3A',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'rain_barrel',
+    name: 'Rain Barrel',
+    category: 'prop',
+    tags: ['water', 'storage'],
+    color: '#5A4A38',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'woodpile',
+    name: 'Woodpile',
+    category: 'prop',
+    tags: ['storage'],
+    color: '#7A5A30',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'cart',
+    name: 'Cart',
+    category: 'prop',
+    tags: ['transport'],
+    color: '#6A5030',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'column',
+    name: 'Column',
+    category: 'infrastructure',
+    tags: ['decoration', 'architectural'],
+    color: '#A0A098',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'monument',
+    name: 'Monument',
+    category: 'prop',
+    tags: ['decoration', 'landmark'],
+    color: '#8A8A80',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: []
+  },
+  {
+    id: 'garden_arch',
+    name: 'Garden Arch',
+    category: 'vegetation',
+    tags: ['decoration', 'nature'],
+    color: '#4A7A3A',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'cloth_line',
+    name: 'Clothesline',
+    category: 'prop',
+    tags: ['domestic'],
+    color: '#C0B090',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'hay_bale',
+    name: 'Hay Bale',
+    category: 'prop',
+    tags: ['agricultural'],
+    color: '#C8A850',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
 ]
 
 // === STORE ===

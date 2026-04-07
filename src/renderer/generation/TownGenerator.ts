@@ -21,55 +21,75 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
   market: [
     { id: 'shop', w: 2, h: 3, weight: 6 },
     { id: 'corner_building', w: 2, h: 2, weight: 4 },
+    { id: 'bakery', w: 2, h: 2, weight: 4 },
     { id: 'row_house', w: 1, h: 2, weight: 3 },
     { id: 'tavern', w: 4, h: 3, weight: 2 },
+    { id: 'covered_market', w: 4, h: 3, weight: 2 },
     { id: 'building_small', w: 2, h: 2, weight: 2 },
+    { id: 'apothecary', w: 2, h: 3, weight: 2 },
+    { id: 'inn', w: 3, h: 3, weight: 1 },
     { id: 'archway', w: 3, h: 1, weight: 1 },
   ],
   residential: [
     { id: 'building_small', w: 2, h: 2, weight: 5 },
     { id: 'row_house', w: 1, h: 2, weight: 5 },
+    { id: 'half_timber', w: 3, h: 2, weight: 4 },
     { id: 'building_medium', w: 3, h: 3, weight: 3 },
     { id: 'balcony_house', w: 3, h: 2, weight: 3 },
+    { id: 'narrow_house', w: 1, h: 3, weight: 3 },
+    { id: 'bakery', w: 2, h: 2, weight: 2 },
     { id: 'building_large', w: 4, h: 3, weight: 1 },
   ],
   artisan: [
     { id: 'shop', w: 2, h: 3, weight: 5 },
     { id: 'building_small', w: 2, h: 2, weight: 4 },
     { id: 'row_house', w: 1, h: 2, weight: 4 },
+    { id: 'warehouse', w: 4, h: 3, weight: 3 },
     { id: 'corner_building', w: 2, h: 2, weight: 2 },
+    { id: 'half_timber', w: 3, h: 2, weight: 2 },
+    { id: 'apothecary', w: 2, h: 3, weight: 1 },
     { id: 'staircase', w: 2, h: 3, weight: 1 },
   ],
   noble: [
-    { id: 'building_large', w: 4, h: 3, weight: 5 },
-    { id: 'building_medium', w: 3, h: 3, weight: 4 },
+    { id: 'mansion', w: 5, h: 4, weight: 5 },
+    { id: 'building_large', w: 4, h: 3, weight: 4 },
+    { id: 'building_medium', w: 3, h: 3, weight: 3 },
     { id: 'balcony_house', w: 3, h: 2, weight: 3 },
+    { id: 'guild_hall', w: 4, h: 4, weight: 2 },
     { id: 'tower', w: 2, h: 2, weight: 2 },
     { id: 'archway', w: 3, h: 1, weight: 1 },
   ],
   waterfront: [
     { id: 'building_small', w: 2, h: 2, weight: 4 },
     { id: 'shop', w: 2, h: 3, weight: 4 },
+    { id: 'warehouse', w: 4, h: 3, weight: 3 },
     { id: 'row_house', w: 1, h: 2, weight: 3 },
     { id: 'building_medium', w: 3, h: 3, weight: 2 },
     { id: 'tavern', w: 4, h: 3, weight: 2 },
+    { id: 'inn', w: 3, h: 3, weight: 2 },
+    { id: 'half_timber', w: 3, h: 2, weight: 1 },
   ],
   temple: [
-    { id: 'tower', w: 2, h: 2, weight: 5 },
-    { id: 'building_large', w: 4, h: 3, weight: 4 },
-    { id: 'building_medium', w: 3, h: 3, weight: 3 },
+    { id: 'chapel', w: 3, h: 4, weight: 5 },
+    { id: 'tower', w: 2, h: 2, weight: 4 },
+    { id: 'bell_tower', w: 2, h: 2, weight: 3 },
+    { id: 'building_large', w: 4, h: 3, weight: 3 },
+    { id: 'temple', w: 5, h: 5, weight: 2 },
     { id: 'archway', w: 3, h: 1, weight: 2 },
     { id: 'staircase', w: 2, h: 3, weight: 2 },
   ],
   slum: [
     { id: 'row_house', w: 1, h: 2, weight: 8 },
+    { id: 'narrow_house', w: 1, h: 3, weight: 5 },
     { id: 'building_small', w: 2, h: 2, weight: 5 },
     { id: 'corner_building', w: 2, h: 2, weight: 2 },
     { id: 'shop', w: 2, h: 3, weight: 1 },
   ],
   garden: [
     { id: 'balcony_house', w: 3, h: 2, weight: 4 },
+    { id: 'mansion', w: 5, h: 4, weight: 3 },
     { id: 'building_medium', w: 3, h: 3, weight: 3 },
+    { id: 'half_timber', w: 3, h: 2, weight: 3 },
     { id: 'building_small', w: 2, h: 2, weight: 2 },
     { id: 'building_large', w: 4, h: 3, weight: 1 },
   ],
@@ -77,14 +97,14 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
 
 // District-specific prop palettes
 const DISTRICT_PROPS: Record<DistrictType, string[]> = {
-  market: ['market_stall', 'crate', 'crate_stack', 'barrel', 'hanging_sign', 'wagon', 'sign', 'cafe_table'],
-  residential: ['potted_plant', 'bench', 'well', 'fence', 'planter_box'],
-  artisan: ['barrel', 'crate', 'barrel_stack', 'sign', 'fence', 'crate_stack'],
-  noble: ['potted_plant', 'planter_box', 'bench', 'statue', 'fountain', 'wall_lantern'],
-  waterfront: ['barrel', 'crate', 'wagon', 'sign', 'bench', 'crate_stack'],
-  temple: ['statue', 'potted_plant', 'stone_wall', 'wall_lantern'],
-  slum: ['barrel', 'crate', 'barrel_stack'],
-  garden: ['potted_plant', 'planter_box', 'bench', 'fountain', 'bush', 'tree'],
+  market: ['market_stall', 'crate', 'crate_stack', 'barrel', 'hanging_sign', 'wagon', 'sign', 'cafe_table', 'cart', 'hay_bale'],
+  residential: ['potted_plant', 'bench', 'well', 'fence', 'planter_box', 'flower_box', 'cloth_line', 'rain_barrel', 'woodpile'],
+  artisan: ['barrel', 'crate', 'barrel_stack', 'sign', 'fence', 'crate_stack', 'woodpile', 'cart', 'rain_barrel'],
+  noble: ['potted_plant', 'planter_box', 'bench', 'statue', 'fountain', 'wall_lantern', 'column', 'monument', 'garden_arch', 'flower_box'],
+  waterfront: ['barrel', 'crate', 'wagon', 'sign', 'bench', 'crate_stack', 'horse_post', 'rain_barrel'],
+  temple: ['statue', 'potted_plant', 'stone_wall', 'wall_lantern', 'column', 'monument', 'garden_arch'],
+  slum: ['barrel', 'crate', 'barrel_stack', 'woodpile', 'rain_barrel'],
+  garden: ['potted_plant', 'planter_box', 'bench', 'fountain', 'bush', 'tree', 'flower_box', 'garden_arch'],
 }
 
 // District density multipliers
@@ -1824,11 +1844,23 @@ export class TownGenerator implements IMapGenerator {
   private getBuildingSpecificProps(defId: string, rng: () => number): string[] {
     switch (defId) {
       case 'tavern': return ['barrel', 'barrel_stack', 'hanging_sign', ...(rng() > 0.5 ? ['cafe_table'] : [])]
+      case 'inn': return ['hanging_sign', 'barrel', ...(rng() > 0.5 ? ['horse_post'] : ['cafe_table'])]
       case 'shop': return ['hanging_sign', rng() > 0.5 ? 'crate' : 'barrel']
+      case 'bakery': return ['hanging_sign', 'barrel', ...(rng() > 0.5 ? ['woodpile'] : [])]
+      case 'apothecary': return ['hanging_sign', 'potted_plant']
       case 'market_stall': return ['crate_stack', 'barrel']
-      case 'building_large': return rng() > 0.5 ? ['potted_plant', 'planter_box'] : ['statue']
-      case 'balcony_house': return rng() > 0.5 ? ['potted_plant'] : ['planter_box']
+      case 'covered_market': return ['crate', 'barrel', 'crate_stack']
+      case 'warehouse': return ['crate_stack', 'barrel_stack', 'cart']
+      case 'guild_hall': return ['hanging_sign', 'bench', ...(rng() > 0.5 ? ['statue'] : ['planter_box'])]
+      case 'mansion': return ['potted_plant', 'planter_box', 'flower_box']
+      case 'building_large': return rng() > 0.5 ? ['potted_plant', 'planter_box'] : ['flower_box']
+      case 'balcony_house': return rng() > 0.5 ? ['flower_box'] : ['planter_box']
+      case 'half_timber': return rng() > 0.5 ? ['flower_box', 'potted_plant'] : ['woodpile']
+      case 'chapel': return ['statue', 'wall_lantern']
+      case 'temple': return ['column', 'statue', 'wall_lantern']
       case 'tower': return ['wall_lantern']
+      case 'watchtower': return ['wall_lantern', 'barrel']
+      case 'bell_tower': return ['wall_lantern']
       case 'clock_tower': return ['bench', 'statue']
       default: return []
     }
@@ -1997,6 +2029,17 @@ export class TownGenerator implements IMapGenerator {
       wagon: { w: 3, h: 2 }, fountain: { w: 2, h: 2 },
       bench: { w: 2, h: 1 }, fence: { w: 2, h: 1 },
       stone_wall: { w: 2, h: 1 }, planter_box: { w: 2, h: 1 },
+      // New buildings
+      chapel: { w: 3, h: 4 }, guild_hall: { w: 4, h: 4 },
+      warehouse: { w: 4, h: 3 }, watchtower: { w: 2, h: 2 },
+      mansion: { w: 5, h: 4 }, bakery: { w: 2, h: 2 },
+      apothecary: { w: 2, h: 3 }, inn: { w: 3, h: 3 },
+      temple: { w: 5, h: 5 }, covered_market: { w: 4, h: 3 },
+      bell_tower: { w: 2, h: 2 }, half_timber: { w: 3, h: 2 },
+      narrow_house: { w: 1, h: 3 },
+      // New props
+      cart: { w: 2, h: 1 }, monument: { w: 2, h: 2 },
+      cloth_line: { w: 2, h: 1 },
     }
     return footprints[defId] || { w: 1, h: 1 }
   }
