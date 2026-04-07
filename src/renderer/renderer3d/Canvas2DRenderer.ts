@@ -533,6 +533,27 @@ function addBuildingDrawables(
           ctx.moveTo(p[7].sx, p[7].sy); ctx.lineTo(p[4].sx, p[4].sy)
           ctx.lineTo(ridgeCenter.sx, ridgeCenter.sy); ctx.closePath(); ctx.fill()
         }
+        // Weather vane on pointed/steep roofs
+        if (def.id === 'clock_tower' || def.id === 'tower' || def.id === 'chapel' || hash % 4 === 0) {
+          ctx.strokeStyle = hexToCSS(darken(roofFogged, 0.4))
+          ctx.lineWidth = 0.6
+          // Pole
+          ctx.beginPath()
+          ctx.moveTo(ridgeCenter.sx, ridgeCenter.sy)
+          ctx.lineTo(ridgeCenter.sx, ridgeCenter.sy - 4)
+          ctx.stroke()
+          // Arrow
+          ctx.beginPath()
+          ctx.moveTo(ridgeCenter.sx - 2, ridgeCenter.sy - 3.5)
+          ctx.lineTo(ridgeCenter.sx + 2, ridgeCenter.sy - 3.5)
+          ctx.stroke()
+          // Arrow tip
+          ctx.beginPath()
+          ctx.moveTo(ridgeCenter.sx + 2, ridgeCenter.sy - 4.2)
+          ctx.lineTo(ridgeCenter.sx + 3, ridgeCenter.sy - 3.5)
+          ctx.lineTo(ridgeCenter.sx + 2, ridgeCenter.sy - 2.8)
+          ctx.closePath(); ctx.fill()
+        }
       }
     })
   } else if (roofStyle === 'hipped' && ridgeFront && ridgeBack) {
@@ -598,6 +619,21 @@ function addBuildingDrawables(
         ctx.beginPath()
         ctx.ellipse(cx, cy, rx, ry, 0, Math.PI, 0)
         ctx.closePath(); ctx.fill()
+        // Dome shading — lit left, dark right
+        ctx.fillStyle = hexToCSS(lighten(roofFogged, 0.06))
+        ctx.beginPath()
+        ctx.ellipse(cx - rx * 0.25, cy - ry * 0.2, rx * 0.4, ry * 0.5, -0.3, Math.PI, 0)
+        ctx.closePath(); ctx.fill()
+        // Dome ribs
+        ctx.strokeStyle = hexToCSS(darken(roofFogged, 0.08))
+        ctx.lineWidth = 0.3
+        for (let ri = 0; ri < 3; ri++) {
+          const ribX = cx - rx * 0.3 + ri * rx * 0.3
+          ctx.beginPath()
+          ctx.moveTo(ribX, cy)
+          ctx.quadraticCurveTo(ribX + (ri - 1) * 0.5, cy - ry * 0.7, cx, cy - ry)
+          ctx.stroke()
+        }
         // Base of dome
         ctx.fillStyle = roofDark
         ctx.beginPath()
@@ -649,6 +685,11 @@ function addBuildingDrawables(
           // Chimney cap
           ctx.fillStyle = hexToCSS(darken(roofFogged, 0.3))
           ctx.fillRect(chimTop.sx - cw * 0.7, chimTop.sy - 1, cw * 1.4, 2)
+          // Soot stain on roof below chimney
+          ctx.fillStyle = 'rgba(30,25,20,0.12)'
+          ctx.beginPath()
+          ctx.ellipse(chimTop.sx, chimBot.sy + 1, cw * 1.5, 2, 0, 0, Math.PI * 2)
+          ctx.fill()
           // Chimney smoke puffs
           for (let si = 0; si < 4; si++) {
             const smokeY = chimTop.sy - 3 - si * 3 - ((time * 2 + hash * 0.1) % 4)
@@ -662,6 +703,40 @@ function addBuildingDrawables(
         }
       })
     }
+  }
+
+  // ── WINDMILL BLADES ──
+  if (def.id === 'windmill' && ridgeCenter) {
+    drawables.push({
+      depth: avgDepth - 0.035,
+      draw: (ctx) => {
+        const bladeLen = Math.abs(ridgeCenter.sy - p[0].sy) * 0.6
+        const hubX = ridgeCenter.sx
+        const hubY = ridgeCenter.sy - 2
+        const bladeAngle = time * 0.8 + hash * 0.5
+        ctx.strokeStyle = hexToCSS(darken(applyFog(palette.wall, avgDepth, lighting), 0.2))
+        ctx.lineWidth = 1.2
+        for (let bi = 0; bi < 4; bi++) {
+          const a = bladeAngle + bi * Math.PI / 2
+          const bx = hubX + Math.cos(a) * bladeLen
+          const by = hubY + Math.sin(a) * bladeLen * 0.5 // perspective squash
+          ctx.beginPath(); ctx.moveTo(hubX, hubY); ctx.lineTo(bx, by); ctx.stroke()
+          // Blade sail (thin parallelogram)
+          const perpX = Math.cos(a + Math.PI / 2) * bladeLen * 0.08
+          const perpY = Math.sin(a + Math.PI / 2) * bladeLen * 0.04
+          ctx.fillStyle = hexToCSS(applyFog(0xd8d0c0, avgDepth, lighting))
+          ctx.beginPath()
+          ctx.moveTo(hubX + Math.cos(a) * bladeLen * 0.2, hubY + Math.sin(a) * bladeLen * 0.1)
+          ctx.lineTo(hubX + Math.cos(a) * bladeLen * 0.2 + perpX, hubY + Math.sin(a) * bladeLen * 0.1 + perpY)
+          ctx.lineTo(bx + perpX, by + perpY)
+          ctx.lineTo(bx, by)
+          ctx.closePath(); ctx.fill()
+        }
+        // Hub
+        ctx.fillStyle = hexToCSS(darken(applyFog(palette.wall, avgDepth, lighting), 0.15))
+        ctx.beginPath(); ctx.arc(hubX, hubY, 2, 0, Math.PI * 2); ctx.fill()
+      }
+    })
   }
 
   // ── DORMERS (small windowed projections on roof) ──
@@ -786,6 +861,12 @@ function addBuildingDrawables(
         ctx.fillStyle = 'rgba(0,0,0,0.08)'
         ctx.fillRect(Math.min(fp[0].sx, fp[1].sx), fp[0].sy - 1, faceW, 2)
 
+        // Roof eave overhang shadow (darkened strip at top of wall)
+        if (roofStyle !== 'none' && roofStyle !== 'flat' && faceH > 6) {
+          ctx.fillStyle = 'rgba(0,0,0,0.1)'
+          ctx.fillRect(Math.min(fp[0].sx, fp[1].sx) - 1, fp[3].sy, faceW + 2, 2)
+        }
+
         // Exposed brick patches on older buildings
         if ((def.id === 'building_small' || def.id === 'row_house' || def.id === 'warehouse' || def.id === 'half_timber') && faceW > 8) {
           const patchHash = (hash * 7 + face.nx * 3) & 0xffff
@@ -834,6 +915,24 @@ function addBuildingDrawables(
           const corniceY2 = fp[0].sy + (fp[3].sy - fp[0].sy) * 0.55
           ctx.fillRect(Math.min(fp[0].sx, fp[1].sx), corniceY1, faceW, 1.5)
           ctx.fillRect(Math.min(fp[0].sx, fp[1].sx), corniceY2, faceW, 1)
+        }
+
+        // Clock face on clock_tower
+        if (def.id === 'clock_tower' && face.isFront && faceH > 8) {
+          const clockR = Math.min(faceW, faceH) * 0.12
+          const clockX2 = (fp[0].sx + fp[1].sx) / 2
+          const clockY2 = fp[0].sy - faceH * 0.65
+          // Clock circle
+          ctx.fillStyle = hexToCSS(applyFog(0xf0e8d0, avgDepth, lighting))
+          ctx.beginPath(); ctx.arc(clockX2, clockY2, clockR, 0, Math.PI * 2); ctx.fill()
+          ctx.strokeStyle = hexToCSS(darken(wallFogged, 0.3))
+          ctx.lineWidth = 0.6
+          ctx.beginPath(); ctx.arc(clockX2, clockY2, clockR, 0, Math.PI * 2); ctx.stroke()
+          // Clock hands
+          ctx.strokeStyle = hexToCSS(darken(wallFogged, 0.4))
+          ctx.lineWidth = 0.5
+          ctx.beginPath(); ctx.moveTo(clockX2, clockY2); ctx.lineTo(clockX2, clockY2 - clockR * 0.7); ctx.stroke()
+          ctx.beginPath(); ctx.moveTo(clockX2, clockY2); ctx.lineTo(clockX2 + clockR * 0.5, clockY2 + clockR * 0.2); ctx.stroke()
         }
 
         // Ground floor differentiation (darker base for shops)
@@ -1015,6 +1114,36 @@ function addBuildingDrawables(
             const sx3 = fp[0].sx + faceW * 0.5 - (si + 1) * stepW * 0.5
             ctx.fillRect(sx3 - stepW / 2, sy2, stepW, stepH)
           }
+        }
+
+        // Bay window (protruding windowed box on upper floor)
+        if ((def.id === 'mansion' || def.id === 'building_large' || def.id === 'guild_hall' || def.id === 'corner_building') && face.isFront && faceH > 12 && faceW > 10) {
+          const bayW = faceW * 0.25
+          const bayH = faceH * 0.2
+          const bayX = fp[0].sx + faceW * (hash % 2 === 0 ? 0.25 : 0.65)
+          const bayY = fp[0].sy - faceH * 0.5
+          const bayDepth = 2 // protrusion in pixels
+          // Front face of bay
+          ctx.fillStyle = hexToCSS(wallFogged)
+          ctx.fillRect(bayX - bayW / 2, bayY - bayH / 2, bayW, bayH)
+          // Side panels (trapezoid suggesting depth)
+          ctx.fillStyle = hexToCSS(darken(wallFogged, 0.1))
+          ctx.beginPath()
+          ctx.moveTo(bayX - bayW / 2, bayY - bayH / 2)
+          ctx.lineTo(bayX - bayW / 2 - bayDepth, bayY - bayH / 2 + 1)
+          ctx.lineTo(bayX - bayW / 2 - bayDepth, bayY + bayH / 2 - 1)
+          ctx.lineTo(bayX - bayW / 2, bayY + bayH / 2)
+          ctx.closePath(); ctx.fill()
+          // Bay window glass
+          const isLit2 = lighting.isNight || lighting.isDusk
+          ctx.fillStyle = isLit2 ? '#ffcc66' : hexToCSS(darken(wallFogged, 0.18))
+          ctx.fillRect(bayX - bayW * 0.35, bayY - bayH * 0.3, bayW * 0.3, bayH * 0.5)
+          ctx.fillRect(bayX + bayW * 0.05, bayY - bayH * 0.3, bayW * 0.3, bayH * 0.5)
+          // Bay top ledge
+          ctx.fillStyle = hexToCSS(darken(wallFogged, 0.12))
+          ctx.fillRect(bayX - bayW / 2 - bayDepth, bayY - bayH / 2 - 1, bayW + bayDepth * 2, 1.5)
+          // Bay bottom support
+          ctx.fillRect(bayX - bayW / 2 - 1, bayY + bayH / 2, bayW + 2, 1)
         }
 
         // Door step (raised stone threshold)

@@ -19,8 +19,8 @@ export interface RenderResult {
 
 const DEFAULT_OPTIONS: RenderOptions = {
   paletteId: 'db32',
-  dithering: 'ordered',
-  outlines: true,
+  dithering: 'none',
+  outlines: false,
   outlineThreshold: 80
 }
 

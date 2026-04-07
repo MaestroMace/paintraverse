@@ -4,11 +4,11 @@ import { renderPixelArt } from '../../renderer3d/RenderPipeline'
 import { PALETTES } from '../../renderer3d/PaletteQuantizer'
 
 const CAMERA_PRESETS = [
-  { label: 'Street Level', elevation: 1.2, fov: 65, desc: 'Low angle, intimate' },
+  { label: 'Street', elevation: 1.5, fov: 60, desc: 'Low angle among buildings' },
   { label: 'Eye Level', elevation: 3, fov: 55, desc: 'Standing perspective' },
-  { label: 'Rooftop', elevation: 8, fov: 50, desc: 'Above the buildings' },
-  { label: 'Overview', elevation: 18, fov: 45, desc: 'Cinematic wide shot' },
-  { label: "Bird's Eye", elevation: 35, fov: 40, desc: 'Top-down map view' },
+  { label: 'Rooftop', elevation: 8, fov: 48, desc: 'Above the rooftops' },
+  { label: 'Overview', elevation: 16, fov: 42, desc: 'Wide town view' },
+  { label: "Bird's Eye", elevation: 30, fov: 35, desc: 'Near top-down' },
 ]
 
 export function RenderPanel() {
@@ -27,8 +27,8 @@ export function RenderPanel() {
   const buildingPalettes = useAppStore((s) => s.buildingPalettes)
 
   const [renderOpts, setRenderOpts] = useState({
-    dithering: 'ordered' as 'none' | 'ordered' | 'floyd-steinberg',
-    outlines: true
+    dithering: 'none' as 'none' | 'ordered' | 'floyd-steinberg',
+    outlines: false
   })
 
   const handleRender = () => {
@@ -120,36 +120,44 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
     URL.revokeObjectURL(link.href)
   }
 
-  const handleCenterCamera = () => {
+  // Place camera at a given elevation looking at map center.
+  // Uses the FOV and elevation to compute proper distance so the
+  // town fills the frame. Camera is placed "in front" (lower Y)
+  // at an angle that feels like a 3/4 view.
+  const placeCamera = (elevation: number, fov: number) => {
     const cx = map.gridWidth / 2
     const cy = map.gridHeight / 2
     const mapSize = Math.max(map.gridWidth, map.gridHeight)
-    // Position camera southwest of center, looking at center, at moderate height
-    // Closer to the action for better framing
+
+    // Distance from look-at center: enough to see the town.
+    // At higher elevations we pull back; at low we stay close.
+    const halfFovRad = (fov * Math.PI / 180) / 2
+    // Desired visible width ≈ mapSize tiles → distance = mapSize / (2 * tan(halfFov))
+    const framingDist = (mapSize * 0.6) / Math.tan(halfFovRad)
+    // Clamp to keep a reasonable range
+    const dist = Math.max(mapSize * 0.3, Math.min(mapSize * 1.5, framingDist))
+
+    // Camera offset: 45-degree angle "southwest" of center, so we see
+    // both the front and right sides of buildings.
+    const angle = -Math.PI * 0.75 // 225° — looking northeast
+    const hDist = Math.sqrt(Math.max(0, dist * dist - elevation * elevation)) || dist * 0.5
+
     updateCamera({
-      worldX: cx - mapSize * 0.15,
-      worldY: cy - mapSize * 0.1,
-      lookAtX: cx + 2,
-      lookAtY: cy + 2,
-      elevation: mapSize * 0.25,
-      fov: 55
+      worldX: Math.round((cx + Math.cos(angle) * hDist) * 2) / 2,
+      worldY: Math.round((cy + Math.sin(angle) * hDist) * 2) / 2,
+      lookAtX: cx,
+      lookAtY: cy,
+      elevation,
+      fov,
     })
   }
 
+  const handleCenterCamera = () => {
+    placeCamera(camera.elevation, camera.fov)
+  }
+
   const applyPreset = (preset: typeof CAMERA_PRESETS[0]) => {
-    const cx = map.gridWidth / 2
-    const cy = map.gridHeight / 2
-    const mapSize = Math.max(map.gridWidth, map.gridHeight)
-    // Camera in front of town (lower worldY) looking toward center
-    const dist = 0.08 + preset.elevation * 0.012
-    updateCamera({
-      worldX: cx - mapSize * dist,
-      worldY: cy - mapSize * dist * 0.5,
-      lookAtX: cx + 2,
-      lookAtY: cy + 2,
-      elevation: preset.elevation,
-      fov: preset.fov,
-    })
+    placeCamera(preset.elevation, preset.fov)
   }
 
   return (
@@ -285,17 +293,21 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
                 Place Camera on Map
               </button>
 
+              <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 2 }}>
+                Camera at ({camera.worldX.toFixed(1)}, {camera.worldY.toFixed(1)}) → ({camera.lookAtX.toFixed(1)}, {camera.lookAtY.toFixed(1)})
+                &nbsp;|&nbsp;Map: {map.gridWidth}×{map.gridHeight}
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr', gap: '3px 6px', fontSize: 12, marginBottom: 6 }}>
-                <span style={{ color: 'var(--text-dim)' }}>From X</span>
+                <span style={{ color: 'var(--text-dim)' }} title="Camera tile column (left-right)">Cam Col</span>
                 <input type="number" value={camera.worldX} step={0.5}
                   onChange={(e) => updateCamera({ worldX: Number(e.target.value) })} />
-                <span style={{ color: 'var(--text-dim)' }}>From Y</span>
+                <span style={{ color: 'var(--text-dim)' }} title="Camera tile row (top-bottom)">Cam Row</span>
                 <input type="number" value={camera.worldY} step={0.5}
                   onChange={(e) => updateCamera({ worldY: Number(e.target.value) })} />
-                <span style={{ color: 'var(--text-dim)' }}>Look X</span>
+                <span style={{ color: 'var(--text-dim)' }} title="Look-at tile column">Aim Col</span>
                 <input type="number" value={camera.lookAtX} step={0.5}
                   onChange={(e) => updateCamera({ lookAtX: Number(e.target.value) })} />
-                <span style={{ color: 'var(--text-dim)' }}>Look Y</span>
+                <span style={{ color: 'var(--text-dim)' }} title="Look-at tile row">Aim Row</span>
                 <input type="number" value={camera.lookAtY} step={0.5}
                   onChange={(e) => updateCamera({ lookAtY: Number(e.target.value) })} />
                 <span style={{ color: 'var(--text-dim)' }}>Width</span>

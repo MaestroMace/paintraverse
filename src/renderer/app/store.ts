@@ -888,7 +888,31 @@ export const useAppStore = create<AppState>((set, get) => ({
   setAppMode: (mode) => set({ appMode: mode }),
 
   // Map operations
-  setMap: (map) => set({ map, dirty: true }),
+  setMap: (map) => {
+    // Auto-center camera on new map
+    const cx = map.gridWidth / 2
+    const cy = map.gridHeight / 2
+    const mapSize = Math.max(map.gridWidth, map.gridHeight)
+    const elevation = Math.max(3, mapSize * 0.2)
+    const fov = 48
+    const halfFov = (fov * Math.PI / 180) / 2
+    const framingDist = (mapSize * 0.6) / Math.tan(halfFov)
+    const dist = Math.max(mapSize * 0.3, Math.min(mapSize * 1.5, framingDist))
+    const angle = -Math.PI * 0.75
+    const hDist = Math.sqrt(Math.max(0, dist * dist - elevation * elevation)) || dist * 0.5
+    set({
+      map, dirty: true,
+      renderCamera: {
+        ...get().renderCamera,
+        worldX: Math.round((cx + Math.cos(angle) * hDist) * 2) / 2,
+        worldY: Math.round((cy + Math.sin(angle) * hDist) * 2) / 2,
+        lookAtX: cx,
+        lookAtY: cy,
+        elevation,
+        fov,
+      }
+    })
+  },
   setProjectPath: (path) => set({ projectPath: path }),
   setDirty: (dirty) => set({ dirty }),
 
