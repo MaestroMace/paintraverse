@@ -5,7 +5,7 @@ import { createRNG, SimplexNoise, poissonDiskSampling, nearestPoint, perturbedDi
 
 // === District System ===
 
-type DistrictType = 'market' | 'residential' | 'artisan' | 'noble' | 'waterfront' | 'temple' | 'slum' | 'garden'
+type DistrictType = 'market' | 'residential' | 'artisan' | 'noble' | 'waterfront' | 'temple' | 'slum' | 'garden' | 'harbor' | 'fortress' | 'cemetery'
 
 interface District {
   id: number
@@ -93,6 +93,25 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'building_small', w: 2, h: 2, weight: 2 },
     { id: 'building_large', w: 4, h: 3, weight: 1 },
   ],
+  harbor: [
+    { id: 'warehouse', w: 4, h: 3, weight: 8 },
+    { id: 'shop', w: 2, h: 3, weight: 4 },
+    { id: 'tavern', w: 4, h: 3, weight: 3 },
+    { id: 'row_house', w: 1, h: 2, weight: 3 },
+    { id: 'inn', w: 3, h: 3, weight: 2 },
+    { id: 'building_small', w: 2, h: 2, weight: 2 },
+  ],
+  fortress: [
+    { id: 'watchtower', w: 2, h: 2, weight: 6 },
+    { id: 'tower', w: 2, h: 2, weight: 5 },
+    { id: 'town_gate', w: 3, h: 1, weight: 3 },
+    { id: 'warehouse', w: 4, h: 3, weight: 2 },
+    { id: 'building_small', w: 2, h: 2, weight: 2 },
+  ],
+  cemetery: [
+    { id: 'chapel', w: 3, h: 4, weight: 5 },
+    { id: 'tower', w: 2, h: 2, weight: 2 },
+  ],
 }
 
 // District-specific prop palettes
@@ -105,12 +124,16 @@ const DISTRICT_PROPS: Record<DistrictType, string[]> = {
   temple: ['statue', 'potted_plant', 'stone_wall', 'wall_lantern', 'column', 'monument', 'garden_arch'],
   slum: ['barrel', 'crate', 'barrel_stack', 'woodpile', 'rain_barrel'],
   garden: ['potted_plant', 'planter_box', 'bench', 'fountain', 'bush', 'tree', 'flower_box', 'garden_arch'],
+  harbor: ['barrel', 'crate', 'crate_stack', 'wagon', 'horse_post', 'dock', 'crane', 'fishing_boat', 'rain_barrel'],
+  fortress: ['stone_wall', 'barrel', 'crate', 'wall_lantern', 'iron_fence'],
+  cemetery: ['gravestone', 'iron_fence', 'potted_plant', 'tree', 'wall_lantern', 'bench'],
 }
 
 // District density multipliers
 const DISTRICT_DENSITY: Record<DistrictType, number> = {
   market: 1.1, residential: 0.9, artisan: 1.0, noble: 0.7,
   waterfront: 0.8, temple: 0.6, slum: 1.3, garden: 0.4,
+  harbor: 0.9, fortress: 0.5, cemetery: 0.3,
 }
 
 // District elevation bias — temples and nobles on the heights, waterfront at sea level
@@ -124,6 +147,7 @@ const DISTRICT_ELEVATION_BIAS: Record<DistrictType, number> = {
   market: -0.2,    // accessible center, ground level
   waterfront: -0.4, // down by the water
   slum: -0.3,      // low-lying areas
+  harbor: -0.5, fortress: 0.6, cemetery: 0.2,
 }
 
 
@@ -197,6 +221,9 @@ export class TownGenerator implements IMapGenerator {
     // 12. Place town gates at map edges where roads exit
     const gates = this.placeGates(width, height, roadMap, rng)
 
+    // 12b. Town walls around perimeter
+    const townWalls = this.placeWalls(width, height, roadMap, waterMap, [...buildings, ...landmarks], gates, rng)
+
     // 13. Contextual props per district
     const props = this.placeProps(
       width, height, roadMap, waterMap, [...buildings, ...landmarks, ...gates],
@@ -220,8 +247,14 @@ export class TownGenerator implements IMapGenerator {
     )
 
     // Build layers
-    const allStructures = [...buildings, ...landmarks, ...gates, ...bridges]
-    const allProps = [...props, ...lights, ...plazaProps, ...vegetation, ...hiddenCourtyards]
+    // 17. Countryside beyond walls
+    const countrysideProps = this.placeCountryside(
+      width, height, roadMap, waterMap, districtMap, terrainTiles,
+      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls], gates, noise, rng
+    )
+
+    const allStructures = [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls]
+    const allProps = [...props, ...lights, ...plazaProps, ...vegetation, ...hiddenCourtyards, ...countrysideProps]
 
     const terrainLayer: MapLayer = {
       id: uuid(), name: 'Terrain', type: 'terrain',
@@ -390,7 +423,8 @@ export class TownGenerator implements IMapGenerator {
   ): District[] {
     const numDistricts = Math.max(3, Math.floor(4 + complexity * 5))
     const districtTypes: DistrictType[] = [
-      'market', 'residential', 'artisan', 'noble', 'waterfront', 'temple', 'slum', 'garden'
+      'market', 'residential', 'artisan', 'noble', 'waterfront', 'temple', 'slum', 'garden',
+      'harbor', 'fortress', 'cemetery'
     ]
 
     // Use Poisson disk for spread-out district centers
@@ -532,6 +566,19 @@ export class TownGenerator implements IMapGenerator {
           case 'residential':
             // Grass with occasional dirt strips
             if (n > 0.25 && n2 > 0) terrain[y][x] = 1 // dirt paths
+            break
+          case 'harbor':
+            if (n > 0.1) terrain[y][x] = 8 // cobblestone
+            else if (n > -0.15) terrain[y][x] = n2 > 0 ? 4 : 8 // sand/cobble mix
+            else terrain[y][x] = 4 // sand
+            break
+          case 'fortress':
+            if (n > -0.1) terrain[y][x] = 2 // stone primarily
+            else terrain[y][x] = n2 > 0 ? 2 : 1 // stone/dirt
+            break
+          case 'cemetery':
+            if (n > 0.2) terrain[y][x] = 2 // stone paths
+            else terrain[y][x] = 5 // dark grass
             break
         }
       }
@@ -1840,6 +1887,155 @@ export class TownGenerator implements IMapGenerator {
     return courtProps
   }
 
+  // === TOWN WALLS ===
+  private placeWalls(
+    w: number, h: number,
+    roadMap: boolean[][], waterMap: boolean[][],
+    buildings: PlacedObject[], gates: PlacedObject[],
+    rng: () => number
+  ): PlacedObject[] {
+    const walls: PlacedObject[] = []
+    if (buildings.length < 10) return walls
+
+    // Find bounding box of all buildings with margin
+    let minX = w, minY = h, maxX = 0, maxY = 0
+    for (const b of buildings) {
+      const fp = this.getFootprint(b.definitionId)
+      minX = Math.min(minX, b.x)
+      minY = Math.min(minY, b.y)
+      maxX = Math.max(maxX, b.x + fp.w)
+      maxY = Math.max(maxY, b.y + fp.h)
+    }
+    // Add margin
+    minX = Math.max(1, minX - 2)
+    minY = Math.max(1, minY - 2)
+    maxX = Math.min(w - 2, maxX + 2)
+    maxY = Math.min(h - 2, maxY + 2)
+
+    const gateSet = new Set(gates.map(g => `${g.x},${g.y}`))
+    const isGateNear = (x: number, y: number): boolean => {
+      for (const g of gates) {
+        if (Math.abs(g.x - x) < 4 && Math.abs(g.y - y) < 4) return true
+      }
+      return false
+    }
+
+    // Place walls along perimeter
+    const occupied = new Set<string>()
+    const placeWall = (x: number, y: number) => {
+      const key = `${x},${y}`
+      if (occupied.has(key) || x < 0 || x + 1 >= w || y < 0 || y >= h) return
+      if (waterMap[y]?.[x] || isGateNear(x, y)) return
+      occupied.add(key)
+      occupied.add(`${x + 1},${y}`)
+      walls.push(this.createObj('stone_wall', x, y, 0.3))
+    }
+
+    // Top and bottom edges
+    for (let x = minX; x < maxX; x += 2) {
+      placeWall(x, minY)
+      placeWall(x, maxY)
+    }
+    // Left and right edges
+    for (let y = minY; y < maxY; y += 2) {
+      placeWall(minX, y)
+      placeWall(maxX, y)
+    }
+
+    // Corner watchtowers
+    const cornerPositions = [
+      { x: minX, y: minY }, { x: maxX - 1, y: minY },
+      { x: minX, y: maxY - 1 }, { x: maxX - 1, y: maxY - 1 }
+    ]
+    for (const pos of cornerPositions) {
+      if (pos.x >= 0 && pos.x + 1 < w && pos.y >= 0 && pos.y + 1 < h &&
+          !waterMap[pos.y][pos.x]) {
+        walls.push(this.createObj('watchtower', pos.x, pos.y, 1.0))
+      }
+    }
+
+    return walls
+  }
+
+  // === COUNTRYSIDE ===
+  private placeCountryside(
+    w: number, h: number,
+    roadMap: boolean[][], waterMap: boolean[][],
+    districtMap: number[][], terrainTiles: number[][],
+    buildings: PlacedObject[], gates: PlacedObject[],
+    noise: SimplexNoise, rng: () => number
+  ): PlacedObject[] {
+    const countryside: PlacedObject[] = []
+    const occupied = this.createOccupied(w, h, roadMap, waterMap)
+    this.markObjects(occupied, buildings, w, h)
+
+    // Paint countryside terrain (unassigned tiles)
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (districtMap[y][x] !== -1 || waterMap[y][x] || roadMap[y][x]) continue
+        const n = noise.fbm(x * 0.08, y * 0.08, 2)
+        terrainTiles[y][x] = n > 0.2 ? 1 : n > -0.1 ? 0 : 5 // dirt/grass/dark grass
+      }
+    }
+
+    // Place windmills in open countryside
+    let windmills = 0
+    for (let attempt = 0; attempt < 50 && windmills < 2; attempt++) {
+      const wx = Math.floor(rng() * (w - 6)) + 2
+      const wy = Math.floor(rng() * (h - 6)) + 2
+      if (districtMap[wy]?.[wx] !== -1) continue
+      if (this.areaFree(occupied, wx, wy, 3, 3, w, h)) {
+        countryside.push(this.createObj('windmill', wx, wy, 0))
+        this.markArea(occupied, wx, wy, 3, 3, w, h)
+        windmills++
+      }
+    }
+
+    // Place farm fields near roads in countryside
+    let farms = 0
+    for (let attempt = 0; attempt < 80 && farms < 3; attempt++) {
+      const fx = Math.floor(rng() * (w - 6)) + 2
+      const fy = Math.floor(rng() * (h - 5)) + 2
+      if (districtMap[fy]?.[fx] !== -1) continue
+      if (!this.isRoadAdjacent(fx, fy, roadMap, w, h)) continue
+      if (this.areaFree(occupied, fx, fy, 4, 3, w, h)) {
+        countryside.push(this.createObj('farm_field', fx, fy, 0))
+        this.markArea(occupied, fx, fy, 4, 3, w, h)
+        farms++
+      }
+    }
+
+    // Scatter orchard trees in groups
+    for (let g = 0; g < 4; g++) {
+      const gx = Math.floor(rng() * (w - 4)) + 2
+      const gy = Math.floor(rng() * (h - 4)) + 2
+      if (districtMap[gy]?.[gx] !== -1) continue
+      for (let i = 0; i < 3 + Math.floor(rng() * 3); i++) {
+        const tx = gx + Math.floor(rng() * 4)
+        const ty = gy + Math.floor(rng() * 4)
+        if (tx < w && ty < h && !occupied[ty][tx] && districtMap[ty]?.[tx] === -1) {
+          countryside.push(this.createObj('orchard_tree', tx, ty, 0))
+          occupied[ty][tx] = true
+        }
+      }
+    }
+
+    // Road markers along exit roads
+    for (const gate of gates) {
+      for (let d = 2; d < 6; d++) {
+        const mx = gate.x + (gate.x < w / 2 ? -d : d)
+        const my = gate.y
+        if (mx >= 0 && mx < w && my >= 0 && my < h && !occupied[my][mx]) {
+          countryside.push(this.createObj('road_marker', mx, my, 0))
+          occupied[my][mx] = true
+          break
+        }
+      }
+    }
+
+    return countryside
+  }
+
   // === BUILDING-SPECIFIC PROPS ===
   private getBuildingSpecificProps(defId: string, rng: () => number): string[] {
     switch (defId) {
@@ -2040,6 +2236,12 @@ export class TownGenerator implements IMapGenerator {
       // New props
       cart: { w: 2, h: 1 }, monument: { w: 2, h: 2 },
       cloth_line: { w: 2, h: 1 },
+      // New world props
+      dock: { w: 3, h: 1 }, crane: { w: 2, h: 2 },
+      pier: { w: 4, h: 1 }, fishing_boat: { w: 2, h: 1 },
+      gravestone: { w: 1, h: 1 }, iron_fence: { w: 2, h: 1 },
+      windmill: { w: 3, h: 3 }, farm_field: { w: 4, h: 3 },
+      road_marker: { w: 1, h: 1 },
     }
     return footprints[defId] || { w: 1, h: 1 }
   }

@@ -625,6 +625,96 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
   },
+  {
+    id: 'dock',
+    name: 'Dock',
+    category: 'infrastructure',
+    tags: ['water', 'harbor'],
+    color: '#6A5030',
+    footprint: { w: 3, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'crane',
+    name: 'Crane',
+    category: 'infrastructure',
+    tags: ['harbor', 'industrial'],
+    color: '#4A4A4A',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: []
+  },
+  {
+    id: 'pier',
+    name: 'Pier',
+    category: 'infrastructure',
+    tags: ['water', 'harbor'],
+    color: '#5A4A30',
+    footprint: { w: 4, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'fishing_boat',
+    name: 'Fishing Boat',
+    category: 'prop',
+    tags: ['water', 'harbor'],
+    color: '#6A5030',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'gravestone',
+    name: 'Gravestone',
+    category: 'prop',
+    tags: ['cemetery', 'decoration'],
+    color: '#8A8A80',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'iron_fence',
+    name: 'Iron Fence',
+    category: 'infrastructure',
+    tags: ['barrier', 'cemetery'],
+    color: '#3A3A3A',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'windmill',
+    name: 'Windmill',
+    category: 'building',
+    tags: ['structure', 'landmark', 'countryside'],
+    color: '#C8B898',
+    footprint: { w: 3, h: 3 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'farm_field',
+    name: 'Farm Field',
+    category: 'prop',
+    tags: ['agricultural', 'countryside'],
+    color: '#8A7A40',
+    footprint: { w: 4, h: 3 },
+    styleSetSlots: []
+  },
+  {
+    id: 'orchard_tree',
+    name: 'Orchard Tree',
+    category: 'vegetation',
+    tags: ['nature', 'countryside'],
+    color: '#2D7A27',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'road_marker',
+    name: 'Road Marker',
+    category: 'prop',
+    tags: ['info', 'countryside'],
+    color: '#8A8A80',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
 ]
 
 // === STORE ===

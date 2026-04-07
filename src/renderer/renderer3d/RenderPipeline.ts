@@ -35,7 +35,7 @@ export function renderPixelArt(
   const { outputWidth, outputHeight } = camera
 
   // Render scene using pure Canvas2D (no WebGL — avoids SwiftShader crashes)
-  let imageData = renderCanvas2D(map, camera, objectDefs, buildingPalettes)
+  let imageData = renderCanvas2D(map, camera, objectDefs, buildingPalettes, 0)
 
   // Post-processing pipeline (all CPU, no WebGL)
   applyColorGrading(imageData, map.environment.timeOfDay)

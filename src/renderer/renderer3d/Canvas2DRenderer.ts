@@ -74,6 +74,16 @@ const PROP_COLORS: Record<string, { body: number; accent?: number }> = {
   garden_arch: { body: 0x5a4a30, accent: 0x3a7a2a },
   cloth_line: { body: 0x8a7a60, accent: 0xd0c8b0 },
   hay_bale: { body: 0xc8a850, accent: 0xa88830 },
+  dock: { body: 0x6a5030, accent: 0x5a4020 },
+  crane: { body: 0x4a4a4a, accent: 0x8a7a5a },
+  pier: { body: 0x5a4a30, accent: 0x4a3a20 },
+  fishing_boat: { body: 0x6a5030, accent: 0xc8b898 },
+  gravestone: { body: 0x8a8a80, accent: 0x6a6a60 },
+  iron_fence: { body: 0x3a3a3a, accent: 0x2a2a2a },
+  windmill: { body: 0xc8b898, accent: 0x6a5a40 },
+  farm_field: { body: 0x8a7a40, accent: 0x4a7a2a },
+  orchard_tree: { body: 0x5a3a1a, accent: 0x2d7a27 },
+  road_marker: { body: 0x8a8a80 },
 }
 
 // ── Types ──
@@ -101,7 +111,11 @@ const BUILDING_HEIGHTS: Record<string, number> = {
   apothecary: 2.6, inn: 2.4, temple: 3.5,
   covered_market: 2.0, bell_tower: 5.0, half_timber: 2.2,
   narrow_house: 2.8,
+  windmill: 3.5,
 }
+
+// Windmill gets a special roof style
+
 
 // Per-type roof style: how buildings get their silhouette
 type RoofStyle = 'flat' | 'gabled' | 'hipped' | 'pointed' | 'steep' | 'dome' | 'none'
@@ -115,6 +129,7 @@ const BUILDING_ROOF_STYLE: Record<string, RoofStyle> = {
   apothecary: 'steep', inn: 'gabled', temple: 'dome',
   covered_market: 'gabled', bell_tower: 'pointed', half_timber: 'gabled',
   narrow_house: 'steep',
+  windmill: 'pointed',
 }
 
 // Which buildings have timber framing on walls
@@ -145,7 +160,8 @@ export function renderCanvas2D(
   map: MapDocument,
   camera: RenderCamera,
   objectDefs: ObjectDefinition[],
-  buildingPalettes?: BuildingPalette[] | null
+  buildingPalettes?: BuildingPalette[] | null,
+  time: number = 0
 ): ImageData {
   const { outputWidth: W, outputHeight: H } = camera
   const ts = map.tileSize
@@ -241,7 +257,25 @@ export function renderCanvas2D(
 
         drawables.push({
           depth: avgDepth,
-          draw: (ctx) => drawPoly(ctx, validCorners, hexToCSS(foggedColor))
+          draw: (ctx) => {
+            drawPoly(ctx, validCorners, hexToCSS(foggedColor))
+            // Moss patches on cobblestone
+            if ((tileId === 8 || tileId === 9) && ((tx * 7 + ty * 13) % 5 === 0)) {
+              ctx.fillStyle = 'rgba(45,90,39,0.12)'
+              const mx = (validCorners[0].sx + validCorners[2].sx) / 2
+              const my = (validCorners[0].sy + validCorners[2].sy) / 2
+              ctx.beginPath()
+              ctx.arc(mx, my, 2, 0, Math.PI * 2)
+              ctx.fill()
+            }
+            // Water shimmer
+            if (tileId === 3) {
+              const shimX = validCorners[0].sx + ((time * 5 + tx * 3) % 8)
+              const shimY = (validCorners[0].sy + validCorners[2].sy) / 2
+              ctx.fillStyle = 'rgba(255,255,255,0.06)'
+              ctx.fillRect(shimX, shimY, 3, 0.5)
+            }
+          }
         })
       }
     }
@@ -253,7 +287,7 @@ export function renderCanvas2D(
     for (const obj of structureLayer.objects) {
       const def = defMap.get(obj.definitionId)
       if (!def) continue
-      addBuildingDrawables(drawables, obj, def, ts, palettes, camPos, project, lighting)
+      addBuildingDrawables(drawables, obj, def, ts, palettes, camPos, project, lighting, time)
     }
   }
 
@@ -263,7 +297,31 @@ export function renderCanvas2D(
     for (const obj of propLayer.objects) {
       const def = defMap.get(obj.definitionId)
       if (!def) continue
-      addPropDrawables(drawables, obj, def, ts, project, lighting)
+      addPropDrawables(drawables, obj, def, ts, project, lighting, time)
+    }
+  }
+
+  // ── Tiny figure silhouettes on streets ──
+  if (terrainLayer?.terrainTiles) {
+    const tiles = terrainLayer.terrainTiles
+    for (let ty = 2; ty < tiles.length - 2; ty += 3) {
+      for (let tx = 2; tx < (tiles[ty]?.length ?? 0) - 2; tx += 3) {
+        const tileId = tiles[ty]?.[tx]
+        if (tileId !== 8 && tileId !== 9) continue // only on cobblestone/roads
+        const figHash = (tx * 31 + ty * 17) & 0xffff
+        if (figHash % 30 > 0) continue // ~3% chance
+        const fx = (tx + 0.5) * ts, fz = (ty + 0.5) * ts
+        const figBase = project(fx + Math.sin(time * 0.3 + figHash) * 2, 0, fz)
+        if (!figBase) continue
+        drawables.push({
+          depth: figBase.depth - 0.001,
+          draw: (ctx) => {
+            ctx.fillStyle = 'rgba(40,30,20,0.55)'
+            ctx.fillRect(figBase.sx - 0.5, figBase.sy - 3, 1, 2) // body
+            ctx.fillRect(figBase.sx - 0.5, figBase.sy - 4, 1, 1) // head
+          }
+        })
+      }
     }
   }
 
@@ -283,7 +341,7 @@ function addBuildingDrawables(
   ts: number, palettes: { wall: number; roof: number; door: number }[],
   camPos: Vec3,
   project: (x: number, y: number, z: number) => Projected | null,
-  lighting: Lighting
+  lighting: Lighting, time: number
 ) {
   const hash = simpleHash(obj.id)
   const palette = palettes[hash % palettes.length]
@@ -363,6 +421,15 @@ function addBuildingDrawables(
           ctx.moveTo(p[6].sx, p[6].sy); ctx.lineTo(p[7].sx, p[7].sy)
           ctx.lineTo(ridgeBack.sx, ridgeBack.sy)
           ctx.closePath(); ctx.fill()
+        }
+        // Roof tile texture lines
+        ctx.strokeStyle = hexToCSS(darken(roofFogged, 0.08))
+        ctx.lineWidth = 0.3
+        for (let t = 0.2; t < 0.9; t += 0.2) {
+          const ly = p[4].sy + (ridgeFront.sy - p[4].sy) * t
+          const lx1 = p[4].sx + (ridgeFront.sx - p[4].sx) * t * 0.3
+          const lx2 = p[5].sx + (ridgeFront.sx - p[5].sx) * t * 0.3
+          ctx.beginPath(); ctx.moveTo(lx1, ly); ctx.lineTo(lx2, ly); ctx.stroke()
         }
       }
     })
@@ -511,6 +578,37 @@ function addBuildingDrawables(
           // Chimney cap
           ctx.fillStyle = hexToCSS(darken(roofFogged, 0.3))
           ctx.fillRect(chimTop.sx - cw * 0.7, chimTop.sy - 1, cw * 1.4, 2)
+          // Chimney smoke puffs
+          for (let si = 0; si < 4; si++) {
+            const smokeY = chimTop.sy - 3 - si * 3 - ((time * 2 + hash * 0.1) % 4)
+            const smokeX = chimTop.sx + Math.sin(time * 0.5 + hash + si * 1.5) * (1 + si * 0.5)
+            const smokeA = Math.max(0, 0.14 - si * 0.03)
+            ctx.fillStyle = `rgba(180,170,160,${smokeA})`
+            ctx.beginPath()
+            ctx.arc(smokeX, smokeY, 1.2 + si * 0.5, 0, Math.PI * 2)
+            ctx.fill()
+          }
+        }
+      })
+    }
+  }
+
+  // ── BIRDS ON ROOFTOPS ──
+  if (hash % 7 === 0 && ridgeCenter) { // ~15% of buildings
+    const numBirds = 1 + hash % 2
+    for (let bi = 0; bi < numBirds; bi++) {
+      const birdX = ridgeCenter.sx + (bi * 6 - 3) + Math.sin(time * 0.5 + hash + bi) * 0.5
+      const birdY = ridgeCenter.sy - 2 - bi * 2
+      drawables.push({
+        depth: avgDepth - 0.04,
+        draw: (ctx) => {
+          ctx.strokeStyle = 'rgba(30,25,20,0.7)'
+          ctx.lineWidth = 0.8
+          ctx.beginPath()
+          ctx.moveTo(birdX - 1.5, birdY + 0.5)
+          ctx.lineTo(birdX, birdY)
+          ctx.lineTo(birdX + 1.5, birdY + 0.5)
+          ctx.stroke()
         }
       })
     }
@@ -542,6 +640,15 @@ function addBuildingDrawables(
         ctx.moveTo(fp[0].sx, fp[0].sy)
         for (let i = 1; i < fp.length; i++) ctx.lineTo(fp[i].sx, fp[i].sy)
         ctx.closePath(); ctx.fill()
+
+        // Cornice molding bands on noble buildings
+        if ((def.id === 'mansion' || def.id === 'guild_hall' || def.id === 'building_large') && faceH > 10) {
+          ctx.fillStyle = hexToCSS(darken(wallFogged, 0.15))
+          const corniceY1 = fp[0].sy + (fp[3].sy - fp[0].sy) * 0.15
+          const corniceY2 = fp[0].sy + (fp[3].sy - fp[0].sy) * 0.55
+          ctx.fillRect(Math.min(fp[0].sx, fp[1].sx), corniceY1, faceW, 1.5)
+          ctx.fillRect(Math.min(fp[0].sx, fp[1].sx), corniceY2, faceW, 1)
+        }
 
         // Ground floor differentiation (darker base for shops)
         if (hasAwning && faceH > 8) {
@@ -598,9 +705,33 @@ function addBuildingDrawables(
               const wx = fp[0].sx + (fp[1].sx - fp[0].sx) * t
               const wy = fp[0].sy + (fp[3].sy - fp[0].sy) * u
               ctx.fillStyle = winColor
-              ctx.fillRect(wx - winW / 2, wy - winH / 2, winW, winH)
+              // Arched windows for sacred buildings
+              const isSacred = def.id === 'chapel' || def.id === 'temple' || def.id === 'bell_tower'
+              if (isSacred) {
+                ctx.beginPath()
+                ctx.moveTo(wx - winW / 2, wy + winH / 2)
+                ctx.lineTo(wx - winW / 2, wy - winH / 4)
+                ctx.arc(wx, wy - winH / 4, winW / 2, Math.PI, 0)
+                ctx.lineTo(wx + winW / 2, wy + winH / 2)
+                ctx.closePath(); ctx.fill()
+                // Mullion divider
+                ctx.strokeStyle = hexToCSS(darken(wallFogged, 0.2))
+                ctx.lineWidth = 0.3
+                ctx.beginPath(); ctx.moveTo(wx, wy + winH / 2); ctx.lineTo(wx, wy - winH / 2); ctx.stroke()
+              } else {
+                ctx.fillRect(wx - winW / 2, wy - winH / 2, winW, winH)
+              }
+              // Window flower box
+              if (obj.properties?.hasFlowerBox && row === 0 && !isSacred) {
+                ctx.fillStyle = hexToCSS(darken(wallFogged, 0.2))
+                ctx.fillRect(wx - winW * 0.6, wy + winH / 2, winW * 1.2, 1.5)
+                ctx.fillStyle = hexToCSS(applyFog(0xff6688, avgDepth, lighting))
+                ctx.beginPath(); ctx.arc(wx - winW * 0.2, wy + winH / 2 + 0.5, 0.8, 0, Math.PI * 2); ctx.fill()
+                ctx.fillStyle = hexToCSS(applyFog(0xffaa44, avgDepth, lighting))
+                ctx.beginPath(); ctx.arc(wx + winW * 0.3, wy + winH / 2 + 0.3, 0.6, 0, Math.PI * 2); ctx.fill()
+              }
               // Window frame / shutters
-              if (!isLit && faceW > 10) {
+              if (!isLit && faceW > 10 && !isSacred) {
                 ctx.fillStyle = shutterColor
                 ctx.fillRect(wx - winW / 2 - winW * 0.4, wy - winH / 2, winW * 0.35, winH)
                 ctx.fillRect(wx + winW / 2 + winW * 0.05, wy - winH / 2, winW * 0.35, winH)
@@ -694,7 +825,7 @@ function addPropDrawables(
   drawables: Drawable[], obj: PlacedObject, def: ObjectDefinition,
   ts: number,
   project: (x: number, y: number, z: number) => Projected | null,
-  lighting: Lighting
+  lighting: Lighting, time: number
 ) {
   const cx = (obj.x + def.footprint.w / 2) * ts
   const cz = (obj.y + def.footprint.h / 2) * ts
@@ -761,7 +892,8 @@ function addPropDrawables(
         const isLit = lighting.isNight || lighting.isDusk
         const glowColor = applyFog(colors.accent || 0xffdd44, base.depth, lighting)
         ctx.fillStyle = hexToCSS(glowColor)
-        const r = isLit ? Math.max(5, Math.abs(lampTop.sy - base.sy) * 0.25) : Math.max(2, Math.abs(lampTop.sy - base.sy) * 0.1)
+        const flickerMod = 1 + Math.sin(time * 3 + simpleHash(obj.id) * 0.1) * 0.15
+        const r = (isLit ? Math.max(5, Math.abs(lampTop.sy - base.sy) * 0.25) : Math.max(2, Math.abs(lampTop.sy - base.sy) * 0.1)) * flickerMod
         ctx.beginPath()
         ctx.arc(base.sx, lampTop.sy, r, 0, Math.PI * 2)
         ctx.fill()
@@ -796,6 +928,24 @@ function addPropDrawables(
         const pillarH = Math.abs(topH.sy - base.sy) * 0.5
         ctx.fillStyle = hexToCSS(foggedBody)
         ctx.fillRect(base.sx - 1, base.sy - pillarH, 2, pillarH)
+        // Fountain spray particles
+        if (def.id === 'fountain' || def.id === 'fountain_grand') {
+          for (let si = 0; si < 4; si++) {
+            const sprayX = base.sx + Math.sin(time * 2 + si * 1.5) * 2
+            const sprayY = base.sy - pillarH - 2 - si * 1.5 - ((time * 3 + si) % 3)
+            ctx.fillStyle = `rgba(180,210,240,${0.2 - si * 0.04})`
+            ctx.beginPath(); ctx.arc(sprayX, sprayY, 0.8, 0, Math.PI * 2); ctx.fill()
+          }
+          // Water ripples
+          for (let ri = 0; ri < 3; ri++) {
+            const ripR = 2 + ((time * 1.5 + ri * 2) % 5)
+            ctx.strokeStyle = `rgba(150,200,255,${0.15 - ripR * 0.02})`
+            ctx.lineWidth = 0.3
+            ctx.beginPath()
+            ctx.ellipse(base.sx, base.sy - 1, ripR, ripR * 0.35, 0, 0, Math.PI * 2)
+            ctx.stroke()
+          }
+        }
       }
     })
   } else if (def.id === 'barrel' || def.id === 'crate') {
@@ -851,6 +1001,15 @@ function addPropDrawables(
             const px = base.sx - fenceW / 2 + (fenceW * i / pickets)
             ctx.beginPath(); ctx.moveTo(px, base.sy); ctx.lineTo(px, base.sy - fenceH); ctx.stroke()
           }
+        }
+        // Cat sitting on wall (~20% chance)
+        if (simpleHash(obj.id) % 5 === 0) {
+          const catX = base.sx + (simpleHash(obj.id) % 3 - 1) * 2
+          const catY = base.sy - fenceH - 1
+          ctx.fillStyle = simpleHash(obj.id) % 2 === 0 ? 'rgba(40,30,20,0.7)' : 'rgba(180,120,40,0.7)'
+          ctx.fillRect(catX - 1, catY - 1, 2, 1.5) // body
+          ctx.fillRect(catX - 1.5, catY - 2, 1, 1) // head
+          ctx.fillRect(catX + 1, catY - 1.5, 1.5, 0.5) // tail
         }
       }
     })
@@ -1120,7 +1279,8 @@ function addPropDrawables(
         for (let i = 0; i < 3; i++) {
           const cx = base.sx - clW * 0.3 + i * clW * 0.25
           ctx.fillStyle = hexToCSS(applyFog(clothColors[i % 3], base.depth, lighting))
-          ctx.fillRect(cx - 1.5, lineY + 1, 3, 3 + i * 0.5)
+          const flutter = Math.sin(time * 2 + i * 1.3) * 0.8
+          ctx.fillRect(cx - 1.5 + flutter, lineY + 1, 3, 3 + i * 0.5 + Math.abs(flutter) * 0.3)
         }
       }
     })
@@ -1162,6 +1322,29 @@ function addPropDrawables(
         }
       }
     })
+  } else if (def.id === 'horse_post') {
+    const hpH = Math.max(5, Math.abs(top.sy - base.sy) * 0.5)
+    drawables.push({
+      depth: base.depth,
+      draw: (ctx) => {
+        // Post
+        ctx.fillStyle = hexToCSS(foggedBody)
+        ctx.fillRect(base.sx - 0.5, base.sy - hpH, 1.5, hpH)
+        // Cross bar
+        ctx.fillRect(base.sx - 2, base.sy - hpH, 4, 1)
+        // Horse silhouette next to post
+        const hx = base.sx + 4, hy = base.sy
+        ctx.fillStyle = 'rgba(100,70,40,0.65)'
+        // Body
+        ctx.fillRect(hx - 3, hy - 5, 6, 3)
+        // Head + neck
+        ctx.fillRect(hx + 2, hy - 7, 2, 3)
+        ctx.fillRect(hx + 3, hy - 8, 2, 1.5)
+        // Legs
+        ctx.fillRect(hx - 2, hy - 2, 1, 2)
+        ctx.fillRect(hx + 2, hy - 2, 1, 2)
+      }
+    })
   } else if (def.id === 'rain_barrel') {
     const rbH = Math.max(5, Math.abs(top.sy - base.sy) * 0.5 + 3)
     drawables.push({
@@ -1177,6 +1360,189 @@ function addPropDrawables(
         ctx.strokeStyle = hexToCSS(darken(foggedBody, 0.3))
         ctx.lineWidth = 0.5
         ctx.beginPath(); ctx.ellipse(base.sx, base.sy - rbH * 0.3, 3.2, 0.8, 0, 0, Math.PI * 2); ctx.stroke()
+      }
+    })
+  } else if (def.id === 'dock' || def.id === 'pier') {
+    const dW = Math.max(10, def.footprint.w * 6)
+    const dH = Math.max(3, Math.abs(top.sy - base.sy) * 0.2 + 2)
+    drawables.push({
+      depth: base.depth,
+      draw: (ctx) => {
+        // Wooden planks
+        ctx.fillStyle = hexToCSS(foggedBody)
+        ctx.fillRect(base.sx - dW / 2, base.sy - dH, dW, dH)
+        // Plank lines
+        ctx.strokeStyle = hexToCSS(darken(foggedBody, 0.2))
+        ctx.lineWidth = 0.3
+        for (let pi = 0; pi < 4; pi++) {
+          const px = base.sx - dW / 2 + dW * (pi + 0.5) / 4
+          ctx.beginPath(); ctx.moveTo(px, base.sy - dH); ctx.lineTo(px, base.sy); ctx.stroke()
+        }
+        // Support posts
+        const postColor = hexToCSS(darken(foggedBody, 0.25))
+        ctx.fillStyle = postColor
+        ctx.fillRect(base.sx - dW / 2 + 1, base.sy, 1.5, 3)
+        ctx.fillRect(base.sx + dW / 2 - 2.5, base.sy, 1.5, 3)
+      }
+    })
+  } else if (def.id === 'crane') {
+    const crH = Math.max(10, Math.abs(top.sy - base.sy) * 1.2)
+    drawables.push({
+      depth: base.depth,
+      draw: (ctx) => {
+        // Vertical mast
+        ctx.fillStyle = hexToCSS(foggedBody)
+        ctx.fillRect(base.sx - 1, base.sy - crH, 2, crH)
+        // Angled arm
+        ctx.strokeStyle = hexToCSS(foggedBody)
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.moveTo(base.sx, base.sy - crH)
+        ctx.lineTo(base.sx + crH * 0.6, base.sy - crH * 0.7)
+        ctx.stroke()
+        // Hanging rope
+        ctx.strokeStyle = hexToCSS(darken(foggedBody, 0.2))
+        ctx.lineWidth = 0.5
+        ctx.beginPath()
+        ctx.moveTo(base.sx + crH * 0.5, base.sy - crH * 0.72)
+        ctx.lineTo(base.sx + crH * 0.5, base.sy - crH * 0.3)
+        ctx.stroke()
+        // Base
+        ctx.fillStyle = hexToCSS(darken(foggedBody, 0.15))
+        ctx.fillRect(base.sx - 3, base.sy - 1, 6, 2)
+      }
+    })
+  } else if (def.id === 'fishing_boat') {
+    const bW = Math.max(8, def.footprint.w * 5)
+    const bH = Math.max(4, Math.abs(top.sy - base.sy) * 0.3 + 3)
+    const accentFogged = colors.accent ? applyFog(colors.accent, base.depth, lighting) : foggedBody
+    drawables.push({
+      depth: base.depth,
+      draw: (ctx) => {
+        // Hull arc
+        ctx.fillStyle = hexToCSS(foggedBody)
+        ctx.beginPath()
+        ctx.arc(base.sx, base.sy - bH * 0.3, bW / 2, Math.PI, 0)
+        ctx.closePath(); ctx.fill()
+        // Mast
+        ctx.strokeStyle = hexToCSS(darken(foggedBody, 0.3))
+        ctx.lineWidth = 1
+        ctx.beginPath(); ctx.moveTo(base.sx, base.sy - bH * 0.3); ctx.lineTo(base.sx, base.sy - bH * 2); ctx.stroke()
+        // Small sail triangle
+        ctx.fillStyle = hexToCSS(accentFogged)
+        ctx.beginPath()
+        ctx.moveTo(base.sx, base.sy - bH * 1.8)
+        ctx.lineTo(base.sx + bW * 0.25, base.sy - bH * 0.8)
+        ctx.lineTo(base.sx, base.sy - bH * 0.6)
+        ctx.closePath(); ctx.fill()
+      }
+    })
+  } else if (def.id === 'gravestone') {
+    const gsH = Math.max(4, Math.abs(top.sy - base.sy) * 0.4 + 3)
+    const gsW = Math.max(3, 3.5)
+    drawables.push({
+      depth: base.depth,
+      draw: (ctx) => {
+        // Stone body
+        ctx.fillStyle = hexToCSS(foggedBody)
+        ctx.fillRect(base.sx - gsW / 2, base.sy - gsH, gsW, gsH)
+        // Rounded top
+        ctx.beginPath()
+        ctx.arc(base.sx, base.sy - gsH, gsW / 2, Math.PI, 0)
+        ctx.fill()
+        // Cross or inscription line
+        ctx.strokeStyle = hexToCSS(darken(foggedBody, 0.15))
+        ctx.lineWidth = 0.3
+        ctx.beginPath(); ctx.moveTo(base.sx, base.sy - gsH * 0.8); ctx.lineTo(base.sx, base.sy - gsH * 0.4); ctx.stroke()
+        ctx.beginPath(); ctx.moveTo(base.sx - gsW * 0.2, base.sy - gsH * 0.65); ctx.lineTo(base.sx + gsW * 0.2, base.sy - gsH * 0.65); ctx.stroke()
+      }
+    })
+  } else if (def.id === 'iron_fence') {
+    const ifH = Math.max(5, Math.abs(top.sy - base.sy) * 0.4 + 3)
+    const ifW = Math.max(8, def.footprint.w * 5)
+    drawables.push({
+      depth: base.depth,
+      draw: (ctx) => {
+        // Horizontal rail
+        ctx.strokeStyle = hexToCSS(foggedBody)
+        ctx.lineWidth = 0.8
+        ctx.beginPath(); ctx.moveTo(base.sx - ifW / 2, base.sy - ifH * 0.7); ctx.lineTo(base.sx + ifW / 2, base.sy - ifH * 0.7); ctx.stroke()
+        // Vertical bars with pointed tops
+        const bars = Math.max(3, Math.floor(ifW / 2.5))
+        for (let bi = 0; bi <= bars; bi++) {
+          const bx = base.sx - ifW / 2 + (ifW * bi / bars)
+          ctx.beginPath(); ctx.moveTo(bx, base.sy); ctx.lineTo(bx, base.sy - ifH); ctx.stroke()
+          // Pointed finial
+          ctx.fillStyle = hexToCSS(foggedBody)
+          ctx.beginPath()
+          ctx.moveTo(bx - 0.8, base.sy - ifH)
+          ctx.lineTo(bx, base.sy - ifH - 1.5)
+          ctx.lineTo(bx + 0.8, base.sy - ifH)
+          ctx.closePath(); ctx.fill()
+        }
+      }
+    })
+  } else if (def.id === 'farm_field') {
+    const ffW = Math.max(12, def.footprint.w * 5)
+    const ffH = Math.max(8, def.footprint.h * 4)
+    const accentFogged = colors.accent ? applyFog(colors.accent, base.depth, lighting) : foggedBody
+    drawables.push({
+      depth: base.depth,
+      draw: (ctx) => {
+        // Alternating crop rows
+        const rows = 6
+        for (let ri = 0; ri < rows; ri++) {
+          const ry = base.sy - ffH + (ffH * ri / rows)
+          ctx.fillStyle = ri % 2 === 0 ? hexToCSS(foggedBody) : hexToCSS(accentFogged)
+          ctx.fillRect(base.sx - ffW / 2, ry, ffW, ffH / rows - 0.5)
+        }
+        // Border
+        ctx.strokeStyle = hexToCSS(darken(foggedBody, 0.2))
+        ctx.lineWidth = 0.3
+        ctx.strokeRect(base.sx - ffW / 2, base.sy - ffH, ffW, ffH)
+      }
+    })
+  } else if (def.id === 'orchard_tree') {
+    // Smaller tree with fruit dots
+    const trunkTop = project(cx, ts * 0.35, cz)
+    const canopyTop = project(cx, ts * 0.9, cz)
+    if (trunkTop && canopyTop) {
+      drawables.push({
+        depth: base.depth,
+        draw: (ctx) => {
+          // Trunk
+          ctx.fillStyle = hexToCSS(foggedBody)
+          ctx.fillRect(base.sx - 1, trunkTop.sy, 2, base.sy - trunkTop.sy)
+          // Smaller canopy
+          const accentFogged2 = colors.accent ? applyFog(colors.accent, base.depth, lighting) : foggedBody
+          const r = Math.max(3, Math.abs(canopyTop.sy - trunkTop.sy) * 0.5)
+          ctx.fillStyle = hexToCSS(accentFogged2)
+          ctx.beginPath(); ctx.arc(trunkTop.sx, trunkTop.sy - r * 0.2, r, 0, Math.PI * 2); ctx.fill()
+          // Fruit dots (red/orange)
+          const fruitColor = applyFog(0xcc3333, base.depth, lighting)
+          ctx.fillStyle = hexToCSS(fruitColor)
+          for (let fi = 0; fi < 3; fi++) {
+            const fa = (fi / 3) * Math.PI * 2 + simpleHash(obj.id) * 0.5
+            ctx.beginPath()
+            ctx.arc(trunkTop.sx + Math.cos(fa) * r * 0.5, trunkTop.sy - r * 0.2 + Math.sin(fa) * r * 0.4, 0.7, 0, Math.PI * 2)
+            ctx.fill()
+          }
+        }
+      })
+    } else {
+      // fallback
+      drawables.push({ depth: base.depth, draw: (ctx) => {
+        ctx.fillStyle = hexToCSS(foggedBody)
+        ctx.beginPath(); ctx.arc(base.sx, base.sy - 4, 3, 0, Math.PI * 2); ctx.fill()
+      }})
+    }
+  } else if (def.id === 'road_marker') {
+    drawables.push({
+      depth: base.depth,
+      draw: (ctx) => {
+        ctx.fillStyle = hexToCSS(foggedBody)
+        ctx.fillRect(base.sx - 1, base.sy - 4, 2, 4)
+        ctx.fillRect(base.sx - 1.5, base.sy - 4.5, 3, 1)
       }
     })
   } else {
