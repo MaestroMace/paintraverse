@@ -142,7 +142,7 @@ export class TownGenerator implements IMapGenerator {
     // 9. Place buildings with district awareness
     const buildings = this.placeBuildings(
       width, height, roadMap, waterMap, heightMap, districtMap, districts,
-      complexity, density, rng, mainCenter
+      complexity, density, rng, mainCenter, terrainTiles
     )
 
     // 10. Place landmarks
@@ -240,9 +240,13 @@ export class TownGenerator implements IMapGenerator {
     for (let y = 0; y < h; y++) {
       const row: number[] = []
       for (let x = 0; x < w; x++) {
-        const n = noise.fbm(x * 0.06, y * 0.06, 3)
-        if (n < -0.25) row.push(5)       // dark grass
-        else if (n < 0.15) row.push(0)   // grass
+        // Two noise octaves for more natural terrain variation
+        const n1 = noise.fbm(x * 0.06, y * 0.06, 3)
+        const n2 = noise.fbm(x * 0.12 + 100, y * 0.12 + 100, 2)
+        const n = n1 * 0.7 + n2 * 0.3
+        if (n < -0.3) row.push(5)        // dark grass (meadow patches)
+        else if (n < -0.05) row.push(0)  // grass
+        else if (n < 0.15) row.push(n2 > 0 ? 0 : 5) // mixed grass patches
         else if (n < 0.35) row.push(1)   // dirt
         else row.push(0)                 // grass
       }
@@ -436,27 +440,48 @@ export class TownGenerator implements IMapGenerator {
         if (!d) continue
         const n = noise.noise2D(x * 0.15, y * 0.15)
 
+        // Second noise layer for terrain variety within districts
+        const n2 = noise.noise2D(x * 0.25 + 50, y * 0.25 + 50)
+
         switch (d.type) {
           case 'noble':
             if (n > 0.3) terrain[y][x] = 2 // stone paths
-            else if (n > 0) terrain[y][x] = 0 // grass courtyards
+            else if (n > 0.1) terrain[y][x] = n2 > 0 ? 2 : 0 // stone/grass mix
+            else terrain[y][x] = 0 // grass courtyards
             break
           case 'garden':
             if (n > 0.4) terrain[y][x] = 5 // dark grass
+            else if (n > 0.1) terrain[y][x] = n2 > 0.3 ? 5 : 0 // varied green
             else terrain[y][x] = 0 // grass
             break
           case 'waterfront':
             if (n > 0.2) terrain[y][x] = 4 // sand
+            else if (n > -0.1) terrain[y][x] = n2 > 0 ? 4 : 1 // sand/dirt mix
             else terrain[y][x] = 1 // dirt
             break
           case 'slum':
             if (n > 0.1) terrain[y][x] = 1 // dirt
+            else if (n > -0.2) terrain[y][x] = n2 > 0 ? 1 : 5 // dirt/dark grass
             else terrain[y][x] = 5 // dark grass
             break
           case 'temple':
             if (n > 0.2) terrain[y][x] = 2 // stone
+            else if (n > -0.1) terrain[y][x] = n2 > 0.2 ? 2 : 0 // stone accents
             break
-          // market, residential, artisan keep base terrain
+          case 'market':
+            // Cobblestone base with stone accents
+            if (n > 0.15) terrain[y][x] = 8 // cobblestone
+            else if (n > -0.1) terrain[y][x] = n2 > 0 ? 9 : 8 // dark/light cobble
+            break
+          case 'artisan':
+            // Dirt workshop yards
+            if (n > 0.0) terrain[y][x] = 1 // dirt
+            else if (n > -0.2) terrain[y][x] = n2 > 0 ? 1 : 0 // dirt/grass
+            break
+          case 'residential':
+            // Grass with occasional dirt strips
+            if (n > 0.25 && n2 > 0) terrain[y][x] = 1 // dirt paths
+            break
         }
       }
     }
@@ -534,8 +559,8 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    // SECONDARY STREETS within districts (width 2)
-    const numSecondary = Math.floor(4 + complexity * 12)
+    // SECONDARY STREETS within districts (width 2) — more streets for richer town
+    const numSecondary = Math.floor(8 + complexity * 18)
     for (let i = 0; i < numSecondary; i++) {
       const sx = Math.floor(w * 0.08 + rng() * w * 0.84)
       const sy = Math.floor(h * 0.08 + rng() * h * 0.84)
@@ -555,6 +580,22 @@ export class TownGenerator implements IMapGenerator {
           const angle = rng() * Math.PI * 2
           this.carveOrganicPath(roadMap, terrain, bx, by, angle,
             w, h, Math.floor(3 + rng() * 5), 1, 0.35, noise, rng, waterMap)
+        }
+      }
+    }
+
+    // Carve market squares — rectangular open areas in market districts
+    for (const d of districts) {
+      if (d.type !== 'market') continue
+      const sqSize = 4 + Math.floor(rng() * 3) // 4-6 tiles wide
+      const sqX = d.center.x - Math.floor(sqSize / 2)
+      const sqY = d.center.y - Math.floor(sqSize / 2)
+      for (let dy = 0; dy < sqSize; dy++) {
+        for (let dx = 0; dx < sqSize; dx++) {
+          const px = sqX + dx, py = sqY + dy
+          if (px >= 0 && px < w && py >= 0 && py < h && !waterMap[py][px]) {
+            roadMap[py][px] = true
+          }
         }
       }
     }
@@ -685,17 +726,18 @@ export class TownGenerator implements IMapGenerator {
     roadMap: boolean[][], waterMap: boolean[][], heightMap: number[][],
     districtMap: number[][], districts: District[],
     complexity: number, density: number,
-    rng: () => number, center: { x: number; y: number }
+    rng: () => number, center: { x: number; y: number },
+    terrainTiles: number[][]
   ): PlacedObject[] {
     const buildings: PlacedObject[] = []
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
     const maxDist = Math.sqrt(w * w + h * h) / 2
 
-    // Per-district building placement
-    const maxBuildings = Math.floor(30 + complexity * 60 + density * 40)
+    // Per-district building placement — increased density for richer towns
+    const maxBuildings = Math.floor(50 + complexity * 90 + density * 60)
     let placed = 0
     let attempts = 0
-    const maxAttempts = maxBuildings * 60
+    const maxAttempts = maxBuildings * 80
 
     while (placed < maxBuildings && attempts < maxAttempts) {
       attempts++
@@ -738,11 +780,21 @@ export class TownGenerator implements IMapGenerator {
       }
       if (!free) continue
 
-      // Height rhythm: alternate floors for interesting rooflines
+      // District-aware height: each district has its own character
       const heightVal = heightMap[ry]?.[rx] ?? 0
-      const baseFloors = 1 + Math.floor(rng() * 2)
+      const dType = district?.type || 'residential'
+      let baseFloors: number
+      switch (dType) {
+        case 'noble': baseFloors = 2 + Math.floor(rng() * 2); break      // 2-3 imposing
+        case 'temple': baseFloors = 1 + Math.floor(rng() * 3); break     // 1-3 varied towers
+        case 'market': baseFloors = 1 + Math.floor(rng() * 2); break     // 1-2 shops
+        case 'slum': baseFloors = 1 + Math.floor(rng() * (rng() > 0.7 ? 2 : 1)); break // mostly 1
+        case 'garden': baseFloors = 1 + Math.floor(rng() * 2); break     // 1-2 villas
+        default: baseFloors = 1 + Math.floor(rng() * 2); break
+      }
       const centerBonus = distNorm < 0.3 ? 1 : 0
-      const floors = Math.min(baseFloors + centerBonus, 3)
+      const hillBonus = heightVal > 1.0 ? 1 : 0
+      const floors = Math.min(baseFloors + centerBonus + hillBonus, 4)
       const elevation = Math.min(Math.round(heightVal * 2) / 2, 2)
 
       buildings.push({
@@ -762,30 +814,70 @@ export class TownGenerator implements IMapGenerator {
       placed++
     }
 
-    // === FILL PASS: Row houses to plug gaps for continuous frontage ===
-    const fillMax = Math.floor(maxBuildings * 0.5)
+    // === FILL PASS 1: Row houses & small buildings to plug gaps for continuous frontage ===
+    const fillMax = Math.floor(maxBuildings * 0.8)
     let filled = 0
     for (let y = 3; y < h - 3 && filled < fillMax; y++) {
       for (let x = 3; x < w - 2 && filled < fillMax; x++) {
         if (occupied[y][x] || !this.isRoadAdjacent(x, y, roadMap, w, h)) continue
 
         const distFromC = Math.sqrt((x - center.x) ** 2 + (y - center.y) ** 2) / maxDist
-        if (distFromC > 0.55) continue // only fill in inner portion
+        if (distFromC > 0.7) continue
 
-        if (y + 1 < h && !occupied[y + 1][x]) {
+        const elev = Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2)
+        const dId = districtMap[y]?.[x] ?? -1
+        const district = districts.find(d => d.id === dId)
+        const dType = district?.type || 'residential'
+
+        // Try building_small (2x2) first for better density
+        if (rng() > 0.4 && y + 1 < h && x + 1 < w &&
+            !occupied[y][x + 1] && !occupied[y + 1][x] && !occupied[y + 1][x + 1]) {
+          const defId = rng() > 0.5 ? 'building_small' : 'corner_building'
           buildings.push({
-            id: uuid(),
-            definitionId: 'row_house',
-            x, y, rotation: 0, scaleX: 1, scaleY: 1,
-            elevation: Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2),
-            properties: { floors: 1 + Math.floor(rng() * 2) }
+            id: uuid(), definitionId: defId,
+            x, y, rotation: 0, scaleX: 1, scaleY: 1, elevation: elev,
+            properties: { floors: dType === 'noble' ? 2 + Math.floor(rng() * 2) : 1 + Math.floor(rng() * 2), district: dType }
           })
-          occupied[y][x] = true
-          occupied[y + 1][x] = true
+          occupied[y][x] = true; occupied[y][x + 1] = true
+          occupied[y + 1][x] = true; occupied[y + 1][x + 1] = true
+          filled++
+        } else if (y + 1 < h && !occupied[y + 1][x]) {
+          buildings.push({
+            id: uuid(), definitionId: 'row_house',
+            x, y, rotation: 0, scaleX: 1, scaleY: 1, elevation: elev,
+            properties: { floors: 1 + Math.floor(rng() * 2), district: dType }
+          })
+          occupied[y][x] = true; occupied[y + 1][x] = true
           filled++
         }
       }
     }
+
+    // === FILL PASS 2: Corner buildings at road intersections ===
+    let corners = 0
+    const cornerMax = Math.floor(maxBuildings * 0.15)
+    for (let y = 3; y < h - 4 && corners < cornerMax; y += 2) {
+      for (let x = 3; x < w - 4 && corners < cornerMax; x += 2) {
+        if (occupied[y][x]) continue
+        // Check for L-shaped road intersection nearby
+        const hasHRoad = roadMap[y]?.[x - 1] || roadMap[y]?.[x + 2]
+        const hasVRoad = roadMap[y - 1]?.[x] || roadMap[y + 2]?.[x]
+        if (!hasHRoad || !hasVRoad) continue
+        if (!this.areaFree(occupied, x, y, 2, 2, w, h)) continue
+
+        buildings.push({
+          id: uuid(), definitionId: 'corner_building',
+          x, y, rotation: 0, scaleX: 1, scaleY: 1,
+          elevation: Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2),
+          properties: { floors: 2, district: (districts.find(d => d.id === (districtMap[y]?.[x] ?? -1)))?.type || 'residential' }
+        })
+        this.markArea(occupied, x, y, 2, 2, w, h)
+        corners++
+      }
+    }
+
+    // === COURTYARD DETECTION: Paint courtyards between building clusters ===
+    this.detectAndPaintCourtyards(terrainTiles, occupied, roadMap, waterMap, buildings, w, h, rng)
 
     return buildings
   }
@@ -804,26 +896,46 @@ export class TownGenerator implements IMapGenerator {
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
     this.markBuildings(occupied, buildings, w, h)
 
-    // Clock tower in noble/temple district
+    // Clock tower in noble/temple district + mandatory props around it
     for (const d of districts) {
       if (d.type === 'noble' || d.type === 'temple') {
         const spot = this.findFreeSpot(occupied, d.center.x, d.center.y, 3, 3, w, h, 8)
         if (spot) {
           landmarks.push(this.createObj('clock_tower', spot.x, spot.y, 2))
           this.markArea(occupied, spot.x, spot.y, 3, 3, w, h)
+          // Benches and statue in front of clock tower
+          for (const [dx, dy] of [[0, 3], [2, 3]] as const) {
+            const bx = spot.x + dx, by = spot.y + dy
+            if (bx >= 0 && bx + 1 < w && by >= 0 && by < h &&
+                !occupied[by][bx] && !occupied[by][bx + 1]) {
+              landmarks.push(this.createObj('bench', bx, by))
+              occupied[by][bx] = true; occupied[by][bx + 1] = true
+            }
+          }
+          if (spot.x + 1 < w && spot.y + 4 < h && !occupied[spot.y + 4][spot.x + 1]) {
+            landmarks.push(this.createObj('statue', spot.x + 1, spot.y + 4))
+            occupied[spot.y + 4][spot.x + 1] = true
+          }
           break
         }
       }
     }
 
-    // Tavern near market center
+    // Tavern in EVERY market and waterfront district (not just one)
     for (const d of districts) {
-      if (d.type === 'market') {
-        const spot = this.findFreeSpot(occupied, d.center.x, d.center.y, 4, 3, w, h, 8)
+      if (d.type === 'market' || d.type === 'waterfront') {
+        const spot = this.findFreeSpot(occupied, d.center.x, d.center.y, 4, 3, w, h, 10)
         if (spot) {
           landmarks.push(this.createObj('tavern', spot.x, spot.y, 0.5))
           this.markArea(occupied, spot.x, spot.y, 4, 3, w, h)
-          break
+          // Tavern props: barrel stack + hanging sign + café table
+          for (const [dx, dy, propId] of [[-1, 1, 'barrel_stack'], [4, 0, 'hanging_sign'], [0, 3, 'cafe_table']] as const) {
+            const px = spot.x + dx, py = spot.y + dy
+            if (px >= 0 && px < w && py >= 0 && py < h && !occupied[py][px]) {
+              landmarks.push(this.createObj(propId, px, py))
+              occupied[py][px] = true
+            }
+          }
         }
       }
     }
@@ -846,10 +958,38 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    // Staircases where height changes significantly (near district boundaries)
-    if (complexity > 0.4) {
+    // Extra towers in temple district centers
+    for (const d of districts) {
+      if (d.type !== 'temple') continue
+      const spot = this.findFreeSpot(occupied, d.center.x + 3, d.center.y, 2, 2, w, h, 6)
+      if (spot) {
+        landmarks.push(this.createObj('tower', spot.x, spot.y, 1.5))
+        this.markArea(occupied, spot.x, spot.y, 2, 2, w, h)
+      }
+    }
+
+    // Archways at district boundaries where roads cross
+    let archways = 0
+    for (let y = 3; y < h - 3 && archways < 4; y += 4) {
+      for (let x = 3; x < w - 5 && archways < 4; x += 4) {
+        if (!roadMap[y][x]) continue
+        // Check if this road tile is at a district boundary
+        const d1 = districtMap[y]?.[x] ?? -1
+        const d2 = districtMap[y]?.[x + 2] ?? -1
+        const d3 = districtMap[y + 1]?.[x] ?? -1
+        if (d1 === d2 && d1 === d3) continue // Same district
+        if (this.areaFree(occupied, x, y, 3, 1, w, h)) {
+          landmarks.push(this.createObj('archway', x, y))
+          this.markArea(occupied, x, y, 3, 1, w, h)
+          archways++
+        }
+      }
+    }
+
+    // Staircases where height changes significantly
+    if (complexity > 0.3) {
       let staircasesPlaced = 0
-      for (let attempt = 0; attempt < 30 && staircasesPlaced < 3; attempt++) {
+      for (let attempt = 0; attempt < 50 && staircasesPlaced < 5; attempt++) {
         const sx = Math.floor(3 + rng() * (w - 8))
         const sy = Math.floor(3 + rng() * (h - 8))
         if (this.isRoadAdjacent(sx, sy, roadMap, w, h) && !occupied[sy][sx]) {
@@ -966,17 +1106,22 @@ export class TownGenerator implements IMapGenerator {
       )
       if (validSpots.length === 0) continue
 
-      const numProps = Math.min(validSpots.length, 1 + Math.floor(rng() * 2 * density))
+      const numProps = Math.min(validSpots.length, 2 + Math.floor(rng() * 3 * density))
       const dId = districtMap[b.y]?.[b.x] ?? -1
       const district = districts.find(d => d.id === dId)
       const propPalette = district ? DISTRICT_PROPS[district.type] : DISTRICT_PROPS.residential
+
+      // Building-type-specific mandatory props first
+      const buildingSpecificProps = this.getBuildingSpecificProps(b.definitionId, rng)
 
       for (let i = 0; i < numProps; i++) {
         const idx = Math.floor(rng() * validSpots.length)
         const spot = validSpots.splice(idx, 1)[0]
         if (spot) {
-          const propId = propPalette[Math.floor(rng() * propPalette.length)]
-          // Skip 2x2 props (fountain, market_stall) in tight spots
+          // Use building-specific prop if available, otherwise district palette
+          const propId = i < buildingSpecificProps.length
+            ? buildingSpecificProps[i]
+            : propPalette[Math.floor(rng() * propPalette.length)]
           const propFp = this.getFootprint(propId)
           if (propFp.w === 1 && propFp.h === 1) {
             place(propId, spot.x, spot.y)
@@ -988,14 +1133,64 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    // Scatter street furniture on roads
-    const streetFurnitureCount = Math.floor(density * w * h * 0.006)
-    const streetItems = ['cafe_table', 'bench', 'sign', 'hanging_sign', 'barrel', 'crate']
+    // Scatter street furniture on roads — 2.5x denser
+    const streetFurnitureCount = Math.floor(density * w * h * 0.015)
+    const streetItems = ['cafe_table', 'bench', 'sign', 'hanging_sign', 'barrel', 'crate', 'potted_plant']
     for (let i = 0; i < streetFurnitureCount; i++) {
       const x = Math.floor(rng() * w)
       const y = Math.floor(rng() * h)
       if (this.isRoadAdjacent(x, y, roadMap, w, h) && !occupied[y]?.[x] && !roadMap[y]?.[x]) {
-        place(streetItems[Math.floor(rng() * streetItems.length)], x, y)
+        // In market districts, prefer market-themed items
+        const dId = districtMap[y]?.[x] ?? -1
+        const dist = districts.find(d => d.id === dId)
+        let item: string
+        if (dist?.type === 'market' && rng() > 0.3) {
+          item = ['cafe_table', 'barrel', 'crate', 'hanging_sign', 'crate_stack'][Math.floor(rng() * 5)]
+        } else if (dist?.type === 'noble' && rng() > 0.4) {
+          item = ['potted_plant', 'bench', 'planter_box'][Math.floor(rng() * 3)]
+        } else {
+          item = streetItems[Math.floor(rng() * streetItems.length)]
+        }
+        const fp = this.getFootprint(item)
+        if (fp.w === 1 && fp.h === 1) {
+          place(item, x, y)
+        } else if (this.areaFree(occupied, x, y, fp.w, fp.h, w, h)) {
+          props.push(this.createObj(item, x, y))
+          this.markArea(occupied, x, y, fp.w, fp.h, w, h)
+        }
+      }
+    }
+
+    // Market district café clusters — tables along road edges every 5-6 tiles
+    for (const d of districts) {
+      if (d.type !== 'market') continue
+      for (let y = d.center.y - d.radius; y < d.center.y + d.radius; y += 5) {
+        for (let x = d.center.x - d.radius; x < d.center.x + d.radius; x += 6) {
+          if (x < 0 || x >= w || y < 0 || y >= h) continue
+          if (!this.isRoadAdjacent(x, y, roadMap, w, h)) continue
+          // Place 2-3 café tables in a cluster
+          for (let ci = 0; ci < 2 + Math.floor(rng() * 2); ci++) {
+            const cx = x + Math.floor(rng() * 3) - 1
+            const cy = y + Math.floor(rng() * 2)
+            if (cx >= 0 && cx < w && cy >= 0 && cy < h && !occupied[cy][cx] && !roadMap[cy][cx]) {
+              place('cafe_table', cx, cy)
+            }
+          }
+        }
+      }
+    }
+
+    // Well plazas — place benches near every well in existingObjs
+    for (const obj of existingObjs) {
+      if (obj.definitionId !== 'well') continue
+      for (let i = 0; i < 3; i++) {
+        const bx = obj.x + Math.floor(rng() * 4) - 1
+        const by = obj.y + Math.floor(rng() * 4) - 1
+        if (bx >= 0 && bx + 1 < w && by >= 0 && by < h &&
+            !occupied[by][bx] && !occupied[by][bx + 1]) {
+          props.push(this.createObj('bench', bx, by))
+          occupied[by][bx] = true; occupied[by][bx + 1] = true
+        }
       }
     }
 
@@ -1067,8 +1262,8 @@ export class TownGenerator implements IMapGenerator {
       occupied[sy][sx] = true
     }
 
-    // Market stalls around main plaza
-    const stallCount = Math.floor(2 + density * 4)
+    // Market stalls around main plaza — doubled density
+    const stallCount = Math.floor(4 + density * 8)
     for (let i = 0; i < stallCount; i++) {
       const mx = center.x + Math.floor(rng() * plazaRadius * 2) - plazaRadius
       const my = center.y + Math.floor(rng() * plazaRadius * 2) - plazaRadius
@@ -1078,32 +1273,130 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    // District plaza features
+    // Café tables ring around main fountain
+    for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+      const tx = Math.floor(center.x + Math.cos(angle) * (plazaRadius * 0.6))
+      const ty = Math.floor(center.y + Math.sin(angle) * (plazaRadius * 0.6))
+      if (tx >= 0 && tx < w && ty >= 0 && ty < h && !occupied[ty][tx]) {
+        props.push(this.createObj('cafe_table', tx, ty))
+        occupied[ty][tx] = true
+      }
+    }
+
+    // District plaza features — richer per-district
     for (const d of districts) {
-      if (d.type === 'garden') {
-        // Fountain in garden district
-        const fx = d.center.x - 1, fy = d.center.y - 1
-        if (this.areaFree(occupied, fx, fy, 2, 2, w, h)) {
-          props.push(this.createObj('fountain', fx, fy))
-          this.markArea(occupied, fx, fy, 2, 2, w, h)
-        }
-      } else if (d.type === 'temple') {
-        // Statues in temple district
-        for (let i = 0; i < 2; i++) {
-          const tx = d.center.x + Math.floor(rng() * 4) - 2
-          const ty = d.center.y + Math.floor(rng() * 4) - 2
-          if (tx >= 0 && tx < w && ty >= 0 && ty < h && !occupied[ty][tx]) {
-            props.push(this.createObj('statue', tx, ty))
-            occupied[ty][tx] = true
+      switch (d.type) {
+        case 'garden': {
+          // Fountain + planter boxes around it
+          const fx = d.center.x - 1, fy = d.center.y - 1
+          if (this.areaFree(occupied, fx, fy, 2, 2, w, h)) {
+            props.push(this.createObj('fountain', fx, fy))
+            this.markArea(occupied, fx, fy, 2, 2, w, h)
           }
+          // Planter ring
+          for (const [dx, dy] of [[-2, 0], [2, 0], [0, -2], [0, 2]] as const) {
+            const px = d.center.x + dx, py = d.center.y + dy
+            if (px >= 0 && px + 1 < w && py >= 0 && py < h &&
+                !occupied[py][px] && !occupied[py][px + 1]) {
+              props.push(this.createObj('planter_box', px, py))
+              occupied[py][px] = true; occupied[py][px + 1] = true
+            }
+          }
+          break
         }
-      } else if (d.type === 'residential') {
-        // Well in residential
-        const wx = d.center.x + Math.floor(rng() * 3) - 1
-        const wy = d.center.y + Math.floor(rng() * 3) - 1
-        if (wx >= 0 && wx < w && wy >= 0 && wy < h && !occupied[wy][wx]) {
-          props.push(this.createObj('well', wx, wy))
-          occupied[wy][wx] = true
+        case 'noble': {
+          // Statue centerpiece + planter boxes around it
+          if (!occupied[d.center.y]?.[d.center.x]) {
+            props.push(this.createObj('statue', d.center.x, d.center.y))
+            occupied[d.center.y][d.center.x] = true
+          }
+          for (let i = 0; i < 4; i++) {
+            const px = d.center.x + Math.floor(rng() * 6) - 3
+            const py = d.center.y + Math.floor(rng() * 6) - 3
+            if (px >= 0 && px + 1 < w && py >= 0 && py < h &&
+                !occupied[py][px] && !occupied[py][px + 1]) {
+              props.push(this.createObj('planter_box', px, py))
+              occupied[py][px] = true; occupied[py][px + 1] = true
+            }
+          }
+          break
+        }
+        case 'temple': {
+          // Multiple statues in temple plaza
+          for (let i = 0; i < 3; i++) {
+            const tx = d.center.x + Math.floor(rng() * 6) - 3
+            const ty = d.center.y + Math.floor(rng() * 6) - 3
+            if (tx >= 0 && tx < w && ty >= 0 && ty < h && !occupied[ty][tx]) {
+              props.push(this.createObj('statue', tx, ty))
+              occupied[ty][tx] = true
+            }
+          }
+          // Wall lanterns
+          for (let i = 0; i < 2; i++) {
+            const lx = d.center.x + Math.floor(rng() * 4) - 2
+            const ly = d.center.y + Math.floor(rng() * 4) - 2
+            if (lx >= 0 && lx < w && ly >= 0 && ly < h && !occupied[ly][lx]) {
+              props.push(this.createObj('wall_lantern', lx, ly))
+              occupied[ly][lx] = true
+            }
+          }
+          break
+        }
+        case 'residential': {
+          // Well + benches
+          const wx = d.center.x + Math.floor(rng() * 3) - 1
+          const wy = d.center.y + Math.floor(rng() * 3) - 1
+          if (wx >= 0 && wx < w && wy >= 0 && wy < h && !occupied[wy][wx]) {
+            props.push(this.createObj('well', wx, wy))
+            occupied[wy][wx] = true
+            // Benches near well
+            for (let i = 0; i < 2; i++) {
+              const bx = wx + Math.floor(rng() * 4) - 1
+              const by = wy + Math.floor(rng() * 3) - 1
+              if (bx >= 0 && bx + 1 < w && by >= 0 && by < h &&
+                  !occupied[by][bx] && !occupied[by][bx + 1]) {
+                props.push(this.createObj('bench', bx, by))
+                occupied[by][bx] = true; occupied[by][bx + 1] = true
+              }
+            }
+          }
+          break
+        }
+        case 'artisan': {
+          // Crate and barrel clusters (workshop yards)
+          for (let i = 0; i < 4; i++) {
+            const cx = d.center.x + Math.floor(rng() * 6) - 3
+            const cy = d.center.y + Math.floor(rng() * 6) - 3
+            if (cx >= 0 && cx < w && cy >= 0 && cy < h && !occupied[cy][cx]) {
+              props.push(this.createObj(rng() > 0.5 ? 'crate_stack' : 'barrel_stack', cx, cy))
+              occupied[cy][cx] = true
+            }
+          }
+          break
+        }
+        case 'market': {
+          // Extra stalls + wagons in market district plazas
+          for (let i = 0; i < 3; i++) {
+            const mx = d.center.x + Math.floor(rng() * 6) - 3
+            const my = d.center.y + Math.floor(rng() * 6) - 3
+            if (this.areaFree(occupied, mx, my, 2, 2, w, h)) {
+              props.push(this.createObj('market_stall', mx, my))
+              this.markArea(occupied, mx, my, 2, 2, w, h)
+            }
+          }
+          break
+        }
+        case 'waterfront': {
+          // Barrels and crates along waterfront
+          for (let i = 0; i < 4; i++) {
+            const wx = d.center.x + Math.floor(rng() * 6) - 3
+            const wy = d.center.y + Math.floor(rng() * 6) - 3
+            if (wx >= 0 && wx < w && wy >= 0 && wy < h && !occupied[wy][wx]) {
+              props.push(this.createObj(rng() > 0.5 ? 'barrel' : 'crate', wx, wy))
+              occupied[wy][wx] = true
+            }
+          }
+          break
         }
       }
     }
@@ -1124,8 +1417,8 @@ export class TownGenerator implements IMapGenerator {
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
     this.markObjects(occupied, existingObjs, w, h)
 
-    // Poisson disk for natural tree distribution
-    const minDist = Math.max(2, Math.floor(4 - density * 2))
+    // Poisson disk for natural tree distribution — tighter spacing for lush vegetation
+    const minDist = Math.max(1.5, Math.floor(3 - density * 2))
     const points = poissonDiskSampling(w, h, minDist, rng)
 
     for (const p of points) {
@@ -1142,29 +1435,39 @@ export class TownGenerator implements IMapGenerator {
       if (district) {
         switch (district.type) {
           case 'garden':
-            shouldPlace = vegNoise > -0.3 // Dense vegetation
+            shouldPlace = vegNoise > -0.5 // Very dense lush gardens
+            // Mix in potted plants and planter boxes
+            if (shouldPlace && rng() > 0.8) {
+              const gardenProp = rng() > 0.5 ? 'potted_plant' : 'planter_box'
+              const fp = this.getFootprint(gardenProp)
+              if (fp.w === 1 || this.areaFree(occupied, tx, ty, fp.w, fp.h, w, h)) {
+                vegetation.push(this.createObj(gardenProp, tx, ty))
+                if (fp.w > 1) this.markArea(occupied, tx, ty, fp.w, fp.h, w, h)
+                else occupied[ty][tx] = true
+                continue
+              }
+            }
             break
           case 'noble':
-            // Hedgerow bushes along paths, occasional tree
-            shouldPlace = vegNoise > 0.1
-            isTree = rng() > 0.6
+            shouldPlace = vegNoise > 0.0 // Denser noble greenery
+            isTree = rng() > 0.55
             break
           case 'residential':
-            shouldPlace = vegNoise > 0.15
+            shouldPlace = vegNoise > 0.05 // More residential gardens
             break
           case 'slum':
-            shouldPlace = vegNoise > 0.4 // Very sparse
+            shouldPlace = vegNoise > 0.35 // Slightly more vegetation even in slums
             isTree = rng() > 0.7
             break
           case 'waterfront':
-            shouldPlace = vegNoise > 0.25
+            shouldPlace = vegNoise > 0.15 // Lush along water
             break
           default:
-            shouldPlace = vegNoise > 0.2 - density * 0.15
+            shouldPlace = vegNoise > 0.1 - density * 0.15
             break
         }
       } else {
-        shouldPlace = vegNoise > 0.1
+        shouldPlace = vegNoise > 0.05 // More vegetation in unassigned areas
       }
 
       if (shouldPlace) {
@@ -1173,20 +1476,18 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    // Extra tree-lined boulevards: trees along wide roads (every 3-4 tiles)
-    for (let y = 2; y < h - 2; y += 3) {
-      for (let x = 2; x < w - 2; x += 3) {
+    // Tree-lined boulevards: trees along wider roads (every 2 tiles)
+    for (let y = 2; y < h - 2; y += 2) {
+      for (let x = 2; x < w - 2; x += 2) {
         if (!roadMap[y][x]) continue
-        // Check if this is a wide road (boulevard)
         let roadCount = 0
         for (let dy = -1; dy <= 1; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
             if (roadMap[y + dy]?.[x + dx]) roadCount++
           }
         }
-        if (roadCount < 6) continue // Not a boulevard
+        if (roadCount < 4) continue // Need at least a medium-width road
 
-        // Place tree on adjacent non-road, non-occupied tile
         for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2]] as const) {
           const tx = x + dx, ty = y + dy
           if (tx >= 0 && tx < w && ty >= 0 && ty < h &&
@@ -1199,7 +1500,119 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
+    // Hedgerows in noble districts — bushes along road edges every 2 tiles
+    for (const d of districts) {
+      if (d.type !== 'noble') continue
+      for (let y = d.center.y - d.radius; y < d.center.y + d.radius; y += 2) {
+        for (let x = d.center.x - d.radius; x < d.center.x + d.radius; x += 2) {
+          if (x < 0 || x >= w || y < 0 || y >= h) continue
+          if (occupied[y][x] || roadMap[y][x] || waterMap[y][x]) continue
+          const dId = districtMap[y]?.[x]
+          if (dId !== d.id) continue
+          // Only along road edges
+          if (!this.isRoadAdjacent(x, y, roadMap, w, h)) continue
+          vegetation.push(this.createObj('bush', x, y))
+          occupied[y][x] = true
+        }
+      }
+    }
+
+    // Lush riverbank vegetation — trees and bushes along water edges
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        if (waterMap[y][x] || occupied[y][x] || roadMap[y][x]) continue
+        // Check if adjacent to water
+        let nearWater = false
+        for (let dy = -1; dy <= 1 && !nearWater; dy++) {
+          for (let dx = -1; dx <= 1 && !nearWater; dx++) {
+            if (waterMap[y + dy]?.[x + dx]) nearWater = true
+          }
+        }
+        if (!nearWater) continue
+        if (rng() > 0.4) continue // 40% chance per eligible tile
+        vegetation.push(this.createObj(rng() > 0.4 ? 'tree' : 'bush', x, y))
+        occupied[y][x] = true
+      }
+    }
+
     return vegetation
+  }
+
+  // === BUILDING-SPECIFIC PROPS ===
+  private getBuildingSpecificProps(defId: string, rng: () => number): string[] {
+    switch (defId) {
+      case 'tavern': return ['barrel', 'barrel_stack', 'hanging_sign', ...(rng() > 0.5 ? ['cafe_table'] : [])]
+      case 'shop': return ['hanging_sign', rng() > 0.5 ? 'crate' : 'barrel']
+      case 'market_stall': return ['crate_stack', 'barrel']
+      case 'building_large': return rng() > 0.5 ? ['potted_plant', 'planter_box'] : ['statue']
+      case 'balcony_house': return rng() > 0.5 ? ['potted_plant'] : ['planter_box']
+      case 'tower': return ['wall_lantern']
+      case 'clock_tower': return ['bench', 'statue']
+      default: return []
+    }
+  }
+
+  // === COURTYARD DETECTION ===
+  private detectAndPaintCourtyards(
+    terrain: number[][], occupied: boolean[][], roadMap: boolean[][], waterMap: boolean[][],
+    buildings: PlacedObject[], w: number, h: number, rng: () => number
+  ): void {
+    // Scan for enclosed open spaces surrounded by buildings on 3+ sides
+    const buildingMap = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
+    for (const b of buildings) {
+      const fp = this.getFootprint(b.definitionId)
+      for (let dy = 0; dy < fp.h; dy++) {
+        for (let dx = 0; dx < fp.w; dx++) {
+          const bx = b.x + dx, by = b.y + dy
+          if (bx < w && by < h) buildingMap[by][bx] = true
+        }
+      }
+    }
+
+    // Check 3x3 open patches for courtyard potential
+    for (let y = 2; y < h - 4; y += 3) {
+      for (let x = 2; x < w - 4; x += 3) {
+        // Check if center 2x2 is free
+        let centerFree = true
+        for (let dy = 0; dy < 2 && centerFree; dy++) {
+          for (let dx = 0; dx < 2 && centerFree; dx++) {
+            if (buildingMap[y + dy]?.[x + dx] || waterMap[y + dy]?.[x + dx]) centerFree = false
+          }
+        }
+        if (!centerFree) continue
+
+        // Count building tiles on perimeter (3-tile ring around center)
+        let buildingSides = 0
+        const checkSide = (sx: number, sy: number, count: number, stepX: number, stepY: number) => {
+          let found = 0
+          for (let i = 0; i < count; i++) {
+            if (buildingMap[sy + i * stepY]?.[sx + i * stepX]) found++
+          }
+          return found > 0 ? 1 : 0
+        }
+        buildingSides += checkSide(x - 1, y, 2, 0, 1) // left
+        buildingSides += checkSide(x + 2, y, 2, 0, 1) // right
+        buildingSides += checkSide(x, y - 1, 2, 1, 0) // top
+        buildingSides += checkSide(x, y + 2, 2, 1, 0) // bottom
+
+        if (buildingSides >= 3) {
+          // Paint courtyard cobblestone
+          for (let dy = 0; dy < 2; dy++) {
+            for (let dx = 0; dx < 2; dx++) {
+              if (y + dy < h && x + dx < w && !roadMap[y + dy][x + dx]) {
+                terrain[y + dy][x + dx] = 8 // cobblestone courtyard
+              }
+            }
+          }
+          // Place well or planter in courtyard center
+          if (!occupied[y][x] && rng() > 0.4) {
+            const courtItem = rng() > 0.5 ? 'well' : 'potted_plant'
+            buildings.push(this.createObj(courtItem, x, y))
+            occupied[y][x] = true
+          }
+        }
+      }
+    }
   }
 
   // === UTILITY METHODS ===

@@ -127,10 +127,10 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
     // Position camera southwest of center, looking at center, at moderate height
     // Closer to the action for better framing
     updateCamera({
-      worldX: cx - mapSize * 0.2,
-      worldY: cy + mapSize * 0.25,
-      lookAtX: cx,
-      lookAtY: cy,
+      worldX: cx - mapSize * 0.15,
+      worldY: cy - mapSize * 0.1,
+      lookAtX: cx + 2,
+      lookAtY: cy + 2,
       elevation: mapSize * 0.25,
       fov: 55
     })
@@ -140,15 +140,13 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
     const cx = map.gridWidth / 2
     const cy = map.gridHeight / 2
     const mapSize = Math.max(map.gridWidth, map.gridHeight)
-    // Lower cameras stay closer to buildings; higher cameras pull back
-    const dist = 0.1 + preset.elevation * 0.02
-    // At low elevation, look slightly ahead into the buildings
-    const lookAhead = Math.max(0, 0.15 - preset.elevation * 0.005) * mapSize
+    // Camera in front of town (lower worldY) looking toward center
+    const dist = 0.08 + preset.elevation * 0.012
     updateCamera({
       worldX: cx - mapSize * dist,
-      worldY: cy + mapSize * dist,
-      lookAtX: cx + lookAhead * 0.3,
-      lookAtY: cy - lookAhead * 0.3,
+      worldY: cy - mapSize * dist * 0.5,
+      lookAtX: cx + 2,
+      lookAtY: cy + 2,
       elevation: preset.elevation,
       fov: preset.fov,
     })
