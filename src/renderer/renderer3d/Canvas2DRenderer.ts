@@ -3192,28 +3192,29 @@ const BLUEPRINT_HEIGHTS: Record<string, number> = {
 // ── View matrix (camera look-at) ──
 
 function buildViewMatrix(eye: Vec3, target: Vec3): number[] {
-  // Forward direction
+  // Forward direction (eye → target)
   let fx = target.x - eye.x, fy = target.y - eye.y, fz = target.z - eye.z
   const fLen = Math.sqrt(fx * fx + fy * fy + fz * fz) || 1
   fx /= fLen; fy /= fLen; fz /= fLen
 
-  // Right = forward × up, where up = (0, 1, 0)
-  // cross(f, u) = (fy*0 - fz*1, fz*0 - fx*0, fx*1 - fy*0) = (-fz, 0, fx)
-  let rx = -fz, rz = fx
+  // Right = up × forward, where up = (0, 1, 0)
+  // cross(up, forward) = (1*fz - 0*fy, 0*fx - 0*fz, 0*fy - 1*fx) = (fz, 0, -fx)
+  let rx = fz, rz = -fx
   const rLen = Math.sqrt(rx * rx + rz * rz) || 1
   rx /= rLen; rz /= rLen
   const ry = 0
 
-  // True up = right × forward
-  const ux = ry * fz - rz * fy
-  const uy = rz * fx - rx * fz
-  const uz = rx * fy - ry * fx
+  // True up = forward × right
+  const ux = fy * rz - fz * ry
+  const uy = fz * rx - fx * rz
+  const uz = fx * ry - fy * rx
 
   // View matrix rows (transposed rotation)
+  // Positive rz = in front of camera
   return [
     rx, ry, rz,   // right
     ux, uy, uz,   // up
-    -fx, -fy, -fz // forward (negated — camera looks along -Z)
+    fx, fy, fz    // forward
   ]
 }
 
