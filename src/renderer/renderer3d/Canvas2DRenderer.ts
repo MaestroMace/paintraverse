@@ -416,6 +416,40 @@ function addBuildingDrawables(
 ) {
   const hash = simpleHash(obj.id)
   const palette = palettes[hash % palettes.length]
+
+  // ── BLUEPRINT BUILDINGS — use 3D primitive composition ──
+  if (BLUEPRINTS[def.id]) {
+    const ox = obj.x * ts, oz = obj.y * ts
+    renderBlueprint(drawables, BLUEPRINTS[def.id], ox, 0, oz, ts, palette, project, camPos, lighting)
+
+    // Blueprint-specific animated details
+    addBlueprintDetails(drawables, def.id, ox, oz, ts, palette, project, camPos, lighting, time, hash)
+
+    // Shadow for blueprint buildings
+    const bpH = (BLUEPRINT_HEIGHTS[def.id] ?? 3) * ts
+    const fw2 = def.footprint.w * ts, fd2 = def.footprint.h * ts
+    const shadowOffX = -lighting.sunDirX * bpH * 0.5
+    const shadowOffZ = -lighting.sunDirZ * bpH * 0.5
+    const s0 = project(ox + shadowOffX, 0, oz + shadowOffZ)
+    const s1 = project(ox + fw2 + shadowOffX, 0, oz + shadowOffZ)
+    const s2 = project(ox + fw2 + shadowOffX, 0, oz + fd2 + shadowOffZ)
+    const s3 = project(ox + shadowOffX, 0, oz + fd2 + shadowOffZ)
+    if (s0 && s1 && s2 && s3) {
+      const avgD = (s0.depth + s1.depth + s2.depth + s3.depth) / 4
+      drawables.push({
+        depth: avgD + 0.02,
+        draw: (ctx) => {
+          ctx.fillStyle = `rgba(0,0,0,${lighting.isNight ? 0.15 : 0.35})`
+          ctx.beginPath()
+          ctx.moveTo(s0.sx, s0.sy); ctx.lineTo(s1.sx, s1.sy)
+          ctx.lineTo(s2.sx, s2.sy); ctx.lineTo(s3.sx, s3.sy)
+          ctx.closePath(); ctx.fill()
+        }
+      })
+    }
+    return
+  }
+
   const fw = def.footprint.w * ts
   const fd = def.footprint.h * ts
   const baseH = BUILDING_HEIGHTS[def.id] ?? 1.8
@@ -2114,6 +2148,874 @@ function addPropDrawables(
     })
   }
 }
+
+// ══════════════════════════════════════════════════════════════════
+// ══ REUSABLE 3D SHAPE PRIMITIVES ════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+
+type ProjectFn = (x: number, y: number, z: number) => Projected | null
+
+/** Draw a 3D axis-aligned box with up to 3 visible shaded faces. */
+function drawBox3D(
+  drawables: Drawable[],
+  project: ProjectFn,
+  camPos: Vec3,
+  x: number, y: number, z: number,
+  w: number, h: number, d: number,
+  color: number, lighting: Lighting,
+  depthBias: number = 0
+): void {
+  const corners = [
+    project(x, y, z), project(x + w, y, z),
+    project(x + w, y, z + d), project(x, y, z + d),
+    project(x, y + h, z), project(x + w, y + h, z),
+    project(x + w, y + h, z + d), project(x, y + h, z + d),
+  ]
+  if (corners.some(c => c === null)) return
+  const p = corners as Projected[]
+  const avgDepth = p.reduce((s, v) => s + v.depth, 0) / 8 + depthBias
+  const cx2 = x + w / 2, cz2 = z + d / 2
+
+  const faces: { idx: number[]; nx: number; ny: number; nz: number }[] = []
+  if (camPos.z < cz2) faces.push({ idx: [0, 1, 5, 4], nx: 0, ny: 0, nz: -1 })
+  if (camPos.z > cz2) faces.push({ idx: [2, 3, 7, 6], nx: 0, ny: 0, nz: 1 })
+  if (camPos.x > cx2) faces.push({ idx: [1, 2, 6, 5], nx: 1, ny: 0, nz: 0 })
+  if (camPos.x < cx2) faces.push({ idx: [3, 0, 4, 7], nx: -1, ny: 0, nz: 0 })
+  // Top face
+  faces.push({ idx: [4, 5, 6, 7], nx: 0, ny: 1, nz: 0 })
+
+  drawables.push({
+    depth: avgDepth,
+    draw: (ctx) => {
+      for (const f of faces) {
+        const fc = f.idx.map(i => p[i])
+        const litColor = shadeFace(color, f.nx, f.ny, f.nz, lighting)
+        const foggedColor = applyFog(litColor, avgDepth, lighting)
+        ctx.fillStyle = hexToCSS(foggedColor)
+        ctx.beginPath()
+        ctx.moveTo(fc[0].sx, fc[0].sy)
+        for (let i = 1; i < fc.length; i++) ctx.lineTo(fc[i].sx, fc[i].sy)
+        ctx.closePath(); ctx.fill()
+      }
+    }
+  })
+}
+
+/** Draw a 3D cylinder approximated as N flat-shaded quads. */
+function drawCylinder3D(
+  drawables: Drawable[],
+  project: ProjectFn,
+  camPos: Vec3,
+  cx: number, y0: number, cz: number,
+  radius: number, height: number, segments: number,
+  color: number, lighting: Lighting,
+  depthBias: number = 0
+): void {
+  const bottomPts: (Projected | null)[] = []
+  const topPts: (Projected | null)[] = []
+  const angles: number[] = []
+
+  for (let i = 0; i < segments; i++) {
+    const a = (i / segments) * Math.PI * 2
+    angles.push(a)
+    const px = cx + Math.cos(a) * radius
+    const pz = cz + Math.sin(a) * radius
+    bottomPts.push(project(px, y0, pz))
+    topPts.push(project(px, y0 + height, pz))
+  }
+
+  if (bottomPts.some(p => p === null) || topPts.some(p => p === null)) return
+  const bp = bottomPts as Projected[]
+  const tp = topPts as Projected[]
+  const avgDepth = bp.reduce((s, v) => s + v.depth, 0) / segments + depthBias
+
+  drawables.push({
+    depth: avgDepth,
+    draw: (ctx) => {
+      // Side faces — only draw faces facing camera
+      for (let i = 0; i < segments; i++) {
+        const j = (i + 1) % segments
+        const midA = (angles[i] + angles[j]) / 2
+        const nx = Math.cos(midA), nz = Math.sin(midA)
+        // Dot product with camera direction to check visibility
+        const toCamX = camPos.x - cx, toCamZ = camPos.z - cz
+        if (nx * toCamX + nz * toCamZ <= 0) continue
+
+        const litColor = shadeFace(color, nx, 0, nz, lighting)
+        const foggedColor = applyFog(litColor, avgDepth, lighting)
+        ctx.fillStyle = hexToCSS(foggedColor)
+        ctx.beginPath()
+        ctx.moveTo(bp[i].sx, bp[i].sy)
+        ctx.lineTo(bp[j].sx, bp[j].sy)
+        ctx.lineTo(tp[j].sx, tp[j].sy)
+        ctx.lineTo(tp[i].sx, tp[i].sy)
+        ctx.closePath(); ctx.fill()
+      }
+      // Top cap
+      const topColor = applyFog(shadeFace(color, 0, 1, 0, lighting), avgDepth, lighting)
+      ctx.fillStyle = hexToCSS(topColor)
+      ctx.beginPath()
+      ctx.moveTo(tp[0].sx, tp[0].sy)
+      for (let i = 1; i < segments; i++) ctx.lineTo(tp[i].sx, tp[i].sy)
+      ctx.closePath(); ctx.fill()
+    }
+  })
+}
+
+/** Draw a tapered cylinder (truncated cone) — steeples, chimneys, lighthouse. */
+function drawTaper3D(
+  drawables: Drawable[],
+  project: ProjectFn,
+  camPos: Vec3,
+  cx: number, y0: number, cz: number,
+  baseRadius: number, topRadius: number, height: number, segments: number,
+  color: number, lighting: Lighting,
+  depthBias: number = 0
+): void {
+  const bottomPts: (Projected | null)[] = []
+  const topPts: (Projected | null)[] = []
+  const angles: number[] = []
+
+  for (let i = 0; i < segments; i++) {
+    const a = (i / segments) * Math.PI * 2
+    angles.push(a)
+    bottomPts.push(project(cx + Math.cos(a) * baseRadius, y0, cz + Math.sin(a) * baseRadius))
+    topPts.push(project(cx + Math.cos(a) * topRadius, y0 + height, cz + Math.sin(a) * topRadius))
+  }
+
+  if (bottomPts.some(p => p === null) || topPts.some(p => p === null)) return
+  const bp = bottomPts as Projected[]
+  const tp = topPts as Projected[]
+  const avgDepth = bp.reduce((s, v) => s + v.depth, 0) / segments + depthBias
+
+  drawables.push({
+    depth: avgDepth,
+    draw: (ctx) => {
+      for (let i = 0; i < segments; i++) {
+        const j = (i + 1) % segments
+        const midA = (angles[i] + angles[j]) / 2
+        const nx = Math.cos(midA), nz = Math.sin(midA)
+        const toCamX = camPos.x - cx, toCamZ = camPos.z - cz
+        if (nx * toCamX + nz * toCamZ <= 0) continue
+
+        const litColor = shadeFace(color, nx, 0.3, nz, lighting)
+        const foggedColor = applyFog(litColor, avgDepth, lighting)
+        ctx.fillStyle = hexToCSS(foggedColor)
+        ctx.beginPath()
+        ctx.moveTo(bp[i].sx, bp[i].sy)
+        ctx.lineTo(bp[j].sx, bp[j].sy)
+        ctx.lineTo(tp[j].sx, tp[j].sy)
+        ctx.lineTo(tp[i].sx, tp[i].sy)
+        ctx.closePath(); ctx.fill()
+      }
+      // Top cap (if topRadius > 0)
+      if (topRadius > 0.05) {
+        const topColor = applyFog(shadeFace(color, 0, 1, 0, lighting), avgDepth, lighting)
+        ctx.fillStyle = hexToCSS(topColor)
+        ctx.beginPath()
+        ctx.moveTo(tp[0].sx, tp[0].sy)
+        for (let i = 1; i < segments; i++) ctx.lineTo(tp[i].sx, tp[i].sy)
+        ctx.closePath(); ctx.fill()
+      }
+    }
+  })
+}
+
+/** Draw extruded arbitrary polygon (prism) — L-shapes, hexagons, buttresses. */
+function drawPrism3D(
+  drawables: Drawable[],
+  project: ProjectFn,
+  camPos: Vec3,
+  basePoints: { x: number; z: number }[],
+  y0: number, height: number,
+  color: number, lighting: Lighting,
+  depthBias: number = 0
+): void {
+  const n = basePoints.length
+  const bottomPts: (Projected | null)[] = []
+  const topPts: (Projected | null)[] = []
+
+  for (const pt of basePoints) {
+    bottomPts.push(project(pt.x, y0, pt.z))
+    topPts.push(project(pt.x, y0 + height, pt.z))
+  }
+
+  if (bottomPts.some(p => p === null) || topPts.some(p => p === null)) return
+  const bp = bottomPts as Projected[]
+  const tp = topPts as Projected[]
+  const avgDepth = bp.reduce((s, v) => s + v.depth, 0) / n + depthBias
+
+  // Compute centroid for face visibility
+  const centX = basePoints.reduce((s, p) => s + p.x, 0) / n
+  const centZ = basePoints.reduce((s, p) => s + p.z, 0) / n
+
+  drawables.push({
+    depth: avgDepth,
+    draw: (ctx) => {
+      // Side faces
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n
+        const edgeX = basePoints[j].x - basePoints[i].x
+        const edgeZ = basePoints[j].z - basePoints[i].z
+        // Outward normal (perpendicular to edge, pointing away from centroid)
+        let nx = -edgeZ, nz = edgeX
+        const len = Math.sqrt(nx * nx + nz * nz) || 1
+        nx /= len; nz /= len
+        // Check outward direction
+        const midX = (basePoints[i].x + basePoints[j].x) / 2 - centX
+        const midZ = (basePoints[i].z + basePoints[j].z) / 2 - centZ
+        if (nx * midX + nz * midZ < 0) { nx = -nx; nz = -nz }
+        // Visibility check
+        const toCamX = camPos.x - centX, toCamZ = camPos.z - centZ
+        if (nx * toCamX + nz * toCamZ <= 0) continue
+
+        const litColor = shadeFace(color, nx, 0, nz, lighting)
+        const foggedColor = applyFog(litColor, avgDepth, lighting)
+        ctx.fillStyle = hexToCSS(foggedColor)
+        ctx.beginPath()
+        ctx.moveTo(bp[i].sx, bp[i].sy)
+        ctx.lineTo(bp[j].sx, bp[j].sy)
+        ctx.lineTo(tp[j].sx, tp[j].sy)
+        ctx.lineTo(tp[i].sx, tp[i].sy)
+        ctx.closePath(); ctx.fill()
+      }
+      // Top face
+      const topColor = applyFog(shadeFace(color, 0, 1, 0, lighting), avgDepth, lighting)
+      ctx.fillStyle = hexToCSS(topColor)
+      ctx.beginPath()
+      ctx.moveTo(tp[0].sx, tp[0].sy)
+      for (let i = 1; i < n; i++) ctx.lineTo(tp[i].sx, tp[i].sy)
+      ctx.closePath(); ctx.fill()
+    }
+  })
+}
+
+/**
+ * Draw a generic 3D roof from base polygon to ridge/apex.
+ * - 1 ridgePoint = pointed (pyramid)
+ * - 2 ridgePoints = gabled (saddle ridge)
+ * - basePoints at wall-top height, ridge points above that.
+ */
+function drawRoof3D(
+  drawables: Drawable[],
+  project: ProjectFn,
+  basePoints: { x: number; y: number; z: number }[],
+  ridgePoints: { x: number; y: number; z: number }[],
+  color: number, lighting: Lighting,
+  depthBias: number = 0
+): void {
+  const baseProjArr = basePoints.map(p => project(p.x, p.y, p.z))
+  const ridgeProjArr = ridgePoints.map(p => project(p.x, p.y, p.z))
+  if (baseProjArr.some(p => p === null) || ridgeProjArr.some(p => p === null)) return
+  const bp = baseProjArr as Projected[]
+  const rp = ridgeProjArr as Projected[]
+
+  const allPts = [...bp, ...rp]
+  const avgDepth = allPts.reduce((s, v) => s + v.depth, 0) / allPts.length + depthBias
+
+  if (ridgePoints.length === 1) {
+    // Pointed/pyramid roof — triangles from each base edge to apex
+    drawables.push({
+      depth: avgDepth,
+      draw: (ctx) => {
+        for (let i = 0; i < bp.length; i++) {
+          const j = (i + 1) % bp.length
+          const edgeX = basePoints[j].x - basePoints[i].x
+          const edgeZ = basePoints[j].z - basePoints[i].z
+          // Approximate face brightness by angle
+          const nx = -edgeZ, nz = edgeX
+          const litColor = shadeFace(color, nx * 0.5, 0.8, nz * 0.5, lighting)
+          const foggedColor = applyFog(litColor, avgDepth, lighting)
+          ctx.fillStyle = hexToCSS(foggedColor)
+          ctx.beginPath()
+          ctx.moveTo(bp[i].sx, bp[i].sy)
+          ctx.lineTo(bp[j].sx, bp[j].sy)
+          ctx.lineTo(rp[0].sx, rp[0].sy)
+          ctx.closePath(); ctx.fill()
+        }
+      }
+    })
+  } else if (ridgePoints.length === 2) {
+    // Gabled roof — two slope planes + two gable triangles
+    // Assumes 4-point base: [front-left, front-right, back-right, back-left]
+    drawables.push({
+      depth: avgDepth,
+      draw: (ctx) => {
+        // Left slope: basePoints[3]→[0] → ridge[0]→ridge[1]
+        const leftColor = applyFog(shadeFace(color, -0.5, 0.7, 0, lighting), avgDepth, lighting)
+        ctx.fillStyle = hexToCSS(leftColor)
+        ctx.beginPath()
+        ctx.moveTo(bp[3].sx, bp[3].sy); ctx.lineTo(bp[0].sx, bp[0].sy)
+        ctx.lineTo(rp[0].sx, rp[0].sy); ctx.lineTo(rp[1].sx, rp[1].sy)
+        ctx.closePath(); ctx.fill()
+
+        // Right slope: basePoints[1]→[2] → ridge[1]→ridge[0]
+        const rightColor = applyFog(shadeFace(color, 0.5, 0.7, 0, lighting), avgDepth, lighting)
+        ctx.fillStyle = hexToCSS(rightColor)
+        ctx.beginPath()
+        ctx.moveTo(bp[1].sx, bp[1].sy); ctx.lineTo(bp[2].sx, bp[2].sy)
+        ctx.lineTo(rp[1].sx, rp[1].sy); ctx.lineTo(rp[0].sx, rp[0].sy)
+        ctx.closePath(); ctx.fill()
+
+        // Front gable: basePoints[0]→[1] → ridge[0]
+        const frontColor = applyFog(shadeFace(color, 0, 0.3, -0.9, lighting), avgDepth, lighting)
+        ctx.fillStyle = hexToCSS(frontColor)
+        ctx.beginPath()
+        ctx.moveTo(bp[0].sx, bp[0].sy); ctx.lineTo(bp[1].sx, bp[1].sy)
+        ctx.lineTo(rp[0].sx, rp[0].sy)
+        ctx.closePath(); ctx.fill()
+
+        // Back gable: basePoints[2]→[3] → ridge[1]
+        const backColor = applyFog(shadeFace(color, 0, 0.3, 0.9, lighting), avgDepth, lighting)
+        ctx.fillStyle = hexToCSS(backColor)
+        ctx.beginPath()
+        ctx.moveTo(bp[2].sx, bp[2].sy); ctx.lineTo(bp[3].sx, bp[3].sy)
+        ctx.lineTo(rp[1].sx, rp[1].sy)
+        ctx.closePath(); ctx.fill()
+      }
+    })
+  }
+}
+
+/** Draw a semicircular arch in screen-space between two projected points. */
+function drawArch3D(
+  ctx: CanvasRenderingContext2D,
+  left: Projected, right: Projected, archHeight: number,
+  color: string, fillMode: boolean = true
+): void {
+  const midX = (left.sx + right.sx) / 2
+  const midY = (left.sy + right.sy) / 2
+  const halfW = Math.abs(right.sx - left.sx) / 2
+
+  if (fillMode) {
+    ctx.fillStyle = color
+    ctx.beginPath()
+    ctx.moveTo(left.sx, left.sy)
+    ctx.lineTo(left.sx, midY - archHeight * 0.4)
+    ctx.arc(midX, midY - archHeight * 0.4, halfW, Math.PI, 0)
+    ctx.lineTo(right.sx, right.sy)
+    ctx.closePath()
+    ctx.fill()
+  } else {
+    ctx.strokeStyle = color
+    ctx.beginPath()
+    ctx.moveTo(left.sx, left.sy)
+    ctx.lineTo(left.sx, midY - archHeight * 0.4)
+    ctx.arc(midX, midY - archHeight * 0.4, halfW, Math.PI, 0)
+    ctx.lineTo(right.sx, right.sy)
+    ctx.stroke()
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ══ BUILDING BLUEPRINT SYSTEM ═══════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+
+interface ShapeDesc {
+  type: 'box' | 'cylinder' | 'taper' | 'prism'
+  offset: { x: number; y: number; z: number }
+  params: Record<string, number>
+  colorKey: 'wall' | 'roof' | 'door' | 'accent'
+}
+
+interface RoofDesc {
+  type: 'roof'
+  baseOffsets: { x: number; y: number; z: number }[]  // 4 corner offsets from building origin
+  ridgeOffsets: { x: number; y: number; z: number }[] // 1 (pointed) or 2 (gabled)
+  colorKey: 'roof'
+}
+
+interface DetailDesc {
+  type: 'arch_door' | 'windows' | 'rose_window' | 'arrow_slits' | 'banner' | 'clock'
+  face: 'front' | 'back' | 'left' | 'right'
+  position: { u: number; v: number }
+  params?: Record<string, number>
+}
+
+type BlueprintElement = ShapeDesc | RoofDesc | DetailDesc
+type BuildingBlueprint = BlueprintElement[]
+
+/** Render a building from a blueprint — composing 3D primitives. */
+function renderBlueprint(
+  drawables: Drawable[],
+  blueprint: BuildingBlueprint,
+  ox: number, oy: number, oz: number, // building origin in world units
+  ts: number,
+  palette: { wall: number; roof: number; door: number },
+  project: ProjectFn,
+  camPos: Vec3,
+  lighting: Lighting,
+  depthBias: number = 0
+): void {
+  for (const elem of blueprint) {
+    if (elem.type === 'roof') {
+      const roofElem = elem as RoofDesc
+      const basePts = roofElem.baseOffsets.map(o => ({
+        x: ox + o.x * ts, y: oy + o.y * ts, z: oz + o.z * ts
+      }))
+      const ridgePts = roofElem.ridgeOffsets.map(o => ({
+        x: ox + o.x * ts, y: oy + o.y * ts, z: oz + o.z * ts
+      }))
+      drawRoof3D(drawables, project, basePts, ridgePts, palette.roof, lighting, depthBias - 0.02)
+      continue
+    }
+
+    if (elem.type === 'arch_door' || elem.type === 'windows' || elem.type === 'rose_window' ||
+        elem.type === 'arrow_slits' || elem.type === 'banner' || elem.type === 'clock') {
+      // Detail pass — handled separately after shapes
+      continue
+    }
+
+    const shape = elem as ShapeDesc
+    const color = shape.colorKey === 'wall' ? palette.wall
+      : shape.colorKey === 'roof' ? palette.roof
+      : shape.colorKey === 'door' ? palette.door
+      : palette.wall
+    const sx = ox + shape.offset.x * ts
+    const sy = oy + shape.offset.y * ts
+    const sz = oz + shape.offset.z * ts
+
+    if (shape.type === 'box') {
+      drawBox3D(drawables, project, camPos,
+        sx, sy, sz,
+        shape.params.w * ts, shape.params.h * ts, shape.params.d * ts,
+        color, lighting, depthBias)
+    } else if (shape.type === 'cylinder') {
+      drawCylinder3D(drawables, project, camPos,
+        sx, sy, sz,
+        shape.params.r * ts, shape.params.h * ts, shape.params.seg || 8,
+        color, lighting, depthBias)
+    } else if (shape.type === 'taper') {
+      drawTaper3D(drawables, project, camPos,
+        sx, sy, sz,
+        shape.params.rBot * ts, shape.params.rTop * ts, shape.params.h * ts,
+        shape.params.seg || 8,
+        color, lighting, depthBias)
+    }
+  }
+
+  // Detail pass — render decorations on faces
+  for (const elem of blueprint) {
+    if (elem.type !== 'arch_door' && elem.type !== 'windows' && elem.type !== 'rose_window' &&
+        elem.type !== 'arrow_slits' && elem.type !== 'banner' && elem.type !== 'clock') continue
+    const detail = elem as DetailDesc
+    renderDetail(drawables, detail, ox, oy, oz, ts, palette, project, camPos, lighting, depthBias)
+  }
+}
+
+/** Render a face detail decoration. */
+function renderDetail(
+  drawables: Drawable[],
+  detail: DetailDesc,
+  ox: number, oy: number, oz: number,
+  ts: number,
+  palette: { wall: number; roof: number; door: number },
+  project: ProjectFn,
+  camPos: Vec3,
+  lighting: Lighting,
+  depthBias: number
+): void {
+  // Placeholder — will be filled in Phase 4.
+  // For now, details are drawn inline by blueprint-specific render overrides.
+}
+
+/** Add per-building-type animated details and decorations for blueprint buildings. */
+function addBlueprintDetails(
+  drawables: Drawable[],
+  buildingId: string,
+  ox: number, oz: number, ts: number,
+  palette: { wall: number; roof: number; door: number },
+  project: ProjectFn,
+  camPos: Vec3,
+  lighting: Lighting,
+  time: number,
+  hash: number
+): void {
+  if (buildingId === 'mill') {
+    // Animated waterwheel on left side
+    const wheelCenter = project(ox - 0.5 * ts, 1 * ts, oz + 1.5 * ts)
+    if (wheelCenter) {
+      drawables.push({
+        depth: wheelCenter.depth - 0.01,
+        draw: (ctx) => {
+          const wr = ts * 0.8
+          const wheelAngle = time * 1.2
+          // Wheel rim
+          ctx.strokeStyle = hexToCSS(applyFog(darken(palette.wall, 0.3), wheelCenter.depth, lighting))
+          ctx.lineWidth = 1.5
+          ctx.beginPath()
+          ctx.arc(wheelCenter.sx, wheelCenter.sy, wr, 0, Math.PI * 2)
+          ctx.stroke()
+          // Spokes
+          ctx.lineWidth = 0.8
+          for (let si = 0; si < 8; si++) {
+            const a = wheelAngle + si * Math.PI / 4
+            ctx.beginPath()
+            ctx.moveTo(wheelCenter.sx, wheelCenter.sy)
+            ctx.lineTo(wheelCenter.sx + Math.cos(a) * wr, wheelCenter.sy + Math.sin(a) * wr * 0.6)
+            ctx.stroke()
+          }
+          // Hub
+          ctx.fillStyle = hexToCSS(applyFog(darken(palette.wall, 0.2), wheelCenter.depth, lighting))
+          ctx.beginPath()
+          ctx.arc(wheelCenter.sx, wheelCenter.sy, wr * 0.15, 0, Math.PI * 2)
+          ctx.fill()
+          // Water splash below
+          for (let wi = 0; wi < 3; wi++) {
+            const wx = wheelCenter.sx + Math.sin(time * 3 + wi * 2) * 2
+            const wy = wheelCenter.sy + wr + 1 + wi * 0.5
+            ctx.fillStyle = `rgba(120,180,220,${0.15 - wi * 0.04})`
+            ctx.beginPath(); ctx.arc(wx, wy, 0.8, 0, Math.PI * 2); ctx.fill()
+          }
+        }
+      })
+    }
+  }
+
+  if (buildingId === 'lighthouse') {
+    // Beacon glow at top
+    const beacon = project(ox + 1.5 * ts, 5.6 * ts, oz + 1.5 * ts)
+    if (beacon) {
+      drawables.push({
+        depth: beacon.depth - 0.03,
+        draw: (ctx) => {
+          const isLit = lighting.isNight || lighting.isDusk
+          const beaconR = isLit ? 6 + Math.sin(time * 2) * 2 : 3
+          const beaconAlpha = isLit ? 0.6 : 0.2
+          ctx.fillStyle = `rgba(255,240,180,${beaconAlpha})`
+          ctx.beginPath()
+          ctx.arc(beacon.sx, beacon.sy, beaconR, 0, Math.PI * 2)
+          ctx.fill()
+          // Beam sweep at night
+          if (isLit) {
+            const beamAngle = time * 0.5
+            ctx.strokeStyle = `rgba(255,240,180,0.12)`
+            ctx.lineWidth = 2
+            ctx.beginPath()
+            ctx.moveTo(beacon.sx, beacon.sy)
+            ctx.lineTo(beacon.sx + Math.cos(beamAngle) * 40, beacon.sy + Math.sin(beamAngle) * 15)
+            ctx.stroke()
+          }
+        }
+      })
+    }
+    // Horizontal stripes (red/white lighthouse pattern)
+    const stripeCount = 4
+    for (let si = 0; si < stripeCount; si++) {
+      const stripeY = (si + 0.5) / stripeCount * 4.5
+      const stripeR = 1.3 - (stripeY / 5) * 0.5 // taper
+      const stripeBot = project(ox + 1.5 * ts, stripeY * ts, oz + 1.5 * ts - stripeR * ts)
+      if (stripeBot && si % 2 === 0) {
+        drawables.push({
+          depth: stripeBot.depth - 0.005,
+          draw: (ctx) => {
+            ctx.fillStyle = hexToCSS(applyFog(0xcc3333, stripeBot.depth, lighting))
+            ctx.fillRect(stripeBot.sx - stripeR * ts * 0.5, stripeBot.sy - ts * 0.3, stripeR * ts, ts * 0.5)
+          }
+        })
+      }
+    }
+  }
+
+  if (buildingId === 'cathedral') {
+    // Rose window on front face (large circular stained glass)
+    const roseCenter = project(ox + 1.5 * ts, 2.5 * ts, oz - 0.01 * ts)
+    if (roseCenter && camPos.z < oz + 3 * ts) {
+      drawables.push({
+        depth: roseCenter.depth - 0.005,
+        draw: (ctx) => {
+          const rr = ts * 0.5
+          // Window circle
+          const isLit = lighting.isNight || lighting.isDusk
+          ctx.fillStyle = isLit
+            ? hexToCSS(applyFog(0xdd8844, roseCenter.depth, lighting))
+            : hexToCSS(applyFog(0x4466aa, roseCenter.depth, lighting))
+          ctx.beginPath()
+          ctx.arc(roseCenter.sx, roseCenter.sy, rr, 0, Math.PI * 2)
+          ctx.fill()
+          // Tracery (spoke pattern)
+          ctx.strokeStyle = hexToCSS(applyFog(darken(palette.wall, 0.1), roseCenter.depth, lighting))
+          ctx.lineWidth = 0.4
+          for (let ti = 0; ti < 8; ti++) {
+            const ta = (ti / 8) * Math.PI * 2
+            ctx.beginPath()
+            ctx.moveTo(roseCenter.sx, roseCenter.sy)
+            ctx.lineTo(roseCenter.sx + Math.cos(ta) * rr, roseCenter.sy + Math.sin(ta) * rr)
+            ctx.stroke()
+          }
+          // Inner circle
+          ctx.beginPath()
+          ctx.arc(roseCenter.sx, roseCenter.sy, rr * 0.5, 0, Math.PI * 2)
+          ctx.stroke()
+          // Outer rim
+          ctx.lineWidth = 0.6
+          ctx.beginPath()
+          ctx.arc(roseCenter.sx, roseCenter.sy, rr, 0, Math.PI * 2)
+          ctx.stroke()
+        }
+      })
+    }
+    // Cross at top of bell tower steeple
+    const crossBase = project(ox + 0.1 * ts, 7 * ts, oz + 0.1 * ts)
+    if (crossBase) {
+      drawables.push({
+        depth: crossBase.depth - 0.04,
+        draw: (ctx) => {
+          ctx.strokeStyle = hexToCSS(applyFog(darken(palette.wall, 0.2), crossBase.depth, lighting))
+          ctx.lineWidth = 0.8
+          ctx.beginPath(); ctx.moveTo(crossBase.sx, crossBase.sy); ctx.lineTo(crossBase.sx, crossBase.sy - 3); ctx.stroke()
+          ctx.beginPath(); ctx.moveTo(crossBase.sx - 1.5, crossBase.sy - 2); ctx.lineTo(crossBase.sx + 1.5, crossBase.sy - 2); ctx.stroke()
+        }
+      })
+    }
+  }
+
+  if (buildingId === 'gatehouse') {
+    // Archway opening on front face
+    const archLeft = project(ox + 1 * ts, 0, oz)
+    const archRight = project(ox + 2 * ts, 0, oz)
+    const archTop = project(ox + 1.5 * ts, 2.2 * ts, oz)
+    if (archLeft && archRight && archTop && camPos.z < oz + 0.5 * ts) {
+      drawables.push({
+        depth: archLeft.depth - 0.005,
+        draw: (ctx) => {
+          // Dark archway opening
+          ctx.fillStyle = 'rgba(15,12,10,0.7)'
+          drawArch3D(ctx, archLeft, archRight, Math.abs(archTop.sy - archLeft.sy), 'rgba(15,12,10,0.7)', true)
+          // Portcullis grid
+          ctx.strokeStyle = hexToCSS(applyFog(0x4a4a4a, archLeft.depth, lighting))
+          ctx.lineWidth = 0.5
+          const aW = Math.abs(archRight.sx - archLeft.sx)
+          const aH = Math.abs(archTop.sy - archLeft.sy)
+          for (let gi = 1; gi < 4; gi++) {
+            const gx = archLeft.sx + aW * gi / 4
+            ctx.beginPath(); ctx.moveTo(gx, archLeft.sy); ctx.lineTo(gx, archLeft.sy - aH * 0.7); ctx.stroke()
+          }
+          for (let gi = 1; gi < 3; gi++) {
+            const gy = archLeft.sy - aH * gi / 4
+            ctx.beginPath(); ctx.moveTo(archLeft.sx, gy); ctx.lineTo(archRight.sx, gy); ctx.stroke()
+          }
+        }
+      })
+    }
+  }
+
+  if (buildingId === 'bell_tower_tall') {
+    // Open belfry arches (dark openings suggesting depth)
+    const belfryFront = project(ox + 0.3 * ts, 4.8 * ts, oz)
+    const belfryFrontR = project(ox + 1.7 * ts, 4.8 * ts, oz)
+    if (belfryFront && belfryFrontR && camPos.z < oz + ts) {
+      drawables.push({
+        depth: belfryFront.depth - 0.005,
+        draw: (ctx) => {
+          ctx.fillStyle = 'rgba(20,15,10,0.5)'
+          drawArch3D(ctx, belfryFront, belfryFrontR, ts * 0.8, 'rgba(20,15,10,0.5)', true)
+          // Bell silhouette
+          ctx.fillStyle = hexToCSS(applyFog(0x8a7a50, belfryFront.depth, lighting))
+          const bellX = (belfryFront.sx + belfryFrontR.sx) / 2
+          const bellY = (belfryFront.sy + belfryFrontR.sy) / 2 - ts * 0.2
+          ctx.beginPath()
+          ctx.arc(bellX, bellY, ts * 0.2, Math.PI, 0)
+          ctx.lineTo(bellX + ts * 0.25, bellY + ts * 0.15)
+          ctx.lineTo(bellX - ts * 0.25, bellY + ts * 0.15)
+          ctx.closePath(); ctx.fill()
+        }
+      })
+    }
+  }
+
+  if (buildingId === 'aqueduct') {
+    // Arch openings between pillars
+    for (let ai = 0; ai < 2; ai++) {
+      const aLeft = project(ox + (ai * 2 + 0.5) * ts, 0, oz + 0.25 * ts)
+      const aRight = project(ox + (ai * 2 + 2) * ts, 0, oz + 0.25 * ts)
+      if (aLeft && aRight && camPos.z < oz + 0.5 * ts) {
+        drawables.push({
+          depth: aLeft.depth - 0.003,
+          draw: (ctx) => {
+            drawArch3D(ctx, aLeft, aRight, ts * 1.8, 'rgba(20,15,10,0.4)', true)
+          }
+        })
+      }
+    }
+    // Water channel highlight on top
+    const chanLeft = project(ox + 0.1 * ts, 3.1 * ts, oz + 0.15 * ts)
+    const chanRight = project(ox + 4.4 * ts, 3.1 * ts, oz + 0.15 * ts)
+    if (chanLeft && chanRight) {
+      drawables.push({
+        depth: chanLeft.depth - 0.01,
+        draw: (ctx) => {
+          ctx.fillStyle = hexToCSS(applyFog(0x4682b4, chanLeft.depth, lighting))
+          ctx.fillRect(chanLeft.sx, chanLeft.sy - 1, chanRight.sx - chanLeft.sx, 2)
+        }
+      })
+    }
+  }
+}
+
+// ── BLUEPRINT DEFINITIONS ──
+
+const BLUEPRINTS: Record<string, BuildingBlueprint> = {
+  cathedral: [
+    // Main nave
+    { type: 'box', offset: { x: 0, y: 0, z: 0 }, params: { w: 3, h: 3.5, d: 5 }, colorKey: 'wall' },
+    // Side aisles (lower flanking naves)
+    { type: 'box', offset: { x: -1, y: 0, z: 0.5 }, params: { w: 1, h: 2.2, d: 4 }, colorKey: 'wall' },
+    { type: 'box', offset: { x: 3, y: 0, z: 0.5 }, params: { w: 1, h: 2.2, d: 4 }, colorKey: 'wall' },
+    // Apse (rounded back)
+    { type: 'cylinder', offset: { x: 1.5, y: 0, z: 5 }, params: { r: 1.2, h: 3, seg: 8 }, colorKey: 'wall' },
+    // Bell tower (front left)
+    { type: 'box', offset: { x: -0.5, y: 0, z: -0.5 }, params: { w: 1.2, h: 5, d: 1.2 }, colorKey: 'wall' },
+    // Tower steeple
+    { type: 'taper', offset: { x: 0.1, y: 5, z: 0.1 }, params: { rBot: 0.7, rTop: 0.05, h: 2, seg: 6 }, colorKey: 'roof' },
+    // Nave roof (gabled)
+    { type: 'roof',
+      baseOffsets: [
+        { x: 0, y: 3.5, z: 0 }, { x: 3, y: 3.5, z: 0 },
+        { x: 3, y: 3.5, z: 5 }, { x: 0, y: 3.5, z: 5 },
+      ],
+      ridgeOffsets: [
+        { x: 1.5, y: 5.2, z: 0 }, { x: 1.5, y: 5.2, z: 5 },
+      ],
+      colorKey: 'roof'
+    },
+    // Side aisle roofs (lower gabled)
+    { type: 'roof',
+      baseOffsets: [
+        { x: -1, y: 2.2, z: 0.5 }, { x: 0, y: 2.2, z: 0.5 },
+        { x: 0, y: 2.2, z: 4.5 }, { x: -1, y: 2.2, z: 4.5 },
+      ],
+      ridgeOffsets: [
+        { x: -0.5, y: 3, z: 0.5 }, { x: -0.5, y: 3, z: 4.5 },
+      ],
+      colorKey: 'roof'
+    },
+    { type: 'roof',
+      baseOffsets: [
+        { x: 3, y: 2.2, z: 0.5 }, { x: 4, y: 2.2, z: 0.5 },
+        { x: 4, y: 2.2, z: 4.5 }, { x: 3, y: 2.2, z: 4.5 },
+      ],
+      ridgeOffsets: [
+        { x: 3.5, y: 3, z: 0.5 }, { x: 3.5, y: 3, z: 4.5 },
+      ],
+      colorKey: 'roof'
+    },
+    // Flying buttresses (left side) — small prisms connecting aisle to nave
+    { type: 'box', offset: { x: -0.3, y: 1.8, z: 1.2 }, params: { w: 0.3, h: 0.4, d: 0.3 }, colorKey: 'wall' },
+    { type: 'box', offset: { x: -0.3, y: 1.8, z: 2.8 }, params: { w: 0.3, h: 0.4, d: 0.3 }, colorKey: 'wall' },
+    // Flying buttresses (right side)
+    { type: 'box', offset: { x: 3, y: 1.8, z: 1.2 }, params: { w: 0.3, h: 0.4, d: 0.3 }, colorKey: 'wall' },
+    { type: 'box', offset: { x: 3, y: 1.8, z: 2.8 }, params: { w: 0.3, h: 0.4, d: 0.3 }, colorKey: 'wall' },
+  ],
+
+  lighthouse: [
+    // Tapered tower body
+    { type: 'taper', offset: { x: 1.5, y: 0, z: 1.5 }, params: { rBot: 1.3, rTop: 0.8, h: 5, seg: 10 }, colorKey: 'wall' },
+    // Glass lantern room
+    { type: 'cylinder', offset: { x: 1.5, y: 5, z: 1.5 }, params: { r: 0.9, h: 1.2, seg: 10 }, colorKey: 'accent' },
+    // Dome cap
+    { type: 'taper', offset: { x: 1.5, y: 6.2, z: 1.5 }, params: { rBot: 0.9, rTop: 0.1, h: 0.8, seg: 10 }, colorKey: 'roof' },
+    // Base platform
+    { type: 'cylinder', offset: { x: 1.5, y: 0, z: 1.5 }, params: { r: 1.6, h: 0.3, seg: 10 }, colorKey: 'wall' },
+  ],
+
+  round_tower: [
+    // Cylindrical body
+    { type: 'cylinder', offset: { x: 1, y: 0, z: 1 }, params: { r: 1, h: 3.5, seg: 10 }, colorKey: 'wall' },
+    // Conical roof
+    { type: 'taper', offset: { x: 1, y: 3.5, z: 1 }, params: { rBot: 1.1, rTop: 0.05, h: 1.8, seg: 10 }, colorKey: 'roof' },
+  ],
+
+  gatehouse: [
+    // Left tower
+    { type: 'cylinder', offset: { x: 0, y: 0, z: 0.5 }, params: { r: 0.8, h: 3.5, seg: 8 }, colorKey: 'wall' },
+    // Right tower
+    { type: 'cylinder', offset: { x: 3, y: 0, z: 0.5 }, params: { r: 0.8, h: 3.5, seg: 8 }, colorKey: 'wall' },
+    // Connecting wall/passage
+    { type: 'box', offset: { x: 0.5, y: 0, z: 0 }, params: { w: 2, h: 3, d: 1 }, colorKey: 'wall' },
+    // Left tower roof
+    { type: 'taper', offset: { x: 0, y: 3.5, z: 0.5 }, params: { rBot: 0.9, rTop: 0.05, h: 1.3, seg: 8 }, colorKey: 'roof' },
+    // Right tower roof
+    { type: 'taper', offset: { x: 3, y: 3.5, z: 0.5 }, params: { rBot: 0.9, rTop: 0.05, h: 1.3, seg: 8 }, colorKey: 'roof' },
+    // Battlement on connecting wall
+    { type: 'box', offset: { x: 0.5, y: 3, z: 0 }, params: { w: 2, h: 0.4, d: 1 }, colorKey: 'wall' },
+  ],
+
+  stable: [
+    // Main body — wide and low
+    { type: 'box', offset: { x: 0, y: 0, z: 0 }, params: { w: 4, h: 1.5, d: 3 }, colorKey: 'wall' },
+    // Roof (low-pitched gable)
+    { type: 'roof',
+      baseOffsets: [
+        { x: 0, y: 1.5, z: 0 }, { x: 4, y: 1.5, z: 0 },
+        { x: 4, y: 1.5, z: 3 }, { x: 0, y: 1.5, z: 3 },
+      ],
+      ridgeOffsets: [
+        { x: 2, y: 2.2, z: 0 }, { x: 2, y: 2.2, z: 3 },
+      ],
+      colorKey: 'roof'
+    },
+    // Stall dividers (visible from front)
+    { type: 'box', offset: { x: 1.3, y: 0, z: 0.1 }, params: { w: 0.1, h: 1, d: 2 }, colorKey: 'wall' },
+    { type: 'box', offset: { x: 2.6, y: 0, z: 0.1 }, params: { w: 0.1, h: 1, d: 2 }, colorKey: 'wall' },
+  ],
+
+  mill: [
+    // Main building
+    { type: 'box', offset: { x: 0, y: 0, z: 0 }, params: { w: 3, h: 2.5, d: 3 }, colorKey: 'wall' },
+    // Roof
+    { type: 'roof',
+      baseOffsets: [
+        { x: 0, y: 2.5, z: 0 }, { x: 3, y: 2.5, z: 0 },
+        { x: 3, y: 2.5, z: 3 }, { x: 0, y: 2.5, z: 3 },
+      ],
+      ridgeOffsets: [
+        { x: 1.5, y: 3.5, z: 0 }, { x: 1.5, y: 3.5, z: 3 },
+      ],
+      colorKey: 'roof'
+    },
+    // Waterwheel housing (side bump)
+    { type: 'box', offset: { x: -0.5, y: 0, z: 0.5 }, params: { w: 0.5, h: 2, d: 2 }, colorKey: 'wall' },
+  ],
+
+  bell_tower_tall: [
+    // Tall narrow shaft
+    { type: 'box', offset: { x: 0, y: 0, z: 0 }, params: { w: 2, h: 4.5, d: 2 }, colorKey: 'wall' },
+    // Open belfry (slightly wider, shorter)
+    { type: 'box', offset: { x: -0.15, y: 4.5, z: -0.15 }, params: { w: 2.3, h: 1.2, d: 2.3 }, colorKey: 'wall' },
+    // Pointed roof
+    { type: 'roof',
+      baseOffsets: [
+        { x: -0.15, y: 5.7, z: -0.15 }, { x: 2.15, y: 5.7, z: -0.15 },
+        { x: 2.15, y: 5.7, z: 2.15 }, { x: -0.15, y: 5.7, z: 2.15 },
+      ],
+      ridgeOffsets: [
+        { x: 1, y: 7.5, z: 1 },
+      ],
+      colorKey: 'roof'
+    },
+  ],
+
+  aqueduct: [
+    // Series of pillars with arches
+    { type: 'box', offset: { x: 0, y: 0, z: 0 }, params: { w: 0.5, h: 3, d: 0.5 }, colorKey: 'wall' },
+    { type: 'box', offset: { x: 2, y: 0, z: 0 }, params: { w: 0.5, h: 3, d: 0.5 }, colorKey: 'wall' },
+    { type: 'box', offset: { x: 4, y: 0, z: 0 }, params: { w: 0.5, h: 3, d: 0.5 }, colorKey: 'wall' },
+    // Channel on top
+    { type: 'box', offset: { x: 0, y: 2.8, z: 0 }, params: { w: 4.5, h: 0.4, d: 0.5 }, colorKey: 'wall' },
+    // Arch keystones (decorative boxes bridging pillars)
+    { type: 'box', offset: { x: 0.5, y: 2.2, z: 0.05 }, params: { w: 1.5, h: 0.3, d: 0.4 }, colorKey: 'wall' },
+    { type: 'box', offset: { x: 2.5, y: 2.2, z: 0.05 }, params: { w: 1.5, h: 0.3, d: 0.4 }, colorKey: 'wall' },
+  ],
+}
+
+// ── BLUEPRINT BUILDING HEIGHTS (for shadow casting etc.) ──
+const BLUEPRINT_HEIGHTS: Record<string, number> = {
+  cathedral: 5.2, lighthouse: 7, round_tower: 5.3, gatehouse: 4.8,
+  stable: 2.2, mill: 3.5, bell_tower_tall: 7.5, aqueduct: 3.2,
+}
+
+// ══════════════════════════════════════════════════════════════════
 
 // ── View matrix (camera look-at) ──
 

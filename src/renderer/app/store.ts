@@ -715,6 +715,78 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
   },
+  {
+    id: 'cathedral',
+    name: 'Cathedral',
+    category: 'building',
+    tags: ['structure', 'landmark', 'religious'],
+    color: '#C8B898',
+    footprint: { w: 5, h: 6 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'lighthouse',
+    name: 'Lighthouse',
+    category: 'building',
+    tags: ['structure', 'landmark', 'harbor'],
+    color: '#E8E0D0',
+    footprint: { w: 3, h: 3 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'round_tower',
+    name: 'Round Tower',
+    category: 'building',
+    tags: ['structure', 'fortification'],
+    color: '#8A8A80',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'gatehouse',
+    name: 'Gatehouse',
+    category: 'building',
+    tags: ['structure', 'fortification', 'landmark'],
+    color: '#8A8A80',
+    footprint: { w: 4, h: 2 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'stable',
+    name: 'Stable',
+    category: 'building',
+    tags: ['structure', 'functional'],
+    color: '#8A7050',
+    footprint: { w: 4, h: 3 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'mill',
+    name: 'Mill',
+    category: 'building',
+    tags: ['structure', 'functional', 'waterfront'],
+    color: '#A09070',
+    footprint: { w: 3, h: 3 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'bell_tower_tall',
+    name: 'Bell Tower',
+    category: 'building',
+    tags: ['structure', 'landmark', 'religious'],
+    color: '#C8B898',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'aqueduct',
+    name: 'Aqueduct',
+    category: 'infrastructure',
+    tags: ['structure', 'landmark'],
+    color: '#8A8A80',
+    footprint: { w: 5, h: 1 },
+    styleSetSlots: ['wall']
+  },
 ]
 
 // === STORE ===
