@@ -102,15 +102,15 @@ interface Lighting {
 
 // Building heights by definition ID (in tile units)
 const BUILDING_HEIGHTS: Record<string, number> = {
-  building_small: 1.6, building_medium: 2.2, building_large: 2.8,
-  tavern: 2.0, shop: 1.8, tower: 3.5, clock_tower: 4.5,
-  balcony_house: 2.4, row_house: 2.0, corner_building: 2.2,
-  archway: 2.5, staircase: 1.0, town_gate: 3.0,
-  chapel: 3.2, guild_hall: 2.8, warehouse: 2.2,
-  watchtower: 4.0, mansion: 2.6, bakery: 1.8,
-  apothecary: 2.6, inn: 2.4, temple: 3.5,
-  covered_market: 2.0, bell_tower: 5.0, half_timber: 2.2,
-  narrow_house: 2.8,
+  building_small: 2.2, building_medium: 3.0, building_large: 3.8,
+  tavern: 2.8, shop: 2.5, tower: 5.0, clock_tower: 6.5,
+  balcony_house: 3.2, row_house: 2.8, corner_building: 3.0,
+  archway: 3.2, staircase: 1.2, town_gate: 4.5,
+  chapel: 4.5, guild_hall: 4.0, warehouse: 3.0,
+  watchtower: 5.5, mansion: 3.5, bakery: 2.5,
+  apothecary: 3.5, inn: 3.2, temple: 5.0,
+  covered_market: 2.8, bell_tower: 7.0, half_timber: 3.0,
+  narrow_house: 3.8, windmill: 3.5,
   windmill: 3.5,
 }
 
@@ -1256,6 +1256,14 @@ function addBuildingDrawables(
 
 // ── Prop drawing ──
 
+const PROP_HEIGHTS: Record<string, number> = {
+  tree: 1.4, fountain: 1.5, market_stall: 1.0,
+  well: 0.8, bench: 0.4, barrel: 0.5,
+  crate: 0.5, sign_post: 1.0, lamp_post: 1.3,
+  grave: 0.5, statue: 1.8, flower_bed: 0.3,
+  hay_bale: 0.6, wagon: 0.8, road_marker: 0.4,
+}
+
 function addPropDrawables(
   drawables: Drawable[], obj: PlacedObject, def: ObjectDefinition,
   ts: number,
@@ -1266,8 +1274,9 @@ function addPropDrawables(
   const cz = (obj.y + def.footprint.h / 2) * ts
   const colors = PROP_COLORS[def.id] || { body: parseInt(def.color.replace('#', ''), 16) || 0x808080 }
 
+  const propH = (PROP_HEIGHTS[def.id] ?? 0.6) * ts
   const base = project(cx, 0, cz)
-  const top = project(cx, ts * 0.6, cz)
+  const top = project(cx, propH, cz)
   if (!base || !top) return
 
   const bodyColor = shadeFace(colors.body, 0, 1, 0, lighting)
@@ -1411,7 +1420,7 @@ function addPropDrawables(
       }
     })
   } else if (def.id === 'fountain' || def.id === 'fountain_grand' || def.id === 'well' || def.id === 'well_grand') {
-    const topH = project(cx, ts * 0.5, cz)
+    const topH = project(cx, propH, cz)
     if (!topH) return
     const rBase = Math.max(4, def.footprint.w * 5)
     const accentColor = colors.accent ? applyFog(shadeFace(colors.accent, 0, 1, 0, lighting), base.depth, lighting) : foggedBody
@@ -2204,9 +2213,9 @@ function drawStoneTexture(
   baseColor: number, hash: number
 ): void {
   if (faceW < 6 || faceH < 6) return
-  const mortarColor = `rgba(0,0,0,0.07)`
+  const mortarColor = `rgba(0,0,0,0.15)`
   ctx.strokeStyle = mortarColor
-  ctx.lineWidth = 0.3
+  ctx.lineWidth = 0.7
   // Horizontal mortar lines
   const rows = Math.max(2, Math.floor(faceH / 4))
   for (let r = 1; r < rows; r++) {
@@ -2243,8 +2252,8 @@ function drawWoodTexture(
   baseColor: number, hash: number
 ): void {
   if (faceW < 5 || faceH < 5) return
-  ctx.strokeStyle = `rgba(0,0,0,0.05)`
-  ctx.lineWidth = 0.2
+  ctx.strokeStyle = `rgba(0,0,0,0.12)`
+  ctx.lineWidth = 0.5
   // Horizontal plank lines
   const planks = Math.max(3, Math.floor(faceH / 3))
   for (let p = 1; p < planks; p++) {
@@ -2256,7 +2265,7 @@ function drawWoodTexture(
     ctx.stroke()
   }
   // Knot dots (sparse)
-  ctx.fillStyle = `rgba(0,0,0,0.06)`
+  ctx.fillStyle = `rgba(0,0,0,0.14)`
   for (let k = 0; k < 2; k++) {
     const kx = fp[0].sx + faceW * (0.2 + ((hash + k * 7) % 10) / 15)
     const ky = fp[0].sy + (fp[3].sy - fp[0].sy) * (0.3 + ((hash + k * 3) % 5) / 10)
@@ -2278,8 +2287,8 @@ function drawPlasterTexture(
   for (let d = 0; d < dots; d++) {
     const dx = fp[0].sx + faceW * ((hash * 3 + d * 17) % 100) / 100
     const dy = fp[0].sy + (fp[3].sy - fp[0].sy) * ((hash * 7 + d * 13) % 100) / 100
-    ctx.fillStyle = d % 2 === 0 ? `rgba(255,255,255,0.04)` : `rgba(0,0,0,0.03)`
-    ctx.fillRect(dx, dy, 1, 1)
+    ctx.fillStyle = d % 2 === 0 ? `rgba(255,255,255,0.10)` : `rgba(0,0,0,0.08)`
+    ctx.fillRect(dx, dy, 1.5, 1.5)
   }
 }
 
@@ -2290,8 +2299,8 @@ function drawBrickTexture(
   baseColor: number, hash: number
 ): void {
   if (faceW < 5 || faceH < 5) return
-  ctx.strokeStyle = `rgba(0,0,0,0.08)`
-  ctx.lineWidth = 0.25
+  ctx.strokeStyle = `rgba(0,0,0,0.15)`
+  ctx.lineWidth = 0.6
   // Horizontal mortar
   const courses = Math.max(3, Math.floor(faceH / 2.5))
   for (let r = 1; r < courses; r++) {
@@ -3183,8 +3192,8 @@ const BLUEPRINTS: Record<string, BuildingBlueprint> = {
 
 // ── BLUEPRINT BUILDING HEIGHTS (for shadow casting etc.) ──
 const BLUEPRINT_HEIGHTS: Record<string, number> = {
-  cathedral: 5.2, lighthouse: 7, round_tower: 5.3, gatehouse: 4.8,
-  stable: 2.2, mill: 3.5, bell_tower_tall: 7.5, aqueduct: 3.2,
+  cathedral: 7.5, lighthouse: 9, round_tower: 7, gatehouse: 6.5,
+  stable: 3.0, mill: 5.0, bell_tower_tall: 10, aqueduct: 4.5,
 }
 
 // ══════════════════════════════════════════════════════════════════

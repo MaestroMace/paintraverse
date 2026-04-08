@@ -39,7 +39,7 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'narrow_house', w: 1, h: 3, weight: 3 },
     { id: 'bakery', w: 2, h: 2, weight: 2 },
     { id: 'building_large', w: 4, h: 3, weight: 1 },
-    { id: 'stable', w: 4, h: 3, weight: 2 },
+    { id: 'stable', w: 4, h: 3, weight: 4 },
   ],
   artisan: [
     { id: 'shop', w: 2, h: 3, weight: 5 },
@@ -70,7 +70,7 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'tavern', w: 4, h: 3, weight: 2 },
     { id: 'inn', w: 3, h: 3, weight: 2 },
     { id: 'half_timber', w: 3, h: 2, weight: 1 },
-    { id: 'mill', w: 3, h: 3, weight: 3 },
+    { id: 'mill', w: 3, h: 3, weight: 6 },
   ],
   temple: [
     { id: 'chapel', w: 3, h: 4, weight: 5 },
@@ -80,8 +80,8 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'temple', w: 5, h: 5, weight: 2 },
     { id: 'archway', w: 3, h: 1, weight: 2 },
     { id: 'staircase', w: 2, h: 3, weight: 2 },
-    { id: 'cathedral', w: 5, h: 6, weight: 3 },
-    { id: 'bell_tower_tall', w: 2, h: 2, weight: 4 },
+    { id: 'cathedral', w: 5, h: 6, weight: 6 },
+    { id: 'bell_tower_tall', w: 2, h: 2, weight: 7 },
   ],
   slum: [
     { id: 'row_house', w: 1, h: 2, weight: 8 },
@@ -105,8 +105,8 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'row_house', w: 1, h: 2, weight: 3 },
     { id: 'inn', w: 3, h: 3, weight: 2 },
     { id: 'building_small', w: 2, h: 2, weight: 2 },
-    { id: 'lighthouse', w: 3, h: 3, weight: 2 },
-    { id: 'mill', w: 3, h: 3, weight: 3 },
+    { id: 'lighthouse', w: 3, h: 3, weight: 4 },
+    { id: 'mill', w: 3, h: 3, weight: 5 },
   ],
   fortress: [
     { id: 'watchtower', w: 2, h: 2, weight: 6 },
@@ -114,8 +114,8 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'town_gate', w: 3, h: 1, weight: 3 },
     { id: 'warehouse', w: 4, h: 3, weight: 2 },
     { id: 'building_small', w: 2, h: 2, weight: 2 },
-    { id: 'round_tower', w: 2, h: 2, weight: 6 },
-    { id: 'gatehouse', w: 4, h: 2, weight: 3 },
+    { id: 'round_tower', w: 2, h: 2, weight: 10 },
+    { id: 'gatehouse', w: 4, h: 2, weight: 5 },
   ],
   cemetery: [
     { id: 'chapel', w: 3, h: 4, weight: 5 },
@@ -1116,8 +1116,8 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    // Cathedral as a major landmark in temple districts (only for larger towns)
-    if (buildings.length > 15) {
+    // Cathedral as a major landmark in temple districts
+    if (buildings.length > 8) {
       for (const d of districts) {
         if (d.type !== 'temple') continue
         const spot = this.findFreeSpot(occupied, d.center.x, d.center.y, 5, 6, w, h, 10)
