@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAppStore } from '../../app/store'
 import { renderPixelArt } from '../../renderer3d/RenderPipeline'
 import { PALETTES } from '../../renderer3d/PaletteQuantizer'
@@ -17,7 +17,13 @@ export function RenderPanel() {
   const [previewURL, setPreviewURL] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [playing, setPlaying] = useState(false)
+  const [fps, setFps] = useState(0)
   const previewRef = useRef<HTMLDivElement>(null)
+  const animFrameRef = useRef<number>(0)
+  const timeRef = useRef(0)
+  const fpsCountRef = useRef(0)
+  const fpsTimerRef = useRef(0)
 
   const map = useAppStore((s) => s.map)
   const objectDefs = useAppStore((s) => s.objectDefinitions)
@@ -35,13 +41,15 @@ export function RenderPanel() {
     setRendering(true)
     setError(null)
     setPreviewURL(null)
+    setPlaying(false)
     requestAnimationFrame(() => {
       try {
         const result = renderPixelArt(map, camera, objectDefs, {
           paletteId: camera.paletteId,
           dithering: renderOpts.dithering,
-          outlines: renderOpts.outlines
-        }, buildingPalettes)
+          outlines: renderOpts.outlines,
+          quality: 'final'
+        }, buildingPalettes, timeRef.current)
         setPreviewURL(result.imageDataURL)
       } catch (e) {
         setError(String(e))
@@ -50,6 +58,44 @@ export function RenderPanel() {
       }
     })
   }
+
+  // Animation loop — renders continuously in preview quality
+  const renderFrame = useCallback((ts: number) => {
+    const dt = fpsTimerRef.current ? (ts - fpsTimerRef.current) / 1000 : 0
+    fpsTimerRef.current = ts
+    timeRef.current += dt
+    fpsCountRef.current++
+
+    // Update FPS display every second
+    if (fpsCountRef.current % 15 === 0) {
+      setFps(dt > 0 ? Math.round(1 / dt) : 0)
+    }
+
+    try {
+      const result = renderPixelArt(
+        useAppStore.getState().map,
+        useAppStore.getState().renderCamera,
+        useAppStore.getState().objectDefinitions,
+        { paletteId: useAppStore.getState().renderCamera.paletteId, quality: 'preview' },
+        useAppStore.getState().buildingPalettes,
+        timeRef.current
+      )
+      setPreviewURL(result.imageDataURL)
+    } catch (_) { /* skip frame on error */ }
+
+    animFrameRef.current = requestAnimationFrame(renderFrame)
+  }, [])
+
+  useEffect(() => {
+    if (!playing) {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
+      return
+    }
+    fpsTimerRef.current = 0
+    fpsCountRef.current = 0
+    animFrameRef.current = requestAnimationFrame(renderFrame)
+    return () => { cancelAnimationFrame(animFrameRef.current) }
+  }, [playing, renderFrame])
 
   const handleExport = () => {
     if (!previewURL) return
@@ -168,15 +214,34 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
       </div>
       {!collapsed && (
         <div className="panel-content">
-          {/* Render button - always at top, full width, prominent */}
-          <button
-            onClick={handleRender}
-            className="active"
-            style={{ width: '100%', padding: '7px 6px', fontSize: 12, fontWeight: 700, marginBottom: 6 }}
-            disabled={rendering}
-          >
-            {rendering ? 'Rendering...' : 'Render'}
-          </button>
+          {/* Render + Play buttons */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+            <button
+              onClick={handleRender}
+              className="active"
+              style={{ flex: 2, padding: '7px 6px', fontSize: 12, fontWeight: 700 }}
+              disabled={rendering || playing}
+            >
+              {rendering ? 'Rendering...' : 'Render'}
+            </button>
+            <button
+              onClick={() => setPlaying(!playing)}
+              style={{
+                flex: 1, padding: '7px 6px', fontSize: 12, fontWeight: 700,
+                background: playing ? '#d95763' : undefined,
+                color: playing ? 'white' : undefined,
+                borderColor: playing ? '#d95763' : undefined
+              }}
+              disabled={rendering}
+            >
+              {playing ? 'Stop' : 'Play'}
+            </button>
+            {playing && fps > 0 && (
+              <span style={{ fontSize: 10, color: 'var(--text-dim)', alignSelf: 'center', minWidth: 30 }}>
+                {fps}fps
+              </span>
+            )}
+          </div>
 
           {error && (
             <div style={{ color: '#d95763', fontSize: 11, marginBottom: 4, wordBreak: 'break-word' }}>{error}</div>

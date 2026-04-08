@@ -72,6 +72,56 @@ export function registerPalette(id: string, palette: Palette): void {
   PALETTES[id] = palette
 }
 
+// ── Quantization LUT (Look-Up Table) ──
+// Pre-computes nearest palette color for every possible RGB bin.
+// Reduces per-pixel quantization from ~32 comparisons to 1 array lookup.
+// 32×32×32 RGB cube = 32,768 entries × 3 bytes = ~98KB per palette.
+
+const lutCache = new Map<string, Uint8Array>()
+
+function buildLUT(palette: Palette): Uint8Array {
+  const key = palette.name + '_' + palette.colors.length
+  const cached = lutCache.get(key)
+  if (cached) return cached
+
+  const size = 32 * 32 * 32
+  const lut = new Uint8Array(size * 3)
+
+  for (let ri = 0; ri < 32; ri++) {
+    const r = (ri << 3) | 4 // center of bin
+    for (let gi = 0; gi < 32; gi++) {
+      const g = (gi << 3) | 4
+      for (let bi = 0; bi < 32; bi++) {
+        const b = (bi << 3) | 4
+        const idx = ((ri << 10) | (gi << 5) | bi) * 3
+
+        let bestDist = Infinity
+        let bestR = 0, bestG = 0, bestB = 0
+        for (const [pr, pg, pb] of palette.colors) {
+          const dr = r - pr, dg = g - pg, db = b - pb
+          const dist = 2 * dr * dr + 4 * dg * dg + 3 * db * db
+          if (dist < bestDist) {
+            bestDist = dist
+            bestR = pr; bestG = pg; bestB = pb
+          }
+        }
+        lut[idx] = bestR
+        lut[idx + 1] = bestG
+        lut[idx + 2] = bestB
+      }
+    }
+  }
+
+  lutCache.set(key, lut)
+  return lut
+}
+
+/** Fast LUT-based nearest color lookup. */
+function lutLookup(lut: Uint8Array, r: number, g: number, b: number): [number, number, number] {
+  const idx = (((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3)) * 3
+  return [lut[idx], lut[idx + 1], lut[idx + 2]]
+}
+
 // Quantize an ImageData to the nearest palette colors
 export function quantizeImageData(
   imageData: ImageData,
@@ -80,44 +130,24 @@ export function quantizeImageData(
 ): ImageData {
   const { width, height, data } = imageData
   const output = new ImageData(new Uint8ClampedArray(data), width, height)
+  const lut = buildLUT(palette)
 
   if (dithering === 'floyd-steinberg') {
-    floydSteinbergDither(output, palette)
+    floydSteinbergDither(output, lut)
   } else if (dithering === 'ordered') {
-    orderedDither(output, palette)
+    orderedDither(output, lut)
   } else {
-    // Simple nearest-color quantization
-    for (let i = 0; i < data.length; i += 4) {
-      const [r, g, b] = findNearestColor(data[i], data[i + 1], data[i + 2], palette)
-      output.data[i] = r
-      output.data[i + 1] = g
-      output.data[i + 2] = b
-      // Alpha stays the same
+    // Simple nearest-color quantization via LUT
+    const od = output.data
+    for (let i = 0; i < od.length; i += 4) {
+      const idx = (((od[i] >> 3) << 10) | ((od[i + 1] >> 3) << 5) | (od[i + 2] >> 3)) * 3
+      od[i] = lut[idx]
+      od[i + 1] = lut[idx + 1]
+      od[i + 2] = lut[idx + 2]
     }
   }
 
   return output
-}
-
-function findNearestColor(
-  r: number, g: number, b: number, palette: Palette
-): [number, number, number] {
-  let bestDist = Infinity
-  let best: [number, number, number] = [0, 0, 0]
-
-  for (const [pr, pg, pb] of palette.colors) {
-    // Weighted Euclidean distance (perceptually weighted)
-    const dr = r - pr
-    const dg = g - pg
-    const db = b - pb
-    const dist = 2 * dr * dr + 4 * dg * dg + 3 * db * db
-    if (dist < bestDist) {
-      bestDist = dist
-      best = [pr, pg, pb]
-    }
-  }
-
-  return best
 }
 
 // Bayer matrix 4x4 for ordered dithering
@@ -128,7 +158,7 @@ const BAYER_4x4 = [
   [15, 7, 13, 5]
 ].map((row) => row.map((v) => (v / 16 - 0.5) * 16))
 
-function orderedDither(imageData: ImageData, palette: Palette): void {
+function orderedDither(imageData: ImageData, lut: Uint8Array): void {
   const { width, data } = imageData
   for (let i = 0; i < data.length; i += 4) {
     const px = (i / 4) % width
@@ -139,14 +169,14 @@ function orderedDither(imageData: ImageData, palette: Palette): void {
     const g = Math.max(0, Math.min(255, data[i + 1] + threshold))
     const b = Math.max(0, Math.min(255, data[i + 2] + threshold))
 
-    const [nr, ng, nb] = findNearestColor(r, g, b, palette)
-    data[i] = nr
-    data[i + 1] = ng
-    data[i + 2] = nb
+    const idx = (((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3)) * 3
+    data[i] = lut[idx]
+    data[i + 1] = lut[idx + 1]
+    data[i + 2] = lut[idx + 2]
   }
 }
 
-function floydSteinbergDither(imageData: ImageData, palette: Palette): void {
+function floydSteinbergDither(imageData: ImageData, lut: Uint8Array): void {
   const { width, height, data } = imageData
   const errors = new Float32Array(data.length)
   for (let i = 0; i < data.length; i++) errors[i] = data[i]
@@ -154,11 +184,12 @@ function floydSteinbergDither(imageData: ImageData, palette: Palette): void {
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4
-      const r = Math.max(0, Math.min(255, errors[i]))
-      const g = Math.max(0, Math.min(255, errors[i + 1]))
-      const b = Math.max(0, Math.min(255, errors[i + 2]))
+      const r = Math.max(0, Math.min(255, Math.round(errors[i])))
+      const g = Math.max(0, Math.min(255, Math.round(errors[i + 1])))
+      const b = Math.max(0, Math.min(255, Math.round(errors[i + 2])))
 
-      const [nr, ng, nb] = findNearestColor(r, g, b, palette)
+      const idx = (((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3)) * 3
+      const nr = lut[idx], ng = lut[idx + 1], nb = lut[idx + 2]
       data[i] = nr
       data[i + 1] = ng
       data[i + 2] = nb

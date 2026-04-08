@@ -254,6 +254,11 @@ export function renderCanvas2D(
   const palettes = buildingPalettes || DEFAULT_BUILDING_PALETTES
   const defMap = new Map(objectDefs.map(d => [d.id, d]))
 
+  // ── Frustum cull helper ──
+  const margin = 30 // pixel margin beyond screen edge
+  const inScreen = (p: Projected): boolean =>
+    p.sx >= -margin && p.sx <= W + margin && p.sy >= -margin && p.sy <= H + margin
+
   // ── Terrain tiles ──
   const terrainLayer = map.layers.find(l => l.type === 'terrain')
   if (terrainLayer?.terrainTiles) {
@@ -270,6 +275,9 @@ export function renderCanvas2D(
           project(x0, 0, z0 + ts),
         ]
         if (corners.some(c => c === null)) continue
+        // Frustum cull: skip tiles entirely off-screen
+        const validCorners2 = corners as Projected[]
+        if (!validCorners2.some(c => inScreen(c))) continue
         const validCorners = corners as Projected[]
         const avgDepth = validCorners.reduce((s, c) => s + c.depth, 0) / 4
         const litColor = shadeFace(baseColor, 0, 1, 0, lighting)
@@ -317,22 +325,30 @@ export function renderCanvas2D(
     }
   }
 
-  // ── Buildings (structures) ──
+  // ── Buildings (structures) — with frustum culling ──
   const structureLayer = map.layers.find(l => l.type === 'structure')
   if (structureLayer) {
     for (const obj of structureLayer.objects) {
       const def = defMap.get(obj.definitionId)
       if (!def) continue
+      // Quick frustum cull: project building center, skip if far off-screen
+      const bcx = (obj.x + def.footprint.w / 2) * ts
+      const bcz = (obj.y + def.footprint.h / 2) * ts
+      const bc = project(bcx, ts, bcz)
+      if (bc && !inScreen(bc)) continue
       addBuildingDrawables(drawables, obj, def, ts, palettes, camPos, project, lighting, time)
     }
   }
 
-  // ── Props ──
+  // ── Props — with frustum culling ──
   const propLayer = map.layers.find(l => l.type === 'prop')
   if (propLayer) {
     for (const obj of propLayer.objects) {
       const def = defMap.get(obj.definitionId)
       if (!def) continue
+      // Quick frustum cull
+      const pc = project((obj.x + 0.5) * ts, 0, (obj.y + 0.5) * ts)
+      if (pc && !inScreen(pc)) continue
       addPropDrawables(drawables, obj, def, ts, project, lighting, time)
     }
   }
@@ -474,6 +490,9 @@ function addBuildingDrawables(
 
   const centerX = x0 + fw / 2, centerZ = z0 + fd / 2
   const avgDepth = p.reduce((s, v) => s + v.depth, 0) / 8
+  // LOD: skip fine details when building is small on screen
+  const screenH = Math.abs(p[0].sy - p[4].sy)
+  const isDistant = screenH < 8
   const showFront = camPos.z < centerZ
   const showRight = camPos.x > centerX
   const showLeft = camPos.x < centerX
@@ -739,7 +758,7 @@ function addBuildingDrawables(
     }
   }
 
-  // ── WINDMILL BLADES ──
+  // ── WINDMILL BLADES ── (always draw — silhouette element)
   if (def.id === 'windmill' && ridgeCenter) {
     drawables.push({
       depth: avgDepth - 0.035,
@@ -773,8 +792,8 @@ function addBuildingDrawables(
     })
   }
 
-  // ── DORMERS (small windowed projections on roof) ──
-  if (HAS_DORMER.has(def.id) && (roofStyle === 'gabled' || roofStyle === 'hipped' || roofStyle === 'steep') && ridgeFront) {
+  // ── DORMERS (small windowed projections on roof) ── (LOD skip when distant)
+  if (!isDistant && HAS_DORMER.has(def.id) && (roofStyle === 'gabled' || roofStyle === 'hipped' || roofStyle === 'steep') && ridgeFront) {
     const numDormers = 1 + hash % 2
     for (let di = 0; di < numDormers; di++) {
       const dt = (di + 1) / (numDormers + 1) // spread evenly
@@ -808,8 +827,8 @@ function addBuildingDrawables(
     }
   }
 
-  // ── TURRET (round corner tower) ──
-  if (HAS_TURRET.has(def.id)) {
+  // ── TURRET (round corner tower) ── (LOD skip when distant)
+  if (!isDistant && HAS_TURRET.has(def.id)) {
     const turX = hash % 2 === 0 ? x0 : x0 + fw
     const turZ = z0
     const turBase = project(turX, 0, turZ)
@@ -843,8 +862,8 @@ function addBuildingDrawables(
     }
   }
 
-  // ── BIRDS ON ROOFTOPS ──
-  if (hash % 7 === 0 && ridgeCenter) { // ~15% of buildings
+  // ── BIRDS ON ROOFTOPS ── (LOD skip when distant)
+  if (!isDistant && hash % 7 === 0 && ridgeCenter) { // ~15% of buildings
     const numBirds = 1 + hash % 2
     for (let bi = 0; bi < numBirds; bi++) {
       const birdX = ridgeCenter.sx + (bi * 6 - 3) + Math.sin(time * 0.5 + hash + bi) * 0.5
@@ -894,6 +913,15 @@ function addBuildingDrawables(
         // Shadow pool at building base
         ctx.fillStyle = 'rgba(0,0,0,0.08)'
         ctx.fillRect(Math.min(fp[0].sx, fp[1].sx), fp[0].sy - 1, faceW, 2)
+
+        // Surface texture (LOD: only when close enough to see)
+        if (!isDistant && faceW > 5 && faceH > 5) {
+          const material = BUILDING_MATERIAL[def.id] || (hash % 3 === 0 ? 'stone' : hash % 3 === 1 ? 'brick' : 'plaster')
+          if (material === 'stone') drawStoneTexture(ctx, fp, faceW, faceH, wallFogged, hash)
+          else if (material === 'wood') drawWoodTexture(ctx, fp, faceW, faceH, wallFogged, hash)
+          else if (material === 'brick') drawBrickTexture(ctx, fp, faceW, faceH, wallFogged, hash)
+          else if (material === 'plaster') drawPlasterTexture(ctx, fp, faceW, faceH, wallFogged, hash)
+        }
 
         // Roof eave overhang shadow (darkened strip at top of wall)
         if (roofStyle !== 'none' && roofStyle !== 'flat' && faceH > 6) {
@@ -2146,6 +2174,150 @@ function addPropDrawables(
         ctx.strokeRect(base.sx - hw / 2, base.sy - hh, hw, hh)
       }
     })
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ══ PROCEDURAL SURFACE TEXTURES ═════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+
+type WallMaterial = 'stone' | 'wood' | 'plaster' | 'brick' | 'plain'
+
+const BUILDING_MATERIAL: Record<string, WallMaterial> = {
+  chapel: 'stone', cathedral: 'stone', guild_hall: 'stone',
+  tower: 'stone', watchtower: 'stone', town_gate: 'stone',
+  round_tower: 'stone', gatehouse: 'stone', aqueduct: 'stone',
+  building_large: 'stone', mansion: 'stone', bell_tower: 'stone',
+  bell_tower_tall: 'stone',
+  tavern: 'wood', half_timber: 'wood', stable: 'wood', mill: 'wood',
+  windmill: 'plaster',
+  building_small: 'plaster', building_medium: 'plaster',
+  inn: 'plaster', apothecary: 'plaster', narrow_house: 'plaster',
+  row_house: 'brick', warehouse: 'brick', bakery: 'brick',
+  corner_building: 'brick', covered_market: 'brick',
+}
+
+/** Stone block pattern — irregular grid of mortar lines with slight offset. */
+function drawStoneTexture(
+  ctx: CanvasRenderingContext2D,
+  fp: Projected[], faceW: number, faceH: number,
+  baseColor: number, hash: number
+): void {
+  if (faceW < 6 || faceH < 6) return
+  const mortarColor = `rgba(0,0,0,0.07)`
+  ctx.strokeStyle = mortarColor
+  ctx.lineWidth = 0.3
+  // Horizontal mortar lines
+  const rows = Math.max(2, Math.floor(faceH / 4))
+  for (let r = 1; r < rows; r++) {
+    const u = r / rows
+    const ly = fp[0].sy + (fp[3].sy - fp[0].sy) * u
+    ctx.beginPath()
+    ctx.moveTo(fp[0].sx, ly)
+    ctx.lineTo(fp[1].sx, ly)
+    ctx.stroke()
+  }
+  // Vertical mortar lines (staggered per row — running bond)
+  const cols = Math.max(2, Math.floor(faceW / 5))
+  for (let r = 0; r < rows; r++) {
+    const u1 = r / rows, u2 = (r + 1) / rows
+    const y1 = fp[0].sy + (fp[3].sy - fp[0].sy) * u1
+    const y2 = fp[0].sy + (fp[3].sy - fp[0].sy) * u2
+    const offset = (r % 2 === 0) ? 0 : 0.5 / cols
+    for (let c = 1; c < cols; c++) {
+      const t = c / cols + offset
+      if (t >= 1) continue
+      const vx = fp[0].sx + (fp[1].sx - fp[0].sx) * t
+      ctx.beginPath()
+      ctx.moveTo(vx, y1)
+      ctx.lineTo(vx, y2)
+      ctx.stroke()
+    }
+  }
+}
+
+/** Wood plank pattern — horizontal lines with knot dots. */
+function drawWoodTexture(
+  ctx: CanvasRenderingContext2D,
+  fp: Projected[], faceW: number, faceH: number,
+  baseColor: number, hash: number
+): void {
+  if (faceW < 5 || faceH < 5) return
+  ctx.strokeStyle = `rgba(0,0,0,0.05)`
+  ctx.lineWidth = 0.2
+  // Horizontal plank lines
+  const planks = Math.max(3, Math.floor(faceH / 3))
+  for (let p = 1; p < planks; p++) {
+    const u = p / planks
+    const ly = fp[0].sy + (fp[3].sy - fp[0].sy) * u
+    ctx.beginPath()
+    ctx.moveTo(fp[0].sx, ly)
+    ctx.lineTo(fp[1].sx, ly)
+    ctx.stroke()
+  }
+  // Knot dots (sparse)
+  ctx.fillStyle = `rgba(0,0,0,0.06)`
+  for (let k = 0; k < 2; k++) {
+    const kx = fp[0].sx + faceW * (0.2 + ((hash + k * 7) % 10) / 15)
+    const ky = fp[0].sy + (fp[3].sy - fp[0].sy) * (0.3 + ((hash + k * 3) % 5) / 10)
+    ctx.beginPath()
+    ctx.arc(kx, ky, 0.8, 0, Math.PI * 2)
+    ctx.fill()
+  }
+}
+
+/** Plaster/stucco texture — subtle noise dots. */
+function drawPlasterTexture(
+  ctx: CanvasRenderingContext2D,
+  fp: Projected[], faceW: number, faceH: number,
+  baseColor: number, hash: number
+): void {
+  if (faceW < 6 || faceH < 6) return
+  // Scattered subtle dots
+  const dots = Math.min(8, Math.floor(faceW * faceH / 20))
+  for (let d = 0; d < dots; d++) {
+    const dx = fp[0].sx + faceW * ((hash * 3 + d * 17) % 100) / 100
+    const dy = fp[0].sy + (fp[3].sy - fp[0].sy) * ((hash * 7 + d * 13) % 100) / 100
+    ctx.fillStyle = d % 2 === 0 ? `rgba(255,255,255,0.04)` : `rgba(0,0,0,0.03)`
+    ctx.fillRect(dx, dy, 1, 1)
+  }
+}
+
+/** Brick running bond pattern. */
+function drawBrickTexture(
+  ctx: CanvasRenderingContext2D,
+  fp: Projected[], faceW: number, faceH: number,
+  baseColor: number, hash: number
+): void {
+  if (faceW < 5 || faceH < 5) return
+  ctx.strokeStyle = `rgba(0,0,0,0.08)`
+  ctx.lineWidth = 0.25
+  // Horizontal mortar
+  const courses = Math.max(3, Math.floor(faceH / 2.5))
+  for (let r = 1; r < courses; r++) {
+    const u = r / courses
+    const ly = fp[0].sy + (fp[3].sy - fp[0].sy) * u
+    ctx.beginPath()
+    ctx.moveTo(fp[0].sx, ly)
+    ctx.lineTo(fp[1].sx, ly)
+    ctx.stroke()
+  }
+  // Vertical mortar — running bond (stagger by half each row)
+  const bricksPerRow = Math.max(3, Math.floor(faceW / 3))
+  for (let r = 0; r < courses; r++) {
+    const u1 = r / courses, u2 = (r + 1) / courses
+    const y1 = fp[0].sy + (fp[3].sy - fp[0].sy) * u1
+    const y2 = fp[0].sy + (fp[3].sy - fp[0].sy) * u2
+    const offset = r % 2 === 0 ? 0 : 0.5 / bricksPerRow
+    for (let c = 1; c < bricksPerRow; c++) {
+      const t = c / bricksPerRow + offset
+      if (t >= 1) continue
+      const vx = fp[0].sx + (fp[1].sx - fp[0].sx) * t
+      ctx.beginPath()
+      ctx.moveTo(vx, y1)
+      ctx.lineTo(vx, y2)
+      ctx.stroke()
+    }
   }
 }
 

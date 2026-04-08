@@ -8,6 +8,7 @@ export interface RenderOptions {
   dithering: 'none' | 'ordered' | 'floyd-steinberg'
   outlines: boolean
   outlineThreshold: number
+  quality: 'preview' | 'final'
 }
 
 export interface RenderResult {
@@ -21,7 +22,8 @@ const DEFAULT_OPTIONS: RenderOptions = {
   paletteId: 'db32',
   dithering: 'none',
   outlines: false,
-  outlineThreshold: 80
+  outlineThreshold: 80,
+  quality: 'final'
 }
 
 export function renderPixelArt(
@@ -29,22 +31,28 @@ export function renderPixelArt(
   camera: RenderCamera,
   objectDefs: ObjectDefinition[],
   options: Partial<RenderOptions> = {},
-  buildingPalettes?: BuildingPalette[] | null
+  buildingPalettes?: BuildingPalette[] | null,
+  time: number = 0
 ): RenderResult {
   const opts = { ...DEFAULT_OPTIONS, ...options }
   const { outputWidth, outputHeight } = camera
+  const isPreview = opts.quality === 'preview'
 
   // Render scene using pure Canvas2D (no WebGL — avoids SwiftShader crashes)
-  let imageData = renderCanvas2D(map, camera, objectDefs, buildingPalettes, 0)
+  let imageData = renderCanvas2D(map, camera, objectDefs, buildingPalettes, time)
 
   // Post-processing pipeline (all CPU, no WebGL)
   applyColorGrading(imageData, map.environment.timeOfDay)
-  applyBloom(imageData, outputWidth, outputHeight)
+
+  // Skip bloom in preview mode for speed
+  if (!isPreview) {
+    applyBloom(imageData, outputWidth, outputHeight)
+  }
 
   const palette = PALETTES[opts.paletteId] || PALETTES['db32']
-  imageData = quantizeImageData(imageData, palette, opts.dithering)
+  imageData = quantizeImageData(imageData, palette, isPreview ? 'none' : opts.dithering)
 
-  if (opts.outlines) {
+  if (opts.outlines && !isPreview) {
     imageData = applyOutlines(imageData)
   }
 
