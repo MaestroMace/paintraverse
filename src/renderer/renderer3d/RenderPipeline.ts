@@ -2,6 +2,7 @@ import type { MapDocument, RenderCamera, ObjectDefinition } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { quantizeImageData, applyOutlines, PALETTES } from './PaletteQuantizer'
 import { renderCanvas2D } from './Canvas2DRenderer'
+import type { LightSource } from './Canvas2DRenderer'
 
 export interface RenderOptions {
   paletteId: string
@@ -39,10 +40,25 @@ export function renderPixelArt(
   const isPreview = opts.quality === 'preview'
 
   // Render scene using pure Canvas2D (no WebGL — avoids SwiftShader crashes)
-  let imageData = renderCanvas2D(map, camera, objectDefs, buildingPalettes, time)
+  const sceneResult = renderCanvas2D(map, camera, objectDefs, buildingPalettes, time)
+  let imageData = sceneResult.imageData
+
+  // Water reflections (before any post-processing so they get graded + quantized)
+  applyWaterReflection(imageData, sceneResult.waterMask, outputWidth, outputHeight, time)
+
+  // Dynamic light map (night/dusk only)
+  const tod = map.environment.timeOfDay
+  const isNight = tod < 5 || tod >= 19
+  const isDusk = tod >= 17 && tod < 19
+  if ((isNight || isDusk) && sceneResult.lights.length > 0) {
+    const darkFactor = isNight ? 0.35 : 0.6
+    applyNightDarkening(imageData, darkFactor)
+    const lightMap = renderLightMap(sceneResult.lights, outputWidth, outputHeight)
+    compositeAdditive(imageData, lightMap)
+  }
 
   // Post-processing pipeline (all CPU, no WebGL)
-  applyColorGrading(imageData, map.environment.timeOfDay)
+  applyColorGrading(imageData, tod)
 
   // Skip bloom in preview mode for speed
   if (!isPreview) {
@@ -182,4 +198,108 @@ function boxBlur(src: Float32Array, width: number, height: number): Float32Array
   }
 
   return dst
+}
+
+// === Night Darkening ===
+
+function applyNightDarkening(imageData: ImageData, factor: number): void {
+  const { data } = imageData
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = Math.floor(data[i] * factor)
+    data[i + 1] = Math.floor(data[i + 1] * factor)
+    data[i + 2] = Math.floor(data[i + 2] * factor)
+  }
+}
+
+// === Light Map Rendering ===
+
+function renderLightMap(lights: LightSource[], width: number, height: number): ImageData {
+  const lc = document.createElement('canvas')
+  lc.width = width; lc.height = height
+  const lctx = lc.getContext('2d')!
+
+  // Additive blending: each light adds warm glow
+  lctx.globalCompositeOperation = 'lighter'
+
+  for (const light of lights) {
+    const r = (light.color >> 16) & 0xff
+    const g = (light.color >> 8) & 0xff
+    const b = light.color & 0xff
+    const grad = lctx.createRadialGradient(
+      light.sx, light.sy, 0,
+      light.sx, light.sy, light.radius
+    )
+    grad.addColorStop(0, `rgba(${r},${g},${b},${light.intensity})`)
+    grad.addColorStop(0.3, `rgba(${r},${g},${b},${light.intensity * 0.5})`)
+    grad.addColorStop(0.7, `rgba(${r},${g},${b},${light.intensity * 0.15})`)
+    grad.addColorStop(1, `rgba(${r},${g},${b},0)`)
+    lctx.fillStyle = grad
+    lctx.beginPath()
+    lctx.arc(light.sx, light.sy, light.radius, 0, Math.PI * 2)
+    lctx.fill()
+  }
+
+  return lctx.getImageData(0, 0, width, height)
+}
+
+// === Additive Compositing ===
+
+function compositeAdditive(base: ImageData, overlay: ImageData): void {
+  const bd = base.data, od = overlay.data
+  for (let i = 0; i < bd.length; i += 4) {
+    bd[i] = Math.min(255, bd[i] + od[i])
+    bd[i + 1] = Math.min(255, bd[i + 1] + od[i + 1])
+    bd[i + 2] = Math.min(255, bd[i + 2] + od[i + 2])
+  }
+}
+
+// === Water Reflections ===
+
+function applyWaterReflection(
+  imageData: ImageData, waterMask: Uint8Array,
+  width: number, height: number, time: number
+): void {
+  // Quick check: any water at all?
+  let hasWater = false
+  for (let i = 0; i < waterMask.length; i++) {
+    if (waterMask[i]) { hasWater = true; break }
+  }
+  if (!hasWater) return
+
+  const data = imageData.data
+  const copy = new Uint8ClampedArray(data) // snapshot for sampling
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (!waterMask[y * width + x]) continue
+
+      // Wave distortion
+      const waveX = Math.sin(x * 0.4 + time * 2.5) * 1.2 + Math.cos(y * 0.3 + time * 1.7) * 0.6
+      const waveY = Math.cos(x * 0.25 + time * 1.8) * 1.0
+
+      // Reflection: sample from above with flip + distortion
+      const reflectDist = 3 + Math.abs(Math.sin(x * 0.15 + time * 0.8)) * 4
+      const srcY = Math.max(0, Math.min(height - 1, y - Math.floor(reflectDist * 2 + waveY)))
+      const srcX = Math.max(0, Math.min(width - 1, x + Math.floor(waveX)))
+
+      const si = (srcY * width + srcX) * 4
+      const di = (y * width + x) * 4
+
+      // Blend reflection with water tint
+      const reflectStr = 0.3
+      const waterR = 55, waterG = 100, waterB = 155
+      data[di] = Math.floor(copy[si] * reflectStr + waterR * (1 - reflectStr))
+      data[di + 1] = Math.floor(copy[si + 1] * reflectStr + waterG * (1 - reflectStr))
+      data[di + 2] = Math.floor(copy[si + 2] * reflectStr + waterB * (1 - reflectStr))
+
+      // Specular highlights (sun/moon glints)
+      const spec = Math.pow(Math.max(0, Math.sin(x * 0.6 + time * 3.5) * Math.cos(y * 0.4 + time * 2.2)), 12)
+      if (spec > 0.3) {
+        const glint = Math.floor(spec * 80)
+        data[di] = Math.min(255, data[di] + glint)
+        data[di + 1] = Math.min(255, data[di + 1] + glint)
+        data[di + 2] = Math.min(255, data[di + 2] + Math.floor(glint * 0.7))
+      }
+    }
+  }
 }

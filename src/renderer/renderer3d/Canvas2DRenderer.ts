@@ -174,6 +174,35 @@ interface Drawable {
   draw: (ctx: CanvasRenderingContext2D) => void
 }
 
+// ── Light source tracking for light map ──
+
+export interface LightSource {
+  sx: number; sy: number   // screen position
+  radius: number           // influence radius in pixels
+  color: number            // warm color (hex)
+  intensity: number        // 0-1
+}
+
+export interface SceneResult {
+  imageData: ImageData
+  lights: LightSource[]
+  waterMask: Uint8Array    // 1 = water pixel, 0 = not
+}
+
+// ── Weather particle system (persistent across frames) ──
+
+interface WeatherParticle {
+  x: number; y: number
+  vx: number; vy: number
+  life: number
+  size: number
+}
+
+const MAX_PARTICLES = 400
+let weatherParticles: WeatherParticle[] = []
+let lastWeather = ''
+let lastTime = 0
+
 // ── Main render function ──
 
 export function renderCanvas2D(
@@ -182,9 +211,11 @@ export function renderCanvas2D(
   objectDefs: ObjectDefinition[],
   buildingPalettes?: BuildingPalette[] | null,
   time: number = 0
-): ImageData {
+): SceneResult {
   const { outputWidth: W, outputHeight: H } = camera
   const ts = map.tileSize
+  const lights: LightSource[] = []
+  const waterMask = new Uint8Array(W * H)
 
   const canvas = document.createElement('canvas')
   canvas.width = W
@@ -312,12 +343,22 @@ export function renderCanvas2D(
               ctx.arc(mx, my, 2, 0, Math.PI * 2)
               ctx.fill()
             }
-            // Water shimmer
+            // Water shimmer + mask
             if (tileId === 3) {
               const shimX = validCorners[0].sx + ((time * 5 + tx * 3) % 8)
               const shimY = (validCorners[0].sy + validCorners[2].sy) / 2
               ctx.fillStyle = 'rgba(255,255,255,0.06)'
               ctx.fillRect(shimX, shimY, 3, 0.5)
+              // Mark water pixels in mask (bounding box of projected tile)
+              const minX = Math.max(0, Math.floor(Math.min(validCorners[0].sx, validCorners[3].sx)))
+              const maxX = Math.min(W - 1, Math.ceil(Math.max(validCorners[1].sx, validCorners[2].sx)))
+              const minY = Math.max(0, Math.floor(Math.min(validCorners[2].sy, validCorners[3].sy)))
+              const maxY = Math.min(H - 1, Math.ceil(Math.max(validCorners[0].sy, validCorners[1].sy)))
+              for (let py = minY; py <= maxY; py++) {
+                for (let px = minX; px <= maxX; px++) {
+                  waterMask[py * W + px] = 1
+                }
+              }
             }
           }
         })
@@ -336,7 +377,7 @@ export function renderCanvas2D(
       const bcz = (obj.y + def.footprint.h / 2) * ts
       const bc = project(bcx, ts, bcz)
       if (bc && !inScreen(bc)) continue
-      addBuildingDrawables(drawables, obj, def, ts, palettes, camPos, project, lighting, time)
+      addBuildingDrawables(drawables, obj, def, ts, palettes, camPos, project, lighting, time, lights)
     }
   }
 
@@ -349,7 +390,7 @@ export function renderCanvas2D(
       // Quick frustum cull
       const pc = project((obj.x + 0.5) * ts, 0, (obj.y + 0.5) * ts)
       if (pc && !inScreen(pc)) continue
-      addPropDrawables(drawables, obj, def, ts, project, lighting, time)
+      addPropDrawables(drawables, obj, def, ts, project, lighting, time, lights)
     }
   }
 
@@ -418,7 +459,101 @@ export function renderCanvas2D(
   // Draw all
   for (const d of drawables) d.draw(ctx)
 
-  return ctx.getImageData(0, 0, W, H)
+  // ── Weather particles (screen-space, drawn after scene) ──
+  const dt = time > lastTime ? time - lastTime : 0.016
+  lastTime = time
+  updateWeatherParticles(map.environment.weather, map.environment.weatherIntensity, W, H, dt)
+  drawWeatherParticles(ctx, map.environment.weather, lighting)
+
+  return { imageData: ctx.getImageData(0, 0, W, H), lights, waterMask }
+}
+
+// ── Weather particle functions ──
+
+function updateWeatherParticles(
+  weather: string, intensity: number, W: number, H: number, dt: number
+): void {
+  if (weather !== lastWeather) { weatherParticles = []; lastWeather = weather }
+  if (weather === 'clear') { weatherParticles = []; return }
+  if (dt <= 0 || dt > 1) return // skip bad dt
+
+  const spawnRate = weather === 'rain' ? 15 : weather === 'snow' ? 5 :
+                    weather === 'storm' ? 25 : weather === 'fog' ? 1 : 0
+  const toSpawn = Math.min(20, Math.floor(spawnRate * Math.max(0.3, intensity) * dt * 60))
+
+  for (let i = 0; i < toSpawn && weatherParticles.length < MAX_PARTICLES; i++) {
+    if (weather === 'rain' || weather === 'storm') {
+      weatherParticles.push({
+        x: Math.random() * (W + 40) - 20, y: -5,
+        vx: -1.5 - Math.random() * 0.5, vy: 6 + Math.random() * 4,
+        life: 1, size: 1
+      })
+    } else if (weather === 'snow') {
+      weatherParticles.push({
+        x: Math.random() * W, y: -3,
+        vx: Math.sin(Date.now() * 0.001 + Math.random() * 6) * 0.4,
+        vy: 0.4 + Math.random() * 0.6,
+        life: 1, size: 0.8 + Math.random() * 0.8
+      })
+    }
+  }
+
+  for (let i = weatherParticles.length - 1; i >= 0; i--) {
+    const p = weatherParticles[i]
+    p.x += p.vx; p.y += p.vy
+    p.life -= dt * (weather === 'snow' ? 0.2 : 0.6)
+    if (weather === 'snow') p.vx = Math.sin(Date.now() * 0.001 + i) * 0.3
+    if (p.life <= 0 || p.y > H + 5 || p.x < -20 || p.x > W + 20) {
+      weatherParticles.splice(i, 1)
+    }
+  }
+}
+
+function drawWeatherParticles(
+  ctx: CanvasRenderingContext2D, weather: string, lighting: Lighting
+): void {
+  if (weatherParticles.length === 0) return
+
+  if (weather === 'rain' || weather === 'storm') {
+    ctx.strokeStyle = `rgba(180,200,230,0.35)`
+    ctx.lineWidth = 0.5
+    for (const p of weatherParticles) {
+      ctx.beginPath()
+      ctx.moveTo(p.x, p.y)
+      ctx.lineTo(p.x + p.vx * 1.5, p.y + p.vy * 1.5)
+      ctx.stroke()
+    }
+    // Ground splash dots
+    ctx.fillStyle = `rgba(180,200,230,0.2)`
+    for (const p of weatherParticles) {
+      if (p.life < 0.15) {
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, 1.2, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+    // Lightning flash for storms
+    if (weather === 'storm' && Math.random() < 0.004) {
+      ctx.fillStyle = `rgba(255,255,240,0.25)`
+      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+    }
+  } else if (weather === 'snow') {
+    for (const p of weatherParticles) {
+      const alpha = Math.min(0.7, p.life)
+      ctx.fillStyle = `rgba(240,240,255,${alpha.toFixed(2)})`
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, p.size * 0.6, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  } else if (weather === 'fog') {
+    // Drifting fog wisps
+    for (const p of weatherParticles) {
+      ctx.fillStyle = `rgba(200,200,210,${(p.life * 0.06).toFixed(3)})`
+      ctx.beginPath()
+      ctx.ellipse(p.x, p.y, 15 + p.size * 10, 4 + p.size * 3, 0, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
 }
 
 // ── Building drawing ──
@@ -428,7 +563,7 @@ function addBuildingDrawables(
   ts: number, palettes: { wall: number; roof: number; door: number }[],
   camPos: Vec3,
   project: (x: number, y: number, z: number) => Projected | null,
-  lighting: Lighting, time: number
+  lighting: Lighting, time: number, lights: LightSource[]
 ) {
   const hash = simpleHash(obj.id)
   const palette = palettes[hash % palettes.length]
@@ -497,6 +632,30 @@ function addBuildingDrawables(
   const showRight = camPos.x > centerX
   const showLeft = camPos.x < centerX
   const showBack = camPos.z > centerZ
+
+  // Collect building window lights for light map (night/dusk only)
+  if ((lighting.isNight || lighting.isDusk) && screenH > 3) {
+    // Approximate: one light per visible face, centered at window height
+    const windowY = height * 0.5
+    const lightR = 15 + screenH * 0.6
+    const lightI = lighting.isNight ? 0.5 : 0.3
+    if (showFront) {
+      const fp = project(x0 + fw / 2, windowY, z0)
+      if (fp) lights.push({ sx: fp.sx, sy: fp.sy, radius: lightR, color: 0xffcc66, intensity: lightI })
+    }
+    if (showBack) {
+      const bp = project(x0 + fw / 2, windowY, z0 + fd)
+      if (bp) lights.push({ sx: bp.sx, sy: bp.sy, radius: lightR, color: 0xffcc66, intensity: lightI })
+    }
+    if (showLeft) {
+      const lp = project(x0, windowY, z0 + fd / 2)
+      if (lp) lights.push({ sx: lp.sx, sy: lp.sy, radius: lightR, color: 0xffcc66, intensity: lightI })
+    }
+    if (showRight) {
+      const rp = project(x0 + fw, windowY, z0 + fd / 2)
+      if (rp) lights.push({ sx: rp.sx, sy: rp.sy, radius: lightR, color: 0xffcc66, intensity: lightI })
+    }
+  }
 
   // Roof ridge/peak points for gabled/pointed roofs
   const ridgeFront = project(x0 + fw / 2, height + roofHeight, z0)
@@ -1268,7 +1427,7 @@ function addPropDrawables(
   drawables: Drawable[], obj: PlacedObject, def: ObjectDefinition,
   ts: number,
   project: (x: number, y: number, z: number) => Projected | null,
-  lighting: Lighting, time: number
+  lighting: Lighting, time: number, lights: LightSource[]
 ) {
   const cx = (obj.x + def.footprint.w / 2) * ts
   const cz = (obj.y + def.footprint.h / 2) * ts
@@ -1395,6 +1554,15 @@ function addPropDrawables(
     const lampTop = project(cx, ts * 1.1, cz)
     if (!lampTop) return
     const poleW = Math.max(1, 2)
+
+    // Collect light source for light map
+    if (lighting.isNight || lighting.isDusk) {
+      lights.push({
+        sx: base.sx, sy: lampTop.sy,
+        radius: 25 + Math.abs(lampTop.sy - base.sy) * 0.8,
+        color: 0xffcc66, intensity: lighting.isNight ? 0.7 : 0.4
+      })
+    }
 
     drawables.push({
       depth: base.depth,
