@@ -213,6 +213,12 @@ let _renderCanvas: HTMLCanvasElement | null = null
 let _renderCtx: CanvasRenderingContext2D | null = null
 // Empty water mask for preview mode (avoids allocation)
 const _emptyWaterMask = new Uint8Array(0)
+// Scene cache: skip full scene re-render when camera/map unchanged
+let _sceneCache: ImageData | null = null
+let _sceneCacheKey = ''
+let _sceneCacheLights: LightSource[] = []
+let _sceneCacheWaterMask: Uint8Array = _emptyWaterMask
+let _sceneCacheLighting: Lighting | null = null
 
 // ── Main render function ──
 
@@ -226,18 +232,34 @@ export function renderCanvas2D(
 ): SceneResult {
   const { outputWidth: W, outputHeight: H } = camera
   const ts = map.tileSize
-  const lights: LightSource[] = []
-  // Only build water mask when needed (final render uses it for reflections)
-  const waterMask = isPreview ? _emptyWaterMask : new Uint8Array(W * H)
 
   if (!_renderCanvas || _renderCanvas.width !== W || _renderCanvas.height !== H) {
     _renderCanvas = document.createElement('canvas')
     _renderCanvas.width = W
     _renderCanvas.height = H
     _renderCtx = _renderCanvas.getContext('2d')!
+    _sceneCache = null // invalidate cache on resize
   }
   const canvas = _renderCanvas
   const ctx = _renderCtx!
+
+  // === Scene Cache: skip full re-render when camera+map unchanged ===
+  // Only weather particles (screen-space) need per-frame update.
+  const cacheKey = `${camera.worldX},${camera.worldY},${camera.lookAtX},${camera.lookAtY},${camera.elevation},${camera.fov},${W},${H},${map.version},${map.environment.timeOfDay}`
+  if (isPreview && _sceneCache && _sceneCacheKey === cacheKey) {
+    // Restore cached scene
+    ctx.putImageData(_sceneCache, 0, 0)
+    // Only update weather particles
+    const dt = time > lastTime ? time - lastTime : 0.016
+    lastTime = time
+    const lighting = _sceneCacheLighting!
+    updateWeatherParticles(map.environment.weather, map.environment.weatherIntensity, W, H, dt, time)
+    drawWeatherParticles(ctx, map.environment.weather, lighting)
+    return { imageData: ctx.getImageData(0, 0, W, H), lights: _sceneCacheLights, waterMask: _sceneCacheWaterMask }
+  }
+
+  const lights: LightSource[] = []
+  const waterMask = isPreview ? _emptyWaterMask : new Uint8Array(W * H)
   ctx.clearRect(0, 0, W, H)
 
   // Build view matrix
@@ -357,6 +379,9 @@ export function renderCanvas2D(
           depth: avgDepth,
           draw: (ctx) => {
             drawPoly(ctx, validCorners, hexToCSS(foggedColor))
+            // LOD: skip all texture details when tile is tiny on screen
+            const tileScreenW = Math.abs(validCorners[1].sx - validCorners[0].sx)
+            if (tileScreenW < 4) return // too small for detail
             // Cobblestone texture pattern
             if (tileId === 8 || tileId === 9) {
               ctx.strokeStyle = `rgba(0,0,0,0.06)`
@@ -452,13 +477,15 @@ export function renderCanvas2D(
     }
   }
 
-  // ── Buildings (structures) — with frustum culling ──
+  // ── Buildings (structures) — tile range + frustum culling ──
   const structureLayer = map.layers.find(l => l.type === 'structure')
   if (structureLayer) {
     for (const obj of structureLayer.objects) {
+      // Coarse range cull: skip objects outside visible tile range
+      if (obj.x > txMax + 5 || obj.x < txMin - 5 || obj.y > tyMax + 5 || obj.y < tyMin - 5) continue
       const def = defMap.get(obj.definitionId)
       if (!def) continue
-      // Quick frustum cull: project building center, skip if far off-screen
+      // Fine frustum cull: project center, skip if off-screen
       const bcx = (obj.x + def.footprint.w / 2) * ts
       const bcz = (obj.y + def.footprint.h / 2) * ts
       const bc = project(bcx, ts, bcz)
@@ -467,13 +494,15 @@ export function renderCanvas2D(
     }
   }
 
-  // ── Props — with frustum culling ──
+  // ── Props — tile range + frustum culling ──
   const propLayer = map.layers.find(l => l.type === 'prop')
   if (propLayer) {
     for (const obj of propLayer.objects) {
+      // Coarse range cull
+      if (obj.x > txMax + 3 || obj.x < txMin - 3 || obj.y > tyMax + 3 || obj.y < tyMin - 3) continue
       const def = defMap.get(obj.definitionId)
       if (!def) continue
-      // Quick frustum cull
+      // Fine frustum cull
       const pc = project((obj.x + 0.5) * ts, 0, (obj.y + 0.5) * ts)
       if (pc && !inScreen(pc)) continue
       addPropDrawables(drawables, obj, def, ts, project, lighting, time, lights)
@@ -544,6 +573,15 @@ export function renderCanvas2D(
 
   // Draw all
   for (const d of drawables) d.draw(ctx)
+
+  // === Cache the static scene (before weather particles) ===
+  if (isPreview) {
+    _sceneCache = ctx.getImageData(0, 0, W, H)
+    _sceneCacheKey = cacheKey
+    _sceneCacheLights = [...lights]
+    _sceneCacheWaterMask = waterMask
+    _sceneCacheLighting = lighting
+  }
 
   // ── Weather particles (screen-space, drawn after scene) ──
   const dt = time > lastTime ? time - lastTime : 0.016
@@ -1546,6 +1584,10 @@ function addPropDrawables(
   const base = project(cx, 0, cz)
   const top = project(cx, propH, cz)
   if (!base || !top) return
+
+  // LOD: skip props that are smaller than 2px on screen
+  const screenH = Math.abs(top.sy - base.sy)
+  if (screenH < 2) return
 
   const bodyColor = shadeFace(colors.body, 0, 1, 0, lighting)
   const foggedBody = applyFog(bodyColor, base.depth, lighting)
