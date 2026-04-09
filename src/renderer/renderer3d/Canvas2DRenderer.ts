@@ -390,129 +390,165 @@ export function renderCanvas2D(
   const txMin = Math.max(0, Math.floor(rangeCenterX - halfRange))
   const txMax = Math.min(gridW - 1, Math.ceil(rangeCenterX + halfRange))
 
-  // ── Terrain tiles ──
+  // ── Terrain tiles — projection grid + batched drawing ──
   if (terrainLayer?.terrainTiles) {
     const tiles = terrainLayer.terrainTiles
+
+    // Pre-compute projection grid: shared corners between adjacent tiles
+    // 20×20 tile range = 21×21 corner grid = 441 projections (was 1600)
+    const pgW = txMax - txMin + 2 // +2 because corners = tiles + 1
+    const pgH = tyMax - tyMin + 2
+    const projGrid: (Projected | null)[] = new Array(pgW * pgH)
+    for (let gy = 0; gy < pgH; gy++) {
+      for (let gx = 0; gx < pgW; gx++) {
+        projGrid[gy * pgW + gx] = project((txMin + gx) * ts, 0, (tyMin + gy) * ts)
+      }
+    }
+
+    // Batch tiles by type for fewer fill() calls
+    // Instead of one drawable per tile (400 closures + 400 fill calls),
+    // group tiles by tileId and draw all tiles of same type in one path
+    interface TileBatch {
+      tileId: number
+      color: string
+      tiles: { c0: Projected; c1: Projected; c2: Projected; c3: Projected; depth: number; tx: number; ty: number }[]
+    }
+    const batches = new Map<number, TileBatch>()
 
     for (let ty = tyMin; ty <= tyMax; ty++) {
       for (let tx = txMin; tx <= txMax; tx++) {
         const tileId = tiles[ty][tx]
-        const baseColor = TERRAIN_COLORS[tileId] ?? 0x808080
-        const x0 = tx * ts, z0 = ty * ts
-        const corners = [
-          project(x0, 0, z0),
-          project(x0 + ts, 0, z0),
-          project(x0 + ts, 0, z0 + ts),
-          project(x0, 0, z0 + ts),
-        ]
-        if (corners.some(c => c === null)) continue
-        // Frustum cull: skip tiles entirely off-screen
-        const validCorners2 = corners as Projected[]
-        if (!validCorners2.some(c => inScreen(c))) continue
-        const validCorners = corners as Projected[]
-        const avgDepth = validCorners.reduce((s, c) => s + c.depth, 0) / 4
-        const litColor = shadeFace(baseColor, 0, 1, 0, lighting)
-        const foggedColor = applyFog(litColor, avgDepth, lighting)
+        const gx = tx - txMin, gy = ty - tyMin
+        const c0 = projGrid[gy * pgW + gx]
+        const c1 = projGrid[gy * pgW + gx + 1]
+        const c2 = projGrid[(gy + 1) * pgW + gx + 1]
+        const c3 = projGrid[(gy + 1) * pgW + gx]
+        if (!c0 || !c1 || !c2 || !c3) continue
+        if (!inScreen(c0) && !inScreen(c1) && !inScreen(c2) && !inScreen(c3)) continue
 
-        drawables.push({
-          depth: avgDepth,
-          draw: (ctx) => {
-            drawPoly(ctx, validCorners, hexToCSS(foggedColor))
-            // LOD: skip all texture details when tile is tiny on screen
-            const tileScreenW = Math.abs(validCorners[1].sx - validCorners[0].sx)
-            if (tileScreenW < 4) return // too small for detail
-            // Cobblestone texture pattern
+        const avgDepth = (c0.depth + c1.depth + c2.depth + c3.depth) * 0.25
+        const litColor = shadeFace(TERRAIN_COLORS[tileId] ?? 0x808080, 0, 1, 0, lighting)
+        const foggedColor = applyFog(litColor, avgDepth, lighting)
+        const colorCSS = hexToCSS(foggedColor)
+
+        let batch = batches.get(tileId)
+        if (!batch) {
+          batch = { tileId, color: colorCSS, tiles: [] }
+          batches.set(tileId, batch)
+        }
+        batch.tiles.push({ c0, c1, c2, c3, depth: avgDepth, tx, ty })
+      }
+    }
+
+    // Draw each batch as a single drawable (one per tile type)
+    for (const [tileId, batch] of batches) {
+      // Use median depth for draw ordering
+      const medianDepth = batch.tiles.length > 0
+        ? batch.tiles[Math.floor(batch.tiles.length / 2)].depth
+        : 0
+
+      drawables.push({
+        depth: medianDepth,
+        draw: (ctx) => {
+          // Base fill: batch all polygons of same type into one path
+          ctx.fillStyle = batch.color
+          ctx.beginPath()
+          for (const t of batch.tiles) {
+            ctx.moveTo(t.c0.sx, t.c0.sy)
+            ctx.lineTo(t.c1.sx, t.c1.sy)
+            ctx.lineTo(t.c2.sx, t.c2.sy)
+            ctx.lineTo(t.c3.sx, t.c3.sy)
+            ctx.closePath()
+          }
+          ctx.fill()
+
+          // Texture details (per-tile, only for close tiles)
+          for (const t of batch.tiles) {
+            const tileScreenW = Math.abs(t.c1.sx - t.c0.sx)
+            if (tileScreenW < 4) continue
+
             if (tileId === 8 || tileId === 9) {
-              ctx.strokeStyle = `rgba(0,0,0,0.06)`
+              ctx.strokeStyle = 'rgba(0,0,0,0.06)'
               ctx.lineWidth = 0.3
-              const tileW = Math.abs(validCorners[1].sx - validCorners[0].sx)
-              const tileH2 = Math.abs(validCorners[0].sy - validCorners[3].sy)
+              const tileW = tileScreenW
+              const tileH2 = Math.abs(t.c0.sy - t.c3.sy)
               if (tileW > 3 && tileH2 > 2) {
-                const cx2 = (validCorners[0].sx + validCorners[2].sx) / 2
-                const cy2 = (validCorners[0].sy + validCorners[2].sy) / 2
-                // Cross pattern suggesting stone blocks
+                const cx2 = (t.c0.sx + t.c2.sx) * 0.5
+                const cy2 = (t.c0.sy + t.c2.sy) * 0.5
                 ctx.beginPath()
-                ctx.moveTo(cx2, validCorners[0].sy); ctx.lineTo(cx2, validCorners[3].sy); ctx.stroke()
+                ctx.moveTo(cx2, t.c0.sy); ctx.lineTo(cx2, t.c3.sy); ctx.stroke()
                 ctx.beginPath()
-                ctx.moveTo(validCorners[0].sx, cy2); ctx.lineTo(validCorners[1].sx, cy2); ctx.stroke()
+                ctx.moveTo(t.c0.sx, cy2); ctx.lineTo(t.c1.sx, cy2); ctx.stroke()
               }
             }
-            // Moss patches on cobblestone
-            if ((tileId === 8 || tileId === 9) && ((tx * 7 + ty * 13) % 5 === 0)) {
+
+            if ((tileId === 8 || tileId === 9) && ((t.tx * 7 + t.ty * 13) % 5 === 0)) {
               ctx.fillStyle = 'rgba(45,90,39,0.12)'
-              const mx = (validCorners[0].sx + validCorners[2].sx) / 2
-              const my = (validCorners[0].sy + validCorners[2].sy) / 2
-              ctx.beginPath()
-              ctx.arc(mx, my, 2, 0, Math.PI * 2)
-              ctx.fill()
+              const mx = (t.c0.sx + t.c2.sx) * 0.5
+              const my = (t.c0.sy + t.c2.sy) * 0.5
+              ctx.beginPath(); ctx.arc(mx, my, 2, 0, Math.PI * 2); ctx.fill()
+              ctx.fillStyle = batch.color // restore
             }
-            // Wildflower meadow — colored dots on green base
-            if (tileId === 12) {
-              const tileW = Math.abs(validCorners[1].sx - validCorners[0].sx)
-              if (tileW > 2) {
-                const flowerColors = ['rgba(220,80,100,0.5)', 'rgba(240,200,60,0.45)', 'rgba(180,120,220,0.4)', 'rgba(255,160,80,0.4)', 'rgba(255,255,180,0.35)']
-                const fHash = tx * 31 + ty * 17
-                for (let fi = 0; fi < 4; fi++) {
-                  const fx = validCorners[0].sx + ((fHash + fi * 37) % 7) / 7 * tileW
-                  const fy = validCorners[3].sy + ((fHash + fi * 23) % 5) / 5 * Math.abs(validCorners[0].sy - validCorners[3].sy)
-                  ctx.fillStyle = flowerColors[(fHash + fi) % flowerColors.length]
-                  ctx.beginPath()
-                  ctx.arc(fx, fy, 0.6 + (fi % 2) * 0.3, 0, Math.PI * 2)
-                  ctx.fill()
-                }
+
+            if (tileId === 12 && tileScreenW > 5) {
+              const flowerColors = ['rgba(220,80,100,0.5)', 'rgba(240,200,60,0.45)', 'rgba(180,120,220,0.4)', 'rgba(255,160,80,0.4)', 'rgba(255,255,180,0.35)']
+              const fHash = t.tx * 31 + t.ty * 17
+              for (let fi = 0; fi < 4; fi++) {
+                const fx = t.c0.sx + ((fHash + fi * 37) % 7) / 7 * tileScreenW
+                const fy = t.c3.sy + ((fHash + fi * 23) % 5) / 5 * Math.abs(t.c0.sy - t.c3.sy)
+                ctx.fillStyle = flowerColors[(fHash + fi) % flowerColors.length]
+                ctx.beginPath(); ctx.arc(fx, fy, 0.6 + (fi % 2) * 0.3, 0, Math.PI * 2); ctx.fill()
               }
             }
-            // Rocky ground — scattered small stones
-            if (tileId === 7) {
+
+            if (tileId === 7 && tileScreenW > 4) {
               ctx.fillStyle = 'rgba(100,100,90,0.15)'
-              const rHash = tx * 41 + ty * 29
+              const rHash = t.tx * 41 + t.ty * 29
               for (let ri = 0; ri < 3; ri++) {
-                const rx = validCorners[0].sx + ((rHash + ri * 19) % 9) / 9 * Math.abs(validCorners[1].sx - validCorners[0].sx)
-                const ry = validCorners[3].sy + ((rHash + ri * 13) % 7) / 7 * Math.abs(validCorners[0].sy - validCorners[3].sy)
-                ctx.beginPath()
-                ctx.ellipse(rx, ry, 1.2, 0.7, (rHash + ri) * 0.5, 0, Math.PI * 2)
-                ctx.fill()
+                const rx = t.c0.sx + ((rHash + ri * 19) % 9) / 9 * tileScreenW
+                const ry = t.c3.sy + ((rHash + ri * 13) % 7) / 7 * Math.abs(t.c0.sy - t.c3.sy)
+                ctx.beginPath(); ctx.ellipse(rx, ry, 1.2, 0.7, (rHash + ri) * 0.5, 0, Math.PI * 2); ctx.fill()
               }
             }
-            // Mossy stone — green patches on stone
+
             if (tileId === 10) {
               ctx.fillStyle = 'rgba(60,100,40,0.18)'
-              const mx = (validCorners[0].sx + validCorners[2].sx) / 2
-              const my = (validCorners[0].sy + validCorners[2].sy) / 2
-              ctx.beginPath()
-              ctx.arc(mx, my, 2.5, 0, Math.PI * 2)
-              ctx.fill()
+              const mx = (t.c0.sx + t.c2.sx) * 0.5
+              const my = (t.c0.sy + t.c2.sy) * 0.5
+              ctx.beginPath(); ctx.arc(mx, my, 2.5, 0, Math.PI * 2); ctx.fill()
             }
-            // Gravel path — tiny speckles
-            if (tileId === 13) {
+
+            if (tileId === 13 && tileScreenW > 3) {
               ctx.fillStyle = 'rgba(80,70,55,0.1)'
-              const gHash = tx * 47 + ty * 31
+              const gHash = t.tx * 47 + t.ty * 31
               for (let gi = 0; gi < 5; gi++) {
-                const gx = validCorners[0].sx + ((gHash + gi * 11) % 11) / 11 * Math.abs(validCorners[1].sx - validCorners[0].sx)
-                const gy = validCorners[3].sy + ((gHash + gi * 7) % 9) / 9 * Math.abs(validCorners[0].sy - validCorners[3].sy)
+                const gx = t.c0.sx + ((gHash + gi * 11) % 11) / 11 * tileScreenW
+                const gy = t.c3.sy + ((gHash + gi * 7) % 9) / 9 * Math.abs(t.c0.sy - t.c3.sy)
                 ctx.fillRect(gx, gy, 0.5, 0.5)
               }
             }
-            // Water shimmer + mask
+
+            // Water shimmer
             if (tileId === 3) {
-              const shimX = validCorners[0].sx + ((time * 5 + tx * 3) % 8)
-              const shimY = (validCorners[0].sy + validCorners[2].sy) / 2
+              const shimX = t.c0.sx + ((time * 5 + t.tx * 3) % 8)
+              const shimY = (t.c0.sy + t.c2.sy) * 0.5
               ctx.fillStyle = 'rgba(255,255,255,0.06)'
               ctx.fillRect(shimX, shimY, 3, 0.5)
-              // Mark water pixels in mask (bounding box of projected tile)
-              const minX = Math.max(0, Math.floor(Math.min(validCorners[0].sx, validCorners[3].sx)))
-              const maxX = Math.min(W - 1, Math.ceil(Math.max(validCorners[1].sx, validCorners[2].sx)))
-              const minY = Math.max(0, Math.floor(Math.min(validCorners[2].sy, validCorners[3].sy)))
-              const maxY = Math.min(H - 1, Math.ceil(Math.max(validCorners[0].sy, validCorners[1].sy)))
-              for (let py = minY; py <= maxY; py++) {
-                for (let px = minX; px <= maxX; px++) {
-                  waterMask[py * W + px] = 1
+              if (waterMask.length > 0) {
+                const minX2 = Math.max(0, Math.floor(Math.min(t.c0.sx, t.c3.sx)))
+                const maxX2 = Math.min(W - 1, Math.ceil(Math.max(t.c1.sx, t.c2.sx)))
+                const minY2 = Math.max(0, Math.floor(Math.min(t.c2.sy, t.c3.sy)))
+                const maxY2 = Math.min(H - 1, Math.ceil(Math.max(t.c0.sy, t.c1.sy)))
+                for (let py = minY2; py <= maxY2; py++) {
+                  for (let px = minX2; px <= maxX2; px++) {
+                    waterMask[py * W + px] = 1
+                  }
                 }
               }
             }
           }
-        })
-      }
+        }
+      })
     }
   }
 
