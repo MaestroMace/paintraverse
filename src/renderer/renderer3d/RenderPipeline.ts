@@ -343,7 +343,23 @@ function renderLightMap(lights: LightSource[], width: number, height: number): I
   return lctx.getImageData(0, 0, width, height)
 }
 
-// === Water Reflections ===
+// === Water Reflections (wave LUT eliminates per-pixel trig) ===
+
+// Pre-computed sine/cosine lookup table: eliminates 7 trig calls per water pixel
+const WAVE_LUT_SIZE = 512
+const _sinLUT = new Float32Array(WAVE_LUT_SIZE)
+const _cosLUT = new Float32Array(WAVE_LUT_SIZE)
+for (let i = 0; i < WAVE_LUT_SIZE; i++) {
+  const t = (i / WAVE_LUT_SIZE) * Math.PI * 2
+  _sinLUT[i] = Math.sin(t)
+  _cosLUT[i] = Math.cos(t)
+}
+function fastSin(x: number): number {
+  return _sinLUT[((x * WAVE_LUT_SIZE / (Math.PI * 2)) & (WAVE_LUT_SIZE - 1) + WAVE_LUT_SIZE) & (WAVE_LUT_SIZE - 1)]
+}
+function fastCos(x: number): number {
+  return _cosLUT[((x * WAVE_LUT_SIZE / (Math.PI * 2)) & (WAVE_LUT_SIZE - 1) + WAVE_LUT_SIZE) & (WAVE_LUT_SIZE - 1)]
+}
 
 function applyWaterReflection(
   imageData: ImageData, waterMask: Uint8Array,
@@ -357,38 +373,50 @@ function applyWaterReflection(
   if (!hasWater) return
 
   const data = imageData.data
-  const copy = new Uint8ClampedArray(data) // snapshot for sampling
+  const copy = new Uint8ClampedArray(data)
+
+  // Pre-compute time-based offsets outside the pixel loop
+  const tOff1 = time * 2.5, tOff2 = time * 1.7, tOff3 = time * 1.8
+  const tOff4 = time * 0.8, tOff5 = time * 3.5, tOff6 = time * 2.2
+  // Water tint constants (pre-multiply to avoid per-pixel multiply)
+  const reflectStr = 0.55, tintStr = 1 - reflectStr
+  const tintR = 65 * tintStr, tintG = 110 * tintStr, tintB = 145 * tintStr
 
   for (let y = 0; y < height; y++) {
+    const rowOff = y * width
     for (let x = 0; x < width; x++) {
-      if (!waterMask[y * width + x]) continue
+      if (!waterMask[rowOff + x]) continue
 
-      // Wave distortion
-      const waveX = Math.sin(x * 0.4 + time * 2.5) * 1.2 + Math.cos(y * 0.3 + time * 1.7) * 0.6
-      const waveY = Math.cos(x * 0.25 + time * 1.8) * 1.0
+      // Wave distortion using LUT (was: 3 sin + 3 cos + 1 pow per pixel)
+      const waveX = fastSin(x * 0.4 + tOff1) * 1.2 + fastCos(y * 0.3 + tOff2) * 0.6
+      const waveY = fastCos(x * 0.25 + tOff3)
+      const reflectDist = 3 + Math.abs(fastSin(x * 0.15 + tOff4)) * 4
 
-      // Reflection: sample from above with flip + distortion
-      const reflectDist = 3 + Math.abs(Math.sin(x * 0.15 + time * 0.8)) * 4
-      const srcY = Math.max(0, Math.min(height - 1, y - Math.floor(reflectDist * 2 + waveY)))
-      const srcX = Math.max(0, Math.min(width - 1, x + Math.floor(waveX)))
+      let srcY = y - ((reflectDist * 2 + waveY) | 0)
+      let srcX = x + (waveX | 0)
+      if (srcY < 0) srcY = 0; else if (srcY >= height) srcY = height - 1
+      if (srcX < 0) srcX = 0; else if (srcX >= width) srcX = width - 1
 
       const si = (srcY * width + srcX) * 4
-      const di = (y * width + x) * 4
+      const di = (rowOff + x) * 4
 
-      // Blend reflection with water tint
-      const reflectStr = 0.55
-      const waterR = 65, waterG = 110, waterB = 145
-      data[di] = Math.floor(copy[si] * reflectStr + waterR * (1 - reflectStr))
-      data[di + 1] = Math.floor(copy[si + 1] * reflectStr + waterG * (1 - reflectStr))
-      data[di + 2] = Math.floor(copy[si + 2] * reflectStr + waterB * (1 - reflectStr))
+      data[di] = (copy[si] * reflectStr + tintR) | 0
+      data[di + 1] = (copy[si + 1] * reflectStr + tintG) | 0
+      data[di + 2] = (copy[si + 2] * reflectStr + tintB) | 0
 
-      // Specular highlights (sun/moon glints)
-      const spec = Math.pow(Math.max(0, Math.sin(x * 0.6 + time * 3.5) * Math.cos(y * 0.4 + time * 2.2)), 12)
-      if (spec > 0.3) {
-        const glint = Math.floor(spec * 80)
-        data[di] = Math.min(255, data[di] + glint)
-        data[di + 1] = Math.min(255, data[di + 1] + glint)
-        data[di + 2] = Math.min(255, data[di + 2] + Math.floor(glint * 0.7))
+      // Specular: early-out before expensive pow
+      const sinVal = fastSin(x * 0.6 + tOff5)
+      const cosVal = fastCos(y * 0.4 + tOff6)
+      const base = sinVal * cosVal
+      if (base > 0.55) { // Only compute pow when result could exceed 0.3 threshold
+        // x^12 = (x^2)^6 = ((x^2)^2)^3 — 4 multiplies instead of 12
+        const b2 = base * base, b4 = b2 * b2, b8 = b4 * b4, spec = b4 * b8
+        if (spec > 0.3) {
+          const glint = (spec * 80) | 0
+          let r = data[di] + glint; if (r > 255) r = 255; data[di] = r
+          let g = data[di + 1] + glint; if (g > 255) g = 255; data[di + 1] = g
+          let b = data[di + 2] + (glint * 0.7 | 0); if (b > 255) b = 255; data[di + 2] = b
+        }
       }
     }
   }

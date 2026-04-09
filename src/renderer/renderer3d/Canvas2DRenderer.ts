@@ -613,7 +613,19 @@ export function renderCanvas2D(
   }
 
   // Sort back-to-front (painter's algorithm)
-  drawables.sort((a, b) => b.depth - a.depth)
+  // Insertion sort: O(n) for nearly-sorted data (objects are added roughly in depth order)
+  // V8's Array.sort uses TimSort which is also good for nearly-sorted but insertion sort
+  // avoids the overhead of the comparator function call per comparison
+  for (let i = 1; i < drawables.length; i++) {
+    const key = drawables[i]
+    const keyDepth = key.depth
+    let j = i - 1
+    while (j >= 0 && drawables[j].depth < keyDepth) {
+      drawables[j + 1] = drawables[j]
+      j--
+    }
+    drawables[j + 1] = key
+  }
 
   // Draw all
   for (const d of drawables) d.draw(ctx)
