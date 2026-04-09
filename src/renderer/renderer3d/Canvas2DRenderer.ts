@@ -11,8 +11,12 @@ import type { BuildingPalette } from '../inspiration/StyleMapper'
 
 const TERRAIN_COLORS: Record<number, number> = {
   0: 0x2d5a27, 1: 0x8b7355, 2: 0x708090, 3: 0x4682b4,
-  4: 0xf4e9c8, 5: 0x556b2f, 6: 0x5a5a5a, 7: 0xdcdcdc,
-  8: 0x6a6a68, 9: 0x4a4a48
+  4: 0xf4e9c8, 5: 0x556b2f, 6: 0x3a6a30, 7: 0x8a8a7a,
+  8: 0x6a6a68, 9: 0x4a4a48,
+  10: 0x6a7a5a, // mossy stone (old courtyards)
+  11: 0x6a5a45, // mud (near ponds)
+  12: 0x2a5522, // wildflower meadow base (painted over with dots)
+  13: 0x9a8a6a, // gravel path
 }
 
 const DEFAULT_BUILDING_PALETTES = [
@@ -342,6 +346,53 @@ export function renderCanvas2D(
               ctx.beginPath()
               ctx.arc(mx, my, 2, 0, Math.PI * 2)
               ctx.fill()
+            }
+            // Wildflower meadow — colored dots on green base
+            if (tileId === 12) {
+              const tileW = Math.abs(validCorners[1].sx - validCorners[0].sx)
+              if (tileW > 2) {
+                const flowerColors = ['rgba(220,80,100,0.5)', 'rgba(240,200,60,0.45)', 'rgba(180,120,220,0.4)', 'rgba(255,160,80,0.4)', 'rgba(255,255,180,0.35)']
+                const fHash = tx * 31 + ty * 17
+                for (let fi = 0; fi < 4; fi++) {
+                  const fx = validCorners[0].sx + ((fHash + fi * 37) % 7) / 7 * tileW
+                  const fy = validCorners[3].sy + ((fHash + fi * 23) % 5) / 5 * Math.abs(validCorners[0].sy - validCorners[3].sy)
+                  ctx.fillStyle = flowerColors[(fHash + fi) % flowerColors.length]
+                  ctx.beginPath()
+                  ctx.arc(fx, fy, 0.6 + (fi % 2) * 0.3, 0, Math.PI * 2)
+                  ctx.fill()
+                }
+              }
+            }
+            // Rocky ground — scattered small stones
+            if (tileId === 7) {
+              ctx.fillStyle = 'rgba(100,100,90,0.15)'
+              const rHash = tx * 41 + ty * 29
+              for (let ri = 0; ri < 3; ri++) {
+                const rx = validCorners[0].sx + ((rHash + ri * 19) % 9) / 9 * Math.abs(validCorners[1].sx - validCorners[0].sx)
+                const ry = validCorners[3].sy + ((rHash + ri * 13) % 7) / 7 * Math.abs(validCorners[0].sy - validCorners[3].sy)
+                ctx.beginPath()
+                ctx.ellipse(rx, ry, 1.2, 0.7, (rHash + ri) * 0.5, 0, Math.PI * 2)
+                ctx.fill()
+              }
+            }
+            // Mossy stone — green patches on stone
+            if (tileId === 10) {
+              ctx.fillStyle = 'rgba(60,100,40,0.18)'
+              const mx = (validCorners[0].sx + validCorners[2].sx) / 2
+              const my = (validCorners[0].sy + validCorners[2].sy) / 2
+              ctx.beginPath()
+              ctx.arc(mx, my, 2.5, 0, Math.PI * 2)
+              ctx.fill()
+            }
+            // Gravel path — tiny speckles
+            if (tileId === 13) {
+              ctx.fillStyle = 'rgba(80,70,55,0.1)'
+              const gHash = tx * 47 + ty * 31
+              for (let gi = 0; gi < 5; gi++) {
+                const gx = validCorners[0].sx + ((gHash + gi * 11) % 11) / 11 * Math.abs(validCorners[1].sx - validCorners[0].sx)
+                const gy = validCorners[3].sy + ((gHash + gi * 7) % 9) / 9 * Math.abs(validCorners[0].sy - validCorners[3].sy)
+                ctx.fillRect(gx, gy, 0.5, 0.5)
+              }
             }
             // Water shimmer + mask
             if (tileId === 3) {
@@ -1442,20 +1493,27 @@ function addPropDrawables(
   const foggedBody = applyFog(bodyColor, base.depth, lighting)
 
   if (def.id === 'tree') {
-    const trunkTop = project(cx, ts * 0.5, cz)
-    const canopyTop = project(cx, ts * 1.2, cz)
+    const species = (obj.properties.species as string) || 'oak'
+    const heightMul = species === 'pine' ? 1.5 : species === 'birch' ? 1.3 : species === 'willow' ? 0.9 : 1.0
+    const trunkTop = project(cx, ts * 0.5 * heightMul, cz)
+    const canopyTop = project(cx, ts * 1.2 * heightMul, cz)
     if (!trunkTop || !canopyTop) return
 
-    // Trunk
     const accentColor = shadeFace(colors.accent!, 0, 1, 0, lighting)
     const foggedAccent = applyFog(accentColor, base.depth, lighting)
-    const trunkW = Math.max(2, (trunkTop.sx - base.sx) * 0.05 + 3)
+    const treeHash = simpleHash(obj.id)
+    // Species-specific canopy colors
+    const canopyHue = species === 'birch' ? lighten(foggedAccent, 0.06) :
+      species === 'pine' ? darken(foggedAccent, 0.08) :
+      species === 'maple' ? applyFog(shadeFace(0x8a6030, 0, 1, 0, lighting), base.depth, lighting) :
+      foggedAccent
+    const trunkW = Math.max(2, (trunkTop.sx - base.sx) * 0.05 + (species === 'pine' ? 2 : 3))
 
     drawables.push({
       depth: base.depth,
       draw: (ctx) => {
-        // Trunk with slight taper
-        ctx.fillStyle = hexToCSS(foggedBody)
+        // Trunk
+        ctx.fillStyle = hexToCSS(species === 'birch' ? lighten(foggedBody, 0.2) : foggedBody)
         const tw = trunkW * 0.7
         ctx.beginPath()
         ctx.moveTo(base.sx - trunkW / 2, base.sy)
@@ -1463,31 +1521,100 @@ function addPropDrawables(
         ctx.lineTo(base.sx + tw / 2, trunkTop.sy)
         ctx.lineTo(base.sx + trunkW / 2, base.sy)
         ctx.closePath(); ctx.fill()
-        // Multi-lobe canopy (3-4 overlapping circles)
+        // Birch: horizontal bark marks
+        if (species === 'birch') {
+          ctx.strokeStyle = 'rgba(0,0,0,0.12)'
+          ctx.lineWidth = 0.3
+          const h = Math.abs(base.sy - trunkTop.sy)
+          for (let bi = 0; bi < 4; bi++) {
+            const by = base.sy - h * (0.2 + bi * 0.2)
+            ctx.beginPath(); ctx.moveTo(base.sx - tw * 0.3, by); ctx.lineTo(base.sx + tw * 0.3, by); ctx.stroke()
+          }
+        }
+
         const r = Math.max(4, Math.abs(canopyTop.sy - trunkTop.sy) * 0.7)
-        const treeHash = simpleHash(obj.id)
-        const lobes = 3 + (treeHash % 2)
-        // Shadow lobe
-        ctx.fillStyle = hexToCSS(darken(foggedAccent, 0.12))
-        ctx.beginPath()
-        ctx.arc(trunkTop.sx + 1, trunkTop.sy - r * 0.15, r * 0.9, 0, Math.PI * 2)
-        ctx.fill()
-        // Main lobes
-        for (let li = 0; li < lobes; li++) {
-          const angle = (li / lobes) * Math.PI * 2 + treeHash * 0.3
-          const lx = trunkTop.sx + Math.cos(angle) * r * 0.35
-          const ly = trunkTop.sy - r * 0.3 + Math.sin(angle) * r * 0.25
-          const lr = r * (0.55 + (treeHash + li) % 3 * 0.08)
-          ctx.fillStyle = li % 2 === 0 ? hexToCSS(foggedAccent) : hexToCSS(darken(foggedAccent, 0.06))
+
+        if (species === 'pine') {
+          // Conical canopy — triangle layers
+          for (let layer = 0; layer < 3; layer++) {
+            const layerY = trunkTop.sy - r * (0.1 + layer * 0.35)
+            const layerW = r * (0.9 - layer * 0.2)
+            const layerH = r * 0.45
+            ctx.fillStyle = layer % 2 === 0 ? hexToCSS(canopyHue) : hexToCSS(darken(canopyHue, 0.06))
+            ctx.beginPath()
+            ctx.moveTo(trunkTop.sx, layerY - layerH)
+            ctx.lineTo(trunkTop.sx - layerW, layerY)
+            ctx.lineTo(trunkTop.sx + layerW, layerY)
+            ctx.closePath(); ctx.fill()
+          }
+        } else if (species === 'willow') {
+          // Weeping canopy — wide dome + hanging fronds
+          ctx.fillStyle = hexToCSS(darken(canopyHue, 0.08))
           ctx.beginPath()
-          ctx.arc(lx, ly, lr, 0, Math.PI * 2)
+          ctx.ellipse(trunkTop.sx, trunkTop.sy - r * 0.3, r * 1.1, r * 0.6, 0, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.fillStyle = hexToCSS(canopyHue)
+          ctx.beginPath()
+          ctx.ellipse(trunkTop.sx, trunkTop.sy - r * 0.35, r * 0.9, r * 0.5, 0, 0, Math.PI * 2)
+          ctx.fill()
+          // Hanging fronds
+          ctx.strokeStyle = hexToCSS(darken(canopyHue, 0.05))
+          ctx.lineWidth = 0.5
+          for (let fi = 0; fi < 7; fi++) {
+            const fAngle = -Math.PI * 0.8 + fi * Math.PI * 1.6 / 6
+            const fx = trunkTop.sx + Math.cos(fAngle) * r * 0.8
+            const fy = trunkTop.sy - r * 0.1
+            ctx.beginPath()
+            ctx.moveTo(trunkTop.sx + Math.cos(fAngle) * r * 0.5, trunkTop.sy - r * 0.3)
+            ctx.quadraticCurveTo(fx, trunkTop.sy, fx + Math.cos(fAngle) * 2, fy + r * 0.4)
+            ctx.stroke()
+          }
+        } else if (species === 'birch') {
+          // Airy, scattered canopy — small irregular clusters
+          for (let ci = 0; ci < 5; ci++) {
+            const cAngle = (ci / 5) * Math.PI * 2 + treeHash * 0.4
+            const cx2 = trunkTop.sx + Math.cos(cAngle) * r * 0.3
+            const cy2 = trunkTop.sy - r * 0.4 + Math.sin(cAngle) * r * 0.2
+            const cr = r * (0.35 + (treeHash + ci) % 3 * 0.06)
+            ctx.fillStyle = ci % 2 === 0 ? hexToCSS(canopyHue) : hexToCSS(lighten(canopyHue, 0.05))
+            ctx.beginPath()
+            ctx.arc(cx2, cy2, cr, 0, Math.PI * 2)
+            ctx.fill()
+          }
+        } else {
+          // Oak/default: multi-lobe canopy (original style)
+          const lobes = 3 + (treeHash % 2)
+          ctx.fillStyle = hexToCSS(darken(canopyHue, 0.12))
+          ctx.beginPath()
+          ctx.arc(trunkTop.sx + 1, trunkTop.sy - r * 0.15, r * 0.9, 0, Math.PI * 2)
+          ctx.fill()
+          for (let li = 0; li < lobes; li++) {
+            const angle = (li / lobes) * Math.PI * 2 + treeHash * 0.3
+            const lx = trunkTop.sx + Math.cos(angle) * r * 0.35
+            const ly = trunkTop.sy - r * 0.3 + Math.sin(angle) * r * 0.25
+            const lr = r * (0.55 + (treeHash + li) % 3 * 0.08)
+            ctx.fillStyle = li % 2 === 0 ? hexToCSS(canopyHue) : hexToCSS(darken(canopyHue, 0.06))
+            ctx.beginPath()
+            ctx.arc(lx, ly, lr, 0, Math.PI * 2)
+            ctx.fill()
+          }
+          ctx.fillStyle = hexToCSS(lighten(canopyHue, 0.08))
+          ctx.beginPath()
+          ctx.arc(trunkTop.sx - r * 0.2, trunkTop.sy - r * 0.5, r * 0.35, 0, Math.PI * 2)
           ctx.fill()
         }
-        // Highlight lobe (lit side)
-        ctx.fillStyle = hexToCSS(lighten(foggedAccent, 0.08))
-        ctx.beginPath()
-        ctx.arc(trunkTop.sx - r * 0.2, trunkTop.sy - r * 0.5, r * 0.35, 0, Math.PI * 2)
-        ctx.fill()
+
+        // Undergrowth at base (all species) — small tufts of grass/ferns
+        if (r > 5) {
+          for (let ui = 0; ui < 3; ui++) {
+            const ux = base.sx + (treeHash + ui * 17) % 7 - 3
+            const uy = base.sy - 0.5
+            ctx.fillStyle = `rgba(45,90,39,${(0.2 + ui * 0.05).toFixed(2)})`
+            ctx.beginPath()
+            ctx.ellipse(ux, uy, 1.5, 0.8, 0, 0, Math.PI * 2)
+            ctx.fill()
+          }
+        }
       }
     })
   } else if (def.id === 'bush' || def.id === 'hedge') {

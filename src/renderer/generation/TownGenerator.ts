@@ -180,6 +180,9 @@ export class TownGenerator implements IMapGenerator {
     const waterMap = this.generateWaterChannels(width, height, noise, rng, complexity)
     this.paintWater(terrainTiles, waterMap, width, height, noise)
 
+    // 3b. Natural ponds in low-lying areas (organic water bodies)
+    this.generateNaturalPonds(width, height, heightMap, waterMap, terrainTiles, noise, rng)
+
     // 4. District system (Voronoi-based)
     const districts = this.generateDistricts(width, height, complexity, rng, noise, waterMap)
     const districtMap = this.assignDistrictMap(width, height, districts, noise)
@@ -248,12 +251,24 @@ export class TownGenerator implements IMapGenerator {
       [...buildings, ...landmarks, ...gates, ...props, ...lights], density, rng
     )
 
-    // 16. Vegetation with district awareness
+    // 16. Vegetation with district awareness + species variety
     const vegetation = this.placeVegetation(
       width, height, roadMap, waterMap,
       [...buildings, ...landmarks, ...gates, ...props, ...lights, ...plazaProps],
-      districtMap, districts, density, rng, noise
+      districtMap, districts, density, rng, noise, heightMap
     )
+
+    // 16b. Private gardens behind buildings
+    const gardens = this.plantPrivateGardens(
+      width, height, roadMap, waterMap, heightMap,
+      [...buildings, ...landmarks], districtMap, districts,
+      [...props, ...lights, ...plazaProps, ...vegetation],
+      terrainTiles, rng, noise
+    )
+
+    // 16c. Organic terrain features (rocky outcrops, wildflower meadows)
+    this.paintOrganicTerrain(terrainTiles, heightMap, waterMap, roadMap, districtMap, districts,
+      width, height, noise, rng)
 
     // Build layers
     // 17. Countryside beyond walls
@@ -263,7 +278,7 @@ export class TownGenerator implements IMapGenerator {
     )
 
     const allStructures = [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls]
-    const allProps = [...props, ...lights, ...plazaProps, ...vegetation, ...hiddenCourtyards, ...countrysideProps]
+    const allProps = [...props, ...lights, ...plazaProps, ...vegetation, ...hiddenCourtyards, ...gardens, ...countrysideProps]
 
     const terrainLayer: MapLayer = {
       id: uuid(), name: 'Terrain', type: 'terrain',
@@ -859,45 +874,93 @@ export class TownGenerator implements IMapGenerator {
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
     const maxDist = Math.sqrt(w * w + h * h) / 2
 
-    // Per-district building placement — increased density for richer towns
+    // ════════════════════════════════════════════════════════════════
+    // ORGANIC GROWTH: Street-frontage walk (center→edge)
+    // Instead of random scatter, systematically walk road edges
+    // from center outward. This creates continuous street walls,
+    // natural growth rings, and organically dense cores.
+    // ════════════════════════════════════════════════════════════════
+
+    // Phase A: Collect all road-edge positions (non-road tiles adjacent to road)
+    interface RoadEdge { x: number; y: number; distSq: number }
+    const roadEdges: RoadEdge[] = []
+    for (let y = 2; y < h - 2; y++) {
+      for (let x = 2; x < w - 2; x++) {
+        if (roadMap[y][x] || waterMap[y][x] || occupied[y][x]) continue
+        // Must be adjacent to road
+        let nearRoad = false
+        for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]] as const) {
+          if (roadMap[y + dy]?.[x + dx]) { nearRoad = true; break }
+        }
+        if (!nearRoad) continue
+        roadEdges.push({ x, y, distSq: (x - center.x) ** 2 + (y - center.y) ** 2 })
+      }
+    }
+
+    // Sort center-first: core gets built first (growth rings)
+    roadEdges.sort((a, b) => a.distSq - b.distSq)
+
     const maxBuildings = Math.floor(50 + complexity * 90 + density * 60)
     let placed = 0
-    let attempts = 0
-    const maxAttempts = maxBuildings * 80
 
-    while (placed < maxBuildings && attempts < maxAttempts) {
-      attempts++
+    // Phase B: Walk edges, placing buildings with continuity bonus
+    // Track which tiles have a neighbor building for "street wall" bonus
+    const hasBuildingNeighbor = (x: number, y: number): boolean => {
+      for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]] as const) {
+        const nx = x + dx, ny = y + dy
+        if (nx >= 0 && nx < w && ny >= 0 && ny < h && occupied[ny][nx] && !roadMap[ny][nx] && !waterMap[ny][nx]) {
+          return true
+        }
+      }
+      return false
+    }
 
-      const rx = Math.floor(rng() * (w - 6)) + 3
-      const ry = Math.floor(rng() * (h - 6)) + 3
-      if (!this.isRoadAdjacent(rx, ry, roadMap, w, h)) continue
+    for (const edge of roadEdges) {
+      if (placed >= maxBuildings) break
+      const { x: rx, y: ry } = edge
       if (occupied[ry]?.[rx]) continue
 
-      // Get district for this tile
+      // District context
       const dId = districtMap[ry]?.[rx] ?? -1
       const district = districts.find(d => d.id === dId)
       const types = district ? DISTRICT_BUILDINGS[district.type] : DISTRICT_BUILDINGS.residential
       const distDensity = district ? district.buildingDensity : 0.8
+      const dType = district?.type || 'residential'
 
-      // Density gradient: center denser, edges sparser
-      const distFromCenter = Math.sqrt((rx - center.x) ** 2 + (ry - center.y) ** 2)
+      // Growth ring: distance-based acceptance
+      const distFromCenter = Math.sqrt(edge.distSq)
       const distNorm = distFromCenter / maxDist
-      const acceptChance = distDensity * (1.0 - distNorm * 0.6) * density
+
+      // Continuity bonus: much more likely to build next to existing buildings
+      // This creates organic street walls instead of isolated buildings
+      const continuityBonus = hasBuildingNeighbor(rx, ry) ? 0.35 : 0
+      const acceptChance = distDensity * (1.0 - distNorm * 0.5) * density + continuityBonus
       if (rng() > acceptChance) continue
 
-      // Weighted random building type
-      const totalWeight = types.reduce((s, t) => s + t.weight, 0)
+      // Growth ring character: core gets bigger, taller buildings
+      const ringChar = distNorm < 0.25 ? 'core' : distNorm < 0.5 ? 'middle' : 'outer'
+
+      // Weighted random building type (bias toward larger buildings in core)
+      const totalWeight = types.reduce((s, t) => {
+        let w = t.weight
+        if (ringChar === 'core' && t.w >= 3) w *= 1.5
+        if (ringChar === 'outer' && t.w >= 3) w *= 0.5
+        return s + w
+      }, 0)
       let roll = rng() * totalWeight
       let type = types[0]
       for (const t of types) {
-        roll -= t.weight
+        let tw = t.weight
+        if (ringChar === 'core' && t.w >= 3) tw *= 1.5
+        if (ringChar === 'outer' && t.w >= 3) tw *= 0.5
+        roll -= tw
         if (roll <= 0) { type = t; break }
       }
 
       const bw = type.w, bh = type.h
       if (rx + bw > w - 1 || ry + bh > h - 1) continue
 
-      // Check if area is free (NO buffer for shared walls)
+      // Check if area is free
       let free = true
       for (let dy = 0; dy < bh && free; dy++) {
         for (let dx = 0; dx < bw && free; dx++) {
@@ -906,31 +969,28 @@ export class TownGenerator implements IMapGenerator {
       }
       if (!free) continue
 
-      // District-aware height: each district has its own character
+      // Growth-ring-aware floor count
       const heightVal = heightMap[ry]?.[rx] ?? 0
-      const dType = district?.type || 'residential'
       let baseFloors: number
       switch (dType) {
-        case 'noble': baseFloors = 2 + Math.floor(rng() * 2); break      // 2-3 imposing
-        case 'temple': baseFloors = 1 + Math.floor(rng() * 3); break     // 1-3 varied towers
-        case 'market': baseFloors = 1 + Math.floor(rng() * 2); break     // 1-2 shops
-        case 'slum': baseFloors = 1 + Math.floor(rng() * (rng() > 0.7 ? 2 : 1)); break // mostly 1
-        case 'garden': baseFloors = 1 + Math.floor(rng() * 2); break     // 1-2 villas
+        case 'noble': baseFloors = 2 + Math.floor(rng() * 2); break
+        case 'temple': baseFloors = 1 + Math.floor(rng() * 3); break
+        case 'market': baseFloors = 1 + Math.floor(rng() * 2); break
+        case 'slum': baseFloors = 1 + Math.floor(rng() * (rng() > 0.7 ? 2 : 1)); break
+        case 'garden': baseFloors = 1 + Math.floor(rng() * 2); break
         default: baseFloors = 1 + Math.floor(rng() * 2); break
       }
-      const centerBonus = distNorm < 0.3 ? 1 : 0
+      const coreBonus = ringChar === 'core' ? 1 : 0
       const hillBonus = heightVal > 1.0 ? 1 : 0
-      const floors = Math.min(baseFloors + centerBonus + hillBonus, 4)
-      // Apply district elevation bias — temples rise, waterfronts sink
+      const floors = Math.min(baseFloors + coreBonus + hillBonus, 4)
+
       const elevBias = DISTRICT_ELEVATION_BIAS[dType] || 0
       const rawElev = heightVal + elevBias
       const elevation = Math.max(0, Math.min(Math.round(rawElev * 2) / 2, 2.5))
 
-      // Nomura-inspired micro-variation: each building subtly unique
-      // Scale jitter creates interlocking asymmetry — no two buildings identical
-      const scaleJitter = 0.92 + rng() * 0.16 // 0.92-1.08 range
-      const scaleY = 0.94 + rng() * 0.12       // slight vertical variety
-      // Architectural style varies by district and noise
+      // Micro-variation: each building subtly unique
+      const scaleJitter = 0.92 + rng() * 0.16
+      const scaleY = 0.94 + rng() * 0.12
       const styleNoise = noise.noise2D(rx * 0.2, ry * 0.2)
       const style = styleNoise > 0.3 ? 'ornate'
         : styleNoise > -0.1 ? 'standard'
@@ -943,9 +1003,8 @@ export class TownGenerator implements IMapGenerator {
         rotation: 0, scaleX: scaleJitter, scaleY,
         elevation,
         properties: {
-          floors, district: district?.type || 'none',
-          style,
-          // Facade details driven by district character
+          floors, district: dType,
+          style, growthRing: ringChar,
           hasAwning: dType === 'market' || (dType === 'residential' && rng() > 0.6),
           hasBalcony: type.id === 'balcony_house' || (dType === 'noble' && rng() > 0.5),
           hasFlowerBox: dType === 'garden' || dType === 'noble' || (dType === 'residential' && rng() > 0.7),
@@ -960,6 +1019,59 @@ export class TownGenerator implements IMapGenerator {
         }
       }
       placed++
+    }
+
+    // Phase C: Gap-fill pass — random scatter for spots the walk missed
+    const gapFillMax = Math.floor(maxBuildings * 0.3)
+    let gapFilled = 0
+    for (let attempt = 0; attempt < gapFillMax * 40 && gapFilled < gapFillMax; attempt++) {
+      const rx = Math.floor(rng() * (w - 6)) + 3
+      const ry = Math.floor(rng() * (h - 6)) + 3
+      if (!this.isRoadAdjacent(rx, ry, roadMap, w, h) || occupied[ry]?.[rx]) continue
+
+      const dId = districtMap[ry]?.[rx] ?? -1
+      const district = districts.find(d => d.id === dId)
+      const types = district ? DISTRICT_BUILDINGS[district.type] : DISTRICT_BUILDINGS.residential
+      const distDensity = district ? district.buildingDensity : 0.8
+      const distFromCenter = Math.sqrt((rx - center.x) ** 2 + (ry - center.y) ** 2)
+      const distNorm = distFromCenter / maxDist
+      if (rng() > distDensity * (1.0 - distNorm * 0.6) * density) continue
+
+      const totalWeight = types.reduce((s, t) => s + t.weight, 0)
+      let roll = rng() * totalWeight
+      let type = types[0]
+      for (const t of types) { roll -= t.weight; if (roll <= 0) { type = t; break } }
+
+      const bw = type.w, bh = type.h
+      if (rx + bw > w - 1 || ry + bh > h - 1) continue
+
+      let free = true
+      for (let dy = 0; dy < bh && free; dy++) {
+        for (let dx = 0; dx < bw && free; dx++) {
+          if (occupied[ry + dy]?.[rx + dx]) free = false
+        }
+      }
+      if (!free) continue
+
+      const heightVal = heightMap[ry]?.[rx] ?? 0
+      const dType = district?.type || 'residential'
+      const elevBias = DISTRICT_ELEVATION_BIAS[dType] || 0
+      const elevation = Math.max(0, Math.min(Math.round((heightVal + elevBias) * 2) / 2, 2.5))
+
+      buildings.push({
+        id: uuid(), definitionId: type.id,
+        x: rx, y: ry, rotation: 0,
+        scaleX: 0.92 + rng() * 0.16, scaleY: 0.94 + rng() * 0.12,
+        elevation,
+        properties: { floors: 1 + Math.floor(rng() * 2), district: dType }
+      })
+
+      for (let dy = 0; dy < bh; dy++) {
+        for (let dx = 0; dx < bw; dx++) {
+          if (ry + dy < h && rx + dx < w) occupied[ry + dy][rx + dx] = true
+        }
+      }
+      gapFilled++
     }
 
     // === FILL PASS 1: Row houses & small buildings to plug gaps for continuous frontage ===
@@ -1656,7 +1768,8 @@ export class TownGenerator implements IMapGenerator {
     roadMap: boolean[][], waterMap: boolean[][],
     existingObjs: PlacedObject[],
     districtMap: number[][], districts: District[],
-    density: number, rng: () => number, noise: SimplexNoise
+    density: number, rng: () => number, noise: SimplexNoise,
+    heightMap?: number[][]
   ): PlacedObject[] {
     const vegetation: PlacedObject[] = []
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
@@ -1716,7 +1829,26 @@ export class TownGenerator implements IMapGenerator {
       }
 
       if (shouldPlace) {
-        vegetation.push(this.createObj(isTree ? 'tree' : 'bush', tx, ty))
+        if (isTree) {
+          const treeObj = this.createObj('tree', tx, ty)
+          // Species selection based on district, elevation, and noise
+          const elev = heightMap?.[ty]?.[tx] ?? 0
+          const speciesNoise = noise.noise2D(tx * 0.3 + 200, ty * 0.3 + 200)
+          let species: string
+          if (district?.type === 'garden' || district?.type === 'noble') {
+            species = speciesNoise > 0.3 ? 'maple' : speciesNoise > -0.2 ? 'birch' : 'oak'
+          } else if (elev > 1.2) {
+            species = speciesNoise > 0 ? 'pine' : 'oak' // Conifers on heights
+          } else if (this.hasNearbyWater(tx, ty, waterMap, w, h, 3)) {
+            species = speciesNoise > 0.2 ? 'willow' : 'birch' // Willows near water
+          } else {
+            species = speciesNoise > 0.4 ? 'pine' : speciesNoise > 0 ? 'birch' : speciesNoise > -0.3 ? 'oak' : 'maple'
+          }
+          treeObj.properties = { species }
+          vegetation.push(treeObj)
+        } else {
+          vegetation.push(this.createObj('bush', tx, ty))
+        }
         occupied[ty][tx] = true
       }
     }
@@ -2141,6 +2273,232 @@ export class TownGenerator implements IMapGenerator {
             const courtItem = rng() > 0.5 ? 'well' : 'potted_plant'
             buildings.push(this.createObj(courtItem, x, y))
             occupied[y][x] = true
+          }
+        }
+      }
+    }
+  }
+
+  // === NATURAL PONDS ===
+  // Organic water bodies at low elevation points — adds natural beauty
+  private generateNaturalPonds(
+    w: number, h: number, heightMap: number[][], waterMap: boolean[][],
+    terrain: number[][], noise: SimplexNoise, rng: () => number
+  ): void {
+    // Find local minima in height map as pond candidates
+    const numPonds = 1 + Math.floor(rng() * 3)
+    let pondsPlaced = 0
+
+    for (let attempt = 0; attempt < 60 && pondsPlaced < numPonds; attempt++) {
+      const cx = 5 + Math.floor(rng() * (w - 10))
+      const cy = 5 + Math.floor(rng() * (h - 10))
+      const elev = heightMap[cy]?.[cx] ?? 1
+
+      // Ponds form in low-lying areas
+      if (elev > 0.8) continue
+
+      // Check not already water
+      if (waterMap[cy][cx]) continue
+
+      // Organic shape using noise threshold
+      const pondR = 2 + Math.floor(rng() * 2)
+      let pondSize = 0
+
+      for (let dy = -pondR - 1; dy <= pondR + 1; dy++) {
+        for (let dx = -pondR - 1; dx <= pondR + 1; dx++) {
+          const px = cx + dx, py = cy + dy
+          if (px < 1 || px >= w - 1 || py < 1 || py >= h - 1) continue
+          if (waterMap[py][px]) continue
+
+          // Elliptical base + noise perturbation for organic shape
+          const dist = Math.sqrt((dx * dx) / (pondR * pondR) + (dy * dy) / ((pondR * 0.8) * (pondR * 0.8)))
+          const edgeNoise = noise.noise2D(px * 0.3 + 500, py * 0.3 + 500) * 0.3
+          if (dist < 1.0 + edgeNoise) {
+            waterMap[py][px] = true
+            terrain[py][px] = 3 // water
+            pondSize++
+          } else if (dist < 1.3 + edgeNoise) {
+            // Mud/sand shore
+            terrain[py][px] = 11 // mud
+          }
+        }
+      }
+
+      if (pondSize > 2) pondsPlaced++
+    }
+  }
+
+  // === PRIVATE GARDENS ===
+  // Cozy enclosed spaces behind buildings — hedges, flower beds, fruit trees
+  private plantPrivateGardens(
+    w: number, h: number,
+    roadMap: boolean[][], waterMap: boolean[][], heightMap: number[][],
+    buildings: PlacedObject[], districtMap: number[][], districts: District[],
+    existingProps: PlacedObject[],
+    terrain: number[][], rng: () => number, noise: SimplexNoise
+  ): PlacedObject[] {
+    const gardenProps: PlacedObject[] = []
+    const occupied = this.createOccupied(w, h, roadMap, waterMap)
+    this.markObjects(occupied, buildings, w, h)
+    this.markObjects(occupied, existingProps, w, h)
+
+    // For each building, check if there's open space "behind" it (away from road)
+    for (const b of buildings) {
+      const fp = this.getFootprint(b.definitionId)
+      const dId = districtMap[b.y]?.[b.x] ?? -1
+      const district = districts.find(d => d.id === dId)
+      const dType = district?.type || 'residential'
+
+      // Skip slum and fortress — they don't have gardens
+      if (dType === 'slum' || dType === 'fortress' || dType === 'harbor') continue
+
+      // Find which side faces AWAY from the nearest road (the "back")
+      let bestDir = { dx: 0, dy: 1 } // default: south
+      let maxRoadDist = 0
+      for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]] as const) {
+        const checkX = b.x + (dx === 1 ? fp.w : dx === -1 ? -1 : 0)
+        const checkY = b.y + (dy === 1 ? fp.h : dy === -1 ? -1 : 0)
+        if (checkX < 0 || checkX >= w || checkY < 0 || checkY >= h) continue
+        if (roadMap[checkY]?.[checkX]) continue // This side faces road — not the back
+        // Count distance to nearest road from this side
+        let roadDist = 0
+        for (let d = 1; d <= 4; d++) {
+          const rx = checkX + dx * d, ry = checkY + dy * d
+          if (rx >= 0 && rx < w && ry >= 0 && ry < h && roadMap[ry][rx]) { roadDist = d; break }
+        }
+        if (roadDist === 0) roadDist = 5
+        if (roadDist > maxRoadDist) {
+          maxRoadDist = roadDist
+          bestDir = { dx, dy }
+        }
+      }
+
+      // Try to carve a 2x2 or 3x2 garden behind the building
+      const gardenW = 2 + (dType === 'noble' || dType === 'garden' ? 1 : 0)
+      const gardenH = 2
+      const gx = bestDir.dx === 1 ? b.x + fp.w : bestDir.dx === -1 ? b.x - gardenW : b.x
+      const gy = bestDir.dy === 1 ? b.y + fp.h : bestDir.dy === -1 ? b.y - gardenH : b.y
+
+      if (gx < 0 || gx + gardenW > w || gy < 0 || gy + gardenH > h) continue
+      if (!this.areaFree(occupied, gx, gy, gardenW, gardenH, w, h)) continue
+
+      // Acceptance probability based on district
+      const gardenChance = dType === 'garden' ? 0.8 : dType === 'noble' ? 0.6 :
+        dType === 'residential' ? 0.35 : dType === 'temple' ? 0.3 : 0.15
+      if (rng() > gardenChance) continue
+
+      // Paint garden ground
+      for (let dy = 0; dy < gardenH; dy++) {
+        for (let dx = 0; dx < gardenW; dx++) {
+          const tx = gx + dx, ty = gy + dy
+          if (tx < w && ty < h) {
+            terrain[ty][tx] = dType === 'temple' ? 10 : 12 // mossy stone or wildflower
+          }
+        }
+      }
+
+      // Place garden features
+      const centerX = gx + Math.floor(gardenW / 2)
+      const centerY = gy + Math.floor(gardenH / 2)
+
+      if (dType === 'garden' || dType === 'noble') {
+        // Formal garden: central feature + hedges
+        if (!occupied[centerY][centerX]) {
+          const feature = rng() > 0.6 ? 'potted_plant' : rng() > 0.3 ? 'statue' : 'fountain'
+          if (feature === 'fountain' && this.areaFree(occupied, centerX, centerY, 2, 2, w, h)) {
+            gardenProps.push(this.createObj('fountain', centerX, centerY))
+            this.markArea(occupied, centerX, centerY, 2, 2, w, h)
+          } else {
+            gardenProps.push(this.createObj(feature, centerX, centerY))
+            occupied[centerY][centerX] = true
+          }
+        }
+        // Hedges along garden boundary (1-2 sides)
+        for (let hx = gx; hx < gx + gardenW - 1; hx += 2) {
+          if (hx + 1 < w && gy > 0 && !occupied[gy][hx]) {
+            gardenProps.push(this.createObj('bush', hx, gy))
+            occupied[gy][hx] = true
+          }
+        }
+      } else if (dType === 'residential') {
+        // Kitchen garden: fruit tree + vegetable-suggesting ground
+        if (!occupied[centerY][centerX]) {
+          const fruitTree = this.createObj('tree', centerX, centerY)
+          fruitTree.properties = { species: 'maple' } // fruit/ornamental tree
+          gardenProps.push(fruitTree)
+          occupied[centerY][centerX] = true
+        }
+        // Fence along one edge
+        if (gx + 1 < w && !occupied[gy + gardenH - 1][gx]) {
+          gardenProps.push(this.createObj('fence', gx, gy + gardenH - 1))
+          occupied[gy + gardenH - 1][gx] = true
+          if (gx + 1 < w) occupied[gy + gardenH - 1][gx + 1] = true
+        }
+      } else {
+        // Temple/other: contemplative garden
+        if (!occupied[centerY][centerX]) {
+          gardenProps.push(this.createObj('potted_plant', centerX, centerY))
+          occupied[centerY][centerX] = true
+        }
+      }
+
+      // Mark garden area as occupied
+      this.markArea(occupied, gx, gy, gardenW, gardenH, w, h)
+    }
+
+    return gardenProps
+  }
+
+  // === ORGANIC TERRAIN PAINTING ===
+  // Rocky outcrops on hilltops, wildflower meadows in open areas, gravel transitions
+  private paintOrganicTerrain(
+    terrain: number[][], heightMap: number[][], waterMap: boolean[][],
+    roadMap: boolean[][], districtMap: number[][], districts: District[],
+    w: number, h: number, noise: SimplexNoise, rng: () => number
+  ): void {
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (waterMap[y][x] || roadMap[y][x]) continue
+        const elev = heightMap[y]?.[x] ?? 0
+        const tile = terrain[y][x]
+        const n = noise.noise2D(x * 0.12 + 300, y * 0.12 + 300)
+
+        // Rocky outcrops on high ground (elevation > 1.5)
+        if (elev > 1.5 && n > 0.1 && (tile === 0 || tile === 1 || tile === 5)) {
+          terrain[y][x] = 7 // rocky ground
+          continue
+        }
+
+        // Wildflower meadows in garden districts and open grassland
+        const dId = districtMap[y]?.[x] ?? -1
+        const district = districts.find(d => d.id === dId)
+        if (district?.type === 'garden' && tile === 0 && n > 0.15) {
+          terrain[y][x] = 12 // wildflower meadow
+          continue
+        }
+
+        // Wildflower patches in open grass far from roads
+        if (tile === 0 || tile === 5) {
+          let nearRoad = false
+          for (let dy = -2; dy <= 2 && !nearRoad; dy++) {
+            for (let dx = -2; dx <= 2 && !nearRoad; dx++) {
+              if (roadMap[y + dy]?.[x + dx]) nearRoad = true
+            }
+          }
+          if (!nearRoad && n > 0.35 && rng() > 0.6) {
+            terrain[y][x] = 12 // scattered wildflower patches
+          }
+        }
+
+        // Gravel transitions between stone/cobble and grass
+        if (tile === 0 || tile === 5) {
+          let nearStone = false
+          for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]] as const) {
+            const t = terrain[y + dy]?.[x + dx]
+            if (t === 2 || t === 8 || t === 9) nearStone = true
+          }
+          if (nearStone && n > 0.1) {
+            terrain[y][x] = 13 // gravel transition
           }
         }
       }
