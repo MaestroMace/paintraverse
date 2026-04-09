@@ -128,51 +128,52 @@ export function quantizeImageData(
   palette: Palette,
   dithering: 'none' | 'ordered' | 'floyd-steinberg' = 'none'
 ): ImageData {
-  const { width, height, data } = imageData
-  const output = new ImageData(new Uint8ClampedArray(data), width, height)
   const lut = buildLUT(palette)
 
   if (dithering === 'floyd-steinberg') {
+    // Dithering needs a copy to avoid corrupting source
+    const { width, height, data } = imageData
+    const output = new ImageData(new Uint8ClampedArray(data), width, height)
     floydSteinbergDither(output, lut)
+    return output
   } else if (dithering === 'ordered') {
+    const { width, height, data } = imageData
+    const output = new ImageData(new Uint8ClampedArray(data), width, height)
     orderedDither(output, lut)
+    return output
   } else {
-    // Simple nearest-color quantization via LUT
-    const od = output.data
-    for (let i = 0; i < od.length; i += 4) {
-      const idx = (((od[i] >> 3) << 10) | ((od[i + 1] >> 3) << 5) | (od[i + 2] >> 3)) * 3
-      od[i] = lut[idx]
-      od[i + 1] = lut[idx + 1]
-      od[i + 2] = lut[idx + 2]
+    // In-place quantization — no copy needed (saves 1.2MB alloc)
+    const d = imageData.data
+    for (let i = 0; i < d.length; i += 4) {
+      const idx = (((d[i] >> 3) << 10) | ((d[i + 1] >> 3) << 5) | (d[i + 2] >> 3)) * 3
+      d[i] = lut[idx]; d[i + 1] = lut[idx + 1]; d[i + 2] = lut[idx + 2]
     }
+    return imageData
   }
-
-  return output
 }
 
-// Bayer matrix 4x4 for ordered dithering
-const BAYER_4x4 = [
-  [0, 8, 2, 10],
-  [12, 4, 14, 6],
-  [3, 11, 1, 9],
-  [15, 7, 13, 5]
-].map((row) => row.map((v) => (v / 16 - 0.5) * 16))
+// Bayer matrix 4x4 — flattened for single-index access in hot loop
+const BAYER_FLAT = new Float32Array([
+  -8, 0, -6, 2, 4, -4, 6, -2, -5, 3, -7, 1, 7, -1, 5, -3
+])
 
 function orderedDither(imageData: ImageData, lut: Uint8Array): void {
   const { width, data } = imageData
+  let px = 0, py = 0
   for (let i = 0; i < data.length; i += 4) {
-    const px = (i / 4) % width
-    const py = Math.floor(i / 4 / width)
-    const threshold = BAYER_4x4[py % 4][px % 4]
+    const threshold = BAYER_FLAT[(py & 3) * 4 + (px & 3)]
 
-    const r = Math.max(0, Math.min(255, data[i] + threshold))
-    const g = Math.max(0, Math.min(255, data[i + 1] + threshold))
-    const b = Math.max(0, Math.min(255, data[i + 2] + threshold))
+    let r = data[i] + threshold
+    let g = data[i + 1] + threshold
+    let b = data[i + 2] + threshold
+    if (r < 0) r = 0; else if (r > 255) r = 255
+    if (g < 0) g = 0; else if (g > 255) g = 255
+    if (b < 0) b = 0; else if (b > 255) b = 255
 
     const idx = (((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3)) * 3
-    data[i] = lut[idx]
-    data[i + 1] = lut[idx + 1]
-    data[i + 2] = lut[idx + 2]
+    data[i] = lut[idx]; data[i + 1] = lut[idx + 1]; data[i + 2] = lut[idx + 2]
+
+    if (++px >= width) { px = 0; py++ }
   }
 }
 

@@ -204,10 +204,15 @@ const MAX_PARTICLES = 400
 let weatherParticles: WeatherParticle[] = []
 let lastWeather = ''
 let lastTime = 0
+// Pre-allocated bucket arrays for batched particle drawing (avoid per-frame allocation)
+const _snowBuckets: WeatherParticle[][] = Array.from({ length: 7 }, () => [])
+const _fogBuckets: WeatherParticle[][] = Array.from({ length: 4 }, () => [])
 
 // Cached render canvas to avoid allocating new one every frame
 let _renderCanvas: HTMLCanvasElement | null = null
 let _renderCtx: CanvasRenderingContext2D | null = null
+// Empty water mask for preview mode (avoids allocation)
+const _emptyWaterMask = new Uint8Array(0)
 
 // ── Main render function ──
 
@@ -216,12 +221,14 @@ export function renderCanvas2D(
   camera: RenderCamera,
   objectDefs: ObjectDefinition[],
   buildingPalettes?: BuildingPalette[] | null,
-  time: number = 0
+  time: number = 0,
+  isPreview: boolean = false
 ): SceneResult {
   const { outputWidth: W, outputHeight: H } = camera
   const ts = map.tileSize
   const lights: LightSource[] = []
-  const waterMask = new Uint8Array(W * H)
+  // Only build water mask when needed (final render uses it for reflections)
+  const waterMask = isPreview ? _emptyWaterMask : new Uint8Array(W * H)
 
   if (!_renderCanvas || _renderCanvas.width !== W || _renderCanvas.height !== H) {
     _renderCanvas = document.createElement('canvas')
@@ -556,15 +563,19 @@ function updateWeatherParticles(
     }
   }
 
-  for (let i = weatherParticles.length - 1; i >= 0; i--) {
+  // Update + swap-and-pop removal (O(1) per removal instead of O(n) splice)
+  const lifeDrain = weather === 'snow' ? 0.2 : 0.6
+  let len = weatherParticles.length
+  for (let i = len - 1; i >= 0; i--) {
     const p = weatherParticles[i]
     p.x += p.vx; p.y += p.vy
-    p.life -= dt * (weather === 'snow' ? 0.2 : 0.6)
+    p.life -= dt * lifeDrain
     if (weather === 'snow') p.vx = Math.sin(time + i) * 0.3
     if (p.life <= 0 || p.y > H + 5 || p.x < -20 || p.x > W + 20) {
-      weatherParticles.splice(i, 1)
+      weatherParticles[i] = weatherParticles[--len]
     }
   }
+  weatherParticles.length = len
 }
 
 function drawWeatherParticles(
@@ -599,16 +610,16 @@ function drawWeatherParticles(
     }
   } else if (weather === 'snow') {
     // Quantize alpha to 7 buckets to reduce string allocations (was 1 per particle)
-    const buckets: WeatherParticle[][] = [[], [], [], [], [], [], []]
+    for (let b = 0; b < 7; b++) _snowBuckets[b].length = 0
     for (const p of weatherParticles) {
       const ai = Math.min(6, Math.floor(Math.min(0.7, p.life) * 10))
-      buckets[ai].push(p)
+      _snowBuckets[ai].push(p)
     }
     for (let bi = 0; bi < 7; bi++) {
-      if (buckets[bi].length === 0) continue
+      if (_snowBuckets[bi].length === 0) continue
       ctx.fillStyle = `rgba(240,240,255,${(bi * 0.1).toFixed(1)})`
       ctx.beginPath()
-      for (const p of buckets[bi]) {
+      for (const p of _snowBuckets[bi]) {
         ctx.moveTo(p.x + p.size * 0.6, p.y)
         ctx.arc(p.x, p.y, p.size * 0.6, 0, Math.PI * 2)
       }
@@ -616,15 +627,15 @@ function drawWeatherParticles(
     }
   } else if (weather === 'fog') {
     // Quantize fog alpha similarly
-    const buckets: WeatherParticle[][] = [[], [], [], []]
+    for (let b = 0; b < 4; b++) _fogBuckets[b].length = 0
     for (const p of weatherParticles) {
       const ai = Math.min(3, Math.floor(p.life * 4))
-      buckets[ai].push(p)
+      _fogBuckets[ai].push(p)
     }
     for (let bi = 0; bi < 4; bi++) {
-      if (buckets[bi].length === 0) continue
+      if (_fogBuckets[bi].length === 0) continue
       ctx.fillStyle = `rgba(200,200,210,${(bi * 0.015 + 0.005).toFixed(3)})`
-      for (const p of buckets[bi]) {
+      for (const p of _fogBuckets[bi]) {
         ctx.beginPath()
         ctx.ellipse(p.x, p.y, 15 + p.size * 10, 4 + p.size * 3, 0, 0, Math.PI * 2)
         ctx.fill()
@@ -3666,10 +3677,15 @@ function lighten(color: number, amount: number): number {
   return (Math.floor(r) << 16) | (Math.floor(g) << 8) | Math.floor(b)
 }
 
+const _cssCache = new Map<number, string>()
 function hexToCSS(color: number): string {
-  return '#' + ((color >> 16) & 0xff).toString(16).padStart(2, '0')
+  let s = _cssCache.get(color)
+  if (s !== undefined) return s
+  s = '#' + ((color >> 16) & 0xff).toString(16).padStart(2, '0')
     + ((color >> 8) & 0xff).toString(16).padStart(2, '0')
     + (color & 0xff).toString(16).padStart(2, '0')
+  _cssCache.set(color, s)
+  return s
 }
 
 function lerpColor(a: number, b: number, t: number): number {

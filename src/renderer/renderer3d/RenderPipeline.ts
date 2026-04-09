@@ -44,7 +44,7 @@ export function renderPixelArt(
   const isPreview = opts.quality === 'preview'
 
   // Render scene using pure Canvas2D (no WebGL — avoids SwiftShader crashes)
-  const sceneResult = renderCanvas2D(map, camera, objectDefs, buildingPalettes, time)
+  const sceneResult = renderCanvas2D(map, camera, objectDefs, buildingPalettes, time, isPreview)
   let imageData = sceneResult.imageData
 
   // Skip expensive per-pixel post-processing in preview mode for playable framerates
@@ -53,28 +53,33 @@ export function renderPixelArt(
     applyWaterReflection(imageData, sceneResult.waterMask, outputWidth, outputHeight, time)
   }
 
-  // Dynamic light map (night/dusk only)
+  // === MERGED POST-PROCESSING (single pixel loop) ===
+  // Night darken + light map composite + color grading in one pass.
+  // Bloom extraction piggybacks on the same loop for final renders.
   const tod = map.environment.timeOfDay
   const isNight = tod < 5 || tod >= 19
   const isDusk = tod >= 17 && tod < 19
-  let nightDarkeningApplied = false
-  if (isNight || isDusk) {
-    const darkFactor = isNight ? 0.55 : 0.75
-    applyNightDarkening(imageData, darkFactor)
-    nightDarkeningApplied = true
-    // Light map compositing only in final render (radial gradients are slow)
-    if (!isPreview && sceneResult.lights.length > 0) {
-      const lightMap = renderLightMap(sceneResult.lights, outputWidth, outputHeight)
-      compositeAdditive(imageData, lightMap)
-    }
+
+  let lightMapData: ImageData | null = null
+  if (!isPreview && (isNight || isDusk) && sceneResult.lights.length > 0) {
+    lightMapData = renderLightMap(sceneResult.lights, outputWidth, outputHeight)
   }
 
-  // Color grading — fast enough for preview
-  applyColorGrading(imageData, tod, nightDarkeningApplied)
+  const darkFactor = isNight ? 0.55 : isDusk ? 0.75 : 1.0
+  const needsGrade = isNight || isDusk || (tod >= 15 && tod < 17) || (tod >= 5 && tod < 7)
+  const needsBloom = !isPreview
 
-  // Skip bloom in preview mode for speed
-  if (!isPreview) {
-    applyBloom(imageData, outputWidth, outputHeight)
+  // Pre-compute bloom buffer (only for final render)
+  const totalPixels = outputWidth * outputHeight
+  if (needsBloom) ensureBloomBuffers(totalPixels)
+
+  applyMergedPostProcess(
+    imageData, lightMapData, darkFactor, tod,
+    isNight || isDusk, needsGrade, needsBloom, outputWidth
+  )
+
+  if (needsBloom) {
+    applyBloomFromBuffer(imageData, outputWidth, outputHeight)
   }
 
   const palette = PALETTES[opts.paletteId] || PALETTES['db32']
@@ -100,90 +105,146 @@ export function renderPixelArt(
   }
 }
 
-// === Color Grading ===
+// === Merged Post-Processing (single pixel loop) ===
+// Combines night darkening + light map composite + color grading + bloom extraction
+// into ONE pass over the pixel data. Saves 3-4 full array traversals per frame.
 
-function applyColorGrading(imageData: ImageData, timeOfDay: number, nightDarkeningApplied: boolean = false): void {
-  const { data } = imageData
-  const isNight = timeOfDay < 5 || timeOfDay >= 19
-  const isDusk = timeOfDay >= 17 && timeOfDay < 19
+// Pooled bloom buffers — avoids 11MB allocation per frame
+let _bloomBright: Float32Array | null = null
+let _bloomTmp: Float32Array | null = null
+let _bloomDst: Float32Array | null = null
+let _bloomBufSize = 0
+
+function ensureBloomBuffers(pixels: number): void {
+  const size = pixels * 3
+  if (_bloomBufSize === size && _bloomBright) return
+  _bloomBright = new Float32Array(size)
+  _bloomTmp = new Float32Array(size)
+  _bloomDst = new Float32Array(size)
+  _bloomBufSize = size
+}
+
+function applyMergedPostProcess(
+  imageData: ImageData, lightMap: ImageData | null,
+  darkFactor: number, timeOfDay: number,
+  nightApplied: boolean, needsGrade: boolean, needsBloom: boolean,
+  _width: number
+): void {
+  const d = imageData.data
+  const ld = lightMap?.data ?? null
+  const bright = needsBloom ? _bloomBright! : null
+
+  // Pre-compute grading constants outside the loop
   const isGoldenHour = timeOfDay >= 15 && timeOfDay < 17
   const isDawn = timeOfDay >= 5 && timeOfDay < 7
+  const isNight = timeOfDay < 5 || timeOfDay >= 19
+  const isDusk = timeOfDay >= 17 && timeOfDay < 19
 
-  if (!isNight && !isDusk && !isGoldenHour && !isDawn) return
-
-  let warmStrength: number
-  if (isNight) warmStrength = 0.08
-  else if (isDusk) warmStrength = 0.04 + ((timeOfDay - 17) / 2) * 0.04
-  else if (isGoldenHour) {
-    const p = (timeOfDay - 15) / 2
-    warmStrength = 0.02 + p * 0.02
-  } else {
-    const p = 1 - (timeOfDay - 5) / 2
-    warmStrength = 0.02 + p * 0.03
+  let warmStrength = 0
+  if (needsGrade) {
+    if (isNight) warmStrength = 0.08
+    else if (isDusk) warmStrength = 0.04 + ((timeOfDay - 17) / 2) * 0.04
+    else if (isGoldenHour) warmStrength = 0.02 + ((timeOfDay - 15) / 2) * 0.02
+    else if (isDawn) warmStrength = 0.02 + (1 - (timeOfDay - 5) / 2) * 0.03
   }
+  const shadowScale = nightApplied ? 0.4 : 1.0
+  const applyDark = darkFactor < 1.0
 
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i], g = data[i + 1], b = data[i + 2]
-    const lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255
+  for (let i = 0; i < d.length; i += 4) {
+    let r = d[i], g = d[i + 1], b = d[i + 2]
 
-    if (isGoldenHour || isDawn) {
-      // Subtle warm shift across all tones
-      data[i] = Math.min(255, r + warmStrength * 15)
-      data[i + 1] = Math.min(255, g + warmStrength * 6)
-      data[i + 2] = Math.max(0, b - warmStrength * 8)
-    } else if (lum < 0.3) {
-      // Night/dusk shadows: gentle cool tint (not aggressive blue push)
-      // When night darkening already applied, most pixels hit this branch —
-      // so keep the effect very subtle to avoid blue striping
-      const shadowScale = nightDarkeningApplied ? 0.4 : 1.0
-      data[i] = Math.max(0, r * (0.95 + warmStrength * 0.3 * shadowScale) + warmStrength * 3 * shadowScale)
-      data[i + 1] = Math.max(0, g * (0.93 + warmStrength * 0.2 * shadowScale) + warmStrength * 1 * shadowScale)
-      data[i + 2] = Math.min(255, b * (1.0 + 0.01 * shadowScale) + warmStrength * 4 * shadowScale)
-    } else if (lum < 0.6) {
-      data[i] = Math.min(255, r + warmStrength * 20)
-      data[i + 1] = Math.min(255, g + warmStrength * 8)
-      data[i + 2] = Math.max(0, b - warmStrength * 10)
-    } else {
-      data[i] = Math.min(255, r + warmStrength * 15)
-      data[i + 1] = Math.min(255, g + warmStrength * 5)
-      data[i + 2] = Math.max(0, b - warmStrength * 8)
+    // Night darken (multiply)
+    if (applyDark) { r *= darkFactor; g *= darkFactor; b *= darkFactor }
+
+    // Additive light map composite
+    if (ld) {
+      r += ld[i]; if (r > 255) r = 255
+      g += ld[i + 1]; if (g > 255) g = 255
+      b += ld[i + 2]; if (b > 255) b = 255
+    }
+
+    // Color grading (inlined)
+    if (needsGrade) {
+      if (isGoldenHour || isDawn) {
+        r += warmStrength * 15; if (r > 255) r = 255
+        g += warmStrength * 6; if (g > 255) g = 255
+        b -= warmStrength * 8; if (b < 0) b = 0
+      } else {
+        const lum = (r * 0.299 + g * 0.587 + b * 0.114) * 0.00392156863 // / 255
+        if (lum < 0.3) {
+          r = r * (0.95 + warmStrength * 0.3 * shadowScale) + warmStrength * 3 * shadowScale
+          g = g * (0.93 + warmStrength * 0.2 * shadowScale) + warmStrength * 1 * shadowScale
+          b = b * (1.0 + 0.01 * shadowScale) + warmStrength * 4 * shadowScale
+        } else if (lum < 0.6) {
+          r += warmStrength * 20; g += warmStrength * 8; b -= warmStrength * 10
+        } else {
+          r += warmStrength * 15; g += warmStrength * 5; b -= warmStrength * 8
+        }
+        if (r > 255) r = 255; else if (r < 0) r = 0
+        if (g > 255) g = 255; else if (g < 0) g = 0
+        if (b > 255) b = 255; else if (b < 0) b = 0
+      }
+    }
+
+    d[i] = r; d[i + 1] = g; d[i + 2] = b
+
+    // Bloom extraction (piggybacks on same loop — no extra pass)
+    if (bright) {
+      const lum = (r * 0.299 + g * 0.587 + b * 0.114) * 0.00392156863
+      const bi = (i >> 2) * 3
+      if (lum > 0.65) {
+        const f = (lum - 0.65) * 2.857 // / 0.35
+        bright[bi] = r * f; bright[bi + 1] = g * f; bright[bi + 2] = b * f
+      } else {
+        bright[bi] = 0; bright[bi + 1] = 0; bright[bi + 2] = 0
+      }
     }
   }
 }
 
-// === Bloom/Glow ===
+// === Bloom (half-res blur + upsample) ===
 
-function applyBloom(imageData: ImageData, width: number, height: number): void {
+function applyBloomFromBuffer(imageData: ImageData, width: number, height: number): void {
+  if (!_bloomBright) return
+  // Downsample bright buffer to half-res for faster blur
+  const halfW = width >> 1, halfH = height >> 1
+  const halfSize = halfW * halfH * 3
+  // Reuse _bloomTmp for half-res
+  const half = _bloomTmp!
+  for (let y = 0; y < halfH; y++) {
+    for (let x = 0; x < halfW; x++) {
+      const si = ((y * 2) * width + (x * 2)) * 3
+      const di = (y * halfW + x) * 3
+      // Average 2x2 block
+      const si2 = si + 3, si3 = si + width * 3, si4 = si3 + 3
+      half[di] = (_bloomBright[si] + _bloomBright[si2] + _bloomBright[si3] + _bloomBright[si4]) * 0.25
+      half[di + 1] = (_bloomBright[si + 1] + _bloomBright[si2 + 1] + _bloomBright[si3 + 1] + _bloomBright[si4 + 1]) * 0.25
+      half[di + 2] = (_bloomBright[si + 2] + _bloomBright[si2 + 2] + _bloomBright[si3 + 2] + _bloomBright[si4 + 2]) * 0.25
+    }
+  }
+
+  // Box blur at half res (4x fewer pixels)
+  const blurred = boxBlurHalf(half, halfW, halfH)
+
+  // Upsample + add back to full-res
   const { data } = imageData
-
-  const bright = new Float32Array(width * height * 3)
-  for (let i = 0; i < data.length; i += 4) {
-    const lum = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) / 255
-    const idx = (i / 4) * 3
-    if (lum > 0.65) {
-      const factor = (lum - 0.65) / 0.35
-      bright[idx] = data[i] * factor
-      bright[idx + 1] = data[i + 1] * factor
-      bright[idx + 2] = data[i + 2] * factor
-    }
-  }
-
-  const blurred = boxBlur(bright, width, height)
-
   const bloomStrength = 0.12
-  for (let i = 0; i < data.length; i += 4) {
-    const idx = (i / 4) * 3
-    data[i] = Math.min(255, data[i] + blurred[idx] * bloomStrength)
-    data[i + 1] = Math.min(255, data[i + 1] + blurred[idx + 1] * bloomStrength)
-    data[i + 2] = Math.min(255, data[i + 2] + blurred[idx + 2] * bloomStrength)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const bi = ((y >> 1) * halfW + (x >> 1)) * 3
+      const di = (y * width + x) * 4
+      data[di] = Math.min(255, data[di] + blurred[bi] * bloomStrength)
+      data[di + 1] = Math.min(255, data[di + 1] + blurred[bi + 1] * bloomStrength)
+      data[di + 2] = Math.min(255, data[di + 2] + blurred[bi + 2] * bloomStrength)
+    }
   }
 }
 
-function boxBlur(src: Float32Array, width: number, height: number): Float32Array {
-  const tmp = new Float32Array(src.length)
-  const dst = new Float32Array(src.length)
+function boxBlurHalf(src: Float32Array, width: number, height: number): Float32Array {
+  const dst = _bloomDst!
   const radius = 2
 
+  // Horizontal pass (src → dst)
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       let r = 0, g = 0, b = 0, count = 0
@@ -195,10 +256,11 @@ function boxBlur(src: Float32Array, width: number, height: number): Float32Array
         }
       }
       const idx = (y * width + x) * 3
-      tmp[idx] = r / count; tmp[idx + 1] = g / count; tmp[idx + 2] = b / count
+      dst[idx] = r / count; dst[idx + 1] = g / count; dst[idx + 2] = b / count
     }
   }
 
+  // Vertical pass (dst → src, reuse src as output)
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       let r = 0, g = 0, b = 0, count = 0
@@ -206,26 +268,15 @@ function boxBlur(src: Float32Array, width: number, height: number): Float32Array
         const ny = y + dy
         if (ny >= 0 && ny < height) {
           const idx = (ny * width + x) * 3
-          r += tmp[idx]; g += tmp[idx + 1]; b += tmp[idx + 2]; count++
+          r += dst[idx]; g += dst[idx + 1]; b += dst[idx + 2]; count++
         }
       }
       const idx = (y * width + x) * 3
-      dst[idx] = r / count; dst[idx + 1] = g / count; dst[idx + 2] = b / count
+      src[idx] = r / count; src[idx + 1] = g / count; src[idx + 2] = b / count
     }
   }
 
-  return dst
-}
-
-// === Night Darkening ===
-
-function applyNightDarkening(imageData: ImageData, factor: number): void {
-  const { data } = imageData
-  for (let i = 0; i < data.length; i += 4) {
-    data[i] = Math.floor(data[i] * factor)
-    data[i + 1] = Math.floor(data[i + 1] * factor)
-    data[i + 2] = Math.floor(data[i + 2] * factor)
-  }
+  return src
 }
 
 // === Light Map Rendering ===
@@ -267,17 +318,6 @@ function renderLightMap(lights: LightSource[], width: number, height: number): I
   }
 
   return lctx.getImageData(0, 0, width, height)
-}
-
-// === Additive Compositing ===
-
-function compositeAdditive(base: ImageData, overlay: ImageData): void {
-  const bd = base.data, od = overlay.data
-  for (let i = 0; i < bd.length; i += 4) {
-    bd[i] = Math.min(255, bd[i] + od[i])
-    bd[i + 1] = Math.min(255, bd[i + 1] + od[i + 1])
-    bd[i + 2] = Math.min(255, bd[i + 2] + od[i + 2])
-  }
 }
 
 // === Water Reflections ===
