@@ -19,6 +19,10 @@ export interface RenderResult {
   imageDataURL: string
 }
 
+// Cached output canvas
+let _outputCanvas: HTMLCanvasElement | null = null
+let _outputCtx: CanvasRenderingContext2D | null = null
+
 const DEFAULT_OPTIONS: RenderOptions = {
   paletteId: 'db32',
   dithering: 'none',
@@ -74,14 +78,16 @@ export function renderPixelArt(
     imageData = applyOutlines(imageData)
   }
 
-  const outputCanvas = document.createElement('canvas')
-  outputCanvas.width = outputWidth
-  outputCanvas.height = outputHeight
-  const ctx = outputCanvas.getContext('2d')!
-  ctx.putImageData(imageData, 0, 0)
+  if (!_outputCanvas || _outputCanvas.width !== outputWidth || _outputCanvas.height !== outputHeight) {
+    _outputCanvas = document.createElement('canvas')
+    _outputCanvas.width = outputWidth
+    _outputCanvas.height = outputHeight
+    _outputCtx = _outputCanvas.getContext('2d')!
+  }
+  _outputCtx!.putImageData(imageData, 0, 0)
 
   return {
-    canvas: outputCanvas,
+    canvas: _outputCanvas,
     width: outputWidth,
     height: outputHeight,
     imageDataURL: outputCanvas.toDataURL('image/png')
@@ -218,10 +224,20 @@ function applyNightDarkening(imageData: ImageData, factor: number): void {
 
 // === Light Map Rendering ===
 
+// Cached light map canvas to avoid allocating a new one every frame
+let _lightMapCanvas: HTMLCanvasElement | null = null
+let _lightMapCtx: CanvasRenderingContext2D | null = null
+
 function renderLightMap(lights: LightSource[], width: number, height: number): ImageData {
-  const lc = document.createElement('canvas')
-  lc.width = width; lc.height = height
-  const lctx = lc.getContext('2d')!
+  if (!_lightMapCanvas || _lightMapCanvas.width !== width || _lightMapCanvas.height !== height) {
+    _lightMapCanvas = document.createElement('canvas')
+    _lightMapCanvas.width = width
+    _lightMapCanvas.height = height
+    _lightMapCtx = _lightMapCanvas.getContext('2d')!
+  }
+  const lc = _lightMapCanvas
+  const lctx = _lightMapCtx!
+  lctx.clearRect(0, 0, width, height)
 
   // Additive blending: each light adds warm glow
   lctx.globalCompositeOperation = 'lighter'

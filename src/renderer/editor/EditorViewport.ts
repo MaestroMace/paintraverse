@@ -29,6 +29,10 @@ export class EditorViewport {
   private _lastHoverTileX = -1
   private _lastHoverTileY = -1
   private _objectBoundsCache: ReturnType<EditorViewport['getAllObjects']> | null = null
+  // Stored listener refs for cleanup
+  private _wheelHandler: ((e: WheelEvent) => void) | null = null
+  private _keyDownHandler: ((e: KeyboardEvent) => void) | null = null
+  private _keyUpHandler: ((e: KeyboardEvent) => void) | null = null
 
   // Callbacks
   onTileClick?: (tileX: number, tileY: number, event: FederatedPointerEvent) => void
@@ -174,7 +178,7 @@ export class EditorViewport {
 
     // Zoom with scroll wheel - smooth
     const canvasEl = this.app.canvas
-    canvasEl.addEventListener('wheel', (e: WheelEvent) => {
+    this._wheelHandler = (e: WheelEvent) => {
       e.preventDefault()
       const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1
       const newZoom = Math.max(0.1, Math.min(10, this._zoom * zoomFactor))
@@ -186,29 +190,31 @@ export class EditorViewport {
       this._zoom = newZoom
 
       this.updateTransform()
-    }, { passive: false })
+    }
+    canvasEl.addEventListener('wheel', this._wheelHandler, { passive: false })
 
     // Space key for panning + WASD for camera movement
-    window.addEventListener('keydown', (e: KeyboardEvent) => {
+    this._keyDownHandler = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !e.repeat) {
         this._spaceHeld = true
         canvasEl.style.cursor = 'grab'
       }
-      // WASD + QE for camera movement
       if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'].includes(e.code)) {
         this._keysHeld.add(e.code)
         if (this._keysHeld.size === 1) this.startCameraTick()
       }
-    })
+    }
+    window.addEventListener('keydown', this._keyDownHandler)
 
-    window.addEventListener('keyup', (e: KeyboardEvent) => {
+    this._keyUpHandler = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         this._spaceHeld = false
         canvasEl.style.cursor = 'default'
       }
       this._keysHeld.delete(e.code)
       if (this._keysHeld.size === 0) this.stopCameraTick()
-    })
+    }
+    window.addEventListener('keyup', this._keyUpHandler)
   }
 
   private updateTransform(): void {
@@ -351,6 +357,17 @@ export class EditorViewport {
   }
 
   destroy(): void {
+    // Clean up event listeners to prevent memory leaks
+    this.stopCameraTick()
+    if (this._wheelHandler) {
+      this.app.canvas.removeEventListener('wheel', this._wheelHandler)
+    }
+    if (this._keyDownHandler) {
+      window.removeEventListener('keydown', this._keyDownHandler)
+    }
+    if (this._keyUpHandler) {
+      window.removeEventListener('keyup', this._keyUpHandler)
+    }
     this.app.destroy(true)
   }
 }

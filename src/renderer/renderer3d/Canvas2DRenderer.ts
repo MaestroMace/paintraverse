@@ -48,7 +48,6 @@ const PROP_COLORS: Record<string, { body: number; accent?: number }> = {
   fountain: { body: 0x708090, accent: 0x4682b4 },
   fence: { body: 0x6b4a28 },
   well: { body: 0x708090 },
-  cart: { body: 0x6b4a28 },
   barrel: { body: 0x6b4a28 },
   crate: { body: 0x8b7355 },
   sign_post: { body: 0x6b4a28 },
@@ -115,7 +114,6 @@ const BUILDING_HEIGHTS: Record<string, number> = {
   apothecary: 3.5, inn: 3.2, temple: 5.0,
   covered_market: 2.8, bell_tower: 7.0, half_timber: 3.0,
   narrow_house: 3.8, windmill: 3.5,
-  windmill: 3.5,
 }
 
 // Windmill gets a special roof style
@@ -207,6 +205,10 @@ let weatherParticles: WeatherParticle[] = []
 let lastWeather = ''
 let lastTime = 0
 
+// Cached render canvas to avoid allocating new one every frame
+let _renderCanvas: HTMLCanvasElement | null = null
+let _renderCtx: CanvasRenderingContext2D | null = null
+
 // ── Main render function ──
 
 export function renderCanvas2D(
@@ -221,10 +223,15 @@ export function renderCanvas2D(
   const lights: LightSource[] = []
   const waterMask = new Uint8Array(W * H)
 
-  const canvas = document.createElement('canvas')
-  canvas.width = W
-  canvas.height = H
-  const ctx = canvas.getContext('2d')!
+  if (!_renderCanvas || _renderCanvas.width !== W || _renderCanvas.height !== H) {
+    _renderCanvas = document.createElement('canvas')
+    _renderCanvas.width = W
+    _renderCanvas.height = H
+    _renderCtx = _renderCanvas.getContext('2d')!
+  }
+  const canvas = _renderCanvas
+  const ctx = _renderCtx!
+  ctx.clearRect(0, 0, W, H)
 
   // Build view matrix
   const camPos: Vec3 = {
@@ -513,7 +520,7 @@ export function renderCanvas2D(
   // ── Weather particles (screen-space, drawn after scene) ──
   const dt = time > lastTime ? time - lastTime : 0.016
   lastTime = time
-  updateWeatherParticles(map.environment.weather, map.environment.weatherIntensity, W, H, dt)
+  updateWeatherParticles(map.environment.weather, map.environment.weatherIntensity, W, H, dt, time)
   drawWeatherParticles(ctx, map.environment.weather, lighting)
 
   return { imageData: ctx.getImageData(0, 0, W, H), lights, waterMask }
@@ -522,7 +529,7 @@ export function renderCanvas2D(
 // ── Weather particle functions ──
 
 function updateWeatherParticles(
-  weather: string, intensity: number, W: number, H: number, dt: number
+  weather: string, intensity: number, W: number, H: number, dt: number, time: number
 ): void {
   if (weather !== lastWeather) { weatherParticles = []; lastWeather = weather }
   if (weather === 'clear') { weatherParticles = []; return }
@@ -542,7 +549,7 @@ function updateWeatherParticles(
     } else if (weather === 'snow') {
       weatherParticles.push({
         x: Math.random() * W, y: -3,
-        vx: Math.sin(Date.now() * 0.001 + Math.random() * 6) * 0.4,
+        vx: Math.sin(time + Math.random() * 6) * 0.4,
         vy: 0.4 + Math.random() * 0.6,
         life: 1, size: 0.8 + Math.random() * 0.8
       })
@@ -553,7 +560,7 @@ function updateWeatherParticles(
     const p = weatherParticles[i]
     p.x += p.vx; p.y += p.vy
     p.life -= dt * (weather === 'snow' ? 0.2 : 0.6)
-    if (weather === 'snow') p.vx = Math.sin(Date.now() * 0.001 + i) * 0.3
+    if (weather === 'snow') p.vx = Math.sin(time + i) * 0.3
     if (p.life <= 0 || p.y > H + 5 || p.x < -20 || p.x > W + 20) {
       weatherParticles.splice(i, 1)
     }
@@ -561,48 +568,67 @@ function updateWeatherParticles(
 }
 
 function drawWeatherParticles(
-  ctx: CanvasRenderingContext2D, weather: string, lighting: Lighting
+  ctx: CanvasRenderingContext2D, weather: string, _lighting: Lighting
 ): void {
   if (weatherParticles.length === 0) return
 
   if (weather === 'rain' || weather === 'storm') {
-    ctx.strokeStyle = `rgba(180,200,230,0.35)`
+    // Batch all rain streaks into a single path for performance
+    ctx.strokeStyle = 'rgba(180,200,230,0.35)'
     ctx.lineWidth = 0.5
+    ctx.beginPath()
     for (const p of weatherParticles) {
-      ctx.beginPath()
       ctx.moveTo(p.x, p.y)
       ctx.lineTo(p.x + p.vx * 1.5, p.y + p.vy * 1.5)
-      ctx.stroke()
     }
-    // Ground splash dots
-    ctx.fillStyle = `rgba(180,200,230,0.2)`
+    ctx.stroke()
+    // Ground splash dots — batch into single path
+    ctx.fillStyle = 'rgba(180,200,230,0.2)'
+    ctx.beginPath()
     for (const p of weatherParticles) {
       if (p.life < 0.15) {
-        ctx.beginPath()
+        ctx.moveTo(p.x + 1.2, p.y)
         ctx.arc(p.x, p.y, 1.2, 0, Math.PI * 2)
-        ctx.fill()
       }
     }
+    ctx.fill()
     // Lightning flash for storms
     if (weather === 'storm' && Math.random() < 0.004) {
-      ctx.fillStyle = `rgba(255,255,240,0.25)`
+      ctx.fillStyle = 'rgba(255,255,240,0.25)'
       ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
     }
   } else if (weather === 'snow') {
+    // Quantize alpha to 7 buckets to reduce string allocations (was 1 per particle)
+    const buckets: WeatherParticle[][] = [[], [], [], [], [], [], []]
     for (const p of weatherParticles) {
-      const alpha = Math.min(0.7, p.life)
-      ctx.fillStyle = `rgba(240,240,255,${alpha.toFixed(2)})`
+      const ai = Math.min(6, Math.floor(Math.min(0.7, p.life) * 10))
+      buckets[ai].push(p)
+    }
+    for (let bi = 0; bi < 7; bi++) {
+      if (buckets[bi].length === 0) continue
+      ctx.fillStyle = `rgba(240,240,255,${(bi * 0.1).toFixed(1)})`
       ctx.beginPath()
-      ctx.arc(p.x, p.y, p.size * 0.6, 0, Math.PI * 2)
+      for (const p of buckets[bi]) {
+        ctx.moveTo(p.x + p.size * 0.6, p.y)
+        ctx.arc(p.x, p.y, p.size * 0.6, 0, Math.PI * 2)
+      }
       ctx.fill()
     }
   } else if (weather === 'fog') {
-    // Drifting fog wisps
+    // Quantize fog alpha similarly
+    const buckets: WeatherParticle[][] = [[], [], [], []]
     for (const p of weatherParticles) {
-      ctx.fillStyle = `rgba(200,200,210,${(p.life * 0.06).toFixed(3)})`
-      ctx.beginPath()
-      ctx.ellipse(p.x, p.y, 15 + p.size * 10, 4 + p.size * 3, 0, 0, Math.PI * 2)
-      ctx.fill()
+      const ai = Math.min(3, Math.floor(p.life * 4))
+      buckets[ai].push(p)
+    }
+    for (let bi = 0; bi < 4; bi++) {
+      if (buckets[bi].length === 0) continue
+      ctx.fillStyle = `rgba(200,200,210,${(bi * 0.015 + 0.005).toFixed(3)})`
+      for (const p of buckets[bi]) {
+        ctx.beginPath()
+        ctx.ellipse(p.x, p.y, 15 + p.size * 10, 4 + p.size * 3, 0, 0, Math.PI * 2)
+        ctx.fill()
+      }
     }
   }
 }

@@ -72,13 +72,11 @@ export function RenderPanel() {
     }
 
     try {
+      const state = useAppStore.getState()
       const result = renderPixelArt(
-        useAppStore.getState().map,
-        useAppStore.getState().renderCamera,
-        useAppStore.getState().objectDefinitions,
-        { paletteId: useAppStore.getState().renderCamera.paletteId, quality: 'preview' },
-        useAppStore.getState().buildingPalettes,
-        timeRef.current
+        state.map, state.renderCamera, state.objectDefinitions,
+        { paletteId: state.renderCamera.paletteId, quality: 'preview' },
+        state.buildingPalettes, timeRef.current
       )
       setPreviewURL(result.imageDataURL)
     } catch (_) { /* skip frame on error */ }
