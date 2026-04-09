@@ -68,18 +68,20 @@ export function renderPixelArt(
   const darkFactor = isNight ? 0.55 : isDusk ? 0.75 : 1.0
   const needsGrade = isNight || isDusk || (tod >= 15 && tod < 17) || (tod >= 5 && tod < 7)
   const needsBloom = !isPreview
+  const needsAnyPostProcess = darkFactor < 1.0 || needsGrade || needsBloom || lightMapData !== null
 
-  // Pre-compute bloom buffer (only for final render)
-  const totalPixels = outputWidth * outputHeight
-  if (needsBloom) ensureBloomBuffers(totalPixels)
+  if (needsAnyPostProcess) {
+    const totalPixels = outputWidth * outputHeight
+    if (needsBloom) ensureBloomBuffers(totalPixels)
 
-  applyMergedPostProcess(
-    imageData, lightMapData, darkFactor, tod,
-    isNight || isDusk, needsGrade, needsBloom, outputWidth
-  )
+    applyMergedPostProcess(
+      imageData, lightMapData, darkFactor, tod,
+      isNight || isDusk, needsGrade, needsBloom, outputWidth
+    )
 
-  if (needsBloom) {
-    applyBloomFromBuffer(imageData, outputWidth, outputHeight)
+    if (needsBloom) {
+      applyBloomFromBuffer(imageData, outputWidth, outputHeight)
+    }
   }
 
   const palette = PALETTES[opts.paletteId] || PALETTES['db32']

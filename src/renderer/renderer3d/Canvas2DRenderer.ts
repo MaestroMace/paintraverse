@@ -278,13 +278,16 @@ export function renderCanvas2D(
   // Collect all drawables
   const drawables: Drawable[] = []
 
-  // Project helper
+  // Project helper — clamps near plane instead of returning null
+  // so objects partially behind camera get clipped rather than vanishing
+  const NEAR_CLIP = 1.0
   const project = (wx: number, wy: number, wz: number): Projected | null => {
     const dx = wx - camPos.x, dy = wy - camPos.y, dz = wz - camPos.z
     const rx = viewMatrix[0] * dx + viewMatrix[1] * dy + viewMatrix[2] * dz
     const ry = viewMatrix[3] * dx + viewMatrix[4] * dy + viewMatrix[5] * dz
-    const rz = viewMatrix[6] * dx + viewMatrix[7] * dy + viewMatrix[8] * dz
-    if (rz <= 0.1) return null
+    let rz = viewMatrix[6] * dx + viewMatrix[7] * dy + viewMatrix[8] * dz
+    if (rz <= 0) return null // truly behind camera
+    if (rz < NEAR_CLIP) rz = NEAR_CLIP // clamp to near plane
     const scale = focalLength / rz
     return { sx: W / 2 + rx * scale, sy: H / 2 - ry * scale, depth: rz }
   }
@@ -308,12 +311,30 @@ export function renderCanvas2D(
   const inScreen = (p: Projected): boolean =>
     p.sx >= -margin && p.sx <= W + margin && p.sy >= -margin && p.sy <= H + margin
 
-  // ── Terrain tiles ──
+  // ── Compute visible tile range (shared by terrain + figures) ──
   const terrainLayer = map.layers.find(l => l.type === 'terrain')
+  const camTileX = camPos.x / ts, camTileZ = camPos.z / ts
+  const viewDist = camera.elevation * 2.5 + 15
+  const lookDirX = (camera.lookAtX - camera.worldX) || 0.01
+  const lookDirZ = (camera.lookAtY - camera.worldY) || 0.01
+  const lookLen = Math.sqrt(lookDirX * lookDirX + lookDirZ * lookDirZ) || 1
+  const ldx = lookDirX / lookLen, ldz = lookDirZ / lookLen
+  const rangeCenterX = camTileX + ldx * viewDist * 0.3
+  const rangeCenterZ = camTileZ + ldz * viewDist * 0.3
+  const halfRange = viewDist * 0.8
+  const gridH = terrainLayer?.terrainTiles?.length ?? map.gridHeight
+  const gridW = terrainLayer?.terrainTiles?.[0]?.length ?? map.gridWidth
+  const tyMin = Math.max(0, Math.floor(rangeCenterZ - halfRange))
+  const tyMax = Math.min(gridH - 1, Math.ceil(rangeCenterZ + halfRange))
+  const txMin = Math.max(0, Math.floor(rangeCenterX - halfRange))
+  const txMax = Math.min(gridW - 1, Math.ceil(rangeCenterX + halfRange))
+
+  // ── Terrain tiles ──
   if (terrainLayer?.terrainTiles) {
     const tiles = terrainLayer.terrainTiles
-    for (let ty = 0; ty < tiles.length; ty++) {
-      for (let tx = 0; tx < tiles[ty].length; tx++) {
+
+    for (let ty = tyMin; ty <= tyMax; ty++) {
+      for (let tx = txMin; tx <= txMax; tx++) {
         const tileId = tiles[ty][tx]
         const baseColor = TERRAIN_COLORS[tileId] ?? 0x808080
         const x0 = tx * ts, z0 = ty * ts
@@ -459,11 +480,11 @@ export function renderCanvas2D(
     }
   }
 
-  // ── Tiny figure silhouettes on streets ──
+  // ── Tiny figure silhouettes on streets ── (use same tile range)
   if (terrainLayer?.terrainTiles) {
     const tiles = terrainLayer.terrainTiles
-    for (let ty = 2; ty < tiles.length - 2; ty += 3) {
-      for (let tx = 2; tx < (tiles[ty]?.length ?? 0) - 2; tx += 3) {
+    for (let ty = Math.max(2, tyMin); ty <= Math.min(tyMax, tiles.length - 3); ty += 3) {
+      for (let tx = Math.max(2, txMin); tx <= Math.min(txMax, (tiles[ty]?.length ?? 0) - 3); tx += 3) {
         const tileId = tiles[ty]?.[tx]
         if (tileId !== 8 && tileId !== 9) continue // only on cobblestone/roads
         const figHash = (tx * 31 + ty * 17) & 0xffff
