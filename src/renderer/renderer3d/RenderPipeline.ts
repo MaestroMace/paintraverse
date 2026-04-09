@@ -90,7 +90,7 @@ export function renderPixelArt(
     canvas: _outputCanvas,
     width: outputWidth,
     height: outputHeight,
-    imageDataURL: outputCanvas.toDataURL('image/png')
+    imageDataURL: _outputCanvas.toDataURL('image/png')
   }
 }
 
