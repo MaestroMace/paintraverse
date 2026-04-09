@@ -229,6 +229,10 @@ export class EditorViewport {
   private startCameraTick(): void {
     if (this._cameraTickId) return
     const tick = () => {
+      if (this._keysHeld.size === 0) {
+        this._cameraTickId = 0
+        return // Stop loop when no keys held
+      }
       this.tickCamera()
       this._cameraTickId = requestAnimationFrame(tick)
     }

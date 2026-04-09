@@ -47,23 +47,29 @@ export function renderPixelArt(
   const sceneResult = renderCanvas2D(map, camera, objectDefs, buildingPalettes, time)
   let imageData = sceneResult.imageData
 
-  // Water reflections (before any post-processing so they get graded + quantized)
-  applyWaterReflection(imageData, sceneResult.waterMask, outputWidth, outputHeight, time)
+  // Skip expensive per-pixel post-processing in preview mode for playable framerates
+  if (!isPreview) {
+    // Water reflections (per-pixel with trig — expensive)
+    applyWaterReflection(imageData, sceneResult.waterMask, outputWidth, outputHeight, time)
+  }
 
   // Dynamic light map (night/dusk only)
   const tod = map.environment.timeOfDay
   const isNight = tod < 5 || tod >= 19
   const isDusk = tod >= 17 && tod < 19
   let nightDarkeningApplied = false
-  if ((isNight || isDusk) && sceneResult.lights.length > 0) {
+  if (isNight || isDusk) {
     const darkFactor = isNight ? 0.55 : 0.75
     applyNightDarkening(imageData, darkFactor)
-    const lightMap = renderLightMap(sceneResult.lights, outputWidth, outputHeight)
-    compositeAdditive(imageData, lightMap)
     nightDarkeningApplied = true
+    // Light map compositing only in final render (radial gradients are slow)
+    if (!isPreview && sceneResult.lights.length > 0) {
+      const lightMap = renderLightMap(sceneResult.lights, outputWidth, outputHeight)
+      compositeAdditive(imageData, lightMap)
+    }
   }
 
-  // Post-processing pipeline (all CPU, no WebGL)
+  // Color grading — fast enough for preview
   applyColorGrading(imageData, tod, nightDarkeningApplied)
 
   // Skip bloom in preview mode for speed
