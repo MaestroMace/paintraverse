@@ -16,7 +16,7 @@ export interface RenderResult {
   canvas: HTMLCanvasElement
   width: number
   height: number
-  imageDataURL: string
+  imageDataURL: string // lazy — only computed when accessed
 }
 
 // Cached output canvas
@@ -84,11 +84,13 @@ export function renderPixelArt(
     }
   }
 
-  const palette = PALETTES[opts.paletteId] || PALETTES['db32']
-  imageData = quantizeImageData(imageData, palette, isPreview ? 'none' : opts.dithering)
-
-  if (opts.outlines && !isPreview) {
-    imageData = applyOutlines(imageData)
+  // Skip quantization + outlines in preview mode (saves ~10ms per frame)
+  if (!isPreview) {
+    const palette = PALETTES[opts.paletteId] || PALETTES['db32']
+    imageData = quantizeImageData(imageData, palette, opts.dithering)
+    if (opts.outlines) {
+      imageData = applyOutlines(imageData)
+    }
   }
 
   if (!_outputCanvas || _outputCanvas.width !== outputWidth || _outputCanvas.height !== outputHeight) {
@@ -99,11 +101,14 @@ export function renderPixelArt(
   }
   _outputCtx!.putImageData(imageData, 0, 0)
 
+  // CRITICAL: toDataURL('image/png') is 50-200ms per call (PNG encode + Base64).
+  // For preview/animation, return empty string — caller uses canvas directly.
+  // Only compute dataURL for final renders (Export PNG, Debug Pkg).
   return {
     canvas: _outputCanvas,
     width: outputWidth,
     height: outputHeight,
-    imageDataURL: _outputCanvas.toDataURL('image/png')
+    imageDataURL: isPreview ? '' : _outputCanvas.toDataURL('image/png')
   }
 }
 

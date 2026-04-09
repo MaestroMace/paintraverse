@@ -15,6 +15,8 @@ export function RenderPanel() {
   const [collapsed, setCollapsed] = useState(false)
   const [rendering, setRendering] = useState(false)
   const [previewURL, setPreviewURL] = useState<string | null>(null)
+  const canvasContainerRef = useRef<HTMLDivElement>(null)
+  const liveCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [playing, setPlaying] = useState(false)
@@ -78,7 +80,26 @@ export function RenderPanel() {
         { paletteId: state.renderCamera.paletteId, quality: 'preview' },
         state.buildingPalettes, timeRef.current
       )
-      setPreviewURL(result.imageDataURL)
+      // Paint result canvas directly into our live canvas (no PNG encode!)
+      const container = canvasContainerRef.current
+      if (container) {
+        if (!liveCanvasRef.current || liveCanvasRef.current.width !== result.width || liveCanvasRef.current.height !== result.height) {
+          if (liveCanvasRef.current) container.removeChild(liveCanvasRef.current)
+          const c = document.createElement('canvas')
+          c.width = result.width; c.height = result.height
+          c.style.width = '100%'
+          c.style.maxHeight = '400px'
+          c.style.objectFit = 'contain'
+          c.style.imageRendering = 'pixelated'
+          c.style.border = '1px solid var(--border)'
+          c.style.borderRadius = '3px'
+          c.style.background = '#000'
+          container.appendChild(c)
+          liveCanvasRef.current = c
+        }
+        const lctx = liveCanvasRef.current.getContext('2d')!
+        lctx.drawImage(result.canvas, 0, 0)
+      }
     } catch (_) { /* skip frame on error */ }
 
     animFrameRef.current = requestAnimationFrame(renderFrame)
@@ -87,6 +108,11 @@ export function RenderPanel() {
   useEffect(() => {
     if (!playing) {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
+      // Clean up live canvas when stopping
+      if (liveCanvasRef.current && canvasContainerRef.current) {
+        canvasContainerRef.current.removeChild(liveCanvasRef.current)
+        liveCanvasRef.current = null
+      }
       return
     }
     fpsTimerRef.current = 0
@@ -246,7 +272,11 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
           )}
 
           {/* Preview - immediately below render button */}
-          {previewURL && (
+          {/* Live canvas container for animation playback (zero-copy, no PNG encode) */}
+          <div ref={canvasContainerRef} style={{ marginBottom: playing ? 6 : 0 }} />
+
+          {/* Static preview image for final renders */}
+          {previewURL && !playing && (
             <div ref={previewRef} style={{ marginBottom: 6 }}>
               <img
                 src={previewURL}
