@@ -8,12 +8,9 @@ export class CameraTool implements ITool {
   cursor = 'crosshair'
   private viewport: EditorViewport | null = null
   private isDragging = false
-  private startTileX = 0
-  private startTileY = 0
 
   onActivate(viewport: EditorViewport): void {
     this.viewport = viewport
-    // Show current camera on activation
     this.updateCameraOverlay()
   }
 
@@ -22,23 +19,8 @@ export class CameraTool implements ITool {
   }
 
   onTileClick(tileX: number, tileY: number, _event: FederatedPointerEvent): void {
-    // Place camera position
-    this.startTileX = tileX
-    this.startTileY = tileY
+    // Click sets look-at target (aim direction) — WASD handles position
     this.isDragging = true
-
-    const store = useAppStore.getState()
-    store.updateRenderCamera({
-      worldX: tileX,
-      worldY: tileY
-    })
-    this.updateCameraOverlay()
-  }
-
-  onTileDrag(tileX: number, tileY: number, _event: FederatedPointerEvent): void {
-    if (!this.isDragging) return
-
-    // Drag sets the look-at target
     const store = useAppStore.getState()
     store.updateRenderCamera({
       lookAtX: tileX,
@@ -47,28 +29,19 @@ export class CameraTool implements ITool {
     this.updateCameraOverlay()
   }
 
-  onTileUp(tileX: number, tileY: number, _event: FederatedPointerEvent): void {
+  onTileDrag(tileX: number, tileY: number, _event: FederatedPointerEvent): void {
     if (!this.isDragging) return
-    this.isDragging = false
-
-    // Final look-at position
+    // Drag updates the look-at target in real-time
     const store = useAppStore.getState()
+    store.updateRenderCamera({
+      lookAtX: tileX,
+      lookAtY: tileY
+    })
+    this.updateCameraOverlay()
+  }
 
-    // If didn't drag (clicked same tile), set a reasonable default look direction
-    if (tileX === this.startTileX && tileY === this.startTileY) {
-      const map = store.map
-      store.updateRenderCamera({
-        worldX: tileX,
-        worldY: tileY,
-        lookAtX: map.gridWidth / 2,
-        lookAtY: map.gridHeight / 2
-      })
-    } else {
-      store.updateRenderCamera({
-        lookAtX: tileX,
-        lookAtY: tileY
-      })
-    }
+  onTileUp(_tileX: number, _tileY: number, _event: FederatedPointerEvent): void {
+    this.isDragging = false
     this.updateCameraOverlay()
   }
 

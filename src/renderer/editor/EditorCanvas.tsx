@@ -190,6 +190,9 @@ export function EditorCanvas() {
       }
     }
 
+    // WASD/QE reserved for camera movement — don't trigger tool switches
+    if ('wasdqe'.includes(e.key.toLowerCase())) return
+
     if (e.key === 'v' || e.key === '1') store.setActiveTool('select')
     if (e.key === 'p' || e.key === '2') store.setActiveTool('place')
     if (e.key === 'e' || e.key === '3') store.setActiveTool('erase')

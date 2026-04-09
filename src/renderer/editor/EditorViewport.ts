@@ -5,6 +5,7 @@ import { StructureLayer } from './layers/StructureLayer'
 import { PropLayer } from './layers/PropLayer'
 import { OverlayLayer } from './layers/OverlayLayer'
 import type { MapDocument, ObjectDefinition } from '../core/types'
+import { useAppStore } from '../app/store'
 
 export class EditorViewport {
   app: Application
@@ -22,6 +23,8 @@ export class EditorViewport {
   private _lastPanX = 0
   private _lastPanY = 0
   private _spaceHeld = false
+  private _keysHeld = new Set<string>()
+  private _cameraTickId = 0
   private _renderScheduled = false
   private _lastHoverTileX = -1
   private _lastHoverTileY = -1
@@ -185,11 +188,16 @@ export class EditorViewport {
       this.updateTransform()
     }, { passive: false })
 
-    // Space key for panning
+    // Space key for panning + WASD for camera movement
     window.addEventListener('keydown', (e: KeyboardEvent) => {
       if (e.code === 'Space' && !e.repeat) {
         this._spaceHeld = true
         canvasEl.style.cursor = 'grab'
+      }
+      // WASD + QE for camera movement
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'].includes(e.code)) {
+        this._keysHeld.add(e.code)
+        if (this._keysHeld.size === 1) this.startCameraTick()
       }
     })
 
@@ -198,6 +206,8 @@ export class EditorViewport {
         this._spaceHeld = false
         canvasEl.style.cursor = 'default'
       }
+      this._keysHeld.delete(e.code)
+      if (this._keysHeld.size === 0) this.stopCameraTick()
     })
   }
 
@@ -206,6 +216,62 @@ export class EditorViewport {
     this.worldContainer.y = this._panY
     this.worldContainer.scale.set(this._zoom)
     this.requestRender()
+  }
+
+  // === WASD Camera Movement ===
+
+  private startCameraTick(): void {
+    if (this._cameraTickId) return
+    const tick = () => {
+      this.tickCamera()
+      this._cameraTickId = requestAnimationFrame(tick)
+    }
+    this._cameraTickId = requestAnimationFrame(tick)
+  }
+
+  private stopCameraTick(): void {
+    if (this._cameraTickId) {
+      cancelAnimationFrame(this._cameraTickId)
+      this._cameraTickId = 0
+    }
+  }
+
+  private tickCamera(): void {
+    if (this._keysHeld.size === 0) return
+    const store = useAppStore.getState()
+    const cam = store.renderCamera
+    const speed = 0.25 // tiles per frame
+
+    // Forward/right vectors from camera→lookAt direction
+    const dx = cam.lookAtX - cam.worldX
+    const dy = cam.lookAtY - cam.worldY
+    const len = Math.sqrt(dx * dx + dy * dy) || 1
+    const fwdX = dx / len, fwdY = dy / len
+    const rightX = -fwdY, rightY = fwdX
+
+    let moveX = 0, moveY = 0, moveElev = 0
+    if (this._keysHeld.has('KeyW')) { moveX += fwdX * speed; moveY += fwdY * speed }
+    if (this._keysHeld.has('KeyS')) { moveX -= fwdX * speed; moveY -= fwdY * speed }
+    if (this._keysHeld.has('KeyA')) { moveX -= rightX * speed; moveY -= rightY * speed }
+    if (this._keysHeld.has('KeyD')) { moveX += rightX * speed; moveY += rightY * speed }
+    if (this._keysHeld.has('KeyQ')) { moveElev += speed * 0.5 }
+    if (this._keysHeld.has('KeyE')) { moveElev -= speed * 0.5 }
+
+    if (moveX || moveY || moveElev) {
+      store.updateRenderCamera({
+        worldX: cam.worldX + moveX,
+        worldY: cam.worldY + moveY,
+        lookAtX: cam.lookAtX + moveX,
+        lookAtY: cam.lookAtY + moveY,
+        elevation: Math.max(0.5, cam.elevation + moveElev),
+      })
+      // Update camera overlay if visible
+      this.overlayLayer.showCameraFrustum(
+        useAppStore.getState().renderCamera,
+        store.map.tileSize
+      )
+      this.requestRender()
+    }
   }
 
   screenToTile(screenX: number, screenY: number): { x: number; y: number } {

@@ -941,8 +941,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     lookAtY: 26,
     elevation: 3,
     fov: 55,
-    outputWidth: 320,
-    outputHeight: 240,
+    outputWidth: 640,
+    outputHeight: 480,
     paletteId: 'db32'
   },
   inspirationImage: null,

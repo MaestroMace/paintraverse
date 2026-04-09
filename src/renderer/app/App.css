@@ -215,3 +215,32 @@ input:focus, select:focus {
   font-size: 10px;
   color: var(--text-dim);
 }
+
+/* Panel collapse toggle */
+.panel-toggle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  width: 18px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(16, 24, 48, 0.95), rgba(12, 18, 36, 0.95));
+  border: 1px solid rgba(100, 140, 255, 0.2);
+  border-radius: 0 6px 6px 0;
+  color: var(--text-dim);
+  font-size: 9px;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.2s ease;
+}
+.panel-toggle:hover {
+  background: linear-gradient(135deg, rgba(24, 32, 60, 0.95), rgba(18, 26, 48, 0.95));
+  border-color: rgba(240, 192, 64, 0.3);
+  color: var(--accent);
+}
+.left-toggle {
+  left: 0;
+}

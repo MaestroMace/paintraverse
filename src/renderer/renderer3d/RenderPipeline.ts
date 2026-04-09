@@ -50,15 +50,17 @@ export function renderPixelArt(
   const tod = map.environment.timeOfDay
   const isNight = tod < 5 || tod >= 19
   const isDusk = tod >= 17 && tod < 19
+  let nightDarkeningApplied = false
   if ((isNight || isDusk) && sceneResult.lights.length > 0) {
-    const darkFactor = isNight ? 0.35 : 0.6
+    const darkFactor = isNight ? 0.55 : 0.75
     applyNightDarkening(imageData, darkFactor)
     const lightMap = renderLightMap(sceneResult.lights, outputWidth, outputHeight)
     compositeAdditive(imageData, lightMap)
+    nightDarkeningApplied = true
   }
 
   // Post-processing pipeline (all CPU, no WebGL)
-  applyColorGrading(imageData, tod)
+  applyColorGrading(imageData, tod, nightDarkeningApplied)
 
   // Skip bloom in preview mode for speed
   if (!isPreview) {
@@ -88,7 +90,7 @@ export function renderPixelArt(
 
 // === Color Grading ===
 
-function applyColorGrading(imageData: ImageData, timeOfDay: number): void {
+function applyColorGrading(imageData: ImageData, timeOfDay: number, nightDarkeningApplied: boolean = false): void {
   const { data } = imageData
   const isNight = timeOfDay < 5 || timeOfDay >= 19
   const isDusk = timeOfDay >= 17 && timeOfDay < 19
@@ -118,10 +120,13 @@ function applyColorGrading(imageData: ImageData, timeOfDay: number): void {
       data[i + 1] = Math.min(255, g + warmStrength * 6)
       data[i + 2] = Math.max(0, b - warmStrength * 8)
     } else if (lum < 0.3) {
-      // Night/dusk shadows: cool blue push
-      data[i] = Math.max(0, r * 0.9 + 4)
-      data[i + 1] = Math.max(0, g * 0.88)
-      data[i + 2] = Math.min(255, b * 1.05 + 8)
+      // Night/dusk shadows: gentle cool tint (not aggressive blue push)
+      // When night darkening already applied, most pixels hit this branch —
+      // so keep the effect very subtle to avoid blue striping
+      const shadowScale = nightDarkeningApplied ? 0.4 : 1.0
+      data[i] = Math.max(0, r * (0.95 + warmStrength * 0.3 * shadowScale) + warmStrength * 3 * shadowScale)
+      data[i + 1] = Math.max(0, g * (0.93 + warmStrength * 0.2 * shadowScale) + warmStrength * 1 * shadowScale)
+      data[i + 2] = Math.min(255, b * (1.0 + 0.01 * shadowScale) + warmStrength * 4 * shadowScale)
     } else if (lum < 0.6) {
       data[i] = Math.min(255, r + warmStrength * 20)
       data[i + 1] = Math.min(255, g + warmStrength * 8)
@@ -286,8 +291,8 @@ function applyWaterReflection(
       const di = (y * width + x) * 4
 
       // Blend reflection with water tint
-      const reflectStr = 0.3
-      const waterR = 55, waterG = 100, waterB = 155
+      const reflectStr = 0.55
+      const waterR = 65, waterG = 110, waterB = 145
       data[di] = Math.floor(copy[si] * reflectStr + waterR * (1 - reflectStr))
       data[di + 1] = Math.floor(copy[si + 1] * reflectStr + waterG * (1 - reflectStr))
       data[di + 2] = Math.floor(copy[si + 2] * reflectStr + waterB * (1 - reflectStr))

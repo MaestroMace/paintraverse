@@ -255,7 +255,7 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
                 alt="Pixel art render"
                 style={{
                   width: '100%',
-                  maxHeight: 180,
+                  maxHeight: 400,
                   objectFit: 'contain',
                   imageRendering: 'pixelated',
                   border: '1px solid var(--border)',
@@ -352,11 +352,21 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
 
               <button
                 onClick={() => setActiveTool('camera')}
-                style={{ width: '100%', padding: '4px 6px', fontSize: 11, marginBottom: 6 }}
-                title="Click on map to place camera, drag to aim (C)"
+                style={{ width: '100%', padding: '4px 6px', fontSize: 11, marginBottom: 4 }}
+                title="WASD to move, click/drag map to aim, Q/E height"
               >
-                Place Camera on Map
+                Camera Mode
               </button>
+
+              <div style={{
+                fontSize: 9, color: 'var(--text-dim)', marginBottom: 6,
+                padding: '4px 6px', background: 'rgba(255,255,255,0.03)',
+                borderRadius: 3, lineHeight: 1.6, fontFamily: 'monospace'
+              }}>
+                <span style={{ color: 'var(--accent)' }}>WASD</span> move &nbsp;
+                <span style={{ color: 'var(--accent)' }}>Q/E</span> height &nbsp;
+                <span style={{ color: 'var(--accent)' }}>Click</span> aim
+              </div>
 
               <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 2 }}>
                 Camera at ({camera.worldX.toFixed(1)}, {camera.worldY.toFixed(1)}) → ({camera.lookAtX.toFixed(1)}, {camera.lookAtY.toFixed(1)})
