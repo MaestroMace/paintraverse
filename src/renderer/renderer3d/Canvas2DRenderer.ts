@@ -220,7 +220,55 @@ let _sceneCacheLights: LightSource[] = []
 let _sceneCacheWaterMask: Uint8Array = _emptyWaterMask
 let _sceneCacheLighting: Lighting | null = null
 
-// ── Main render function ──
+// ── Fast preview: returns canvas directly, ZERO ImageData extraction ──
+// This is the hot path for animation playback. It never calls getImageData
+// (which forces a GPU→CPU readback costing ~10ms). Instead it keeps
+// everything on the GPU side: canvas → drawImage → screen.
+
+export function renderPreviewToCanvas(
+  map: MapDocument,
+  camera: RenderCamera,
+  objectDefs: ObjectDefinition[],
+  buildingPalettes?: BuildingPalette[] | null,
+  time: number = 0
+): HTMLCanvasElement {
+  const { outputWidth: W, outputHeight: H } = camera
+
+  if (!_renderCanvas || _renderCanvas.width !== W || _renderCanvas.height !== H) {
+    _renderCanvas = document.createElement('canvas')
+    _renderCanvas.width = W
+    _renderCanvas.height = H
+    _renderCtx = _renderCanvas.getContext('2d')!
+    _sceneCache = null
+  }
+  const ctx = _renderCtx!
+
+  const cacheKey = `${camera.worldX},${camera.worldY},${camera.lookAtX},${camera.lookAtY},${camera.elevation},${camera.fov},${W},${H},${map.version},${map.environment.timeOfDay}`
+
+  if (_sceneCache && _sceneCacheKey === cacheKey) {
+    // Cache hit: restore cached scene (one putImageData, no getImageData)
+    ctx.putImageData(_sceneCache, 0, 0)
+  } else {
+    // Cache miss: do a full render via renderCanvas2D, which draws to _renderCanvas
+    // Then snapshot for future frames
+    renderCanvas2D(map, camera, objectDefs, buildingPalettes, time, true)
+    // The full render already drew to _renderCanvas. Cache it now.
+    _sceneCache = ctx.getImageData(0, 0, W, H)
+    _sceneCacheKey = cacheKey
+    _sceneCacheLighting = computeLighting(map.environment)
+  }
+
+  // Weather particles (the only per-frame visual change)
+  const dt = time > lastTime ? time - lastTime : 0.016
+  lastTime = time
+  const lighting = _sceneCacheLighting ?? computeLighting(map.environment)
+  updateWeatherParticles(map.environment.weather, map.environment.weatherIntensity, W, H, dt, time)
+  drawWeatherParticles(ctx, map.environment.weather, lighting)
+
+  return _renderCanvas
+}
+
+// ── Main render function (final quality — returns ImageData for post-processing) ──
 
 export function renderCanvas2D(
   map: MapDocument,
@@ -238,25 +286,10 @@ export function renderCanvas2D(
     _renderCanvas.width = W
     _renderCanvas.height = H
     _renderCtx = _renderCanvas.getContext('2d')!
-    _sceneCache = null // invalidate cache on resize
+    _sceneCache = null
   }
   const canvas = _renderCanvas
   const ctx = _renderCtx!
-
-  // === Scene Cache: skip full re-render when camera+map unchanged ===
-  // Only weather particles (screen-space) need per-frame update.
-  const cacheKey = `${camera.worldX},${camera.worldY},${camera.lookAtX},${camera.lookAtY},${camera.elevation},${camera.fov},${W},${H},${map.version},${map.environment.timeOfDay}`
-  if (isPreview && _sceneCache && _sceneCacheKey === cacheKey) {
-    // Restore cached scene
-    ctx.putImageData(_sceneCache, 0, 0)
-    // Only update weather particles
-    const dt = time > lastTime ? time - lastTime : 0.016
-    lastTime = time
-    const lighting = _sceneCacheLighting!
-    updateWeatherParticles(map.environment.weather, map.environment.weatherIntensity, W, H, dt, time)
-    drawWeatherParticles(ctx, map.environment.weather, lighting)
-    return { imageData: ctx.getImageData(0, 0, W, H), lights: _sceneCacheLights, waterMask: _sceneCacheWaterMask }
-  }
 
   const lights: LightSource[] = []
   const waterMask = isPreview ? _emptyWaterMask : new Uint8Array(W * H)
@@ -573,15 +606,6 @@ export function renderCanvas2D(
 
   // Draw all
   for (const d of drawables) d.draw(ctx)
-
-  // === Cache the static scene (before weather particles) ===
-  if (isPreview) {
-    _sceneCache = ctx.getImageData(0, 0, W, H)
-    _sceneCacheKey = cacheKey
-    _sceneCacheLights = [...lights]
-    _sceneCacheWaterMask = waterMask
-    _sceneCacheLighting = lighting
-  }
 
   // ── Weather particles (screen-space, drawn after scene) ──
   const dt = time > lastTime ? time - lastTime : 0.016

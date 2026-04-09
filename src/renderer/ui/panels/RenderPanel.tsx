@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAppStore } from '../../app/store'
-import { renderPixelArt } from '../../renderer3d/RenderPipeline'
+import { renderPixelArt, renderPreviewFrame } from '../../renderer3d/RenderPipeline'
 import { PALETTES } from '../../renderer3d/PaletteQuantizer'
 
 const CAMERA_PRESETS = [
@@ -75,18 +75,19 @@ export function RenderPanel() {
 
     try {
       const state = useAppStore.getState()
-      const result = renderPixelArt(
+      // FAST PATH: renderPreviewFrame returns canvas directly
+      // No getImageData, no putImageData, no post-processing, no PNG encode
+      const srcCanvas = renderPreviewFrame(
         state.map, state.renderCamera, state.objectDefinitions,
-        { paletteId: state.renderCamera.paletteId, quality: 'preview' },
         state.buildingPalettes, timeRef.current
       )
-      // Paint result canvas directly into our live canvas (no PNG encode!)
+      // Paint to live canvas with drawImage (GPU→GPU, ~0.1ms)
       const container = canvasContainerRef.current
       if (container) {
-        if (!liveCanvasRef.current || liveCanvasRef.current.width !== result.width || liveCanvasRef.current.height !== result.height) {
+        if (!liveCanvasRef.current || liveCanvasRef.current.width !== srcCanvas.width || liveCanvasRef.current.height !== srcCanvas.height) {
           if (liveCanvasRef.current) container.removeChild(liveCanvasRef.current)
           const c = document.createElement('canvas')
-          c.width = result.width; c.height = result.height
+          c.width = srcCanvas.width; c.height = srcCanvas.height
           c.style.width = '100%'
           c.style.maxHeight = '400px'
           c.style.objectFit = 'contain'
@@ -98,7 +99,7 @@ export function RenderPanel() {
           liveCanvasRef.current = c
         }
         const lctx = liveCanvasRef.current.getContext('2d')!
-        lctx.drawImage(result.canvas, 0, 0)
+        lctx.drawImage(srcCanvas, 0, 0)
       }
     } catch (_) { /* skip frame on error */ }
 

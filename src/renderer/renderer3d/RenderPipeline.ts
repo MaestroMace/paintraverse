@@ -1,7 +1,7 @@
 import type { MapDocument, RenderCamera, ObjectDefinition } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { quantizeImageData, applyOutlines, PALETTES } from './PaletteQuantizer'
-import { renderCanvas2D } from './Canvas2DRenderer'
+import { renderCanvas2D, renderPreviewToCanvas } from './Canvas2DRenderer'
 import type { LightSource } from './Canvas2DRenderer'
 
 export interface RenderOptions {
@@ -31,6 +31,22 @@ const DEFAULT_OPTIONS: RenderOptions = {
   quality: 'final'
 }
 
+// === FAST PREVIEW: zero ImageData extraction, pure canvas path ===
+// Returns the render canvas directly. No getImageData, no putImageData,
+// no post-processing, no quantization, no PNG encoding.
+// Cache hit: ~1ms (putImageData cached scene + weather particles)
+// Cache miss: full scene render + cache write
+export function renderPreviewFrame(
+  map: MapDocument,
+  camera: RenderCamera,
+  objectDefs: ObjectDefinition[],
+  buildingPalettes?: BuildingPalette[] | null,
+  time: number = 0
+): HTMLCanvasElement {
+  return renderPreviewToCanvas(map, camera, objectDefs, buildingPalettes, time)
+}
+
+// === FULL QUALITY RENDER (final output with all post-processing) ===
 export function renderPixelArt(
   map: MapDocument,
   camera: RenderCamera,
