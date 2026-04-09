@@ -6,8 +6,14 @@
 
 import type { MapDocument, ObjectDefinition, PlacedObject, RenderCamera, EnvironmentState } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
+import { SpatialGrid } from './SpatialGrid'
 
-// ── Color constants (mirrored from SceneBuilder.ts) ──
+// ── Spatial grids for fast object culling (built once per map, reused across frames) ──
+let _structureGrid: SpatialGrid | null = null
+let _propGrid: SpatialGrid | null = null
+let _gridMapVersion = -1
+
+// ── Color constants ──
 
 const TERRAIN_COLORS: Record<number, number> = {
   0: 0x2d5a27, 1: 0x8b7355, 2: 0x708090, 3: 0x4682b4,
@@ -510,15 +516,23 @@ export function renderCanvas2D(
     }
   }
 
-  // ── Buildings (structures) — tile range + frustum culling ──
+  // ── Build spatial grids once per map version (reuse across frames) ──
   const structureLayer = map.layers.find(l => l.type === 'structure')
-  if (structureLayer) {
-    for (const obj of structureLayer.objects) {
-      // Coarse range cull: skip objects outside visible tile range
-      if (obj.x > txMax + 5 || obj.x < txMin - 5 || obj.y > tyMax + 5 || obj.y < tyMin - 5) continue
+  const propLayer = map.layers.find(l => l.type === 'prop')
+  if (map.version !== _gridMapVersion) {
+    _structureGrid = new SpatialGrid(map.gridWidth, map.gridHeight)
+    _propGrid = new SpatialGrid(map.gridWidth, map.gridHeight)
+    if (structureLayer) _structureGrid.insertAll(structureLayer.objects)
+    if (propLayer) _propGrid.insertAll(propLayer.objects)
+    _gridMapVersion = map.version
+  }
+
+  // ── Buildings — spatial grid query + frustum cull ──
+  if (_structureGrid) {
+    const visibleStructures = _structureGrid.query(txMin - 5, tyMin - 5, txMax + 5, tyMax + 5)
+    for (const obj of visibleStructures) {
       const def = defMap.get(obj.definitionId)
       if (!def) continue
-      // Fine frustum cull: project center, skip if off-screen
       const bcx = (obj.x + def.footprint.w / 2) * ts
       const bcz = (obj.y + def.footprint.h / 2) * ts
       const bc = project(bcx, ts, bcz)
@@ -527,15 +541,12 @@ export function renderCanvas2D(
     }
   }
 
-  // ── Props — tile range + frustum culling ──
-  const propLayer = map.layers.find(l => l.type === 'prop')
-  if (propLayer) {
-    for (const obj of propLayer.objects) {
-      // Coarse range cull
-      if (obj.x > txMax + 3 || obj.x < txMin - 3 || obj.y > tyMax + 3 || obj.y < tyMin - 3) continue
+  // ── Props — spatial grid query + frustum cull ──
+  if (_propGrid) {
+    const visibleProps = _propGrid.query(txMin - 3, tyMin - 3, txMax + 3, tyMax + 3)
+    for (const obj of visibleProps) {
       const def = defMap.get(obj.definitionId)
       if (!def) continue
-      // Fine frustum cull
       const pc = project((obj.x + 0.5) * ts, 0, (obj.y + 0.5) * ts)
       if (pc && !inScreen(pc)) continue
       addPropDrawables(drawables, obj, def, ts, project, lighting, time, lights)
