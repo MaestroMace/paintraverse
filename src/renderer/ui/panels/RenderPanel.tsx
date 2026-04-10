@@ -123,10 +123,21 @@ export function RenderPanel() {
   }, [playing, renderFrame])
 
   const handleExport = () => {
-    if (!previewURL) return
+    // Render final quality if no preview exists
+    let url = previewURL
+    if (!url) {
+      try {
+        const result = renderPixelArt(map, camera, objectDefs, {
+          paletteId: camera.paletteId, dithering: renderOpts.dithering,
+          outlines: renderOpts.outlines, quality: 'final'
+        }, buildingPalettes, timeRef.current)
+        url = result.imageDataURL
+        setPreviewURL(url)
+      } catch { return }
+    }
     const link = document.createElement('a')
     link.download = `${map.name.replace(/\s+/g, '_')}_render.png`
-    link.href = previewURL
+    link.href = url
     link.click()
   }
 
@@ -293,16 +304,18 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
                   marginBottom: 3
                 }}
               />
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button onClick={handleExport} style={{ flex: 1, fontSize: 10, padding: '2px 8px' }}>
-                  Export PNG
-                </button>
-                <button onClick={handleDebugPackage} style={{ flex: 1, fontSize: 10, padding: '2px 8px' }} title="Download render + overhead + all settings as a single HTML file">
-                  Debug Pkg
-                </button>
-              </div>
             </div>
           )}
+
+          {/* Export/Debug always available */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+            <button onClick={handleExport} style={{ flex: 1, fontSize: 10, padding: '2px 8px' }}>
+              Export PNG
+            </button>
+            <button onClick={handleDebugPackage} style={{ flex: 1, fontSize: 10, padding: '2px 8px' }} title="Download render + overhead + all settings as a single HTML file">
+              Debug Pkg
+            </button>
+          </div>
 
           {/* Camera presets + palette - compact, always visible */}
           <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', marginBottom: 4 }}>

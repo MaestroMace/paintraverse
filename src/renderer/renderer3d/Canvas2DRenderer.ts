@@ -219,8 +219,10 @@ let _renderCanvas: HTMLCanvasElement | null = null
 let _renderCtx: CanvasRenderingContext2D | null = null
 // Empty water mask for preview mode (avoids allocation)
 const _emptyWaterMask = new Uint8Array(0)
-// Scene cache: skip full scene re-render when camera/map unchanged
-let _sceneCache: ImageData | null = null
+// Scene cache: use a separate canvas (GPU→GPU copy via drawImage is ~0.1ms
+// vs putImageData's ~5-10ms CPU→GPU copy of 1.2MB)
+let _sceneCache: HTMLCanvasElement | null = null
+let _sceneCacheCtx: CanvasRenderingContext2D | null = null
 let _sceneCacheKey = ''
 let _sceneCacheLights: LightSource[] = []
 let _sceneCacheWaterMask: Uint8Array = _emptyWaterMask
@@ -252,19 +254,25 @@ export function renderPreviewToCanvas(
   const cacheKey = `${camera.worldX},${camera.worldY},${camera.lookAtX},${camera.lookAtY},${camera.elevation},${camera.fov},${W},${H},${map.version},${map.environment.timeOfDay}`
 
   if (_sceneCache && _sceneCacheKey === cacheKey) {
-    // Cache hit: restore cached scene (one putImageData, no getImageData)
-    ctx.putImageData(_sceneCache, 0, 0)
+    // Cache HIT: restore from canvas cache with drawImage (GPU→GPU, ~0.1ms)
+    // This is 50-100x faster than putImageData which does CPU→GPU copy
+    ctx.drawImage(_sceneCache, 0, 0)
   } else {
-    // Cache miss: do a full render via renderCanvas2D, which draws to _renderCanvas
-    // Then snapshot for future frames
-    renderCanvas2D(map, camera, objectDefs, buildingPalettes, time, true)
-    // The full render already drew to _renderCanvas. Cache it now.
-    _sceneCache = ctx.getImageData(0, 0, W, H)
+    // Cache MISS: full render (skip weather — we draw it separately below)
+    renderCanvas2D(map, camera, objectDefs, buildingPalettes, time, true, true)
+    // Cache the clean scene (no weather) to a separate canvas
+    if (!_sceneCache || _sceneCache.width !== W || _sceneCache.height !== H) {
+      _sceneCache = document.createElement('canvas')
+      _sceneCache.width = W
+      _sceneCache.height = H
+      _sceneCacheCtx = _sceneCache.getContext('2d')!
+    }
+    _sceneCacheCtx!.drawImage(_renderCanvas, 0, 0) // GPU→GPU copy to cache
     _sceneCacheKey = cacheKey
     _sceneCacheLighting = computeLighting(map.environment)
   }
 
-  // Weather particles (the only per-frame visual change)
+  // Weather particles drawn ONCE per frame on top of cached/rendered scene
   const dt = time > lastTime ? time - lastTime : 0.016
   lastTime = time
   const lighting = _sceneCacheLighting ?? computeLighting(map.environment)
@@ -282,7 +290,8 @@ export function renderCanvas2D(
   objectDefs: ObjectDefinition[],
   buildingPalettes?: BuildingPalette[] | null,
   time: number = 0,
-  isPreview: boolean = false
+  isPreview: boolean = false,
+  skipWeather: boolean = false
 ): SceneResult {
   const { outputWidth: W, outputHeight: H } = camera
   const ts = map.tileSize
@@ -667,10 +676,12 @@ export function renderCanvas2D(
   for (const d of drawables) d.draw(ctx)
 
   // ── Weather particles (screen-space, drawn after scene) ──
-  const dt = time > lastTime ? time - lastTime : 0.016
-  lastTime = time
-  updateWeatherParticles(map.environment.weather, map.environment.weatherIntensity, W, H, dt, time)
-  drawWeatherParticles(ctx, map.environment.weather, lighting)
+  if (!skipWeather) {
+    const dt = time > lastTime ? time - lastTime : 0.016
+    lastTime = time
+    updateWeatherParticles(map.environment.weather, map.environment.weatherIntensity, W, H, dt, time)
+    drawWeatherParticles(ctx, map.environment.weather, lighting)
+  }
 
   return { imageData: ctx.getImageData(0, 0, W, H), lights, waterMask }
 }
