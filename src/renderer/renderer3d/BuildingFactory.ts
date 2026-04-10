@@ -1,7 +1,12 @@
 /**
- * Building Factory: converts PlacedObjects → Three.js meshes.
- * Each building = box body + roof geometry.
- * Uses merged geometry per palette for minimal draw calls.
+ * Building Factory v2: Stylized Low-Poly Architecture
+ *
+ * Design principles:
+ * - 1 tile = ~4 meters (a building_small at 2×2 tiles = 8×8m, realistic)
+ * - Each floor = 3m (0.75 tile units) in height
+ * - Roofs add 30-60% of wall height
+ * - Buildings have chimneys, overhanging upper floors, stepped foundations
+ * - Architecture varies by district and style
  */
 
 import * as THREE from 'three'
@@ -9,22 +14,13 @@ import type { ObjectDefinition, PlacedObject } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { createFacadeTexture, createFacadeConfig } from './FacadeTexture'
 
-// Building heights in world units (1 unit = 1 tile)
-const BUILDING_HEIGHTS: Record<string, number> = {
-  building_small: 2.2, building_medium: 3.0, building_large: 3.8,
-  tavern: 2.8, shop: 2.5, tower: 5.0, clock_tower: 6.5,
-  balcony_house: 3.2, row_house: 2.8, corner_building: 3.0,
-  archway: 3.2, staircase: 1.2, town_gate: 4.5,
-  chapel: 4.5, guild_hall: 4.0, warehouse: 3.0,
-  watchtower: 5.5, mansion: 3.5, bakery: 2.5,
-  apothecary: 3.5, inn: 3.2, temple: 5.0,
-  covered_market: 2.8, bell_tower: 7.0, half_timber: 3.0,
-  narrow_house: 3.8, windmill: 3.5, cathedral: 7.5,
-  lighthouse: 9, round_tower: 7, gatehouse: 6.5,
-  stable: 3.0, mill: 5.0, bell_tower_tall: 10, aqueduct: 4.5,
+// Floor height in tile units (1 tile ≈ 4 meters, 1 floor ≈ 3m)
+const FLOOR_HEIGHT = 0.75
+// Roof height as fraction of wall height
+const ROOF_FRACTION: Record<string, number> = {
+  flat: 0, gabled: 0.35, hipped: 0.3, pointed: 0.7, steep: 0.5, dome: 0.4, none: 0,
 }
 
-// Roof styles
 type RoofStyle = 'flat' | 'gabled' | 'hipped' | 'pointed' | 'steep' | 'dome' | 'none'
 const ROOF_STYLE: Record<string, RoofStyle> = {
   building_small: 'gabled', building_medium: 'gabled', building_large: 'hipped',
@@ -54,11 +50,18 @@ const FOOTPRINTS: Record<string, { w: number; h: number }> = {
   temple: { w: 5, h: 5 }, covered_market: { w: 4, h: 3 },
   bell_tower: { w: 2, h: 2 }, half_timber: { w: 3, h: 2 },
   narrow_house: { w: 1, h: 3 }, clock_tower: { w: 3, h: 3 },
-  bridge: { w: 4, h: 2 }, cathedral: { w: 5, h: 6 },
-  lighthouse: { w: 3, h: 3 }, round_tower: { w: 2, h: 2 },
-  gatehouse: { w: 4, h: 2 }, stable: { w: 4, h: 3 },
-  mill: { w: 3, h: 3 }, bell_tower_tall: { w: 2, h: 2 },
-  aqueduct: { w: 5, h: 1 }, windmill: { w: 3, h: 3 },
+  cathedral: { w: 5, h: 6 }, lighthouse: { w: 3, h: 3 },
+  round_tower: { w: 2, h: 2 }, gatehouse: { w: 4, h: 2 },
+  stable: { w: 4, h: 3 }, mill: { w: 3, h: 3 },
+  bell_tower_tall: { w: 2, h: 2 }, aqueduct: { w: 5, h: 1 },
+  windmill: { w: 3, h: 3 },
+}
+
+// Special buildings that get extra height multiplier
+const HEIGHT_MULT: Record<string, number> = {
+  tower: 2.5, clock_tower: 3.0, bell_tower: 3.5, bell_tower_tall: 4.5,
+  watchtower: 2.8, cathedral: 2.0, lighthouse: 4.0, chapel: 1.5,
+  temple: 1.5, town_gate: 1.8, archway: 1.5, round_tower: 3.0,
 }
 
 function simpleHash(id: string): number {
@@ -79,73 +82,103 @@ export function buildBuildingMeshes(
     if (!def) continue
 
     const fp = FOOTPRINTS[obj.definitionId] || { w: def.footprint.w, h: def.footprint.h }
-    const baseH = BUILDING_HEIGHTS[obj.definitionId] ?? 2.0
     const hash = simpleHash(obj.id)
     const floors = (obj.properties.floors as number) || 1 + (hash % 2)
-    const height = baseH + (hash % 3) * 0.15
+    const heightMult = HEIGHT_MULT[obj.definitionId] ?? 1.0
+    const wallH = floors * FLOOR_HEIGHT * heightMult
     const roofStyle = ROOF_STYLE[obj.definitionId] || 'gabled'
+    const roofFrac = ROOF_FRACTION[roofStyle] ?? 0.3
+    const roofH = wallH * roofFrac
     const palette = palettes[hash % palettes.length]
+    const style = (obj.properties.style as string) || 'standard'
+    const district = (obj.properties.district as string) || 'residential'
 
     const group = new THREE.Group()
     group.position.set(obj.x + fp.w / 2, obj.elevation || 0, obj.y + fp.h / 2)
 
-    // Wall body with procedural facade textures
+    // === WALL BODY (with facade textures) ===
     const facadeConfig = createFacadeConfig(obj, fp.w, palette, hash)
     const frontTex = createFacadeTexture(facadeConfig, 'front')
     const sideTex = createFacadeTexture(facadeConfig, 'side')
     const plainMat = new THREE.MeshStandardMaterial({
-      color: palette.wall, flatShading: true, roughness: 0.85, metalness: 0,
+      color: palette.wall, flatShading: true, roughness: 0.85,
     })
     const frontMat = new THREE.MeshStandardMaterial({
-      map: frontTex, flatShading: true, roughness: 0.85, metalness: 0,
+      map: frontTex, flatShading: true, roughness: 0.85,
     })
     const sideMat = new THREE.MeshStandardMaterial({
-      map: sideTex, flatShading: true, roughness: 0.85, metalness: 0,
+      map: sideTex, flatShading: true, roughness: 0.85,
     })
-    // Box faces: +X, -X, +Y (top), -Y (bottom), +Z (front), -Z (back)
-    const wallGeo = new THREE.BoxGeometry(fp.w, height, fp.h)
-    wallGeo.translate(0, height / 2, 0)
-    const wallMesh = new THREE.Mesh(wallGeo, [
-      sideMat,   // +X right
-      sideMat,   // -X left
-      plainMat,  // +Y top (covered by roof)
-      plainMat,  // -Y bottom
-      frontMat,  // +Z front
-      frontMat,  // -Z back
-    ])
-    group.add(wallMesh)
 
-    // Roof
-    const roofH = roofStyle === 'pointed' ? height * 0.6
-      : roofStyle === 'steep' ? height * 0.45
-      : roofStyle === 'dome' ? height * 0.35
-      : (roofStyle === 'gabled' || roofStyle === 'hipped') ? height * 0.3
-      : 0
+    // Slight inward taper for upper floors (medieval jettying / overhang)
+    const hasOverhang = style === 'ornate' || obj.definitionId === 'half_timber' || obj.definitionId === 'balcony_house'
+    if (hasOverhang && floors >= 2) {
+      // Ground floor: slightly narrower
+      const groundH = FLOOR_HEIGHT * heightMult
+      const groundGeo = new THREE.BoxGeometry(fp.w * 0.95, groundH, fp.h * 0.95)
+      groundGeo.translate(0, groundH / 2, 0)
+      group.add(new THREE.Mesh(groundGeo, [sideMat, sideMat, plainMat, plainMat, frontMat, frontMat]))
 
+      // Upper floors: overhang outward
+      const upperH = wallH - groundH
+      const upperGeo = new THREE.BoxGeometry(fp.w * 1.02, upperH, fp.h * 1.02)
+      upperGeo.translate(0, groundH + upperH / 2, 0)
+      group.add(new THREE.Mesh(upperGeo, [sideMat, sideMat, plainMat, plainMat, frontMat, frontMat]))
+    } else {
+      const wallGeo = new THREE.BoxGeometry(fp.w, wallH, fp.h)
+      wallGeo.translate(0, wallH / 2, 0)
+      group.add(new THREE.Mesh(wallGeo, [sideMat, sideMat, plainMat, plainMat, frontMat, frontMat]))
+    }
+
+    // === ROOF ===
     const roofMat = new THREE.MeshStandardMaterial({
-      color: palette.roof,
-      flatShading: true,
-      roughness: 0.7,
-      metalness: 0,
+      color: palette.roof, flatShading: true, roughness: 0.7,
     })
 
     if (roofStyle === 'pointed') {
-      const roofGeo = new THREE.ConeGeometry(Math.max(fp.w, fp.h) * 0.6, roofH, 4)
-      roofGeo.rotateY(Math.PI / 4)
-      roofGeo.translate(0, height + roofH / 2, 0)
-      group.add(new THREE.Mesh(roofGeo, roofMat))
+      const r = Math.max(fp.w, fp.h) * 0.55
+      const geo = new THREE.ConeGeometry(r, roofH, 4)
+      geo.rotateY(Math.PI / 4)
+      geo.translate(0, wallH + roofH / 2, 0)
+      group.add(new THREE.Mesh(geo, roofMat))
     } else if (roofStyle === 'dome') {
-      const roofGeo = new THREE.SphereGeometry(Math.max(fp.w, fp.h) * 0.45, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2)
-      roofGeo.translate(0, height, 0)
-      group.add(new THREE.Mesh(roofGeo, roofMat))
+      const r = Math.max(fp.w, fp.h) * 0.45
+      const geo = new THREE.SphereGeometry(r, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2)
+      geo.scale(1, roofH / r, 1)
+      geo.translate(0, wallH, 0)
+      group.add(new THREE.Mesh(geo, roofMat))
     } else if (roofStyle === 'gabled' || roofStyle === 'steep' || roofStyle === 'hipped') {
-      // Triangular prism: custom geometry
-      const ridgeH = roofStyle === 'steep' ? roofH : roofH
-      const geo = createGabledRoof(fp.w, fp.h, ridgeH, roofStyle === 'hipped')
-      geo.translate(0, height, 0)
+      const geo = createGabledRoof(fp.w, fp.h, roofH, roofStyle === 'hipped')
+      geo.translate(0, wallH, 0)
       group.add(new THREE.Mesh(geo, roofMat))
     }
-    // 'flat' and 'none' = no additional roof geometry
+
+    // === CHIMNEY (40% of buildings) ===
+    if (hash % 5 < 2 && roofH > 0) {
+      const chimSide = (obj.properties.chimneyPos === 'left') ? -1 : 1
+      const chimW = 0.2, chimD = 0.2, chimH = roofH * 0.8
+      const chimGeo = new THREE.BoxGeometry(chimW, chimH, chimD)
+      const chimMat = new THREE.MeshStandardMaterial({ color: 0x704030, flatShading: true, roughness: 0.9 })
+      chimGeo.translate(chimSide * fp.w * 0.3, wallH + roofH * 0.3 + chimH / 2, 0)
+      group.add(new THREE.Mesh(chimGeo, chimMat))
+    }
+
+    // === STONE FOUNDATION (visible step at base) ===
+    if (district === 'noble' || district === 'temple' || style === 'ornate') {
+      const foundH = 0.08
+      const foundGeo = new THREE.BoxGeometry(fp.w + 0.1, foundH, fp.h + 0.1)
+      const foundMat = new THREE.MeshStandardMaterial({ color: 0x606060, flatShading: true, roughness: 0.95 })
+      foundGeo.translate(0, foundH / 2, 0)
+      group.add(new THREE.Mesh(foundGeo, foundMat))
+    }
+
+    // === DOORSTEP ===
+    if (fp.w >= 2) {
+      const stepGeo = new THREE.BoxGeometry(0.5, 0.05, 0.15)
+      const stepMat = new THREE.MeshStandardMaterial({ color: 0x808080, flatShading: true })
+      stepGeo.translate(0, 0.025, fp.h / 2 + 0.08)
+      group.add(new THREE.Mesh(stepGeo, stepMat))
+    }
 
     result.push(group)
   }
@@ -156,53 +189,40 @@ export function buildBuildingMeshes(
 /** Create a gabled/hipped roof as BufferGeometry */
 function createGabledRoof(w: number, d: number, h: number, hipped: boolean): THREE.BufferGeometry {
   const hw = w / 2, hd = d / 2
+  // Add slight overhang beyond the walls
+  const ow = hw + 0.08, od = hd + 0.08
 
   if (hipped) {
-    // Pyramid frustum (all 4 sides slope inward)
-    const inset = Math.min(hw, hd) * 0.3
+    const inset = Math.min(hw, hd) * 0.25
     const verts = new Float32Array([
-      // Front face
-      -hw, 0, -hd, hw, 0, -hd, inset, h, -inset,
-      -hw, 0, -hd, inset, h, -inset, -inset, h, -inset,
-      // Back face
-      hw, 0, hd, -hw, 0, hd, -inset, h, inset,
-      hw, 0, hd, -inset, h, inset, inset, h, inset,
-      // Right face
-      hw, 0, -hd, hw, 0, hd, inset, h, inset,
-      hw, 0, -hd, inset, h, inset, inset, h, -inset,
-      // Left face
-      -hw, 0, hd, -hw, 0, -hd, -inset, h, -inset,
-      -hw, 0, hd, -inset, h, -inset, -inset, h, inset,
-      // Top (flat cap)
-      -inset, h, -inset, inset, h, -inset, inset, h, inset,
-      -inset, h, -inset, inset, h, inset, -inset, h, inset,
+      -ow, 0, -od,  ow, 0, -od,  inset, h, -inset,
+      -ow, 0, -od,  inset, h, -inset,  -inset, h, -inset,
+      ow, 0, od,  -ow, 0, od,  -inset, h, inset,
+      ow, 0, od,  -inset, h, inset,  inset, h, inset,
+      ow, 0, -od,  ow, 0, od,  inset, h, inset,
+      ow, 0, -od,  inset, h, inset,  inset, h, -inset,
+      -ow, 0, od,  -ow, 0, -od,  -inset, h, -inset,
+      -ow, 0, od,  -inset, h, -inset,  -inset, h, inset,
+      -inset, h, -inset,  inset, h, -inset,  inset, h, inset,
+      -inset, h, -inset,  inset, h, inset,  -inset, h, inset,
     ])
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(verts, 3))
     geo.computeVertexNormals()
     return geo
   } else {
-    // Gabled: ridge runs along the longer axis
-    const ridgeAlongX = w >= d
-    const verts = ridgeAlongX ? new Float32Array([
-      // Front triangle
-      -hw, 0, -hd, hw, 0, -hd, 0, h, -hd,
-      // Back triangle
-      hw, 0, hd, -hw, 0, hd, 0, h, hd,
+    // Gabled: ridge runs along the longer axis with overhang
+    const verts = new Float32Array([
+      // Front gable triangle
+      -ow, 0, -od,  ow, 0, -od,  0, h, -od,
+      // Back gable triangle
+      ow, 0, od,  -ow, 0, od,  0, h, od,
       // Left slope
-      -hw, 0, hd, -hw, 0, -hd, 0, h, -hd,
-      -hw, 0, hd, 0, h, -hd, 0, h, hd,
+      -ow, 0, od,  -ow, 0, -od,  0, h, -od,
+      -ow, 0, od,  0, h, -od,  0, h, od,
       // Right slope
-      hw, 0, -hd, hw, 0, hd, 0, h, hd,
-      hw, 0, -hd, 0, h, hd, 0, h, -hd,
-    ]) : new Float32Array([
-      // Front triangle (gable faces)
-      -hw, 0, -hd, hw, 0, -hd, hw, 0, -hd, // degenerate — use side gables
-      // Ridge along Z
-      -hw, 0, -hd, -hw, 0, hd, 0, h, 0, // Left triangle to ridge
-      hw, 0, -hd, -hw, 0, -hd, 0, h, 0, // Front gable
-      hw, 0, hd, hw, 0, -hd, 0, h, 0,  // Right slope
-      -hw, 0, hd, hw, 0, hd, 0, h, 0,  // Back gable
+      ow, 0, -od,  ow, 0, od,  0, h, od,
+      ow, 0, -od,  0, h, od,  0, h, -od,
     ])
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(verts, 3))

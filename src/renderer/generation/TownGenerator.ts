@@ -190,14 +190,18 @@ export class TownGenerator implements IMapGenerator {
     // 5. Paint district-specific terrain
     this.paintDistrictTerrain(terrainTiles, districtMap, districts, width, height, noise, waterMap)
 
-    // 6. Central plaza + district plazas
+    // 6. Central plaza + district plazas (sized for 3D walkability)
     const mainCenter = districts.length > 0 ? districts[0].center : { x: Math.floor(width / 2), y: Math.floor(height / 2) }
-    const plazaRadius = Math.floor(3 + complexity * 3)
+    const plazaRadius = Math.floor(4 + complexity * 4) // larger main plaza
     this.carvePlaza(terrainTiles, mainCenter.x, mainCenter.y, plazaRadius, width, height, 2)
 
     for (let i = 1; i < districts.length; i++) {
-      const r = Math.floor(2 + complexity * 1.5)
-      this.carvePlaza(terrainTiles, districts[i].center.x, districts[i].center.y, r, width, height, 8)
+      // District plazas: larger for noble/temple/market, smaller for residential
+      const d = districts[i]
+      const dPlazaR = d.type === 'temple' || d.type === 'noble' ? Math.floor(4 + complexity * 2)
+        : d.type === 'market' || d.type === 'garden' ? Math.floor(3 + complexity * 2)
+        : Math.floor(2 + complexity * 1.5)
+      this.carvePlaza(terrainTiles, d.center.x, d.center.y, dPlazaR, width, height, 8)
     }
 
     // 7. Street hierarchy
@@ -686,21 +690,20 @@ export class TownGenerator implements IMapGenerator {
         w, h, length, 3, 0.15, noise, rng, waterMap)
     }
 
-    // LANES: Connect districts to each other (width 2)
+    // LANES: Connect districts to each other (width 3 for walkable 3D streets)
     for (let i = 0; i < districts.length; i++) {
       for (let j = i + 1; j < districts.length; j++) {
         const dx = districts[i].center.x - districts[j].center.x
         const dy = districts[i].center.y - districts[j].center.y
         const dist = Math.sqrt(dx * dx + dy * dy)
-        // Only connect nearby districts
         if (dist < Math.min(w, h) * 0.5) {
           this.carveRoad(roadMap, terrain, districts[i].center.x, districts[i].center.y,
-            districts[j].center.x, districts[j].center.y, w, h, 2, 0.2, noise, rng, waterMap)
+            districts[j].center.x, districts[j].center.y, w, h, 3, 0.2, noise, rng, waterMap)
         }
       }
     }
 
-    // SECONDARY STREETS within districts (width 2) — more streets for richer town
+    // SECONDARY STREETS within districts (width 3) — walkable side streets
     const numSecondary = Math.floor(8 + complexity * 18)
     for (let i = 0; i < numSecondary; i++) {
       const sx = Math.floor(w * 0.08 + rng() * w * 0.84)
@@ -708,10 +711,10 @@ export class TownGenerator implements IMapGenerator {
       if (waterMap[sy]?.[sx]) continue
       const angle = rng() * Math.PI * 2
       this.carveOrganicPath(roadMap, terrain, sx, sy, angle,
-        w, h, Math.floor(6 + rng() * 12), 2, 0.25, noise, rng, waterMap)
+        w, h, Math.floor(6 + rng() * 12), 3, 0.25, noise, rng, waterMap)
     }
 
-    // ALLEYS branching off roads (width 1)
+    // ALLEYS branching off roads (width 2 for walkable 3D)
     if (complexity > 0.2) {
       const numAlleys = Math.floor(8 + complexity * 18)
       for (let i = 0; i < numAlleys; i++) {
@@ -720,7 +723,7 @@ export class TownGenerator implements IMapGenerator {
         if (bx >= 0 && bx < w && by >= 0 && by < h && roadMap[by][bx]) {
           const angle = rng() * Math.PI * 2
           this.carveOrganicPath(roadMap, terrain, bx, by, angle,
-            w, h, Math.floor(3 + rng() * 5), 1, 0.35, noise, rng, waterMap)
+            w, h, Math.floor(3 + rng() * 5), 2, 0.35, noise, rng, waterMap)
         }
       }
     }

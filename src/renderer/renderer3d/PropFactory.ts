@@ -67,30 +67,74 @@ export function buildPropMeshes(
     const fp = def?.footprint || { w: 1, h: 1 }
     const px = obj.x + fp.w / 2, pz = obj.y + fp.h / 2
     const elev = obj.elevation || 0
+    let hash = 0
+    for (let i = 0; i < obj.id.length; i++) hash = ((hash << 5) - hash + obj.id.charCodeAt(i)) | 0
+    hash = Math.abs(hash)
 
     if (id === 'tree' || id === 'orchard_tree') {
       const species = (obj.properties.species as string) || 'oak'
       const group = new THREE.Group()
       group.position.set(px, elev, pz)
 
-      // Trunk
-      const trunkMat = new THREE.MeshStandardMaterial({ color: colors.body, flatShading: true, roughness: 0.9 })
-      const trunk = new THREE.Mesh(geo.treeTrunk, trunkMat)
-      trunk.position.y = 0.6
+      // Trunk — slightly tapered cylinder
+      const trunkH = species === 'pine' ? 1.6 : species === 'willow' ? 1.0 : 1.2
+      const trunkMat = new THREE.MeshStandardMaterial({
+        color: species === 'birch' ? 0xd0c8b8 : 0x5a3a1a, flatShading: true, roughness: 0.9,
+      })
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.14, trunkH, 5), trunkMat)
+      trunk.position.y = trunkH / 2
       group.add(trunk)
 
-      // Canopy
-      const canopyColor = species === 'pine' ? 0x1a4a1a : species === 'birch' ? 0x4a8a3a : species === 'willow' ? 0x3a6a2a : 0x2d5a27
+      // Canopy — species-specific shapes
+      const canopyColor = species === 'pine' ? 0x1a4a1a : species === 'birch' ? 0x4a8a3a
+        : species === 'willow' ? 0x3a6a2a : species === 'maple' ? 0x6a8a2a : 0x2d5a27
       const canopyMat = new THREE.MeshStandardMaterial({ color: canopyColor, flatShading: true, roughness: 0.8 })
+      const canopyDark = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(canopyColor).multiplyScalar(0.75).getHex(),
+        flatShading: true, roughness: 0.8,
+      })
+
       if (species === 'pine') {
-        const canopy = new THREE.Mesh(geo.pineCanopy, canopyMat)
-        canopy.position.y = 1.8
-        group.add(canopy)
+        // Layered cones
+        for (let layer = 0; layer < 3; layer++) {
+          const r = 0.6 - layer * 0.12
+          const ch = 0.7
+          const cone = new THREE.Mesh(
+            new THREE.ConeGeometry(r, ch, 6),
+            layer % 2 === 0 ? canopyMat : canopyDark
+          )
+          cone.position.y = trunkH + 0.2 + layer * 0.45
+          group.add(cone)
+        }
+      } else if (species === 'willow') {
+        // Wide dome
+        const dome = new THREE.Mesh(new THREE.SphereGeometry(1.1, 7, 5), canopyMat)
+        dome.scale.set(1, 0.65, 1)
+        dome.position.y = trunkH + 0.3
+        group.add(dome)
       } else {
-        const canopy = new THREE.Mesh(geo.treeCanopy, canopyMat)
-        canopy.position.y = 1.8
-        if (species === 'willow') canopy.scale.set(1.3, 0.8, 1.3)
-        group.add(canopy)
+        // Oak/birch/maple: multi-sphere canopy (3 overlapping spheres)
+        const baseY = trunkH + 0.2
+        const lobeR = species === 'birch' ? 0.55 : 0.7
+        for (let li = 0; li < 3; li++) {
+          const angle = (li / 3) * Math.PI * 2 + (hash * 0.7)
+          const lobe = new THREE.Mesh(
+            geo.treeCanopy,
+            li % 2 === 0 ? canopyMat : canopyDark
+          )
+          lobe.scale.setScalar(lobeR)
+          lobe.position.set(
+            Math.cos(angle) * 0.25,
+            baseY + Math.sin(li * 1.3) * 0.15,
+            Math.sin(angle) * 0.25
+          )
+          group.add(lobe)
+        }
+        // Top highlight lobe
+        const topLobe = new THREE.Mesh(geo.treeCanopy, canopyMat)
+        topLobe.scale.setScalar(lobeR * 0.6)
+        topLobe.position.set(0, baseY + 0.4, 0)
+        group.add(topLobe)
       }
 
       result.push(group)
