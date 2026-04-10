@@ -14,6 +14,67 @@ const TERRAIN_COLORS: Record<number, number> = {
 
 export function buildTerrainMesh(
   tiles: number[][], gridWidth: number, gridHeight: number
+): THREE.Group {
+  const group = new THREE.Group()
+  group.add(buildGroundMesh(tiles, gridWidth, gridHeight))
+  group.add(buildWaterMesh(tiles, gridWidth, gridHeight))
+  return group
+}
+
+function buildWaterMesh(
+  tiles: number[][], gridWidth: number, gridHeight: number
+): THREE.Mesh {
+  // Collect water tile positions, create a single animated water plane
+  const waterPositions: number[] = []
+  for (let ty = 0; ty < gridHeight; ty++) {
+    for (let tx = 0; tx < gridWidth; tx++) {
+      if (tiles[ty]?.[tx] !== 3) continue
+      const x = tx + 0.5, z = ty + 0.5
+      waterPositions.push(x, z)
+    }
+  }
+
+  if (waterPositions.length === 0) {
+    // Empty invisible mesh
+    const geo = new THREE.BufferGeometry()
+    return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ visible: false }))
+  }
+
+  // Create individual quads for each water tile
+  const count = waterPositions.length / 2
+  const positions = new Float32Array(count * 6 * 3)
+  let vi = 0
+  for (let i = 0; i < waterPositions.length; i += 2) {
+    const cx = waterPositions[i], cz = waterPositions[i + 1]
+    const x0 = cx - 0.5, x1 = cx + 0.5, z0 = cz - 0.5, z1 = cz + 0.5
+    const y = -0.08
+
+    positions[vi++] = x0; positions[vi++] = y; positions[vi++] = z0
+    positions[vi++] = x1; positions[vi++] = y; positions[vi++] = z0
+    positions[vi++] = x1; positions[vi++] = y; positions[vi++] = z1
+    positions[vi++] = x0; positions[vi++] = y; positions[vi++] = z0
+    positions[vi++] = x1; positions[vi++] = y; positions[vi++] = z1
+    positions[vi++] = x0; positions[vi++] = y; positions[vi++] = z1
+  }
+
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  geo.computeVertexNormals()
+
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x3070a0,
+    transparent: true,
+    opacity: 0.75,
+    roughness: 0.1,
+    metalness: 0.3,
+    flatShading: true,
+  })
+
+  return new THREE.Mesh(geo, mat)
+}
+
+function buildGroundMesh(
+  tiles: number[][], gridWidth: number, gridHeight: number
 ): THREE.Mesh {
   // One quad (2 triangles) per tile. Total: gridW × gridH × 6 vertices
   const numTiles = gridWidth * gridHeight

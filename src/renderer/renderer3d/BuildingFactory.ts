@@ -7,6 +7,7 @@
 import * as THREE from 'three'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
+import { createFacadeTexture, createFacadeConfig } from './FacadeTexture'
 
 // Building heights in world units (1 unit = 1 tile)
 const BUILDING_HEIGHTS: Record<string, number> = {
@@ -88,16 +89,31 @@ export function buildBuildingMeshes(
     const group = new THREE.Group()
     group.position.set(obj.x + fp.w / 2, obj.elevation || 0, obj.y + fp.h / 2)
 
-    // Wall body
+    // Wall body with procedural facade textures
+    const facadeConfig = createFacadeConfig(obj, fp.w, palette, hash)
+    const frontTex = createFacadeTexture(facadeConfig, 'front')
+    const sideTex = createFacadeTexture(facadeConfig, 'side')
+    const plainMat = new THREE.MeshStandardMaterial({
+      color: palette.wall, flatShading: true, roughness: 0.85, metalness: 0,
+    })
+    const frontMat = new THREE.MeshStandardMaterial({
+      map: frontTex, flatShading: true, roughness: 0.85, metalness: 0,
+    })
+    const sideMat = new THREE.MeshStandardMaterial({
+      map: sideTex, flatShading: true, roughness: 0.85, metalness: 0,
+    })
+    // Box faces: +X, -X, +Y (top), -Y (bottom), +Z (front), -Z (back)
     const wallGeo = new THREE.BoxGeometry(fp.w, height, fp.h)
     wallGeo.translate(0, height / 2, 0)
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: palette.wall,
-      flatShading: true,
-      roughness: 0.85,
-      metalness: 0,
-    })
-    group.add(new THREE.Mesh(wallGeo, wallMat))
+    const wallMesh = new THREE.Mesh(wallGeo, [
+      sideMat,   // +X right
+      sideMat,   // -X left
+      plainMat,  // +Y top (covered by roof)
+      plainMat,  // -Y bottom
+      frontMat,  // +Z front
+      frontMat,  // -Z back
+    ])
+    group.add(wallMesh)
 
     // Roof
     const roofH = roofStyle === 'pointed' ? height * 0.6

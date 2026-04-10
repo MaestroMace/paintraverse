@@ -108,10 +108,14 @@ export function buildPropMeshes(
       pole.position.y = h / 2
       group.add(pole)
       // Lamp glow (emissive sphere)
-      const lampMat = new THREE.MeshStandardMaterial({ color: 0xffcc44, emissive: 0xffaa22, emissiveIntensity: 0.5 })
-      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 4), lampMat)
+      const lampMat = new THREE.MeshStandardMaterial({ color: 0xffcc44, emissive: 0xffaa22, emissiveIntensity: 0.8 })
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.15, 6, 4), lampMat)
       lamp.position.y = h
       group.add(lamp)
+      // Point light for night illumination
+      const light = new THREE.PointLight(0xffcc66, 0.8, 8, 1.5)
+      light.position.y = h
+      group.add(light)
       result.push(group)
     } else {
       // Generic prop: colored box scaled to footprint
