@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAppStore } from '../../app/store'
 import { renderPixelArt, renderPreviewFrame } from '../../renderer3d/RenderPipeline'
 import { PALETTES } from '../../renderer3d/PaletteQuantizer'
+import { ThreeRenderer } from '../../renderer3d/ThreeRenderer'
 
 const CAMERA_PRESETS = [
   { label: 'Street', elevation: 1.5, fov: 60, desc: 'Low angle among buildings' },
@@ -26,6 +27,9 @@ export function RenderPanel() {
   const timeRef = useRef(0)
   const fpsCountRef = useRef(0)
   const fpsTimerRef = useRef(0)
+  const threeRef = useRef<ThreeRenderer | null>(null)
+  const threeContainerRef = useRef<HTMLDivElement>(null)
+  const [threeActive, setThreeActive] = useState(false)
 
   const map = useAppStore((s) => s.map)
   const objectDefs = useAppStore((s) => s.objectDefinitions)
@@ -121,6 +125,36 @@ export function RenderPanel() {
     animFrameRef.current = requestAnimationFrame(renderFrame)
     return () => { cancelAnimationFrame(animFrameRef.current) }
   }, [playing, renderFrame])
+
+  // === Three.js 3D View lifecycle ===
+  useEffect(() => {
+    if (!threeActive) {
+      if (threeRef.current) {
+        threeRef.current.dispose()
+        threeRef.current = null
+      }
+      return
+    }
+    const container = threeContainerRef.current
+    if (!container) return
+
+    const renderer = new ThreeRenderer()
+    renderer.init(container)
+    renderer.loadMap(map, objectDefs, buildingPalettes)
+    threeRef.current = renderer
+
+    return () => {
+      renderer.dispose()
+      threeRef.current = null
+    }
+  }, [threeActive]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reload map when it changes while 3D view is active
+  useEffect(() => {
+    if (threeRef.current && threeActive) {
+      threeRef.current.loadMap(map, objectDefs, buildingPalettes)
+    }
+  }, [map, objectDefs, buildingPalettes, threeActive])
 
   const handleExport = () => {
     // Render final quality if no preview exists
@@ -250,7 +284,32 @@ ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="$
       </div>
       {!collapsed && (
         <div className="panel-content">
-          {/* Render + Play buttons */}
+          {/* 3D View — Three.js real-time renderer */}
+          <button
+            onClick={() => { setThreeActive(!threeActive); if (playing) setPlaying(false) }}
+            style={{
+              width: '100%', padding: '8px 6px', fontSize: 13, fontWeight: 700,
+              marginBottom: 6,
+              background: threeActive ? 'linear-gradient(135deg, #2a6a3a, #1a4a2a)' : undefined,
+              color: threeActive ? '#4ade80' : undefined,
+              borderColor: threeActive ? '#4ade80' : undefined,
+            }}
+          >
+            {threeActive ? '[ 3D View Active — WASD to move, drag to look ]' : 'Enter 3D View'}
+          </button>
+
+          {threeActive && (
+            <div
+              ref={threeContainerRef}
+              style={{
+                width: '100%', height: 350, marginBottom: 6,
+                border: '1px solid var(--border)', borderRadius: 3,
+                background: '#000', overflow: 'hidden',
+              }}
+            />
+          )}
+
+          {/* Render + Play buttons (Canvas2D path) */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
             <button
               onClick={handleRender}
