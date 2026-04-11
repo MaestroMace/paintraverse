@@ -11,6 +11,33 @@ import { buildTerrainMesh, getTerrainHeight } from './TerrainMesh'
 import { buildBuildingMeshes } from './BuildingFactory'
 import { buildPropMeshes } from './PropFactory'
 
+function simpleHash(id: string): number {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0
+  return Math.abs(h)
+}
+
+// Mirrored from BuildingFactory so we can compute chimney positions
+const HEIGHT_MULT_MAP: Record<string, number> = {
+  tower: 2.5, clock_tower: 3.0, bell_tower: 3.5, bell_tower_tall: 4.5,
+  watchtower: 2.8, cathedral: 2.0, lighthouse: 4.0, chapel: 1.5,
+  temple: 1.5, town_gate: 1.8, archway: 1.5, round_tower: 3.0,
+}
+const ROOF_FRAC_MAP: Record<string, number> = {
+  flat: 0, gabled: 0.35, hipped: 0.3, pointed: 0.7, steep: 0.5, dome: 0.4, none: 0,
+  building_small: 0.35, building_medium: 0.35, building_large: 0.3,
+  tavern: 0.35, shop: 0.5, tower: 0.7, clock_tower: 0.7,
+  balcony_house: 0.35, row_house: 0.5, corner_building: 0.3,
+  archway: 0, staircase: 0, town_gate: 0,
+  chapel: 0.5, guild_hall: 0.3, warehouse: 0.35,
+  watchtower: 0.7, mansion: 0.3, bakery: 0.35,
+  apothecary: 0.5, inn: 0.35, temple: 0.4,
+  covered_market: 0.35, bell_tower: 0.7, half_timber: 0.35,
+  narrow_house: 0.5, cathedral: 0.5, lighthouse: 0.4,
+  round_tower: 0.7, gatehouse: 0, stable: 0.35, mill: 0.35,
+  bell_tower_tall: 0.7, aqueduct: 0, windmill: 0.7,
+}
+
 const DEFAULT_BUILDING_PALETTES = [
   { wall: 0xd8c8a8, roof: 0x8b4513, door: 0x4a3520 },
   { wall: 0xc8b898, roof: 0x6b3a2a, door: 0x3a2a1a },
@@ -23,6 +50,37 @@ const DEFAULT_BUILDING_PALETTES = [
   { wall: 0x7a6858, roof: 0x3a3028, door: 0x2a2018 },
   { wall: 0xd0c8b8, roof: 0x4a7a5a, door: 0x3a5a4a },
 ]
+
+// Sky dome shader — gradient hemisphere from horizon to zenith
+const SKY_VERT = `
+varying vec3 vWorldPosition;
+void main() {
+  vec4 worldPos = modelMatrix * vec4(position, 1.0);
+  vWorldPosition = worldPos.xyz;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`
+const SKY_FRAG = `
+uniform vec3 uZenith;
+uniform vec3 uHorizon;
+varying vec3 vWorldPosition;
+void main() {
+  float h = normalize(vWorldPosition).y;
+  float t = clamp(h * 2.0 + 0.1, 0.0, 1.0);
+  gl_FragColor = vec4(mix(uHorizon, uZenith, t), 1.0);
+}
+`
+
+// Particle data for smoke / fireflies
+interface ParticleSystem {
+  points: THREE.Points
+  positions: Float32Array
+  velocities: Float32Array
+  lifetimes: Float32Array
+  origins: Float32Array
+  count: number
+  type: 'smoke' | 'firefly'
+}
 
 export class ThreeRenderer {
   private scene: THREE.Scene
@@ -43,33 +101,89 @@ export class ThreeRenderer {
   private terrainGroup = new THREE.Group()
   private buildingGroup = new THREE.Group()
   private propGroup = new THREE.Group()
+  private particleGroup = new THREE.Group()
   private sunLight: THREE.DirectionalLight
   private ambientLight: THREE.AmbientLight
+
+  // Sky dome
+  private skyMesh: THREE.Mesh | null = null
+  private skyUniforms: { uZenith: { value: THREE.Color }; uHorizon: { value: THREE.Color } } | null = null
+  private sunDisc: THREE.Mesh | null = null
+
+  // Particles
+  private particleSystems: ParticleSystem[] = []
+  private currentTimeOfDay = 12
 
   // State
   private container: HTMLElement | null = null
   private disposed = false
   private _onKeyDown: ((e: KeyboardEvent) => void) | null = null
   private _onKeyUp: ((e: KeyboardEvent) => void) | null = null
+  // Track town center for shadow camera
+  private townCenterX = 24
+  private townCenterZ = 24
 
   constructor() {
     this.scene = new THREE.Scene()
-    this.scene.background = new THREE.Color(0x87ceeb) // sky blue
+    this.scene.background = null // sky dome replaces this
     this.scene.fog = new THREE.FogExp2(0xc8d8e8, 0.008)
 
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 500)
     this.camera.position.set(20, 4, 20)
 
+    // Sun light with shadows
     this.sunLight = new THREE.DirectionalLight(0xfff4e0, 1.2)
     this.sunLight.position.set(30, 50, 20)
+    this.sunLight.castShadow = true
+    this.sunLight.shadow.mapSize.set(2048, 2048)
+    this.sunLight.shadow.camera.near = 0.5
+    this.sunLight.shadow.camera.far = 120
+    this.sunLight.shadow.camera.left = -35
+    this.sunLight.shadow.camera.right = 35
+    this.sunLight.shadow.camera.top = 35
+    this.sunLight.shadow.camera.bottom = -35
+    this.sunLight.shadow.bias = -0.001
+    this.sunLight.shadow.normalBias = 0.02
     this.scene.add(this.sunLight)
+    this.scene.add(this.sunLight.target)
 
     this.ambientLight = new THREE.AmbientLight(0x606880, 0.6)
     this.scene.add(this.ambientLight)
 
+    // Create sky dome
+    this.createSkyDome()
+
     this.scene.add(this.terrainGroup)
     this.scene.add(this.buildingGroup)
     this.scene.add(this.propGroup)
+    this.scene.add(this.particleGroup)
+  }
+
+  private createSkyDome(): void {
+    const uniforms = {
+      uZenith: { value: new THREE.Color(0x4488cc) },
+      uHorizon: { value: new THREE.Color(0xd0e0f0) },
+    }
+    this.skyUniforms = uniforms
+
+    const skyGeo = new THREE.SphereGeometry(250, 16, 12)
+    const skyMat = new THREE.ShaderMaterial({
+      vertexShader: SKY_VERT,
+      fragmentShader: SKY_FRAG,
+      uniforms,
+      side: THREE.BackSide,
+      depthWrite: false,
+    })
+    this.skyMesh = new THREE.Mesh(skyGeo, skyMat)
+    this.skyMesh.renderOrder = -1
+    this.scene.add(this.skyMesh)
+
+    // Sun/moon disc
+    const discGeo = new THREE.SphereGeometry(8, 8, 6)
+    const discMat = new THREE.MeshBasicMaterial({ color: 0xffee88 })
+    this.sunDisc = new THREE.Mesh(discGeo, discMat)
+    this.sunDisc.position.copy(this.sunLight.position).normalize().multiplyScalar(200)
+    this.scene.add(this.sunDisc)
   }
 
   init(container: HTMLElement): void {
@@ -79,10 +193,12 @@ export class ThreeRenderer {
     this.renderer = new THREE.WebGLRenderer({
       antialias: false, // pixel art = no AA
       powerPreference: 'high-performance',
+      preserveDrawingBuffer: true, // needed for screenshot capture
     })
     this.renderer.setPixelRatio(1) // no HiDPI — pixel art
     this.renderer.setSize(container.clientWidth, container.clientHeight)
-    this.renderer.shadowMap.enabled = false // Phase 4
+    this.renderer.shadowMap.enabled = true
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     container.appendChild(this.renderer.domElement)
     this.renderer.domElement.style.imageRendering = 'pixelated'
@@ -140,10 +256,15 @@ export class ThreeRenderer {
     this.terrainGroup.clear()
     this.buildingGroup.clear()
     this.propGroup.clear()
+    this.particleGroup.clear()
+    this.particleSystems = []
 
-    const ts = map.tileSize
     const palettes = buildingPalettes || DEFAULT_BUILDING_PALETTES
     const defMap = new Map(objectDefs.map(d => [d.id, d]))
+
+    // Track town center for shadow camera
+    this.townCenterX = map.gridWidth / 2
+    this.townCenterZ = map.gridHeight / 2
 
     // Terrain (with height map from seed)
     const seed = map.generationConfig?.seed ?? 0
@@ -151,26 +272,57 @@ export class ThreeRenderer {
     let heightMap: number[][] | null = null
     if (terrainLayer?.terrainTiles) {
       const terrainGroup = buildTerrainMesh(terrainLayer.terrainTiles, map.gridWidth, map.gridHeight, seed)
+      // Terrain receives shadows but doesn't cast them
+      terrainGroup.traverse((child) => {
+        if (child instanceof THREE.Mesh) child.receiveShadow = true
+      })
       this.terrainGroup.add(terrainGroup)
       heightMap = (terrainGroup as any)._heightMap ?? null
     }
 
-    // Buildings — placed at terrain height
+    // Buildings — placed at terrain height, cast + receive shadows
     const structureLayer = map.layers.find(l => l.type === 'structure')
+    const chimneyPositions: THREE.Vector3[] = []
     if (structureLayer) {
       const meshes = buildBuildingMeshes(structureLayer.objects, defMap, palettes)
       for (const m of meshes) {
-        // Adjust Y position to terrain height
         if (heightMap) {
           const tx = Math.floor(m.position.x)
           const tz = Math.floor(m.position.z)
           m.position.y += getTerrainHeight(heightMap, tx, tz)
         }
+        // Enable shadows on all building meshes
+        m.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.castShadow = true
+            child.receiveShadow = true
+          }
+        })
         this.buildingGroup.add(m)
+      }
+
+      // Collect chimney positions for smoke particles
+      for (const obj of structureLayer.objects) {
+        const hash = simpleHash(obj.id)
+        if (hash % 5 >= 2) continue // only 40% have chimneys
+        const def = defMap.get(obj.definitionId)
+        if (!def) continue
+        const fp = { w: def.footprint.w, h: def.footprint.h }
+        const floors = (obj.properties.floors as number) || 1 + (hash % 2)
+        const heightMult = HEIGHT_MULT_MAP[obj.definitionId] ?? 1.0
+        const wallH = floors * 0.75 * heightMult
+        const roofFrac = ROOF_FRAC_MAP[obj.definitionId] ?? 0.3
+        const roofH = wallH * roofFrac
+        const chimSide = (obj.properties.chimneyPos === 'left') ? -1 : 1
+        const bx = obj.x + fp.w / 2 + chimSide * fp.w * 0.3
+        const bz = obj.y + fp.h / 2
+        const baseY = (obj.elevation || 0) + (heightMap ? getTerrainHeight(heightMap, Math.floor(obj.x + fp.w / 2), Math.floor(obj.y + fp.h / 2)) : 0)
+        const chimTopY = baseY + wallH + roofH * 0.3 + roofH * 0.8
+        chimneyPositions.push(new THREE.Vector3(bx, chimTopY, bz))
       }
     }
 
-    // Props — placed at terrain height
+    // Props — placed at terrain height, cast shadows
     const propLayer = map.layers.find(l => l.type === 'prop')
     if (propLayer) {
       const meshes = buildPropMeshes(propLayer.objects, defMap)
@@ -180,9 +332,18 @@ export class ThreeRenderer {
           const tz = Math.floor(m.position.z)
           m.position.y += getTerrainHeight(heightMap, tx, tz)
         }
+        m.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.castShadow = true
+            child.receiveShadow = true
+          }
+        })
         this.propGroup.add(m)
       }
     }
+
+    // Spawn particles
+    this.initParticles(chimneyPositions, map.gridWidth, map.gridHeight)
 
     // === ELEVATED WALKWAYS ===
     // Bridges between buildings that span across streets at upper floors
@@ -326,38 +487,227 @@ export class ThreeRenderer {
   }
 
   updateLighting(timeOfDay: number): void {
+    this.currentTimeOfDay = timeOfDay
     const isNight = timeOfDay < 5 || timeOfDay >= 19
     const isDusk = timeOfDay >= 17 && timeOfDay < 19
+    const isDawn = timeOfDay >= 5 && timeOfDay < 7
     const isGolden = timeOfDay >= 15 && timeOfDay < 17
+
+    // Sun angle based on time (0=midnight, 12=noon)
+    const sunAngle = ((timeOfDay - 6) / 12) * Math.PI // 0 at 6am, PI at 6pm
+    const sunY = Math.sin(sunAngle) * 50
+    const sunX = Math.cos(sunAngle) * 40 + this.townCenterX
+    const sunZ = this.townCenterZ + 10
 
     if (isNight) {
       this.sunLight.intensity = 0.15
       this.sunLight.color.setHex(0x4466aa)
+      this.sunLight.position.set(this.townCenterX, 40, sunZ) // moonlight from above
       this.ambientLight.intensity = 0.2
       this.ambientLight.color.setHex(0x202848)
-      this.scene.background = new THREE.Color(0x0a0e1a)
       this.scene.fog = new THREE.FogExp2(0x0a0e1a, 0.015)
-    } else if (isDusk) {
+      if (this.skyUniforms) {
+        this.skyUniforms.uZenith.value.setHex(0x0a0e2a)
+        this.skyUniforms.uHorizon.value.setHex(0x101830)
+      }
+      if (this.sunDisc) {
+        (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xccccdd)
+        this.sunDisc.position.set(0, 180, 0) // moon overhead
+        this.sunDisc.scale.setScalar(0.3) // smaller moon
+      }
+    } else if (isDusk || isDawn) {
       this.sunLight.intensity = 0.8
       this.sunLight.color.setHex(0xffaa66)
+      this.sunLight.position.set(sunX, Math.max(5, sunY), sunZ)
       this.ambientLight.intensity = 0.4
       this.ambientLight.color.setHex(0x604838)
-      this.scene.background = new THREE.Color(0xd08050)
       this.scene.fog = new THREE.FogExp2(0xc08060, 0.006)
+      if (this.skyUniforms) {
+        this.skyUniforms.uZenith.value.setHex(0xcc6633)
+        this.skyUniforms.uHorizon.value.setHex(0xffaa88)
+      }
+      if (this.sunDisc) {
+        (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xff8844)
+        const dir = new THREE.Vector3(sunX - this.townCenterX, Math.max(5, sunY), sunZ - this.townCenterZ).normalize()
+        this.sunDisc.position.copy(dir).multiplyScalar(200)
+        this.sunDisc.scale.setScalar(1.2) // larger at horizon
+      }
     } else if (isGolden) {
       this.sunLight.intensity = 1.0
       this.sunLight.color.setHex(0xffe8c0)
+      this.sunLight.position.set(sunX, sunY, sunZ)
       this.ambientLight.intensity = 0.5
       this.ambientLight.color.setHex(0x706050)
-      this.scene.background = new THREE.Color(0xa0c8e0)
       this.scene.fog = new THREE.FogExp2(0xb0d0e0, 0.005)
+      if (this.skyUniforms) {
+        this.skyUniforms.uZenith.value.setHex(0x5588bb)
+        this.skyUniforms.uHorizon.value.setHex(0xe8d8c8)
+      }
+      if (this.sunDisc) {
+        (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xffdd88)
+        const dir = new THREE.Vector3(sunX - this.townCenterX, sunY, sunZ - this.townCenterZ).normalize()
+        this.sunDisc.position.copy(dir).multiplyScalar(200)
+        this.sunDisc.scale.setScalar(1.0)
+      }
     } else {
       this.sunLight.intensity = 1.2
       this.sunLight.color.setHex(0xfff4e0)
+      this.sunLight.position.set(sunX, sunY, sunZ)
       this.ambientLight.intensity = 0.6
       this.ambientLight.color.setHex(0x606880)
-      this.scene.background = new THREE.Color(0x87ceeb)
       this.scene.fog = new THREE.FogExp2(0xc8d8e8, 0.008)
+      if (this.skyUniforms) {
+        this.skyUniforms.uZenith.value.setHex(0x4488cc)
+        this.skyUniforms.uHorizon.value.setHex(0xd0e0f0)
+      }
+      if (this.sunDisc) {
+        (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xffee88)
+        const dir = new THREE.Vector3(sunX - this.townCenterX, sunY, sunZ - this.townCenterZ).normalize()
+        this.sunDisc.position.copy(dir).multiplyScalar(200)
+        this.sunDisc.scale.setScalar(0.8)
+      }
+    }
+
+    // Shadow camera follows sun position, targets town center
+    this.sunLight.target.position.set(this.townCenterX, 0, this.townCenterZ)
+
+    // Update emissive window intensity on buildings
+    const emissiveIntensity = isNight ? 0.8 : (isDusk || isDawn) ? 0.4 : 0
+    this.buildingGroup.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
+        if (child.material.emissiveMap) {
+          child.material.emissiveIntensity = emissiveIntensity
+        }
+      }
+    })
+  }
+
+  /** Initialize particle systems for smoke and fireflies */
+  private initParticles(chimneyPositions: THREE.Vector3[], gridW: number, gridH: number): void {
+    // Chimney smoke particles (8 per chimney, max 20 chimneys)
+    const maxChimneys = Math.min(chimneyPositions.length, 20)
+    if (maxChimneys > 0) {
+      const perChimney = 8
+      const count = maxChimneys * perChimney
+      const positions = new Float32Array(count * 3)
+      const velocities = new Float32Array(count * 3)
+      const lifetimes = new Float32Array(count)
+      const origins = new Float32Array(count * 3)
+
+      for (let ci = 0; ci < maxChimneys; ci++) {
+        const cp = chimneyPositions[ci]
+        for (let pi = 0; pi < perChimney; pi++) {
+          const idx = ci * perChimney + pi
+          const i3 = idx * 3
+          origins[i3] = cp.x
+          origins[i3 + 1] = cp.y
+          origins[i3 + 2] = cp.z
+          // Start at random phase
+          lifetimes[idx] = Math.random()
+          positions[i3] = cp.x + (Math.random() - 0.5) * 0.1
+          positions[i3 + 1] = cp.y + Math.random() * 1.5
+          positions[i3 + 2] = cp.z + (Math.random() - 0.5) * 0.1
+          velocities[i3] = (Math.random() - 0.5) * 0.05
+          velocities[i3 + 1] = 0.2 + Math.random() * 0.15
+          velocities[i3 + 2] = (Math.random() - 0.5) * 0.05
+        }
+      }
+
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+      const smokeMat = new THREE.PointsMaterial({
+        color: 0xbbbbbb, size: 0.2, transparent: true, opacity: 0.35,
+        sizeAttenuation: true, depthWrite: false,
+      })
+      const points = new THREE.Points(geo, smokeMat)
+      this.particleGroup.add(points)
+      this.particleSystems.push({ points, positions, velocities, lifetimes, origins, count, type: 'smoke' })
+    }
+
+    // Ambient fireflies / dust motes (80 particles scattered across town)
+    const fireflyCount = 80
+    const ffPositions = new Float32Array(fireflyCount * 3)
+    const ffVelocities = new Float32Array(fireflyCount * 3)
+    const ffLifetimes = new Float32Array(fireflyCount)
+    const ffOrigins = new Float32Array(fireflyCount * 3)
+
+    for (let i = 0; i < fireflyCount; i++) {
+      const i3 = i * 3
+      const ox = Math.random() * gridW
+      const oz = Math.random() * gridH
+      const oy = 1.5 + Math.random() * 3
+      ffOrigins[i3] = ox; ffOrigins[i3 + 1] = oy; ffOrigins[i3 + 2] = oz
+      ffPositions[i3] = ox; ffPositions[i3 + 1] = oy; ffPositions[i3 + 2] = oz
+      ffVelocities[i3] = (Math.random() - 0.5) * 0.3
+      ffVelocities[i3 + 1] = (Math.random() - 0.5) * 0.1
+      ffVelocities[i3 + 2] = (Math.random() - 0.5) * 0.3
+      ffLifetimes[i] = Math.random()
+    }
+
+    const ffGeo = new THREE.BufferGeometry()
+    ffGeo.setAttribute('position', new THREE.BufferAttribute(ffPositions, 3))
+    const ffMat = new THREE.PointsMaterial({
+      color: 0xffeeaa, size: 0.08, transparent: true, opacity: 0.6,
+      sizeAttenuation: true, depthWrite: false,
+    })
+    const ffPoints = new THREE.Points(ffGeo, ffMat)
+    this.particleGroup.add(ffPoints)
+    this.particleSystems.push({
+      points: ffPoints, positions: ffPositions, velocities: ffVelocities,
+      lifetimes: ffLifetimes, origins: ffOrigins, count: fireflyCount, type: 'firefly',
+    })
+  }
+
+  /** Animate all particle systems */
+  private updateParticles(dt: number): void {
+    for (const ps of this.particleSystems) {
+      const pos = ps.positions
+      const vel = ps.velocities
+      const life = ps.lifetimes
+      const orig = ps.origins
+
+      for (let i = 0; i < ps.count; i++) {
+        const i3 = i * 3
+        life[i] += dt * (ps.type === 'smoke' ? 0.3 : 0.15)
+
+        if (life[i] >= 1.0) {
+          // Respawn at origin
+          life[i] = 0
+          pos[i3] = orig[i3] + (Math.random() - 0.5) * 0.15
+          pos[i3 + 1] = orig[i3 + 1]
+          pos[i3 + 2] = orig[i3 + 2] + (Math.random() - 0.5) * 0.15
+          if (ps.type === 'smoke') {
+            vel[i3] = (Math.random() - 0.5) * 0.05
+            vel[i3 + 1] = 0.2 + Math.random() * 0.15
+            vel[i3 + 2] = (Math.random() - 0.5) * 0.05
+          }
+        } else {
+          pos[i3] += vel[i3] * dt
+          pos[i3 + 1] += vel[i3 + 1] * dt
+          pos[i3 + 2] += vel[i3 + 2] * dt
+
+          if (ps.type === 'firefly') {
+            // Gentle sinusoidal drift
+            vel[i3] += (Math.random() - 0.5) * 0.4 * dt
+            vel[i3 + 1] += (Math.random() - 0.5) * 0.2 * dt
+            vel[i3 + 2] += (Math.random() - 0.5) * 0.4 * dt
+            // Damping
+            vel[i3] *= 0.99; vel[i3 + 1] *= 0.99; vel[i3 + 2] *= 0.99
+          }
+        }
+      }
+
+      const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
+      attr.needsUpdate = true
+
+      // Fireflies: visible at night, faded during day
+      if (ps.type === 'firefly') {
+        const isNight = this.currentTimeOfDay < 5 || this.currentTimeOfDay >= 19
+        const isDusk = this.currentTimeOfDay >= 17 && this.currentTimeOfDay < 19
+        ;(ps.points.material as THREE.PointsMaterial).opacity = isNight ? 0.7 : isDusk ? 0.3 : 0.05
+        ;(ps.points.material as THREE.PointsMaterial).color.setHex(isNight ? 0xffdd44 : 0xffffff)
+        ;(ps.points.material as THREE.PointsMaterial).size = isNight ? 0.12 : 0.04
+      }
     }
   }
 
@@ -367,6 +717,9 @@ export class ThreeRenderer {
       this.animId = requestAnimationFrame(loop)
       const dt = Math.min(this.clock.getDelta(), 0.1)
       this.updateCamera(dt)
+      this.updateParticles(dt)
+      // Keep sky dome centered on camera
+      if (this.skyMesh) this.skyMesh.position.copy(this.camera.position)
       this.renderer?.render(this.scene, this.camera)
     }
     this.animId = requestAnimationFrame(loop)
@@ -405,6 +758,7 @@ export class ThreeRenderer {
     cancelAnimationFrame(this.animId)
     if (this._onKeyDown) window.removeEventListener('keydown', this._onKeyDown)
     if (this._onKeyUp) window.removeEventListener('keyup', this._onKeyUp)
+    this.particleSystems = []
     this.renderer?.dispose()
     if (this.renderer?.domElement.parentElement) {
       this.renderer.domElement.parentElement.removeChild(this.renderer.domElement)

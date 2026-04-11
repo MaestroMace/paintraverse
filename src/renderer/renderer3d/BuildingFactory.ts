@@ -12,7 +12,7 @@
 import * as THREE from 'three'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
-import { createFacadeTexture, createFacadeConfig } from './FacadeTexture'
+import { createFacadeTexture, createFacadeConfig, createEmissiveTexture } from './FacadeTexture'
 
 // Floor height in tile units (1 tile ≈ 4 meters, 1 floor ≈ 3m)
 const FLOOR_HEIGHT = 0.75
@@ -96,18 +96,21 @@ export function buildBuildingMeshes(
     const group = new THREE.Group()
     group.position.set(obj.x + fp.w / 2, obj.elevation || 0, obj.y + fp.h / 2)
 
-    // === WALL BODY (with facade textures) ===
+    // === WALL BODY (with facade textures + emissive glow maps) ===
     const facadeConfig = createFacadeConfig(obj, fp.w, palette, hash)
     const frontTex = createFacadeTexture(facadeConfig, 'front')
     const sideTex = createFacadeTexture(facadeConfig, 'side')
+    const emissiveTex = createEmissiveTexture(facadeConfig)
     const plainMat = new THREE.MeshStandardMaterial({
       color: palette.wall, flatShading: true, roughness: 0.85,
     })
     const frontMat = new THREE.MeshStandardMaterial({
       map: frontTex, flatShading: true, roughness: 0.85,
+      emissive: 0xffcc66, emissiveMap: emissiveTex, emissiveIntensity: 0,
     })
     const sideMat = new THREE.MeshStandardMaterial({
       map: sideTex, flatShading: true, roughness: 0.85,
+      emissive: 0xffcc66, emissiveMap: emissiveTex, emissiveIntensity: 0,
     })
 
     // Slight inward taper for upper floors (medieval jettying / overhang)

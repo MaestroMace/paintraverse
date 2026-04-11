@@ -194,6 +194,65 @@ export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'
   return texture
 }
 
+/** Create an emissive-only texture: black background, glowing window rectangles */
+export function createEmissiveTexture(config: FacadeConfig): THREE.CanvasTexture {
+  const key = `emissive_${facadeKey(config, 'front')}`
+  const cached = _textureCache.get(key)
+  if (cached) return cached
+
+  const w = config.width * TEXTURE_SCALE
+  const h = config.floors * TEXTURE_SCALE + TEXTURE_SCALE / 2
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')!
+
+  // Black background = no emission
+  ctx.fillStyle = 'rgb(0,0,0)'
+  ctx.fillRect(0, 0, w, h)
+
+  // Glowing windows (same layout as facade)
+  const winW = TEXTURE_SCALE * 0.22
+  const winH = TEXTURE_SCALE * 0.35
+  const cols = Math.max(1, Math.floor(config.width * 1.5))
+  const spacing = w / (cols + 1)
+
+  // Seeded random for consistent dark windows
+  let rng = config.wallColor ^ (config.floors * 7919)
+  const nextRng = () => { rng = (rng * 1103515245 + 12345) & 0x7fffffff; return rng / 0x7fffffff }
+
+  for (let floor = 0; floor < config.floors; floor++) {
+    const floorY = h - (floor + 1) * TEXTURE_SCALE
+    for (let col = 0; col < cols; col++) {
+      // 20% chance window is dark (unlit room)
+      if (nextRng() < 0.2) continue
+
+      const wx = spacing * (col + 1) - winW / 2
+      const wy = floorY + TEXTURE_SCALE * 0.25
+
+      // Warm glow — slight color variation per window
+      const warmth = nextRng()
+      const r = 255
+      const g = Math.floor(180 + warmth * 40)
+      const b = Math.floor(60 + warmth * 30)
+      ctx.fillStyle = `rgb(${r},${g},${b})`
+      ctx.fillRect(wx, wy, winW, winH)
+
+      // Mullion cross casts slight shadow on glow
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'
+      ctx.fillRect(wx + winW / 2 - 1, wy, 2, winH)
+      ctx.fillRect(wx, wy + winH / 2 - 1, winW, 2)
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.minFilter = THREE.NearestFilter
+  texture.magFilter = THREE.NearestFilter
+  _textureCache.set(key, texture)
+  return texture
+}
+
 export function createFacadeConfig(
   obj: { id: string; properties: Record<string, unknown> },
   footprintW: number,
