@@ -62,6 +62,17 @@ export function ThreeViewport() {
     }
   }, [map.environment.timeOfDay])
 
+  // FPS counter update
+  const [fpsText, setFpsText] = useState('')
+  useEffect(() => {
+    const iv = setInterval(() => {
+      if (rendererRef.current) {
+        setFpsText(`${rendererRef.current.fps} FPS | ${rendererRef.current.drawCalls} draws`)
+      }
+    }, 1000)
+    return () => clearInterval(iv)
+  }, [])
+
   const handleScreenshot = useCallback(() => {
     if (!rendererRef.current) return
     const dataURL = rendererRef.current.captureScreenshot()
@@ -110,6 +121,15 @@ export function ThreeViewport() {
           <span style={{ fontSize: 11, color: '#aaa' }}>WASD move / Mouse look / Esc to exit</span>
         </div>
       )}
+      {/* FPS counter */}
+      <div style={{
+        position: 'absolute', top: 8, right: 8,
+        background: 'rgba(0,0,0,0.7)', padding: '4px 10px',
+        borderRadius: 4, fontSize: 12, fontFamily: 'monospace',
+        color: '#4ade80', pointerEvents: 'none',
+      }}>
+        {fpsText || '...'}
+      </div>
       {/* Screenshot button */}
       <button
         onClick={handleScreenshot}

@@ -12,7 +12,7 @@
 import * as THREE from 'three'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
-import { createFacadeTexture, createFacadeConfig, createEmissiveTexture } from './FacadeTexture'
+import { createFacadeTexture, createFacadeConfig } from './FacadeTexture'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 
 const FLOOR_HEIGHT = 0.75
@@ -69,7 +69,7 @@ function simpleHash(id: string): number {
 }
 
 // Material cache — share materials across buildings with same facade config
-const _wallMatCache = new Map<string, THREE.MeshStandardMaterial>()
+const _wallMatCache = new Map<string, THREE.Material>()
 
 export interface BuildingBatchResult {
   wallMeshes: THREE.Mesh[]       // individual (textured, emissive)
@@ -111,15 +111,13 @@ export function buildBuildingMeshes(
     // === WALL BODY — single material, one draw call per wall ===
     const facadeConfig = createFacadeConfig(obj, fp.w, palette, hash)
     const frontTex = createFacadeTexture(facadeConfig, 'front')
-    const emissiveTex = createEmissiveTexture(facadeConfig)
 
-    // Cache wall material by facade key
+    // Cache wall material by facade key — use Lambert (cheaper than PBR)
     const matKey = `${facadeConfig.floors}_${facadeConfig.width}_${palette.wall.toString(16)}_${facadeConfig.hasTimber}_${facadeConfig.hasShutters}_${facadeConfig.hasFlowerBox}_${facadeConfig.style}`
     let wallMat = _wallMatCache.get(matKey)
     if (!wallMat) {
-      wallMat = new THREE.MeshStandardMaterial({
-        map: frontTex, flatShading: true, roughness: 0.85,
-        emissive: 0xffcc66, emissiveMap: emissiveTex, emissiveIntensity: 0,
+      wallMat = new THREE.MeshLambertMaterial({
+        map: frontTex, flatShading: true,
       })
       _wallMatCache.set(matKey, wallMat)
     }

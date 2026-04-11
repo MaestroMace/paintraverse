@@ -117,6 +117,14 @@ export class ThreeRenderer {
   private _up = new THREE.Vector3(0, 1, 0)
   private _target = new THREE.Vector3()
 
+  // FPS tracking
+  private _fpsFrames = 0
+  private _fpsTime = 0
+  private _fps = 0
+  get fps(): number { return this._fps }
+  private _drawCalls = 0
+  get drawCalls(): number { return this._drawCalls }
+
   // State
   private container: HTMLElement | null = null
   private disposed = false
@@ -188,15 +196,21 @@ export class ThreeRenderer {
     this.disposed = false
 
     this.renderer = new THREE.WebGLRenderer({
-      antialias: false, // pixel art = no AA
+      antialias: false,
       powerPreference: 'high-performance',
-      preserveDrawingBuffer: true, // required for toDataURL() screenshot capture
+      preserveDrawingBuffer: true,
     })
-    this.renderer.setPixelRatio(1) // no HiDPI — pixel art
-    this.renderer.setSize(container.clientWidth, container.clientHeight)
+    // Render at 1/4 resolution for performance, CSS upscale with pixelated
+    const RENDER_SCALE = 0.25
+    const rw = Math.max(1, Math.floor(container.clientWidth * RENDER_SCALE))
+    const rh = Math.max(1, Math.floor(container.clientHeight * RENDER_SCALE))
+    this.renderer.setPixelRatio(1)
+    this.renderer.setSize(rw, rh, false)
     this.renderer.shadowMap.enabled = false
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     container.appendChild(this.renderer.domElement)
+    this.renderer.domElement.style.width = '100%'
+    this.renderer.domElement.style.height = '100%'
     this.renderer.domElement.style.imageRendering = 'pixelated'
 
     this.camera.aspect = container.clientWidth / container.clientHeight
@@ -237,12 +251,16 @@ export class ThreeRenderer {
     this.renderer.domElement.addEventListener('mousemove', this._onMouseMove)
     this.renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault())
 
-    // Resize
+    // Resize (render at RENDER_SCALE, CSS fills container)
     this._resizeObserver = new ResizeObserver(() => {
       if (!this.renderer || !this.container) return
       const w = this.container.clientWidth, h = this.container.clientHeight
       if (w === 0 || h === 0) return
-      this.renderer.setSize(w, h)
+      this.renderer.setSize(
+        Math.max(1, Math.floor(w * RENDER_SCALE)),
+        Math.max(1, Math.floor(h * RENDER_SCALE)),
+        false
+      )
       this.camera.aspect = w / h
       this.camera.updateProjectionMatrix()
     })
@@ -361,8 +379,8 @@ export class ThreeRenderer {
     heightMap: number[][] | null,
     gridW: number, gridH: number
   ): void {
-    const walkwayMat = new THREE.MeshStandardMaterial({ color: 0x8a7a68, flatShading: true, roughness: 0.85 })
-    const railMat = new THREE.MeshStandardMaterial({ color: 0x5a4a3a, flatShading: true, roughness: 0.9 })
+    const walkwayMat = new THREE.MeshLambertMaterial({ color: 0x8a7a68, flatShading: true })
+    const railMat = new THREE.MeshLambertMaterial({ color: 0x5a4a3a, flatShading: true })
     let count = 0
     const maxWalkways = 12
 
@@ -413,7 +431,7 @@ export class ThreeRenderer {
 
         // Support arch (simple box underneath)
         const archGeo = new THREE.BoxGeometry(0.2, bridgeH, 0.2)
-        const archMat = new THREE.MeshStandardMaterial({ color: 0x706058, flatShading: true })
+        const archMat = new THREE.MeshLambertMaterial({ color: 0x706058, flatShading: true })
         const support1 = new THREE.Mesh(archGeo, archMat)
         support1.position.set(ax + Math.cos(angle) * 0.5, ah + bridgeH / 2, az + Math.sin(angle) * 0.5)
         this.propGroup.add(support1)
@@ -430,7 +448,7 @@ export class ThreeRenderer {
   private generateStaircases(
     heightMap: number[][], gridW: number, gridH: number
   ): void {
-    const stepMat = new THREE.MeshStandardMaterial({ color: 0x808078, flatShading: true, roughness: 0.9 })
+    const stepMat = new THREE.MeshLambertMaterial({ color: 0x808078, flatShading: true })
     let count = 0
     const maxStairs = 30
 
@@ -559,15 +577,6 @@ export class ThreeRenderer {
     // Shadow camera follows sun position, targets town center
     this.sunLight.target.position.set(this.townCenterX, 0, this.townCenterZ)
 
-    // Update emissive window intensity on buildings
-    const emissiveIntensity = isNight ? 0.8 : (isDusk || isDawn) ? 0.4 : 0
-    this.buildingGroup.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
-        if (child.material.emissiveMap) {
-          child.material.emissiveIntensity = emissiveIntensity
-        }
-      }
-    })
   }
 
   /** Initialize particle systems for smoke and fireflies */
@@ -700,20 +709,22 @@ export class ThreeRenderer {
   }
 
   private startLoop(): void {
-    let frameCount = 0
     const loop = () => {
       if (this.disposed) return
       this.animId = requestAnimationFrame(loop)
       const dt = Math.min(this.clock.getDelta(), 0.1)
       this.updateCamera(dt)
       this.updateParticles(dt)
-      // Keep sky dome centered on camera
       if (this.skyMesh) this.skyMesh.position.copy(this.camera.position)
       this.renderer?.render(this.scene, this.camera)
-      // Log draw call count once (after first render)
-      if (frameCount++ === 1 && this.renderer) {
-        const info = this.renderer.info.render
-        console.log(`[3D Perf] draw calls: ${info.calls}, triangles: ${info.triangles}, points: ${info.points}`)
+      // FPS counter
+      this._fpsFrames++
+      this._fpsTime += dt
+      if (this._fpsTime >= 1.0) {
+        this._fps = this._fpsFrames
+        this._fpsFrames = 0
+        this._fpsTime = 0
+        if (this.renderer) this._drawCalls = this.renderer.info.render.calls
       }
     }
     this.animId = requestAnimationFrame(loop)

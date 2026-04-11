@@ -190,8 +190,7 @@ function buildWaterMesh(
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3))
   geo.computeVertexNormals()
 
-  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-    color: 0x3070a0, transparent: true, opacity: 0.75,
-    roughness: 0.1, metalness: 0.3, flatShading: true,
+  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+    color: 0x3070a0, transparent: true, opacity: 0.75, flatShading: true,
   }))
 }

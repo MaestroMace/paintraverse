@@ -135,7 +135,7 @@ export function buildPropMeshes(
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, h, 4), poleMat)
       pole.position.y = h / 2
       group.add(pole)
-      const lampMat = new THREE.MeshStandardMaterial({ color: 0xffcc44, emissive: 0xffaa22, emissiveIntensity: 0.8 })
+      const lampMat = new THREE.MeshLambertMaterial({ color: 0xffcc44, emissive: 0xffaa22, emissiveIntensity: 0.8 })
       const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.15, 6, 4), lampMat)
       lamp.position.y = h
       group.add(lamp)
