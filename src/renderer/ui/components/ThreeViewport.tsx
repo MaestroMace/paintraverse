@@ -18,6 +18,8 @@ export function ThreeViewport() {
   const objectDefs = useAppStore((s) => s.objectDefinitions)
   const buildingPalettes = useAppStore((s) => s.buildingPalettes)
 
+  const mountedRef = useRef(false)
+
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -27,19 +29,21 @@ export function ThreeViewport() {
     renderer.loadMap(map, objectDefs, buildingPalettes)
     rendererRef.current = renderer
     _activeRenderer = renderer
+    // Mark mounted after a microtask so the dep-effect skips its first run
+    Promise.resolve().then(() => { mountedRef.current = true })
 
     return () => {
       renderer.dispose()
       rendererRef.current = null
       _activeRenderer = null
+      mountedRef.current = false
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reload map when it changes
+  // Reload map when it changes (skip mount — init effect already loaded)
   useEffect(() => {
-    if (rendererRef.current) {
-      rendererRef.current.loadMap(map, objectDefs, buildingPalettes)
-    }
+    if (!mountedRef.current || !rendererRef.current) return
+    rendererRef.current.loadMap(map, objectDefs, buildingPalettes)
   }, [map, objectDefs, buildingPalettes])
 
   // Update lighting when time-of-day changes

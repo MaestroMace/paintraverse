@@ -53,19 +53,18 @@ const DEFAULT_BUILDING_PALETTES = [
 
 // Sky dome shader — gradient hemisphere from horizon to zenith
 const SKY_VERT = `
-varying vec3 vWorldPosition;
+varying vec3 vLocalPos;
 void main() {
-  vec4 worldPos = modelMatrix * vec4(position, 1.0);
-  vWorldPosition = worldPos.xyz;
+  vLocalPos = position;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `
 const SKY_FRAG = `
 uniform vec3 uZenith;
 uniform vec3 uHorizon;
-varying vec3 vWorldPosition;
+varying vec3 vLocalPos;
 void main() {
-  float h = normalize(vWorldPosition).y;
+  float h = normalize(vLocalPos).y;
   float t = clamp(h * 2.0 + 0.1, 0.0, 1.0);
   gl_FragColor = vec4(mix(uHorizon, uZenith, t), 1.0);
 }
@@ -180,7 +179,7 @@ export class ThreeRenderer {
 
     // Sun/moon disc
     const discGeo = new THREE.SphereGeometry(8, 8, 6)
-    const discMat = new THREE.MeshBasicMaterial({ color: 0xffee88 })
+    const discMat = new THREE.MeshBasicMaterial({ color: 0xffee88, fog: false })
     this.sunDisc = new THREE.Mesh(discGeo, discMat)
     this.sunDisc.position.copy(this.sunLight.position).normalize().multiplyScalar(200)
     this.scene.add(this.sunDisc)
@@ -193,7 +192,7 @@ export class ThreeRenderer {
     this.renderer = new THREE.WebGLRenderer({
       antialias: false, // pixel art = no AA
       powerPreference: 'high-performance',
-      preserveDrawingBuffer: true, // needed for screenshot capture
+      preserveDrawingBuffer: true, // required for toDataURL() screenshot capture
     })
     this.renderer.setPixelRatio(1) // no HiDPI — pixel art
     this.renderer.setSize(container.clientWidth, container.clientHeight)

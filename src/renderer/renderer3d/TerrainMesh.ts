@@ -73,18 +73,11 @@ function buildGroundWithHeight(
   for (let ty = 0; ty < gridHeight; ty++) {
     for (let tx = 0; tx < gridWidth; tx++) {
       const tileId = tiles[ty]?.[tx] ?? 0
-      if (tileId === 3) { vi += 18; continue } // water handled separately
+      if (tileId === 3) continue // water handled separately — don't advance vi
 
       const color = new THREE.Color(TERRAIN_COLORS[tileId] ?? 0x808080)
       const r = color.r, g = color.g, b = color.b
 
-      // Get corner heights (average of neighboring tile heights for smoothing)
-      const h00 = getTerrainHeight(heightMap, tx, ty)
-      const h10 = getTerrainHeight(heightMap, tx + 1, ty)
-      const h01 = getTerrainHeight(heightMap, tx, ty + 1)
-      const h11 = getTerrainHeight(heightMap, tx + 1, ty + 1)
-
-      // Snap corners to the tile's own height for terraced look
       const tileH = getTerrainHeight(heightMap, tx, ty)
       const y00 = tileH, y10 = tileH, y01 = tileH, y11 = tileH
 
