@@ -17,7 +17,7 @@ const PROP_HEIGHTS: Record<string, number> = {
   gravestone: 0.7, windmill: 3.5, bridge: 0.8,
 }
 
-const MAX_POINT_LIGHTS = 8
+const MAX_POINT_LIGHTS = 16
 
 // Shared geometries (created once)
 let _geo: {
@@ -76,43 +76,43 @@ export function buildPropMeshes(
 
     if (id === 'tree' || id === 'orchard_tree') {
       const species = (obj.properties.species as string) || 'oak'
-      const trunkH = species === 'pine' ? 1.6 : species === 'willow' ? 1.0 : 1.2
+      const trunkH = species === 'pine' ? 2.4 : species === 'willow' ? 1.5 : 1.8
       const trunkColor = species === 'birch' ? 0xd0c8b8 : 0x5a3a1a
       const canopyColor = species === 'pine' ? 0x1a4a1a : species === 'birch' ? 0x4a8a3a
         : species === 'willow' ? 0x3a6a2a : species === 'maple' ? 0x6a8a2a : 0x2d5a27
 
-      // Trunk
+      // Trunk — scaled up 50%
       const trunk = geo.treeTrunk.clone()
-      trunk.scale(1, trunkH / 1.2, 1)
+      trunk.scale(1.4, trunkH / 1.2, 1.4)
       trunk.translate(px, elev + trunkH / 2, pz)
       batch.addPositioned(trunk, trunkColor)
 
       // Canopy
       if (species === 'pine') {
         for (let layer = 0; layer < 3; layer++) {
-          const r = 0.6 - layer * 0.12
+          const r = 0.9 - layer * 0.18
           const c = geo.pineCone.clone()
-          c.scale(r / 0.6, 1, r / 0.6)
-          c.translate(px, elev + trunkH + 0.2 + layer * 0.45 + 0.35, pz)
+          c.scale(r / 0.6, 1.3, r / 0.6)
+          c.translate(px, elev + trunkH + 0.3 + layer * 0.6 + 0.45, pz)
           batch.addPositioned(c, canopyColor)
         }
       } else if (species === 'willow') {
         const d = geo.willowDome.clone()
-        d.scale(1, 0.65, 1)
-        d.translate(px, elev + trunkH + 0.3, pz)
+        d.scale(1.5, 0.9, 1.5)
+        d.translate(px, elev + trunkH + 0.4, pz)
         batch.addPositioned(d, canopyColor)
       } else {
         // Oak/birch/maple — 3 overlapping lobes + top
-        const baseY = elev + trunkH + 0.2
-        const lobeR = species === 'birch' ? 0.55 : 0.7
+        const baseY = elev + trunkH + 0.3
+        const lobeR = species === 'birch' ? 0.8 : 1.0
         for (let li = 0; li < 3; li++) {
           const angle = (li / 3) * Math.PI * 2 + (hash * 0.7)
           const lobe = geo.treeCanopy.clone()
           lobe.scale(lobeR, lobeR, lobeR)
           lobe.translate(
-            px + Math.cos(angle) * 0.25,
-            baseY + Math.sin(li * 1.3) * 0.15,
-            pz + Math.sin(angle) * 0.25
+            px + Math.cos(angle) * 0.4,
+            baseY + Math.sin(li * 1.3) * 0.2,
+            pz + Math.sin(angle) * 0.4
           )
           batch.addPositioned(lobe, li % 2 === 0 ? canopyColor : new THREE.Color(canopyColor).multiplyScalar(0.75).getHex())
         }
@@ -124,7 +124,8 @@ export function buildPropMeshes(
 
     } else if (id === 'bush' || id === 'hedge') {
       const b = geo.bushGeo.clone()
-      b.translate(px, elev + 0.3, pz)
+      b.scale(1.3, 1.3, 1.3)
+      b.translate(px, elev + 0.4, pz)
       batch.addPositioned(b, 0x3a7a33)
 
     } else if (id === 'lamppost' || id === 'wall_lantern' || id === 'street_lamp_double' || id === 'double_lamp') {
@@ -149,18 +150,23 @@ export function buildPropMeshes(
       lampposts.push(group)
 
     } else if (id === 'fountain' || id === 'fountain_grand') {
+      const scale = id === 'fountain_grand' ? 1.5 : 1.0
       // Basin
-      const basin = new THREE.CylinderGeometry(0.7, 0.8, 0.35, 8)
-      basin.translate(px, elev + 0.18, pz)
-      batch.addPositioned(basin, 0x808888)
+      const basin = new THREE.CylinderGeometry(0.9 * scale, 1.0 * scale, 0.4, 8)
+      basin.translate(px, elev + 0.2, pz)
+      batch.addPositioned(basin, 0x909898)
       // Water
-      const water = new THREE.CylinderGeometry(0.55, 0.55, 0.05, 8)
-      water.translate(px, elev + 0.33, pz)
-      batch.addPositioned(water, 0x4080b0)
+      const water = new THREE.CylinderGeometry(0.7 * scale, 0.7 * scale, 0.06, 8)
+      water.translate(px, elev + 0.38, pz)
+      batch.addPositioned(water, 0x5090c0)
       // Pillar
-      const pillar = new THREE.CylinderGeometry(0.08, 0.1, 0.7, 6)
-      pillar.translate(px, elev + 0.55, pz)
-      batch.addPositioned(pillar, 0x808888)
+      const pillar = new THREE.CylinderGeometry(0.1, 0.14, 1.0 * scale, 6)
+      pillar.translate(px, elev + 0.7 * scale, pz)
+      batch.addPositioned(pillar, 0x909898)
+      // Top orb
+      const orb = new THREE.SphereGeometry(0.15 * scale, 6, 4)
+      orb.translate(px, elev + 1.2 * scale, pz)
+      batch.addPositioned(orb, 0x909898)
 
     } else if (id === 'well' || id === 'well_grand') {
       const ring = new THREE.TorusGeometry(0.35, 0.12, 6, 8)
@@ -205,21 +211,27 @@ export function buildPropMeshes(
       batch.addPositioned(back, 0x6a4a28)
 
     } else if (id === 'market_stall') {
-      // Counter
-      const table = new THREE.BoxGeometry(1.4, 0.06, 0.7)
-      table.translate(px, elev + 0.7, pz)
+      // Counter — larger
+      const table = new THREE.BoxGeometry(1.8, 0.08, 0.9)
+      table.translate(px, elev + 0.8, pz)
       batch.addPositioned(table, 0x7a5a30)
       // Legs
-      for (const [lx, lz] of [[-0.6, -0.25], [0.6, -0.25], [-0.6, 0.25], [0.6, 0.25]] as const) {
-        const leg = new THREE.BoxGeometry(0.06, 0.7, 0.06)
-        leg.translate(px + lx, elev + 0.35, pz + lz)
+      for (const [lx, lz] of [[-0.75, -0.35], [0.75, -0.35], [-0.75, 0.35], [0.75, 0.35]] as const) {
+        const leg = new THREE.BoxGeometry(0.07, 0.8, 0.07)
+        leg.translate(px + lx, elev + 0.4, pz + lz)
         batch.addPositioned(leg, 0x7a5a30)
       }
-      // Canopy
+      // Front poles — taller
+      for (const lx of [-0.8, 0.8]) {
+        const pole = new THREE.CylinderGeometry(0.04, 0.04, 1.2, 4)
+        pole.translate(px + lx, elev + 1.4, pz + 0.4)
+        batch.addPositioned(pole, 0x7a5a30)
+      }
+      // Canopy — bigger, more visible
       const canopyColors = [0xcc3333, 0x3366aa, 0xcc9933, 0x339966]
-      const canopy = new THREE.PlaneGeometry(1.5, 0.9)
-      canopy.rotateX(-0.3)
-      canopy.translate(px, elev + 1.55, pz + 0.05)
+      const canopy = new THREE.PlaneGeometry(2.0, 1.2)
+      canopy.rotateX(-0.25)
+      canopy.translate(px, elev + 1.9, pz + 0.1)
       batch.addPositioned(canopy, canopyColors[hash % canopyColors.length])
 
     } else if (id === 'statue' || id === 'column' || id === 'monument') {

@@ -139,10 +139,10 @@ export class ThreeRenderer {
   constructor() {
     this.scene = new THREE.Scene()
     this.scene.background = null // sky dome replaces this
-    this.scene.fog = new THREE.FogExp2(0xd0e0f0, 0.008) // matches sky horizon
+    this.scene.fog = new THREE.FogExp2(0xd0e0f0, 0.004) // light fog, see most of town
 
-    this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 500)
-    this.camera.position.set(20, 4, 20)
+    this.camera = new THREE.PerspectiveCamera(70, 1, 0.5, 500)
+    this.camera.position.set(20, 8, 20)
 
     // Sun light (shadows disabled for performance — too many meshes)
     this.sunLight = new THREE.DirectionalLight(0xfff4e0, 1.2)
@@ -350,11 +350,11 @@ export class ThreeRenderer {
       this.generateStaircases(heightMap, map.gridWidth, map.gridHeight)
     }
 
-    // Position camera to see the town
+    // Position camera for overview of town — elevated, looking toward center
     const cx = map.gridWidth / 2, cz = map.gridHeight / 2
-    this.camera.position.set(cx - 10, 6, cz - 10)
+    this.camera.position.set(cx - 15, 12, cz - 15)
     this.cameraYaw = Math.atan2(cz - this.camera.position.z, cx - this.camera.position.x)
-    this.cameraPitch = -0.3
+    this.cameraPitch = -0.25
 
     // Freeze all static transforms (saves ~3800 matrix recalcs per frame)
     for (const group of [this.terrainGroup, this.buildingGroup, this.propGroup]) {
@@ -507,7 +507,7 @@ export class ThreeRenderer {
       this.sunLight.position.set(this.townCenterX, 40, sunZ) // moonlight from above
       this.ambientLight.intensity = 0.2
       this.ambientLight.color.setHex(0x202848)
-      this.scene.fog = new THREE.FogExp2(0x101830, 0.015)
+      this.scene.fog = new THREE.FogExp2(0x101830, 0.008)
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x0a0e2a)
         this.skyUniforms.uHorizon.value.setHex(0x101830)
@@ -523,7 +523,7 @@ export class ThreeRenderer {
       this.sunLight.position.set(sunX, Math.max(5, sunY), sunZ)
       this.ambientLight.intensity = 0.4
       this.ambientLight.color.setHex(0x604838)
-      this.scene.fog = new THREE.FogExp2(0xffaa88, 0.006)
+      this.scene.fog = new THREE.FogExp2(0xffaa88, 0.004)
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0xcc6633)
         this.skyUniforms.uHorizon.value.setHex(0xffaa88)
@@ -540,7 +540,7 @@ export class ThreeRenderer {
       this.sunLight.position.set(sunX, sunY, sunZ)
       this.ambientLight.intensity = 0.5
       this.ambientLight.color.setHex(0x706050)
-      this.scene.fog = new THREE.FogExp2(0xe8d8c8, 0.005)
+      this.scene.fog = new THREE.FogExp2(0xe8d8c8, 0.004)
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x5588bb)
         this.skyUniforms.uHorizon.value.setHex(0xe8d8c8)
@@ -557,7 +557,7 @@ export class ThreeRenderer {
       this.sunLight.position.set(sunX, sunY, sunZ)
       this.ambientLight.intensity = 0.6
       this.ambientLight.color.setHex(0x606880)
-      this.scene.fog = new THREE.FogExp2(0xd0e0f0, 0.008)
+      this.scene.fog = new THREE.FogExp2(0xd0e0f0, 0.004)
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x4488cc)
         this.skyUniforms.uHorizon.value.setHex(0xd0e0f0)
