@@ -7,32 +7,26 @@ import { useRef, useEffect, useCallback, useState } from 'react'
 import { useAppStore } from '../../app/store'
 import { ThreeRenderer } from '../../renderer3d/ThreeRenderer'
 
-// Expose renderer globally so RenderPanel can access it for screenshots
 let _activeRenderer: ThreeRenderer | null = null
 export function getActiveThreeRenderer(): ThreeRenderer | null { return _activeRenderer }
 
 export function ThreeViewport() {
   const containerRef = useRef<HTMLDivElement>(null)
   const rendererRef = useRef<ThreeRenderer | null>(null)
-  const [locked, setLocked] = useState(false)
   const map = useAppStore((s) => s.map)
   const objectDefs = useAppStore((s) => s.objectDefinitions)
   const buildingPalettes = useAppStore((s) => s.buildingPalettes)
-
-  // Track the map identity that was last loaded to prevent double-load
   const loadedMapRef = useRef<unknown>(null)
 
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
-
     const renderer = new ThreeRenderer()
     renderer.init(container)
     renderer.loadMap(map, objectDefs, buildingPalettes)
     loadedMapRef.current = map
     rendererRef.current = renderer
     _activeRenderer = renderer
-
     return () => {
       renderer.dispose()
       rendererRef.current = null
@@ -41,28 +35,16 @@ export function ThreeViewport() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reload map when it changes (skip if same map object already loaded)
   useEffect(() => {
     if (!rendererRef.current || map === loadedMapRef.current) return
     rendererRef.current.loadMap(map, objectDefs, buildingPalettes)
     loadedMapRef.current = map
   }, [map, objectDefs, buildingPalettes])
 
-  // Track pointer lock state for UI overlay
   useEffect(() => {
-    const handler = () => setLocked(!!document.pointerLockElement)
-    document.addEventListener('pointerlockchange', handler)
-    return () => document.removeEventListener('pointerlockchange', handler)
-  }, [])
-
-  // Update lighting when time-of-day changes
-  useEffect(() => {
-    if (rendererRef.current) {
-      rendererRef.current.updateLighting(map.environment.timeOfDay)
-    }
+    if (rendererRef.current) rendererRef.current.updateLighting(map.environment.timeOfDay)
   }, [map.environment.timeOfDay])
 
-  // FPS counter update
   const [fpsText, setFpsText] = useState('')
   useEffect(() => {
     const iv = setInterval(() => {
@@ -91,54 +73,38 @@ export function ThreeViewport() {
         position: 'relative',
         overflow: 'hidden',
         background: '#000',
-        cursor: 'crosshair',
+        cursor: 'grab',
       }}
     >
-      {/* Controls overlay */}
-      {locked ? (
-        <div style={{
-          position: 'absolute', bottom: 12, left: 12,
-          background: 'rgba(0,0,0,0.6)', padding: '6px 12px',
-          borderRadius: 6, fontSize: 11, color: '#ccc',
-          pointerEvents: 'none', fontFamily: 'monospace',
-          lineHeight: 1.8,
-        }}>
-          <span style={{ color: '#4ade80' }}>WASD</span> move &nbsp;
-          <span style={{ color: '#4ade80' }}>Q/E</span> up/down &nbsp;
-          <span style={{ color: '#4ade80' }}>Mouse</span> look &nbsp;
-          <span style={{ color: '#f87171' }}>Esc</span> release
-        </div>
-      ) : (
-        <div style={{
-          position: 'absolute', top: '50%', left: '50%',
-          transform: 'translate(-50%, -50%)',
-          background: 'rgba(0,0,0,0.7)', padding: '16px 28px',
-          borderRadius: 8, fontSize: 14, color: '#fff',
-          pointerEvents: 'none', fontFamily: 'monospace',
-          textAlign: 'center',
-        }}>
-          Click to enter walkthrough<br/>
-          <span style={{ fontSize: 11, color: '#aaa' }}>WASD move / Mouse look / Esc to exit</span>
-        </div>
-      )}
-      {/* FPS counter */}
+      {/* Controls hint — bottom left */}
       <div style={{
-        position: 'absolute', top: 8, right: 8,
-        background: 'rgba(0,0,0,0.7)', padding: '4px 10px',
-        borderRadius: 4, fontSize: 12, fontFamily: 'monospace',
+        position: 'absolute', bottom: 8, left: 8,
+        background: 'rgba(0,0,0,0.6)', padding: '4px 10px',
+        borderRadius: 4, fontSize: 10, color: '#aaa',
+        pointerEvents: 'none', fontFamily: 'monospace',
+      }}>
+        <span style={{ color: '#4ade80' }}>WASD</span> move &nbsp;
+        <span style={{ color: '#4ade80' }}>Q/E</span> up/down &nbsp;
+        <span style={{ color: '#4ade80' }}>Drag</span> look
+      </div>
+      {/* FPS — top left */}
+      <div style={{
+        position: 'absolute', top: 4, left: 4,
+        background: 'rgba(0,0,0,0.5)', padding: '2px 6px',
+        borderRadius: 3, fontSize: 10, fontFamily: 'monospace',
         color: '#4ade80', pointerEvents: 'none',
       }}>
         {fpsText || '...'}
       </div>
-      {/* Screenshot button */}
+      {/* Screenshot — bottom right */}
       <button
         onClick={handleScreenshot}
         style={{
-          position: 'absolute', bottom: 12, right: 12,
-          padding: '5px 12px', fontSize: 11,
-          background: 'rgba(0,0,0,0.6)', color: '#ccc',
-          border: '1px solid rgba(255,255,255,0.2)',
-          borderRadius: 6, cursor: 'pointer',
+          position: 'absolute', bottom: 8, right: 8,
+          padding: '4px 10px', fontSize: 10,
+          background: 'rgba(0,0,0,0.6)', color: '#aaa',
+          border: '1px solid rgba(255,255,255,0.15)',
+          borderRadius: 4, cursor: 'pointer',
         }}
       >
         Screenshot

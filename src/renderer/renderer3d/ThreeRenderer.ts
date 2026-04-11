@@ -90,9 +90,11 @@ export class ThreeRenderer {
 
   // Camera movement
   private keysHeld = new Set<string>()
-  private cameraYaw = Math.PI * 0.75  // initial look direction
-  private cameraPitch = -0.4          // slight downward look
-  private pointerLocked = false
+  private cameraYaw = Math.PI * 0.75
+  private cameraPitch = -0.4
+  private mouseDown = false
+  private lastMouseX = 0
+  private lastMouseY = 0
 
   // Scene objects
   private terrainGroup = new THREE.Group()
@@ -130,8 +132,6 @@ export class ThreeRenderer {
   private disposed = false
   private _onKeyDown: ((e: KeyboardEvent) => void) | null = null
   private _onKeyUp: ((e: KeyboardEvent) => void) | null = null
-  private _onPointerLockChange: (() => void) | null = null
-  private _onClick: (() => void) | null = null
   private _onMouseMove: ((e: MouseEvent) => void) | null = null
   private _resizeObserver: ResizeObserver | null = null
   // Track town center for shadow camera
@@ -216,11 +216,9 @@ export class ThreeRenderer {
     this.camera.aspect = container.clientWidth / container.clientHeight
     this.camera.updateProjectionMatrix()
 
-    // Input — pointer lock FPS controls
-    // Click canvas to enter pointer lock, Escape to exit
+    // Input — WASD + right-click drag to look
     this._onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return
-      if (!this.pointerLocked) return // ignore keys when not locked
       this.keysHeld.add(e.code)
     }
     this._onKeyUp = (e: KeyboardEvent) => {
@@ -229,27 +227,27 @@ export class ThreeRenderer {
     window.addEventListener('keydown', this._onKeyDown)
     window.addEventListener('keyup', this._onKeyUp)
 
-    // Click to enter pointer lock
-    this._onClick = () => {
-      if (!this.pointerLocked) this.renderer?.domElement.requestPointerLock()
-    }
-    this.renderer.domElement.addEventListener('click', this._onClick)
-
-    // Track pointer lock state
-    this._onPointerLockChange = () => {
-      this.pointerLocked = document.pointerLockElement === this.renderer?.domElement
-      if (!this.pointerLocked) this.keysHeld.clear()
-    }
-    document.addEventListener('pointerlockchange', this._onPointerLockChange)
-
-    // Mouse look (only when pointer locked — uses movementX/Y)
+    // Right-click drag to look around (works without pointer lock)
+    const canvas = this.renderer.domElement
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 2 || e.button === 0) {
+        this.mouseDown = true
+        this.lastMouseX = e.clientX
+        this.lastMouseY = e.clientY
+      }
+    })
+    canvas.addEventListener('mouseup', () => { this.mouseDown = false })
     this._onMouseMove = (e: MouseEvent) => {
-      if (!this.pointerLocked) return
-      this.cameraYaw -= e.movementX * 0.002
-      this.cameraPitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.cameraPitch - e.movementY * 0.002))
+      if (!this.mouseDown) return
+      const dx = e.clientX - this.lastMouseX
+      const dy = e.clientY - this.lastMouseY
+      this.cameraYaw += dx * 0.004
+      this.cameraPitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.cameraPitch + dy * 0.003))
+      this.lastMouseX = e.clientX
+      this.lastMouseY = e.clientY
     }
-    this.renderer.domElement.addEventListener('mousemove', this._onMouseMove)
-    this.renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault())
+    canvas.addEventListener('mousemove', this._onMouseMove)
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault())
 
     // Resize (render at RENDER_SCALE, CSS fills container)
     this._resizeObserver = new ResizeObserver(() => {
@@ -761,17 +759,9 @@ export class ThreeRenderer {
     this.disposed = true
     cancelAnimationFrame(this.animId)
 
-    // Release pointer lock if active
-    if (this.pointerLocked) document.exitPointerLock()
-
     // Remove all event listeners
     if (this._onKeyDown) window.removeEventListener('keydown', this._onKeyDown)
     if (this._onKeyUp) window.removeEventListener('keyup', this._onKeyUp)
-    if (this._onPointerLockChange) document.removeEventListener('pointerlockchange', this._onPointerLockChange)
-    if (this.renderer?.domElement) {
-      if (this._onClick) this.renderer.domElement.removeEventListener('click', this._onClick)
-      if (this._onMouseMove) this.renderer.domElement.removeEventListener('mousemove', this._onMouseMove)
-    }
     this._resizeObserver?.disconnect()
 
     // Dispose all geometries and materials in the scene
