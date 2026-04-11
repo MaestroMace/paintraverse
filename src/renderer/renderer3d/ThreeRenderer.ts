@@ -130,19 +130,18 @@ export class ThreeRenderer {
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 500)
     this.camera.position.set(20, 4, 20)
 
-    // Sun light with shadows
+    // Sun light with shadows (conservative — only large meshes cast)
     this.sunLight = new THREE.DirectionalLight(0xfff4e0, 1.2)
     this.sunLight.position.set(30, 50, 20)
     this.sunLight.castShadow = true
-    this.sunLight.shadow.mapSize.set(2048, 2048)
+    this.sunLight.shadow.mapSize.set(1024, 1024)
     this.sunLight.shadow.camera.near = 0.5
-    this.sunLight.shadow.camera.far = 120
-    this.sunLight.shadow.camera.left = -35
-    this.sunLight.shadow.camera.right = 35
-    this.sunLight.shadow.camera.top = 35
-    this.sunLight.shadow.camera.bottom = -35
-    this.sunLight.shadow.bias = -0.001
-    this.sunLight.shadow.normalBias = 0.02
+    this.sunLight.shadow.camera.far = 100
+    this.sunLight.shadow.camera.left = -30
+    this.sunLight.shadow.camera.right = 30
+    this.sunLight.shadow.camera.top = 30
+    this.sunLight.shadow.camera.bottom = -30
+    this.sunLight.shadow.bias = -0.002
     this.scene.add(this.sunLight)
     this.scene.add(this.sunLight.target)
 
@@ -197,7 +196,7 @@ export class ThreeRenderer {
     this.renderer.setPixelRatio(1) // no HiDPI — pixel art
     this.renderer.setSize(container.clientWidth, container.clientHeight)
     this.renderer.shadowMap.enabled = true
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.renderer.shadowMap.type = THREE.PCFShadowMap
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     container.appendChild(this.renderer.domElement)
     this.renderer.domElement.style.imageRendering = 'pixelated'
@@ -279,7 +278,8 @@ export class ThreeRenderer {
       heightMap = (terrainGroup as any)._heightMap ?? null
     }
 
-    // Buildings — placed at terrain height, cast + receive shadows
+    // Buildings — placed at terrain height
+    // Only the first child mesh (wall body) casts shadows to keep draw calls low
     const structureLayer = map.layers.find(l => l.type === 'structure')
     const chimneyPositions: THREE.Vector3[] = []
     if (structureLayer) {
@@ -290,11 +290,15 @@ export class ThreeRenderer {
           const tz = Math.floor(m.position.z)
           m.position.y += getTerrainHeight(heightMap, tx, tz)
         }
-        // Enable shadows on all building meshes
+        // Only first 2 child meshes (wall + roof) cast shadows — not details
+        let shadowCount = 0
         m.traverse((child) => {
           if (child instanceof THREE.Mesh) {
-            child.castShadow = true
             child.receiveShadow = true
+            if (shadowCount < 2) {
+              child.castShadow = true
+              shadowCount++
+            }
           }
         })
         this.buildingGroup.add(m)
@@ -321,7 +325,7 @@ export class ThreeRenderer {
       }
     }
 
-    // Props — placed at terrain height, cast shadows
+    // Props — placed at terrain height (receive shadows only, don't cast)
     const propLayer = map.layers.find(l => l.type === 'prop')
     if (propLayer) {
       const meshes = buildPropMeshes(propLayer.objects, defMap)
@@ -331,12 +335,6 @@ export class ThreeRenderer {
           const tz = Math.floor(m.position.z)
           m.position.y += getTerrainHeight(heightMap, tx, tz)
         }
-        m.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-            child.castShadow = true
-            child.receiveShadow = true
-          }
-        })
         this.propGroup.add(m)
       }
     }
