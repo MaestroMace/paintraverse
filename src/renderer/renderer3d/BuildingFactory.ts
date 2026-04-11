@@ -180,6 +180,94 @@ export function buildBuildingMeshes(
       group.add(new THREE.Mesh(stepGeo, stepMat))
     }
 
+    // === CIRCULAR TOWER CORNER (towers, watchtowers, round_tower) ===
+    if (obj.definitionId === 'tower' || obj.definitionId === 'watchtower' || obj.definitionId === 'round_tower') {
+      // Replace box with cylinder for these types
+      const cylGeo = new THREE.CylinderGeometry(
+        fp.w * 0.45, fp.w * 0.48, wallH, 8
+      )
+      cylGeo.translate(0, wallH / 2, 0)
+      const cylMat = new THREE.MeshStandardMaterial({
+        color: palette.wall, flatShading: true, roughness: 0.85,
+      })
+      group.add(new THREE.Mesh(cylGeo, cylMat))
+    }
+
+    // === BAY WINDOW (mansion, guild_hall, balcony_house) ===
+    if ((obj.definitionId === 'mansion' || obj.definitionId === 'guild_hall' || obj.definitionId === 'balcony_house') && floors >= 2) {
+      const bayW = fp.w * 0.25, bayH = FLOOR_HEIGHT * 0.6, bayD = 0.3
+      const bayY = FLOOR_HEIGHT * 1.3 * heightMult
+      const bayMat = new THREE.MeshStandardMaterial({ color: palette.wall, flatShading: true, roughness: 0.8 })
+      // Front bay window
+      const bayGeo = new THREE.BoxGeometry(bayW, bayH, bayD)
+      bayGeo.translate(fp.w * 0.2, bayY, fp.h / 2 + bayD / 2)
+      group.add(new THREE.Mesh(bayGeo, bayMat))
+      // Bay window glass
+      const glassGeo = new THREE.BoxGeometry(bayW * 0.8, bayH * 0.7, 0.02)
+      const glassMat = new THREE.MeshStandardMaterial({ color: 0x405060, flatShading: true, roughness: 0.2, metalness: 0.3 })
+      glassGeo.translate(fp.w * 0.2, bayY, fp.h / 2 + bayD + 0.01)
+      group.add(new THREE.Mesh(glassGeo, glassMat))
+    }
+
+    // === ARCHWAY (archway, town_gate buildings get a passage through) ===
+    if (obj.definitionId === 'archway' || obj.definitionId === 'town_gate' || obj.definitionId === 'gatehouse') {
+      // Cut out a passage arch — add pillars on sides + arch top
+      const pillarW = 0.3, archH = wallH * 0.7, archW = fp.w * 0.5
+      const pillarMat = new THREE.MeshStandardMaterial({ color: palette.wall, flatShading: true, roughness: 0.85 })
+      // Left pillar
+      const lPillarGeo = new THREE.BoxGeometry(pillarW, archH, fp.h)
+      lPillarGeo.translate(-archW / 2 - pillarW / 2, archH / 2, 0)
+      group.add(new THREE.Mesh(lPillarGeo, pillarMat))
+      // Right pillar
+      const rPillarGeo = new THREE.BoxGeometry(pillarW, archH, fp.h)
+      rPillarGeo.translate(archW / 2 + pillarW / 2, archH / 2, 0)
+      group.add(new THREE.Mesh(rPillarGeo, pillarMat))
+      // Arch top (half-cylinder)
+      const archTopGeo = new THREE.CylinderGeometry(archW / 2, archW / 2, fp.h, 8, 1, false, 0, Math.PI)
+      archTopGeo.rotateX(Math.PI / 2)
+      archTopGeo.rotateZ(Math.PI)
+      archTopGeo.translate(0, archH, 0)
+      group.add(new THREE.Mesh(archTopGeo, pillarMat))
+    }
+
+    // === COLONNADE (temple, cathedral, guild_hall — columns along front) ===
+    if ((obj.definitionId === 'temple' || obj.definitionId === 'cathedral' || obj.definitionId === 'guild_hall') && fp.w >= 4) {
+      const colRadius = 0.1, colH = wallH * 0.85
+      const colMat = new THREE.MeshStandardMaterial({ color: 0xc0b8a8, flatShading: true, roughness: 0.7 })
+      const numCols = Math.floor(fp.w / 1.2)
+      const spacing = fp.w / (numCols + 1)
+      for (let ci = 1; ci <= numCols; ci++) {
+        const colGeo = new THREE.CylinderGeometry(colRadius * 0.85, colRadius, colH, 6)
+        colGeo.translate(-fp.w / 2 + ci * spacing, colH / 2, fp.h / 2 + 0.25)
+        group.add(new THREE.Mesh(colGeo, colMat))
+      }
+      // Entablature (horizontal beam across column tops)
+      const beamGeo = new THREE.BoxGeometry(fp.w + 0.2, 0.12, 0.25)
+      beamGeo.translate(0, colH + 0.06, fp.h / 2 + 0.25)
+      group.add(new THREE.Mesh(beamGeo, colMat))
+    }
+
+    // === BALCONY (balcony_house, inn — projecting platform on front) ===
+    if ((obj.definitionId === 'balcony_house' || obj.definitionId === 'inn') && floors >= 2) {
+      const balcW = fp.w * 0.5, balcD = 0.4, balcH = 0.06
+      const balcY = FLOOR_HEIGHT * 1.1 * heightMult
+      const balcMat = new THREE.MeshStandardMaterial({ color: 0x705a40, flatShading: true, roughness: 0.85 })
+      // Platform
+      const balcGeo = new THREE.BoxGeometry(balcW, balcH, balcD)
+      balcGeo.translate(0, balcY, fp.h / 2 + balcD / 2)
+      group.add(new THREE.Mesh(balcGeo, balcMat))
+      // Railing
+      const railGeo = new THREE.BoxGeometry(balcW, 0.25, 0.04)
+      railGeo.translate(0, balcY + 0.15, fp.h / 2 + balcD)
+      group.add(new THREE.Mesh(railGeo, balcMat))
+      // Support brackets
+      for (const side of [-balcW * 0.35, balcW * 0.35]) {
+        const bracketGeo = new THREE.BoxGeometry(0.06, 0.2, balcD * 0.7)
+        bracketGeo.translate(side, balcY - 0.1, fp.h / 2 + balcD * 0.4)
+        group.add(new THREE.Mesh(bracketGeo, balcMat))
+      }
+    }
+
     result.push(group)
   }
 

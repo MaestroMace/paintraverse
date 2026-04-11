@@ -3,9 +3,13 @@
  * Takes over the main editor canvas area for real-time town exploration.
  */
 
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useCallback } from 'react'
 import { useAppStore } from '../../app/store'
 import { ThreeRenderer } from '../../renderer3d/ThreeRenderer'
+
+// Expose renderer globally so RenderPanel can access it for screenshots
+let _activeRenderer: ThreeRenderer | null = null
+export function getActiveThreeRenderer(): ThreeRenderer | null { return _activeRenderer }
 
 export function ThreeViewport() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -22,10 +26,12 @@ export function ThreeViewport() {
     renderer.init(container)
     renderer.loadMap(map, objectDefs, buildingPalettes)
     rendererRef.current = renderer
+    _activeRenderer = renderer
 
     return () => {
       renderer.dispose()
       rendererRef.current = null
+      _activeRenderer = null
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -43,6 +49,16 @@ export function ThreeViewport() {
     }
   }, [map.environment.timeOfDay])
 
+  const handleScreenshot = useCallback(() => {
+    if (!rendererRef.current) return
+    const dataURL = rendererRef.current.captureScreenshot()
+    if (!dataURL) return
+    const link = document.createElement('a')
+    link.download = `${map.name.replace(/\s+/g, '_')}_3d_screenshot.png`
+    link.href = dataURL
+    link.click()
+  }, [map.name])
+
   return (
     <div
       ref={containerRef}
@@ -54,6 +70,7 @@ export function ThreeViewport() {
         cursor: 'crosshair',
       }}
     >
+      {/* Controls overlay */}
       <div style={{
         position: 'absolute', bottom: 12, left: 12,
         background: 'rgba(0,0,0,0.6)', padding: '6px 12px',
@@ -65,6 +82,19 @@ export function ThreeViewport() {
         <span style={{ color: '#4ade80' }}>Q/E</span> up/down &nbsp;
         <span style={{ color: '#4ade80' }}>Drag</span> look
       </div>
+      {/* Screenshot button */}
+      <button
+        onClick={handleScreenshot}
+        style={{
+          position: 'absolute', bottom: 12, right: 12,
+          padding: '5px 12px', fontSize: 11,
+          background: 'rgba(0,0,0,0.6)', color: '#ccc',
+          border: '1px solid rgba(255,255,255,0.2)',
+          borderRadius: 6, cursor: 'pointer',
+        }}
+      >
+        Screenshot
+      </button>
     </div>
   )
 }

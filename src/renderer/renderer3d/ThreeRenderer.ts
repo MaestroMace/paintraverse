@@ -393,6 +393,13 @@ export class ThreeRenderer {
     this.camera.lookAt(target)
   }
 
+  /** Capture a screenshot of the current 3D view as a data URL */
+  captureScreenshot(): string {
+    if (!this.renderer) return ''
+    this.renderer.render(this.scene, this.camera)
+    return this.renderer.domElement.toDataURL('image/png')
+  }
+
   dispose(): void {
     this.disposed = true
     cancelAnimationFrame(this.animId)

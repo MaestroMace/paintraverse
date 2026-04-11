@@ -3,6 +3,7 @@ import { useAppStore } from '../../app/store'
 import { renderPixelArt, renderPreviewFrame } from '../../renderer3d/RenderPipeline'
 import { PALETTES } from '../../renderer3d/PaletteQuantizer'
 import { ThreeRenderer } from '../../renderer3d/ThreeRenderer'
+import { getActiveThreeRenderer } from '../components/ThreeViewport'
 
 const CAMERA_PRESETS = [
   { label: 'Street', elevation: 1.5, fov: 60, desc: 'Low angle among buildings' },
@@ -199,9 +200,11 @@ export function RenderPanel() {
       buildingPalettes: buildingPalettes ? buildingPalettes.length : 'default'
     }
 
-    // Capture overhead view from the editor canvas
+    // Capture 3D view if active, otherwise editor canvas
+    const threeRenderer = getActiveThreeRenderer()
+    const threeURL = threeRenderer ? threeRenderer.captureScreenshot() : null
     const editorCanvas = document.querySelector('canvas') as HTMLCanvasElement | null
-    const overheadURL = editorCanvas ? editorCanvas.toDataURL('image/png') : null
+    const overheadURL = (!threeURL && editorCanvas) ? editorCanvas.toDataURL('image/png') : null
 
     // Build a single HTML file with everything embedded
     const html = `<!DOCTYPE html>
@@ -220,6 +223,7 @@ pre { background: #0d0d1a; padding: 12px; border-radius: 4px; overflow-x: auto; 
 <p>${new Date().toLocaleString()}</p>
 
 <div class="images">
+${threeURL ? `<div><div class="label">3D View (real-time)</div><img src="${threeURL}" /></div>` : ''}
 ${previewURL ? `<div><div class="label">Rendered Output (${camera.outputWidth}x${camera.outputHeight})</div><img src="${previewURL}" /></div>` : '<div><div class="label">No render available</div></div>'}
 ${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="${overheadURL}" /></div>` : ''}
 </div>
