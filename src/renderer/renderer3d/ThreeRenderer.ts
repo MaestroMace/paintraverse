@@ -39,16 +39,14 @@ const ROOF_FRAC_MAP: Record<string, number> = {
 }
 
 const DEFAULT_BUILDING_PALETTES = [
-  { wall: 0xd8c8a8, roof: 0x8b4513, door: 0x4a3520 },
-  { wall: 0xc8b898, roof: 0x6b3a2a, door: 0x3a2a1a },
-  { wall: 0x9a9a9a, roof: 0x5a5a6a, door: 0x4a4a50 },
-  { wall: 0x8a8a8a, roof: 0x484858, door: 0x3a3a42 },
-  { wall: 0xe8e0d0, roof: 0x8a5a40, door: 0x5a4030 },
-  { wall: 0xf0e8d8, roof: 0x7a4a3a, door: 0x6a4a30 },
-  { wall: 0xb06040, roof: 0x5a3020, door: 0x4a3020 },
-  { wall: 0xa05838, roof: 0x6a3828, door: 0x3a2218 },
-  { wall: 0x7a6858, roof: 0x3a3028, door: 0x2a2018 },
-  { wall: 0xd0c8b8, roof: 0x4a7a5a, door: 0x3a5a4a },
+  { wall: 0xe8d8b8, roof: 0x8b4513, door: 0x5a4030 },  // warm cream + brown roof
+  { wall: 0xd8c8a0, roof: 0x7a3020, door: 0x4a3020 },  // tan + dark red roof
+  { wall: 0xf0e8d8, roof: 0x6a4a3a, door: 0x6a4a30 },  // white stucco + terracotta
+  { wall: 0xc0a880, roof: 0x505868, door: 0x3a3a42 },  // sandstone + slate roof
+  { wall: 0xb87050, roof: 0x5a3020, door: 0x4a3020 },  // red brick
+  { wall: 0xd8d0c0, roof: 0x4a7a5a, door: 0x3a5a4a },  // pale + green copper roof
+  { wall: 0xa09888, roof: 0x484858, door: 0x3a3a42 },  // grey stone + dark slate
+  { wall: 0xe0d0b0, roof: 0x8a5a40, door: 0x5a4030 },  // buttercream + wood
 ]
 
 // Sky dome shader — gradient hemisphere from horizon to zenith
@@ -200,8 +198,8 @@ export class ThreeRenderer {
       powerPreference: 'high-performance',
       preserveDrawingBuffer: true,
     })
-    // Render at 1/4 resolution for performance, CSS upscale with pixelated
-    const RENDER_SCALE = 0.25
+    // Render at 40% resolution for performance, CSS upscale with pixelated
+    const RENDER_SCALE = 0.4
     const rw = Math.max(1, Math.floor(container.clientWidth * RENDER_SCALE))
     const rh = Math.max(1, Math.floor(container.clientHeight * RENDER_SCALE))
     this.renderer.setPixelRatio(1)

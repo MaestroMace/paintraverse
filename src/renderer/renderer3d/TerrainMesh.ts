@@ -12,13 +12,23 @@ import * as THREE from 'three'
 import { SimplexNoise } from '../generation/noise'
 
 const TERRAIN_COLORS: Record<number, number> = {
-  0: 0x2d5a27, 1: 0x8b7355, 2: 0x708090, 3: 0x4682b4,
-  4: 0xf4e9c8, 5: 0x556b2f, 6: 0x3a6a30, 7: 0x8a8a7a,
-  8: 0x6a6a68, 9: 0x4a4a48, 10: 0x6a7a5a, 11: 0x6a5a45,
-  12: 0x2a5522, 13: 0x9a8a6a,
+  0: 0x4a8a3a,  // grass — bright green (was dark)
+  1: 0xa08860,  // dirt — warm tan
+  2: 0x8898a8,  // stone — light blue-grey
+  3: 0x4682b4,  // water — handled separately
+  4: 0xf0e0b0,  // sand — warm light yellow
+  5: 0x3a7a28,  // dark grass — forest green
+  6: 0x50a040,  // light grass — vivid green
+  7: 0xa0a090,  // gravel — light grey
+  8: 0x989088,  // cobblestone — warm medium grey (roads)
+  9: 0x686060,  // dark cobblestone — distinct darker (alleys)
+  10: 0x70a060, // garden — green-ish
+  11: 0x8a7050, // mud — brown
+  12: 0x389028, // wildflower — bright green
+  13: 0xb8a880, // gravel/path — sandy light
 }
 
-const WALL_COLOR = new THREE.Color(0x706860) // retaining wall stone
+const WALL_COLOR = new THREE.Color(0x887868) // retaining wall stone — warm sandstone
 
 /** Regenerate height map from seed (deterministic) */
 function generateHeightMap(w: number, h: number, seed: number): number[][] {

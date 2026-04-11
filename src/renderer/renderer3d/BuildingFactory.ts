@@ -108,39 +108,45 @@ export function buildBuildingMeshes(
     const wy = (obj.elevation || 0) + terrainH
     const wz = obj.y + fp.h / 2
 
-    // === WALL BODY — single material, one draw call per wall ===
+    // === WALL BODY — facade texture on front/back, plain on sides/top/bottom ===
     const facadeConfig = createFacadeConfig(obj, fp.w, palette, hash)
     const frontTex = createFacadeTexture(facadeConfig, 'front')
 
-    // Cache wall material by facade key — use Lambert (cheaper than PBR)
+    // Cache materials — textured for front/back, plain for sides/top/bottom
     const matKey = `${facadeConfig.floors}_${facadeConfig.width}_${palette.wall.toString(16)}_${facadeConfig.hasTimber}_${facadeConfig.hasShutters}_${facadeConfig.hasFlowerBox}_${facadeConfig.style}`
-    let wallMat = _wallMatCache.get(matKey)
-    if (!wallMat) {
-      wallMat = new THREE.MeshLambertMaterial({
-        map: frontTex, flatShading: true,
-      })
-      _wallMatCache.set(matKey, wallMat)
+    let facadeMat = _wallMatCache.get(matKey)
+    if (!facadeMat) {
+      facadeMat = new THREE.MeshLambertMaterial({ map: frontTex, flatShading: true })
+      _wallMatCache.set(matKey, facadeMat)
     }
+    const plainKey = `plain_${palette.wall.toString(16)}`
+    let plainMat = _wallMatCache.get(plainKey)
+    if (!plainMat) {
+      plainMat = new THREE.MeshLambertMaterial({ color: palette.wall, flatShading: true })
+      _wallMatCache.set(plainKey, plainMat)
+    }
+    // BoxGeometry groups: 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z(front), 5=-Z(back)
+    const wallMats = [plainMat, plainMat, plainMat, plainMat, facadeMat, facadeMat]
 
     const hasOverhang = style === 'ornate' || obj.definitionId === 'half_timber' || obj.definitionId === 'balcony_house'
     if (hasOverhang && floors >= 2) {
       const groundH = FLOOR_HEIGHT * heightMult
       const groundGeo = new THREE.BoxGeometry(fp.w * 0.95, groundH, fp.h * 0.95)
       groundGeo.translate(wx, wy + groundH / 2, wz)
-      const mesh1 = new THREE.Mesh(groundGeo, wallMat)
+      const mesh1 = new THREE.Mesh(groundGeo, wallMats)
       mesh1.matrixAutoUpdate = false; mesh1.updateMatrix()
       wallMeshes.push(mesh1)
 
       const upperH = wallH - groundH
       const upperGeo = new THREE.BoxGeometry(fp.w * 1.02, upperH, fp.h * 1.02)
       upperGeo.translate(wx, wy + groundH + upperH / 2, wz)
-      const mesh2 = new THREE.Mesh(upperGeo, wallMat)
+      const mesh2 = new THREE.Mesh(upperGeo, wallMats)
       mesh2.matrixAutoUpdate = false; mesh2.updateMatrix()
       wallMeshes.push(mesh2)
     } else {
       const wallGeo = new THREE.BoxGeometry(fp.w, wallH, fp.h)
       wallGeo.translate(wx, wy + wallH / 2, wz)
-      const mesh = new THREE.Mesh(wallGeo, wallMat)
+      const mesh = new THREE.Mesh(wallGeo, wallMats)
       mesh.matrixAutoUpdate = false; mesh.updateMatrix()
       wallMeshes.push(mesh)
     }
