@@ -35,21 +35,27 @@ const PROP_HEIGHTS: Record<string, number> = {
 }
 
 // Shared geometries (created once, instanced many times)
-let _treeCanopy: THREE.SphereGeometry | null = null
-let _treeTrunk: THREE.CylinderGeometry | null = null
-let _pineCanopy: THREE.ConeGeometry | null = null
-let _bushGeo: THREE.SphereGeometry | null = null
-let _boxGeo: THREE.BoxGeometry | null = null
+let _sharedGeo: {
+  treeCanopy: THREE.SphereGeometry
+  treeTrunk: THREE.CylinderGeometry
+  pineCone: THREE.ConeGeometry  // single pine layer cone
+  willowDome: THREE.SphereGeometry
+  bushGeo: THREE.SphereGeometry
+  boxGeo: THREE.BoxGeometry
+} | null = null
 
 function getSharedGeo() {
-  if (!_treeCanopy) {
-    _treeCanopy = new THREE.SphereGeometry(0.8, 6, 5)
-    _treeTrunk = new THREE.CylinderGeometry(0.1, 0.15, 1.2, 5)
-    _pineCanopy = new THREE.ConeGeometry(0.7, 1.8, 6)
-    _bushGeo = new THREE.SphereGeometry(0.5, 5, 4)
-    _boxGeo = new THREE.BoxGeometry(1, 1, 1)
+  if (!_sharedGeo) {
+    _sharedGeo = {
+      treeCanopy: new THREE.SphereGeometry(0.8, 6, 5),
+      treeTrunk: new THREE.CylinderGeometry(0.08, 0.14, 1.2, 5),
+      pineCone: new THREE.ConeGeometry(0.6, 0.7, 6),
+      willowDome: new THREE.SphereGeometry(1.1, 7, 5),
+      bushGeo: new THREE.SphereGeometry(0.5, 5, 4),
+      boxGeo: new THREE.BoxGeometry(1, 1, 1),
+    }
   }
-  return { treeCanopy: _treeCanopy!, treeTrunk: _treeTrunk!, pineCanopy: _pineCanopy!, bushGeo: _bushGeo!, boxGeo: _boxGeo! }
+  return _sharedGeo
 }
 
 const MAX_POINT_LIGHTS = 8 // cap to avoid per-fragment shader explosion
@@ -79,12 +85,13 @@ export function buildPropMeshes(
       const group = new THREE.Group()
       group.position.set(px, elev, pz)
 
-      // Trunk — slightly tapered cylinder
+      // Trunk — reuse shared geometry, scale to species height
       const trunkH = species === 'pine' ? 1.6 : species === 'willow' ? 1.0 : 1.2
       const trunkMat = new THREE.MeshStandardMaterial({
         color: species === 'birch' ? 0xd0c8b8 : 0x5a3a1a, flatShading: true, roughness: 0.9,
       })
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.14, trunkH, 5), trunkMat)
+      const trunk = new THREE.Mesh(geo.treeTrunk, trunkMat)
+      trunk.scale.y = trunkH / 1.2 // shared trunk is 1.2 tall
       trunk.position.y = trunkH / 2
       group.add(trunk)
 
@@ -98,20 +105,20 @@ export function buildPropMeshes(
       })
 
       if (species === 'pine') {
-        // Layered cones
+        // Layered cones — reuse shared cone geometry, scale per layer
         for (let layer = 0; layer < 3; layer++) {
           const r = 0.6 - layer * 0.12
-          const ch = 0.7
           const cone = new THREE.Mesh(
-            new THREE.ConeGeometry(r, ch, 6),
+            geo.pineCone,
             layer % 2 === 0 ? canopyMat : canopyDark
           )
+          cone.scale.set(r / 0.6, 1, r / 0.6)
           cone.position.y = trunkH + 0.2 + layer * 0.45
           group.add(cone)
         }
       } else if (species === 'willow') {
-        // Wide dome
-        const dome = new THREE.Mesh(new THREE.SphereGeometry(1.1, 7, 5), canopyMat)
+        // Wide dome — reuse shared sphere
+        const dome = new THREE.Mesh(geo.willowDome, canopyMat)
         dome.scale.set(1, 0.65, 1)
         dome.position.y = trunkH + 0.3
         group.add(dome)

@@ -24,7 +24,7 @@ const TEXTURE_SCALE = 64 // pixels per tile unit
 const _textureCache = new Map<string, THREE.CanvasTexture>()
 
 function facadeKey(config: FacadeConfig, face: 'front' | 'side'): string {
-  return `${config.floors}_${config.width}_${config.wallColor.toString(16)}_${config.doorColor.toString(16)}_${config.hasTimber}_${config.hasAwning}_${config.style}_${face}`
+  return `${config.floors}_${config.width}_${config.wallColor.toString(16)}_${config.doorColor.toString(16)}_${config.hasTimber}_${config.hasAwning}_${config.hasShutters}_${config.hasFlowerBox}_${config.style}_${face}`
 }
 
 function hexToRGB(color: number): [number, number, number] {

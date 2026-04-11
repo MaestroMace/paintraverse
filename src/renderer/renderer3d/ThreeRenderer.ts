@@ -116,6 +116,10 @@ export class ThreeRenderer {
   private disposed = false
   private _onKeyDown: ((e: KeyboardEvent) => void) | null = null
   private _onKeyUp: ((e: KeyboardEvent) => void) | null = null
+  private _onPointerLockChange: (() => void) | null = null
+  private _onClick: (() => void) | null = null
+  private _onMouseMove: ((e: MouseEvent) => void) | null = null
+  private _resizeObserver: ResizeObserver | null = null
   // Track town center for shadow camera
   private townCenterX = 24
   private townCenterZ = 24
@@ -123,7 +127,7 @@ export class ThreeRenderer {
   constructor() {
     this.scene = new THREE.Scene()
     this.scene.background = null // sky dome replaces this
-    this.scene.fog = new THREE.FogExp2(0xc8d8e8, 0.008)
+    this.scene.fog = new THREE.FogExp2(0xd0e0f0, 0.008) // matches sky horizon
 
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 500)
     this.camera.position.set(20, 4, 20)
@@ -206,30 +210,29 @@ export class ThreeRenderer {
     window.addEventListener('keyup', this._onKeyUp)
 
     // Click to enter pointer lock
-    this.renderer.domElement.addEventListener('click', () => {
-      if (!this.pointerLocked) {
-        this.renderer?.domElement.requestPointerLock()
-      }
-    })
+    this._onClick = () => {
+      if (!this.pointerLocked) this.renderer?.domElement.requestPointerLock()
+    }
+    this.renderer.domElement.addEventListener('click', this._onClick)
 
     // Track pointer lock state
-    document.addEventListener('pointerlockchange', () => {
+    this._onPointerLockChange = () => {
       this.pointerLocked = document.pointerLockElement === this.renderer?.domElement
-      if (!this.pointerLocked) {
-        this.keysHeld.clear() // release all keys when exiting
-      }
-    })
+      if (!this.pointerLocked) this.keysHeld.clear()
+    }
+    document.addEventListener('pointerlockchange', this._onPointerLockChange)
 
     // Mouse look (only when pointer locked — uses movementX/Y)
-    this.renderer.domElement.addEventListener('mousemove', (e) => {
+    this._onMouseMove = (e: MouseEvent) => {
       if (!this.pointerLocked) return
       this.cameraYaw -= e.movementX * 0.002
-      this.cameraPitch = Math.max(-1.4, Math.min(1.0, this.cameraPitch - e.movementY * 0.002))
-    })
+      this.cameraPitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.cameraPitch - e.movementY * 0.002))
+    }
+    this.renderer.domElement.addEventListener('mousemove', this._onMouseMove)
     this.renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault())
 
     // Resize
-    const ro = new ResizeObserver(() => {
+    this._resizeObserver = new ResizeObserver(() => {
       if (!this.renderer || !this.container) return
       const w = this.container.clientWidth, h = this.container.clientHeight
       if (w === 0 || h === 0) return
@@ -237,7 +240,7 @@ export class ThreeRenderer {
       this.camera.aspect = w / h
       this.camera.updateProjectionMatrix()
     })
-    ro.observe(container)
+    this._resizeObserver.observe(container)
 
     this.startLoop()
   }
@@ -484,7 +487,7 @@ export class ThreeRenderer {
       this.sunLight.position.set(this.townCenterX, 40, sunZ) // moonlight from above
       this.ambientLight.intensity = 0.2
       this.ambientLight.color.setHex(0x202848)
-      this.scene.fog = new THREE.FogExp2(0x0a0e1a, 0.015)
+      this.scene.fog = new THREE.FogExp2(0x101830, 0.015)
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x0a0e2a)
         this.skyUniforms.uHorizon.value.setHex(0x101830)
@@ -500,7 +503,7 @@ export class ThreeRenderer {
       this.sunLight.position.set(sunX, Math.max(5, sunY), sunZ)
       this.ambientLight.intensity = 0.4
       this.ambientLight.color.setHex(0x604838)
-      this.scene.fog = new THREE.FogExp2(0xc08060, 0.006)
+      this.scene.fog = new THREE.FogExp2(0xffaa88, 0.006)
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0xcc6633)
         this.skyUniforms.uHorizon.value.setHex(0xffaa88)
@@ -517,7 +520,7 @@ export class ThreeRenderer {
       this.sunLight.position.set(sunX, sunY, sunZ)
       this.ambientLight.intensity = 0.5
       this.ambientLight.color.setHex(0x706050)
-      this.scene.fog = new THREE.FogExp2(0xb0d0e0, 0.005)
+      this.scene.fog = new THREE.FogExp2(0xe8d8c8, 0.005)
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x5588bb)
         this.skyUniforms.uHorizon.value.setHex(0xe8d8c8)
@@ -534,7 +537,7 @@ export class ThreeRenderer {
       this.sunLight.position.set(sunX, sunY, sunZ)
       this.ambientLight.intensity = 0.6
       this.ambientLight.color.setHex(0x606880)
-      this.scene.fog = new THREE.FogExp2(0xc8d8e8, 0.008)
+      this.scene.fog = new THREE.FogExp2(0xd0e0f0, 0.008)
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x4488cc)
         this.skyUniforms.uHorizon.value.setHex(0xd0e0f0)
@@ -735,8 +738,35 @@ export class ThreeRenderer {
   dispose(): void {
     this.disposed = true
     cancelAnimationFrame(this.animId)
+
+    // Release pointer lock if active
+    if (this.pointerLocked) document.exitPointerLock()
+
+    // Remove all event listeners
     if (this._onKeyDown) window.removeEventListener('keydown', this._onKeyDown)
     if (this._onKeyUp) window.removeEventListener('keyup', this._onKeyUp)
+    if (this._onPointerLockChange) document.removeEventListener('pointerlockchange', this._onPointerLockChange)
+    if (this.renderer?.domElement) {
+      if (this._onClick) this.renderer.domElement.removeEventListener('click', this._onClick)
+      if (this._onMouseMove) this.renderer.domElement.removeEventListener('mousemove', this._onMouseMove)
+    }
+    this._resizeObserver?.disconnect()
+
+    // Dispose all geometries and materials in the scene
+    this.scene.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        obj.geometry?.dispose()
+        if (Array.isArray(obj.material)) {
+          obj.material.forEach(m => m.dispose())
+        } else {
+          obj.material?.dispose()
+        }
+      } else if (obj instanceof THREE.Points) {
+        obj.geometry?.dispose()
+        ;(obj.material as THREE.Material)?.dispose()
+      }
+    })
+
     this.particleSystems = []
     this.renderer?.dispose()
     if (this.renderer?.domElement.parentElement) {

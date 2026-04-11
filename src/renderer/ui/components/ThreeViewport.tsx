@@ -19,7 +19,8 @@ export function ThreeViewport() {
   const objectDefs = useAppStore((s) => s.objectDefinitions)
   const buildingPalettes = useAppStore((s) => s.buildingPalettes)
 
-  const mountedRef = useRef(false)
+  // Track the map identity that was last loaded to prevent double-load
+  const loadedMapRef = useRef<unknown>(null)
 
   useEffect(() => {
     const container = containerRef.current
@@ -28,23 +29,23 @@ export function ThreeViewport() {
     const renderer = new ThreeRenderer()
     renderer.init(container)
     renderer.loadMap(map, objectDefs, buildingPalettes)
+    loadedMapRef.current = map
     rendererRef.current = renderer
     _activeRenderer = renderer
-    // Mark mounted after a microtask so the dep-effect skips its first run
-    Promise.resolve().then(() => { mountedRef.current = true })
 
     return () => {
       renderer.dispose()
       rendererRef.current = null
       _activeRenderer = null
-      mountedRef.current = false
+      loadedMapRef.current = null
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reload map when it changes (skip mount — init effect already loaded)
+  // Reload map when it changes (skip if same map object already loaded)
   useEffect(() => {
-    if (!mountedRef.current || !rendererRef.current) return
+    if (!rendererRef.current || map === loadedMapRef.current) return
     rendererRef.current.loadMap(map, objectDefs, buildingPalettes)
+    loadedMapRef.current = map
   }, [map, objectDefs, buildingPalettes])
 
   // Track pointer lock state for UI overlay

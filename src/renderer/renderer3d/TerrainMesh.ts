@@ -176,8 +176,9 @@ function buildWaterMesh(
       const x0 = tx, x1 = tx + 1, z0 = ty, z1 = ty + 1
       // Water sits at the lowest neighboring terrain height
       const h = Math.max(0, getTerrainHeight(heightMap, tx, ty) - 0.08)
-      positions.push(x0, h, z0, x1, h, z0, x1, h, z1)
-      positions.push(x0, h, z0, x1, h, z1, x0, h, z1)
+      // CCW winding for upward-facing normals (same fix as ground tiles)
+      positions.push(x0, h, z0, x1, h, z1, x1, h, z0)
+      positions.push(x0, h, z0, x0, h, z1, x1, h, z1)
     }
   }
 
