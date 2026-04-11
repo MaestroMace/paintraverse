@@ -240,6 +240,13 @@ export class TownGenerator implements IMapGenerator {
     // 12b. Town walls around perimeter
     const townWalls = this.placeWalls(width, height, roadMap, waterMap, [...buildings, ...landmarks], gates, rng)
 
+    // 12c. Grand courtyards — intentional enclosed spaces with symmetry
+    const courtyardProps = this.generateGrandCourtyards(
+      terrainTiles, roadMap, waterMap, heightMap,
+      [...buildings, ...landmarks, ...gates, ...townWalls],
+      districtMap, districts, width, height, rng, noise
+    )
+
     // 13. Contextual props per district
     const props = this.placeProps(
       width, height, roadMap, waterMap, [...buildings, ...landmarks, ...gates],
@@ -282,7 +289,7 @@ export class TownGenerator implements IMapGenerator {
     )
 
     const allStructures = [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls]
-    const allProps = [...props, ...lights, ...plazaProps, ...vegetation, ...hiddenCourtyards, ...gardens, ...countrysideProps]
+    const allProps = [...props, ...lights, ...plazaProps, ...vegetation, ...hiddenCourtyards, ...gardens, ...courtyardProps, ...countrysideProps]
 
     const terrainLayer: MapLayer = {
       id: uuid(), name: 'Terrain', type: 'terrain',
@@ -2280,6 +2287,207 @@ export class TownGenerator implements IMapGenerator {
         }
       }
     }
+  }
+
+  // === GRAND COURTYARDS ===
+  // Intentional enclosed spaces with partial symmetry, arched entries,
+  // central features, and colonnades. These are the soul of the town —
+  // places to pause, gather, and breathe between dense building clusters.
+  private generateGrandCourtyards(
+    terrain: number[][], roadMap: boolean[][], waterMap: boolean[][],
+    heightMap: number[][], buildings: PlacedObject[],
+    districtMap: number[][], districts: District[],
+    w: number, h: number, rng: () => number, noise: SimplexNoise
+  ): PlacedObject[] {
+    const props: PlacedObject[] = []
+    const occupied = this.createOccupied(w, h, roadMap, waterMap)
+    this.markObjects(occupied, buildings, w, h)
+
+    const maxCourtyards = Math.floor(2 + districts.length * 0.8)
+    let placed = 0
+
+    for (const d of districts) {
+      if (placed >= maxCourtyards) break
+      // Not every district gets a courtyard — prefer noble, temple, garden
+      const courtChance = d.type === 'noble' ? 0.8 : d.type === 'temple' ? 0.9
+        : d.type === 'garden' ? 0.7 : d.type === 'market' ? 0.5
+        : d.type === 'residential' ? 0.3 : 0.1
+      if (rng() > courtChance) continue
+
+      // Find a clear area near the district center for the courtyard
+      // Courtyard size varies by district type
+      const courtW = d.type === 'temple' ? 6 + Math.floor(rng() * 3)
+        : d.type === 'noble' ? 5 + Math.floor(rng() * 3)
+        : 4 + Math.floor(rng() * 2)
+      const courtH = d.type === 'temple' ? 5 + Math.floor(rng() * 2)
+        : 4 + Math.floor(rng() * 2)
+
+      // Search near district center for clear space
+      let cx = -1, cy = -1
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const tx = d.center.x + Math.floor(rng() * 8) - 4
+        const ty = d.center.y + Math.floor(rng() * 8) - 4
+        if (tx < 2 || ty < 2 || tx + courtW >= w - 2 || ty + courtH >= h - 2) continue
+        if (this.areaFree(occupied, tx, ty, courtW, courtH, w, h)) {
+          cx = tx; cy = ty; break
+        }
+      }
+      if (cx < 0) continue
+
+      // === Paint courtyard ground ===
+      for (let dy = 0; dy < courtH; dy++) {
+        for (let dx = 0; dx < courtW; dx++) {
+          const tx = cx + dx, ty = cy + dy
+          if (d.type === 'temple') terrain[ty][tx] = 2 // stone
+          else if (d.type === 'noble') terrain[ty][tx] = (dx + dy) % 2 === 0 ? 2 : 8 // checkerboard
+          else if (d.type === 'garden') terrain[ty][tx] = dx === 0 || dx === courtW - 1 || dy === 0 || dy === courtH - 1 ? 13 : 12 // gravel border, wildflower center
+          else terrain[ty][tx] = 8 // cobblestone
+          roadMap[ty][tx] = true // walkable
+        }
+      }
+
+      // === Surrounding buildings (U-shape or L-shape enclosure) ===
+      // Place buildings along 2-3 sides to create enclosure
+      const buildingSides = rng() > 0.3 ? 3 : 2 // U-shape or L-shape
+      const sideConfigs = [
+        { dir: 'top', bx: cx, by: cy - 2, bw: courtW, bh: 2 },
+        { dir: 'left', bx: cx - 2, by: cy, bw: 2, bh: courtH },
+        { dir: 'right', bx: cx + courtW, by: cy, bw: 2, bh: courtH },
+        { dir: 'bottom', bx: cx, by: cy + courtH, bw: courtW, bh: 2 },
+      ]
+      // Shuffle and pick sides
+      for (let si = sideConfigs.length - 1; si > 0; si--) {
+        const sj = Math.floor(rng() * (si + 1))
+        ;[sideConfigs[si], sideConfigs[sj]] = [sideConfigs[sj], sideConfigs[si]]
+      }
+
+      let wallsPlaced = 0
+      for (const side of sideConfigs) {
+        if (wallsPlaced >= buildingSides) break
+        if (side.bx < 0 || side.by < 0 || side.bx + side.bw >= w || side.by + side.bh >= h) continue
+        if (!this.areaFree(occupied, side.bx, side.by, side.bw, side.bh, w, h)) continue
+
+        // Place a row of buildings along this side
+        const buildingType = d.type === 'noble' ? 'building_medium' : d.type === 'temple' ? 'chapel'
+          : rng() > 0.5 ? 'building_small' : 'row_house'
+        const bfp = this.getFootprint(buildingType)
+
+        let bx = side.bx
+        while (bx + bfp.w <= side.bx + side.bw) {
+          if (this.areaFree(occupied, bx, side.by, bfp.w, bfp.h, w, h)) {
+            const elev = Math.min(Math.round((heightMap[side.by]?.[bx] ?? 0) * 2) / 2, 2)
+            buildings.push({
+              id: uuid(),
+              definitionId: buildingType,
+              x: bx, y: side.by,
+              rotation: 0, scaleX: 1, scaleY: 1,
+              elevation: elev,
+              properties: {
+                floors: d.type === 'noble' ? 2 + Math.floor(rng() * 2) : 1 + Math.floor(rng() * 2),
+                district: d.type,
+                style: d.type === 'noble' ? 'ornate' : 'standard',
+              }
+            })
+            this.markArea(occupied, bx, side.by, bfp.w, bfp.h, w, h)
+          }
+          bx += bfp.w
+        }
+        wallsPlaced++
+      }
+
+      // === Courtyard entry — archway on the open side ===
+      // Find an open side (no buildings placed) and put an archway
+      for (const side of sideConfigs) {
+        if (wallsPlaced > 0 && side.bx >= 0 && side.by >= 0) {
+          const archX = cx + Math.floor(courtW / 2) - 1
+          const archY = side.dir === 'top' ? cy - 1 : side.dir === 'bottom' ? cy + courtH : cy + Math.floor(courtH / 2)
+          if (archX >= 0 && archX + 3 < w && archY >= 0 && archY < h && !occupied[archY][archX]) {
+            props.push(this.createObj('archway', archX, archY, 0))
+            break
+          }
+        }
+      }
+
+      // === Central feature (partial symmetry) ===
+      const centerX = cx + Math.floor(courtW / 2)
+      const centerY = cy + Math.floor(courtH / 2)
+
+      if (d.type === 'temple') {
+        // Symmetric: central statue + flanking columns
+        if (!occupied[centerY][centerX]) {
+          props.push(this.createObj('statue', centerX, centerY))
+          occupied[centerY][centerX] = true
+        }
+        // Columns along one axis (partial symmetry — not mirror-perfect)
+        for (let ci = -2; ci <= 2; ci += 2) {
+          const colX = centerX + ci
+          if (colX >= cx && colX < cx + courtW && !occupied[centerY - 1]?.[colX]) {
+            props.push(this.createObj('column', colX, centerY - 1))
+            occupied[centerY - 1][colX] = true
+          }
+        }
+        // Wall lanterns at corners
+        for (const [dx, dy] of [[0, 0], [courtW - 1, 0], [0, courtH - 1], [courtW - 1, courtH - 1]] as const) {
+          if (!occupied[cy + dy][cx + dx]) {
+            props.push(this.createObj('wall_lantern', cx + dx, cy + dy))
+            occupied[cy + dy][cx + dx] = true
+          }
+        }
+      } else if (d.type === 'noble' || d.type === 'garden') {
+        // Fountain + symmetric planter boxes
+        if (this.areaFree(occupied, centerX - 1, centerY - 1, 2, 2, w, h)) {
+          props.push(this.createObj('fountain', centerX - 1, centerY - 1))
+          this.markArea(occupied, centerX - 1, centerY - 1, 2, 2, w, h)
+        }
+        // Symmetric planters along the central axis
+        for (const offset of [-2, 2]) {
+          const px = centerX + offset
+          if (px >= cx && px + 1 < cx + courtW) {
+            if (!occupied[centerY]?.[px] && !occupied[centerY]?.[px + 1]) {
+              props.push(this.createObj('planter_box', px, centerY))
+              occupied[centerY][px] = true
+              if (px + 1 < w) occupied[centerY][px + 1] = true
+            }
+          }
+        }
+        // Benches facing the fountain
+        for (const [dx, dy] of [[2, 0], [-2, 0]] as const) {
+          const bx = centerX + dx, by = centerY + 1
+          if (bx >= cx && bx + 1 < cx + courtW && by < cy + courtH) {
+            if (!occupied[by][bx] && !occupied[by][bx + 1]) {
+              props.push(this.createObj('bench', bx, by))
+              occupied[by][bx] = true
+              occupied[by][bx + 1] = true
+            }
+          }
+        }
+      } else if (d.type === 'market') {
+        // Market stalls in rows
+        for (let mx = cx + 1; mx < cx + courtW - 2; mx += 3) {
+          if (this.areaFree(occupied, mx, centerY, 2, 2, w, h)) {
+            props.push(this.createObj('market_stall', mx, centerY))
+            this.markArea(occupied, mx, centerY, 2, 2, w, h)
+          }
+        }
+      } else {
+        // Residential: well + tree
+        if (!occupied[centerY][centerX]) {
+          props.push(this.createObj('well', centerX, centerY))
+          occupied[centerY][centerX] = true
+        }
+        if (centerX + 2 < cx + courtW && !occupied[centerY][centerX + 2]) {
+          const treeObj = this.createObj('tree', centerX + 2, centerY)
+          treeObj.properties = { species: 'oak' }
+          props.push(treeObj)
+          occupied[centerY][centerX + 2] = true
+        }
+      }
+
+      this.markArea(occupied, cx, cy, courtW, courtH, w, h)
+      placed++
+    }
+
+    return props
   }
 
   // === NATURAL PONDS ===

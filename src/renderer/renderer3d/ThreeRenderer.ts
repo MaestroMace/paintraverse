@@ -7,7 +7,7 @@
 import * as THREE from 'three'
 import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
-import { buildTerrainMesh } from './TerrainMesh'
+import { buildTerrainMesh, getTerrainHeight } from './TerrainMesh'
 import { buildBuildingMeshes } from './BuildingFactory'
 import { buildPropMeshes } from './PropFactory'
 
@@ -145,25 +145,54 @@ export class ThreeRenderer {
     const palettes = buildingPalettes || DEFAULT_BUILDING_PALETTES
     const defMap = new Map(objectDefs.map(d => [d.id, d]))
 
-    // Terrain
+    // Terrain (with height map from seed)
+    const seed = map.generationConfig?.seed ?? 0
     const terrainLayer = map.layers.find(l => l.type === 'terrain')
+    let heightMap: number[][] | null = null
     if (terrainLayer?.terrainTiles) {
-      const mesh = buildTerrainMesh(terrainLayer.terrainTiles, map.gridWidth, map.gridHeight)
-      this.terrainGroup.add(mesh)
+      const terrainGroup = buildTerrainMesh(terrainLayer.terrainTiles, map.gridWidth, map.gridHeight, seed)
+      this.terrainGroup.add(terrainGroup)
+      heightMap = (terrainGroup as any)._heightMap ?? null
     }
 
-    // Buildings
+    // Buildings — placed at terrain height
     const structureLayer = map.layers.find(l => l.type === 'structure')
     if (structureLayer) {
       const meshes = buildBuildingMeshes(structureLayer.objects, defMap, palettes)
-      for (const m of meshes) this.buildingGroup.add(m)
+      for (const m of meshes) {
+        // Adjust Y position to terrain height
+        if (heightMap) {
+          const tx = Math.floor(m.position.x)
+          const tz = Math.floor(m.position.z)
+          m.position.y += getTerrainHeight(heightMap, tx, tz)
+        }
+        this.buildingGroup.add(m)
+      }
     }
 
-    // Props
+    // Props — placed at terrain height
     const propLayer = map.layers.find(l => l.type === 'prop')
     if (propLayer) {
       const meshes = buildPropMeshes(propLayer.objects, defMap)
-      for (const m of meshes) this.propGroup.add(m)
+      for (const m of meshes) {
+        if (heightMap) {
+          const tx = Math.floor(m.position.x)
+          const tz = Math.floor(m.position.z)
+          m.position.y += getTerrainHeight(heightMap, tx, tz)
+        }
+        this.propGroup.add(m)
+      }
+    }
+
+    // === ELEVATED WALKWAYS ===
+    // Bridges between buildings that span across streets at upper floors
+    if (structureLayer && structureLayer.objects.length > 20) {
+      this.generateElevatedWalkways(structureLayer.objects, defMap, heightMap, map.gridWidth, map.gridHeight)
+    }
+
+    // === STAIRCASES between elevation levels ===
+    if (heightMap) {
+      this.generateStaircases(heightMap, map.gridWidth, map.gridHeight)
     }
 
     // Position camera to see the town
@@ -174,6 +203,126 @@ export class ThreeRenderer {
 
     // Lighting from environment
     this.updateLighting(map.environment.timeOfDay)
+  }
+
+  /** Generate elevated walkways/bridges between close buildings */
+  private generateElevatedWalkways(
+    objects: import('../core/types').PlacedObject[],
+    defMap: Map<string, ObjectDefinition>,
+    heightMap: number[][] | null,
+    gridW: number, gridH: number
+  ): void {
+    const walkwayMat = new THREE.MeshStandardMaterial({ color: 0x8a7a68, flatShading: true, roughness: 0.85 })
+    const railMat = new THREE.MeshStandardMaterial({ color: 0x5a4a3a, flatShading: true, roughness: 0.9 })
+    let count = 0
+    const maxWalkways = 12
+
+    for (let i = 0; i < objects.length && count < maxWalkways; i++) {
+      const a = objects[i]
+      const defA = defMap.get(a.definitionId)
+      if (!defA || !a.properties.floors || (a.properties.floors as number) < 2) continue
+
+      for (let j = i + 1; j < objects.length && count < maxWalkways; j++) {
+        const b = objects[j]
+        const defB = defMap.get(b.definitionId)
+        if (!defB || !b.properties.floors || (b.properties.floors as number) < 2) continue
+
+        const dx = b.x - a.x, dy = b.y - a.y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        // Only connect buildings 3-6 tiles apart (across a street)
+        if (dist < 3 || dist > 6) continue
+
+        const fpA = defA.footprint, fpB = defB.footprint
+        const ax = a.x + fpA.w / 2, az = a.y + fpA.h / 2
+        const bx = b.x + fpB.w / 2, bz = b.y + fpB.h / 2
+        const bridgeH = 1.2 // height of the walkway (second floor level)
+        const ah = heightMap ? getTerrainHeight(heightMap, Math.floor(ax), Math.floor(az)) : 0
+        const bh = heightMap ? getTerrainHeight(heightMap, Math.floor(bx), Math.floor(bz)) : 0
+
+        // Bridge deck
+        const midX = (ax + bx) / 2, midZ = (az + bz) / 2
+        const angle = Math.atan2(bz - az, bx - ax)
+        const bridgeLen = dist * 0.7 // shorter than building distance
+        const bridgeGeo = new THREE.BoxGeometry(bridgeLen, 0.12, 0.8)
+        const bridge = new THREE.Mesh(bridgeGeo, walkwayMat)
+        bridge.position.set(midX, (ah + bh) / 2 + bridgeH, midZ)
+        bridge.rotation.y = -angle
+        this.propGroup.add(bridge)
+
+        // Railings
+        for (const side of [-0.35, 0.35]) {
+          const railGeo = new THREE.BoxGeometry(bridgeLen, 0.4, 0.05)
+          const rail = new THREE.Mesh(railGeo, railMat)
+          rail.position.set(
+            midX + Math.sin(angle) * side,
+            (ah + bh) / 2 + bridgeH + 0.2,
+            midZ - Math.cos(angle) * side
+          )
+          rail.rotation.y = -angle
+          this.propGroup.add(rail)
+        }
+
+        // Support arch (simple box underneath)
+        const archGeo = new THREE.BoxGeometry(0.2, bridgeH, 0.2)
+        const archMat = new THREE.MeshStandardMaterial({ color: 0x706058, flatShading: true })
+        const support1 = new THREE.Mesh(archGeo, archMat)
+        support1.position.set(ax + Math.cos(angle) * 0.5, ah + bridgeH / 2, az + Math.sin(angle) * 0.5)
+        this.propGroup.add(support1)
+        const support2 = new THREE.Mesh(archGeo, archMat)
+        support2.position.set(bx - Math.cos(angle) * 0.5, bh + bridgeH / 2, bz - Math.sin(angle) * 0.5)
+        this.propGroup.add(support2)
+
+        count++
+      }
+    }
+  }
+
+  /** Generate staircases where terrain has elevation changes */
+  private generateStaircases(
+    heightMap: number[][], gridW: number, gridH: number
+  ): void {
+    const stepMat = new THREE.MeshStandardMaterial({ color: 0x808078, flatShading: true, roughness: 0.9 })
+    let count = 0
+    const maxStairs = 30
+
+    for (let ty = 2; ty < gridH - 2 && count < maxStairs; ty += 3) {
+      for (let tx = 2; tx < gridW - 2 && count < maxStairs; tx += 3) {
+        const h = getTerrainHeight(heightMap, tx, ty)
+
+        // Check for elevation change in each direction
+        for (const [dx, dz] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) {
+          const nh = getTerrainHeight(heightMap, tx + dx, ty + dz)
+          const diff = h - nh
+          if (diff < 0.15 || diff > 0.8) continue // need a step but not a cliff
+
+          // Generate steps from low to high
+          const numSteps = Math.max(2, Math.ceil(diff / 0.08))
+          const stepW = 0.6, stepD = 0.25
+          const stepH = diff / numSteps
+          const startX = tx + 0.5, startZ = ty + 0.5
+          const angle = Math.atan2(dz, dx)
+
+          for (let s = 0; s < numSteps; s++) {
+            const t = s / numSteps
+            const sx = startX + dx * (0.3 + t * 0.6)
+            const sz = startZ + dz * (0.3 + t * 0.6)
+            const sy = nh + s * stepH + stepH / 2
+
+            const stepGeo = new THREE.BoxGeometry(
+              dx === 0 ? stepW : stepD,
+              stepH * 0.9,
+              dz === 0 ? stepW : stepD
+            )
+            const step = new THREE.Mesh(stepGeo, stepMat)
+            step.position.set(sx, sy, sz)
+            this.propGroup.add(step)
+          }
+
+          count++
+          break // only one staircase per position
+        }
+      }
+    }
   }
 
   updateLighting(timeOfDay: number): void {
