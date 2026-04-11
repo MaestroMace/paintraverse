@@ -3,7 +3,7 @@
  * Takes over the main editor canvas area for real-time town exploration.
  */
 
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import { useAppStore } from '../../app/store'
 import { ThreeRenderer } from '../../renderer3d/ThreeRenderer'
 
@@ -14,6 +14,7 @@ export function getActiveThreeRenderer(): ThreeRenderer | null { return _activeR
 export function ThreeViewport() {
   const containerRef = useRef<HTMLDivElement>(null)
   const rendererRef = useRef<ThreeRenderer | null>(null)
+  const [locked, setLocked] = useState(false)
   const map = useAppStore((s) => s.map)
   const objectDefs = useAppStore((s) => s.objectDefinitions)
   const buildingPalettes = useAppStore((s) => s.buildingPalettes)
@@ -46,6 +47,13 @@ export function ThreeViewport() {
     rendererRef.current.loadMap(map, objectDefs, buildingPalettes)
   }, [map, objectDefs, buildingPalettes])
 
+  // Track pointer lock state for UI overlay
+  useEffect(() => {
+    const handler = () => setLocked(!!document.pointerLockElement)
+    document.addEventListener('pointerlockchange', handler)
+    return () => document.removeEventListener('pointerlockchange', handler)
+  }, [])
+
   // Update lighting when time-of-day changes
   useEffect(() => {
     if (rendererRef.current) {
@@ -75,17 +83,32 @@ export function ThreeViewport() {
       }}
     >
       {/* Controls overlay */}
-      <div style={{
-        position: 'absolute', bottom: 12, left: 12,
-        background: 'rgba(0,0,0,0.6)', padding: '6px 12px',
-        borderRadius: 6, fontSize: 11, color: '#ccc',
-        pointerEvents: 'none', fontFamily: 'monospace',
-        lineHeight: 1.8,
-      }}>
-        <span style={{ color: '#4ade80' }}>WASD</span> move &nbsp;
-        <span style={{ color: '#4ade80' }}>Q/E</span> up/down &nbsp;
-        <span style={{ color: '#4ade80' }}>Drag</span> look
-      </div>
+      {locked ? (
+        <div style={{
+          position: 'absolute', bottom: 12, left: 12,
+          background: 'rgba(0,0,0,0.6)', padding: '6px 12px',
+          borderRadius: 6, fontSize: 11, color: '#ccc',
+          pointerEvents: 'none', fontFamily: 'monospace',
+          lineHeight: 1.8,
+        }}>
+          <span style={{ color: '#4ade80' }}>WASD</span> move &nbsp;
+          <span style={{ color: '#4ade80' }}>Q/E</span> up/down &nbsp;
+          <span style={{ color: '#4ade80' }}>Mouse</span> look &nbsp;
+          <span style={{ color: '#f87171' }}>Esc</span> release
+        </div>
+      ) : (
+        <div style={{
+          position: 'absolute', top: '50%', left: '50%',
+          transform: 'translate(-50%, -50%)',
+          background: 'rgba(0,0,0,0.7)', padding: '16px 28px',
+          borderRadius: 8, fontSize: 14, color: '#fff',
+          pointerEvents: 'none', fontFamily: 'monospace',
+          textAlign: 'center',
+        }}>
+          Click to enter walkthrough<br/>
+          <span style={{ fontSize: 11, color: '#aaa' }}>WASD move / Mouse look / Esc to exit</span>
+        </div>
+      )}
       {/* Screenshot button */}
       <button
         onClick={handleScreenshot}

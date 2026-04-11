@@ -79,22 +79,23 @@ function buildGroundWithHeight(
       const r = color.r, g = color.g, b = color.b
 
       const tileH = getTerrainHeight(heightMap, tx, ty)
-      const y00 = tileH, y10 = tileH, y01 = tileH, y11 = tileH
 
       const x0 = tx, x1 = tx + 1, z0 = ty, z1 = ty + 1
 
-      positions[vi] = x0; positions[vi+1] = y00; positions[vi+2] = z0
+      // Triangle 1: CCW winding when viewed from above → normal points UP (+Y)
+      positions[vi] = x0; positions[vi+1] = tileH; positions[vi+2] = z0
       colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
-      positions[vi] = x1; positions[vi+1] = y10; positions[vi+2] = z0
+      positions[vi] = x1; positions[vi+1] = tileH; positions[vi+2] = z1
       colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
-      positions[vi] = x1; positions[vi+1] = y11; positions[vi+2] = z1
+      positions[vi] = x1; positions[vi+1] = tileH; positions[vi+2] = z0
       colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
 
-      positions[vi] = x0; positions[vi+1] = y00; positions[vi+2] = z0
+      // Triangle 2: CCW winding when viewed from above → normal points UP (+Y)
+      positions[vi] = x0; positions[vi+1] = tileH; positions[vi+2] = z0
       colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
-      positions[vi] = x1; positions[vi+1] = y11; positions[vi+2] = z1
+      positions[vi] = x0; positions[vi+1] = tileH; positions[vi+2] = z1
       colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
-      positions[vi] = x0; positions[vi+1] = y01; positions[vi+2] = z1
+      positions[vi] = x1; positions[vi+1] = tileH; positions[vi+2] = z1
       colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
     }
   }

@@ -90,11 +90,9 @@ export class ThreeRenderer {
 
   // Camera movement
   private keysHeld = new Set<string>()
-  private mouseDown = false
-  private lastMouseX = 0
-  private lastMouseY = 0
   private cameraYaw = Math.PI * 0.75  // initial look direction
   private cameraPitch = -0.4          // slight downward look
+  private pointerLocked = false
 
   // Scene objects
   private terrainGroup = new THREE.Group()
@@ -130,18 +128,9 @@ export class ThreeRenderer {
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 500)
     this.camera.position.set(20, 4, 20)
 
-    // Sun light with shadows (conservative — only large meshes cast)
+    // Sun light (shadows disabled for performance — too many meshes)
     this.sunLight = new THREE.DirectionalLight(0xfff4e0, 1.2)
     this.sunLight.position.set(30, 50, 20)
-    this.sunLight.castShadow = true
-    this.sunLight.shadow.mapSize.set(1024, 1024)
-    this.sunLight.shadow.camera.near = 0.5
-    this.sunLight.shadow.camera.far = 100
-    this.sunLight.shadow.camera.left = -30
-    this.sunLight.shadow.camera.right = 30
-    this.sunLight.shadow.camera.top = 30
-    this.sunLight.shadow.camera.bottom = -30
-    this.sunLight.shadow.bias = -0.002
     this.scene.add(this.sunLight)
     this.scene.add(this.sunLight.target)
 
@@ -195,8 +184,7 @@ export class ThreeRenderer {
     })
     this.renderer.setPixelRatio(1) // no HiDPI — pixel art
     this.renderer.setSize(container.clientWidth, container.clientHeight)
-    this.renderer.shadowMap.enabled = true
-    this.renderer.shadowMap.type = THREE.PCFShadowMap
+    this.renderer.shadowMap.enabled = false
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     container.appendChild(this.renderer.domElement)
     this.renderer.domElement.style.imageRendering = 'pixelated'
@@ -204,9 +192,11 @@ export class ThreeRenderer {
     this.camera.aspect = container.clientWidth / container.clientHeight
     this.camera.updateProjectionMatrix()
 
-    // Input
+    // Input — pointer lock FPS controls
+    // Click canvas to enter pointer lock, Escape to exit
     this._onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return
+      if (!this.pointerLocked) return // ignore keys when not locked
       this.keysHeld.add(e.code)
     }
     this._onKeyUp = (e: KeyboardEvent) => {
@@ -215,19 +205,26 @@ export class ThreeRenderer {
     window.addEventListener('keydown', this._onKeyDown)
     window.addEventListener('keyup', this._onKeyUp)
 
-    // Mouse look
-    this.renderer.domElement.addEventListener('mousedown', (e) => {
-      if (e.button === 0 || e.button === 2) { this.mouseDown = true; this.lastMouseX = e.clientX; this.lastMouseY = e.clientY }
+    // Click to enter pointer lock
+    this.renderer.domElement.addEventListener('click', () => {
+      if (!this.pointerLocked) {
+        this.renderer?.domElement.requestPointerLock()
+      }
     })
-    this.renderer.domElement.addEventListener('mouseup', () => { this.mouseDown = false })
+
+    // Track pointer lock state
+    document.addEventListener('pointerlockchange', () => {
+      this.pointerLocked = document.pointerLockElement === this.renderer?.domElement
+      if (!this.pointerLocked) {
+        this.keysHeld.clear() // release all keys when exiting
+      }
+    })
+
+    // Mouse look (only when pointer locked — uses movementX/Y)
     this.renderer.domElement.addEventListener('mousemove', (e) => {
-      if (!this.mouseDown) return
-      const dx = e.clientX - this.lastMouseX
-      const dy = e.clientY - this.lastMouseY
-      this.cameraYaw -= dx * 0.003
-      this.cameraPitch = Math.max(-1.2, Math.min(0.5, this.cameraPitch - dy * 0.003))
-      this.lastMouseX = e.clientX
-      this.lastMouseY = e.clientY
+      if (!this.pointerLocked) return
+      this.cameraYaw -= e.movementX * 0.002
+      this.cameraPitch = Math.max(-1.4, Math.min(1.0, this.cameraPitch - e.movementY * 0.002))
     })
     this.renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault())
 
@@ -270,10 +267,6 @@ export class ThreeRenderer {
     let heightMap: number[][] | null = null
     if (terrainLayer?.terrainTiles) {
       const terrainGroup = buildTerrainMesh(terrainLayer.terrainTiles, map.gridWidth, map.gridHeight, seed)
-      // Terrain receives shadows but doesn't cast them
-      terrainGroup.traverse((child) => {
-        if (child instanceof THREE.Mesh) child.receiveShadow = true
-      })
       this.terrainGroup.add(terrainGroup)
       heightMap = (terrainGroup as any)._heightMap ?? null
     }
@@ -290,17 +283,6 @@ export class ThreeRenderer {
           const tz = Math.floor(m.position.z)
           m.position.y += getTerrainHeight(heightMap, tx, tz)
         }
-        // Only first 2 child meshes (wall + roof) cast shadows — not details
-        let shadowCount = 0
-        m.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-            child.receiveShadow = true
-            if (shadowCount < 2) {
-              child.castShadow = true
-              shadowCount++
-            }
-          }
-        })
         this.buildingGroup.add(m)
       }
 

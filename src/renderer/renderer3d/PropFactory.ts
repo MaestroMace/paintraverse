@@ -52,12 +52,15 @@ function getSharedGeo() {
   return { treeCanopy: _treeCanopy!, treeTrunk: _treeTrunk!, pineCanopy: _pineCanopy!, bushGeo: _bushGeo!, boxGeo: _boxGeo! }
 }
 
+const MAX_POINT_LIGHTS = 8 // cap to avoid per-fragment shader explosion
+
 export function buildPropMeshes(
   objects: PlacedObject[],
   defMap: Map<string, ObjectDefinition>
 ): THREE.Object3D[] {
   const result: THREE.Object3D[] = []
   const geo = getSharedGeo()
+  let pointLightCount = 0
 
   for (const obj of objects) {
     const def = defMap.get(obj.definitionId)
@@ -156,10 +159,13 @@ export function buildPropMeshes(
       const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.15, 6, 4), lampMat)
       lamp.position.y = h
       group.add(lamp)
-      // Point light for night illumination
-      const light = new THREE.PointLight(0xffcc66, 0.8, 8, 1.5)
-      light.position.y = h
-      group.add(light)
+      // Point light for night illumination (capped for performance)
+      if (pointLightCount < MAX_POINT_LIGHTS) {
+        const light = new THREE.PointLight(0xffcc66, 0.8, 8, 1.5)
+        light.position.y = h
+        group.add(light)
+        pointLightCount++
+      }
       result.push(group)
 
     } else if (id === 'fountain' || id === 'fountain_grand') {
