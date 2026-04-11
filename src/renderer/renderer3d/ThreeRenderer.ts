@@ -8,8 +8,8 @@ import * as THREE from 'three'
 import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { buildTerrainMesh, getTerrainHeight } from './TerrainMesh'
-import { buildBuildingMeshes } from './BuildingFactory'
-import { buildPropMeshes } from './PropFactory'
+import { buildBuildingMeshes, type BuildingBatchResult } from './BuildingFactory'
+import { buildPropMeshes, type PropBatchResult } from './PropFactory'
 
 function simpleHash(id: string): number {
   let h = 0
@@ -110,6 +110,12 @@ export class ThreeRenderer {
   // Particles
   private particleSystems: ParticleSystem[] = []
   private currentTimeOfDay = 12
+
+  // Reusable vectors (avoid per-frame allocations)
+  private _fwd = new THREE.Vector3()
+  private _right = new THREE.Vector3()
+  private _up = new THREE.Vector3(0, 1, 0)
+  private _target = new THREE.Vector3()
 
   // State
   private container: HTMLElement | null = null
@@ -274,25 +280,23 @@ export class ThreeRenderer {
       heightMap = (terrainGroup as any)._heightMap ?? null
     }
 
-    // Buildings — placed at terrain height
-    // Only the first child mesh (wall body) casts shadows to keep draw calls low
+    // Height lookup function for factories (bakes terrain height into geometry)
+    const hLookup = heightMap
+      ? (x: number, z: number) => getTerrainHeight(heightMap!, x, z)
+      : undefined
+
+    // Buildings — batched: walls individual, roofs/details merged
     const structureLayer = map.layers.find(l => l.type === 'structure')
     const chimneyPositions: THREE.Vector3[] = []
     if (structureLayer) {
-      const meshes = buildBuildingMeshes(structureLayer.objects, defMap, palettes)
-      for (const m of meshes) {
-        if (heightMap) {
-          const tx = Math.floor(m.position.x)
-          const tz = Math.floor(m.position.z)
-          m.position.y += getTerrainHeight(heightMap, tx, tz)
-        }
-        this.buildingGroup.add(m)
-      }
+      const result = buildBuildingMeshes(structureLayer.objects, defMap, palettes, hLookup)
+      for (const m of result.wallMeshes) this.buildingGroup.add(m)
+      for (const m of result.batched) this.buildingGroup.add(m)
 
       // Collect chimney positions for smoke particles
       for (const obj of structureLayer.objects) {
         const hash = simpleHash(obj.id)
-        if (hash % 5 >= 2) continue // only 40% have chimneys
+        if (hash % 5 >= 2) continue
         const def = defMap.get(obj.definitionId)
         if (!def) continue
         const fp = { w: def.footprint.w, h: def.footprint.h }
@@ -310,18 +314,12 @@ export class ThreeRenderer {
       }
     }
 
-    // Props — placed at terrain height (receive shadows only, don't cast)
+    // Props — batched: all merged except lampposts
     const propLayer = map.layers.find(l => l.type === 'prop')
     if (propLayer) {
-      const meshes = buildPropMeshes(propLayer.objects, defMap)
-      for (const m of meshes) {
-        if (heightMap) {
-          const tx = Math.floor(m.position.x)
-          const tz = Math.floor(m.position.z)
-          m.position.y += getTerrainHeight(heightMap, tx, tz)
-        }
-        this.propGroup.add(m)
-      }
+      const result = buildPropMeshes(propLayer.objects, defMap, hLookup)
+      for (const m of result.batched) this.propGroup.add(m)
+      for (const m of result.lampposts) this.propGroup.add(m)
     }
 
     // Spawn particles
@@ -343,6 +341,14 @@ export class ThreeRenderer {
     this.camera.position.set(cx - 10, 6, cz - 10)
     this.cameraYaw = Math.atan2(cz - this.camera.position.z, cx - this.camera.position.x)
     this.cameraPitch = -0.3
+
+    // Freeze all static transforms (saves ~3800 matrix recalcs per frame)
+    for (const group of [this.terrainGroup, this.buildingGroup, this.propGroup]) {
+      group.traverse((child) => {
+        child.matrixAutoUpdate = false
+        child.updateMatrix()
+      })
+    }
 
     // Lighting from environment
     this.updateLighting(map.environment.timeOfDay)
@@ -694,6 +700,7 @@ export class ThreeRenderer {
   }
 
   private startLoop(): void {
+    let frameCount = 0
     const loop = () => {
       if (this.disposed) return
       this.animId = requestAnimationFrame(loop)
@@ -703,29 +710,33 @@ export class ThreeRenderer {
       // Keep sky dome centered on camera
       if (this.skyMesh) this.skyMesh.position.copy(this.camera.position)
       this.renderer?.render(this.scene, this.camera)
+      // Log draw call count once (after first render)
+      if (frameCount++ === 1 && this.renderer) {
+        const info = this.renderer.info.render
+        console.log(`[3D Perf] draw calls: ${info.calls}, triangles: ${info.triangles}, points: ${info.points}`)
+      }
     }
     this.animId = requestAnimationFrame(loop)
   }
 
   private updateCamera(dt: number): void {
     const speed = 8 * dt
-    const forward = new THREE.Vector3(
+    this._fwd.set(
       Math.cos(this.cameraYaw) * Math.cos(this.cameraPitch),
       Math.sin(this.cameraPitch),
       Math.sin(this.cameraYaw) * Math.cos(this.cameraPitch)
     ).normalize()
-    const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize()
+    this._right.crossVectors(this._fwd, this._up).normalize()
 
-    if (this.keysHeld.has('KeyW')) this.camera.position.addScaledVector(forward, speed)
-    if (this.keysHeld.has('KeyS')) this.camera.position.addScaledVector(forward, -speed)
-    if (this.keysHeld.has('KeyA')) this.camera.position.addScaledVector(right, -speed)
-    if (this.keysHeld.has('KeyD')) this.camera.position.addScaledVector(right, speed)
+    if (this.keysHeld.has('KeyW')) this.camera.position.addScaledVector(this._fwd, speed)
+    if (this.keysHeld.has('KeyS')) this.camera.position.addScaledVector(this._fwd, -speed)
+    if (this.keysHeld.has('KeyA')) this.camera.position.addScaledVector(this._right, -speed)
+    if (this.keysHeld.has('KeyD')) this.camera.position.addScaledVector(this._right, speed)
     if (this.keysHeld.has('KeyQ')) this.camera.position.y += speed * 0.7
     if (this.keysHeld.has('KeyE')) this.camera.position.y = Math.max(1, this.camera.position.y - speed * 0.7)
 
-    // Look direction from yaw/pitch
-    const target = this.camera.position.clone().add(forward)
-    this.camera.lookAt(target)
+    this._target.copy(this.camera.position).add(this._fwd)
+    this.camera.lookAt(this._target)
   }
 
   /** Capture a screenshot of the current 3D view as a data URL */

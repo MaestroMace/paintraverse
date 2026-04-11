@@ -105,8 +105,8 @@ function buildGroundWithHeight(
   geo.setAttribute('color', new THREE.BufferAttribute(colors.slice(0, vi), 3))
   geo.computeVertexNormals()
 
-  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-    vertexColors: true, flatShading: true, roughness: 0.9, metalness: 0,
+  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+    vertexColors: true, flatShading: true,
   }))
 }
 
@@ -160,8 +160,8 @@ function buildRetainingWalls(
   geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(wallColors), 3))
   geo.computeVertexNormals()
 
-  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-    vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0,
+  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+    vertexColors: true, flatShading: true,
   }))
 }
 
