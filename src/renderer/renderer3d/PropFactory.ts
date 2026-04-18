@@ -376,51 +376,214 @@ export function buildPropMeshes(
       batch.addPositioned(back, 0x6a4a28)
 
     } else if (id === 'market_stall') {
-      // Counter — larger
-      const table = new THREE.BoxGeometry(1.8, 0.08, 0.9)
-      table.translate(px, elev + 0.8, pz)
-      batch.addPositioned(table, 0x7a5a30)
-      // Legs
-      for (const [lx, lz] of [[-0.75, -0.35], [0.75, -0.35], [-0.75, 0.35], [0.75, 0.35]] as const) {
-        const leg = new THREE.BoxGeometry(0.07, 0.8, 0.07)
-        leg.translate(px + lx, elev + 0.4, pz + lz)
-        batch.addPositioned(leg, 0x7a5a30)
+      // Hash-pick one of four distinct stall silhouettes.
+      const variant = hash % 4
+      if (variant === 0) {
+        // Classic canopy stall: counter + tall front poles + striped canopy
+        const canopyColors = [0xcc3333, 0x3366aa, 0xcc9933, 0x339966]
+        const table = new THREE.BoxGeometry(1.8, 0.08, 0.9)
+        table.translate(px, elev + 0.8, pz)
+        batch.addPositioned(table, 0x7a5a30)
+        for (const [lx, lz] of [[-0.75, -0.35], [0.75, -0.35], [-0.75, 0.35], [0.75, 0.35]] as const) {
+          const leg = new THREE.BoxGeometry(0.07, 0.8, 0.07)
+          leg.translate(px + lx, elev + 0.4, pz + lz)
+          batch.addPositioned(leg, 0x7a5a30)
+        }
+        for (const lx of [-0.8, 0.8]) {
+          const pole = new THREE.CylinderGeometry(0.04, 0.04, 1.2, 4)
+          pole.translate(px + lx, elev + 1.4, pz + 0.4)
+          batch.addPositioned(pole, 0x7a5a30)
+        }
+        const canopy = new THREE.PlaneGeometry(2.0, 1.2)
+        canopy.rotateX(-0.25)
+        canopy.translate(px, elev + 1.9, pz + 0.1)
+        batch.addPositioned(canopy, canopyColors[(hash >> 2) % canopyColors.length])
+        // Stripe under the canopy for visual interest
+        const stripe = new THREE.PlaneGeometry(2.0, 0.15)
+        stripe.rotateX(-0.25)
+        stripe.translate(px, elev + 1.62, pz + 0.1)
+        batch.addPositioned(stripe, 0xf0f0e0)
+      } else if (variant === 1) {
+        // Fruit cart: long narrow cart on large wheels, produce piles on top
+        const bed = new THREE.BoxGeometry(1.6, 0.12, 0.7)
+        bed.translate(px, elev + 0.55, pz)
+        batch.addPositioned(bed, 0x7a5030)
+        // Sides (open crates)
+        for (const sz of [-0.3, 0.3]) {
+          const side = new THREE.BoxGeometry(1.6, 0.18, 0.04)
+          side.translate(px, elev + 0.7, pz + sz)
+          batch.addPositioned(side, 0x5a3820)
+        }
+        // Big cart wheels
+        for (const wx of [-0.55, 0.55]) {
+          const wheel = new THREE.CylinderGeometry(0.26, 0.26, 0.06, 8)
+          wheel.rotateX(Math.PI / 2)
+          wheel.translate(px + wx, elev + 0.26, pz + 0.35)
+          batch.addPositioned(wheel, 0x3a2a1a)
+          const wheel2 = new THREE.CylinderGeometry(0.26, 0.26, 0.06, 8)
+          wheel2.rotateX(Math.PI / 2)
+          wheel2.translate(px + wx, elev + 0.26, pz - 0.35)
+          batch.addPositioned(wheel2, 0x3a2a1a)
+        }
+        // Produce mounds: three colored hemispheres
+        const produceColors = [0xc04020, 0xb07030, 0xa09040, 0x805030]
+        for (let pi = 0; pi < 3; pi++) {
+          const mound = new THREE.SphereGeometry(0.18, 6, 4, 0, Math.PI * 2, 0, Math.PI / 2)
+          mound.translate(px - 0.5 + pi * 0.5, elev + 0.68, pz + ((hash >> pi) & 1) * 0.15 - 0.05)
+          batch.addPositioned(mound, produceColors[(hash + pi) % produceColors.length])
+        }
+        // Handle bar at one end
+        const handle = new THREE.BoxGeometry(0.05, 0.05, 0.9)
+        handle.translate(px + 0.9, elev + 0.55, pz)
+        batch.addPositioned(handle, 0x5a3820)
+      } else if (variant === 2) {
+        // Tool stall: anvil + iron rack behind a counter
+        const counter = new THREE.BoxGeometry(1.5, 0.65, 0.6)
+        counter.translate(px, elev + 0.33, pz)
+        batch.addPositioned(counter, 0x6a4a2a)
+        // Anvil on top
+        const anvil = new THREE.BoxGeometry(0.45, 0.15, 0.2)
+        anvil.translate(px - 0.3, elev + 0.73, pz)
+        batch.addPositioned(anvil, 0x3a3a3a)
+        const anvilTop = new THREE.BoxGeometry(0.6, 0.08, 0.22)
+        anvilTop.translate(px - 0.3, elev + 0.83, pz)
+        batch.addPositioned(anvilTop, 0x2a2a2a)
+        // Iron tool rack: vertical posts + crossbar + hanging tool shapes
+        for (const lx of [-0.6, 0.6]) {
+          const post = new THREE.BoxGeometry(0.06, 1.6, 0.06)
+          post.translate(px + lx, elev + 0.8, pz - 0.35)
+          batch.addPositioned(post, 0x4a3a28)
+        }
+        const crossbar = new THREE.BoxGeometry(1.4, 0.06, 0.06)
+        crossbar.translate(px, elev + 1.5, pz - 0.35)
+        batch.addPositioned(crossbar, 0x4a3a28)
+        for (let ti = 0; ti < 4; ti++) {
+          const tool = new THREE.BoxGeometry(0.06, 0.45 + (ti % 2) * 0.15, 0.03)
+          tool.translate(px - 0.55 + ti * 0.38, elev + 1.2, pz - 0.34)
+          batch.addPositioned(tool, 0x2a2a2a)
+        }
+      } else {
+        // Striped booth: tall narrow booth with a peaked roof
+        const counter = new THREE.BoxGeometry(1.2, 0.6, 0.9)
+        counter.translate(px, elev + 0.3, pz)
+        batch.addPositioned(counter, 0x8a6a3a)
+        for (const lx of [-0.55, 0.55]) {
+          const post = new THREE.BoxGeometry(0.06, 1.8, 0.06)
+          post.translate(px + lx, elev + 0.9, pz)
+          batch.addPositioned(post, 0x5a3a20)
+        }
+        // Peaked roof — two tilted planes
+        const roofColor = [0xa03030, 0x306aa0, 0x6a9a40][hash % 3]
+        for (const side of [-1, 1]) {
+          const slab = new THREE.PlaneGeometry(1.5, 0.8)
+          slab.rotateX(0.4 * side)
+          slab.translate(px, elev + 1.9, pz + side * 0.18)
+          batch.addPositioned(slab, roofColor)
+        }
+        // Stripe band under the roof
+        const band = new THREE.BoxGeometry(1.3, 0.12, 0.08)
+        band.translate(px, elev + 1.65, pz)
+        batch.addPositioned(band, 0xf0e8d0)
       }
-      // Front poles — taller
-      for (const lx of [-0.8, 0.8]) {
-        const pole = new THREE.CylinderGeometry(0.04, 0.04, 1.2, 4)
-        pole.translate(px + lx, elev + 1.4, pz + 0.4)
-        batch.addPositioned(pole, 0x7a5a30)
-      }
-      // Canopy — bigger, more visible
-      const canopyColors = [0xcc3333, 0x3366aa, 0xcc9933, 0x339966]
-      const canopy = new THREE.PlaneGeometry(2.0, 1.2)
-      canopy.rotateX(-0.25)
-      canopy.translate(px, elev + 1.9, pz + 0.1)
-      batch.addPositioned(canopy, canopyColors[hash % canopyColors.length])
 
     } else if (id === 'statue' || id === 'column' || id === 'monument') {
+      // Five statue silhouettes chosen by id + hash.
+      //   column     → columns (fluted column shape w/ capital + base)
+      //   monument   → obelisk (tall pyramid-capped pillar)
+      //   statue     → hash picks equestrian / figure / urn / orb
       if (id === 'column') {
-        const base = new THREE.BoxGeometry(0.35, 0.1, 0.35)
-        base.translate(px, elev + 0.05, pz)
-        batch.addPositioned(base, 0x9a9a90)
-        const shaft = new THREE.CylinderGeometry(0.1, 0.12, 1.5, 6)
-        shaft.translate(px, elev + 0.85, pz)
-        batch.addPositioned(shaft, 0x9a9a90)
+        const base = new THREE.BoxGeometry(0.4, 0.12, 0.4)
+        base.translate(px, elev + 0.06, pz)
+        batch.addPositioned(base, 0xaaa29a)
+        const shaft = new THREE.CylinderGeometry(0.09, 0.12, 1.6, 6)
+        shaft.translate(px, elev + 0.92, pz)
+        batch.addPositioned(shaft, 0xbab2aa)
+        // Capital (wider block at top)
+        const cap = new THREE.BoxGeometry(0.32, 0.12, 0.32)
+        cap.translate(px, elev + 1.78, pz)
+        batch.addPositioned(cap, 0xaaa29a)
+        const capTop = new THREE.BoxGeometry(0.38, 0.06, 0.38)
+        capTop.translate(px, elev + 1.87, pz)
+        batch.addPositioned(capTop, 0xaaa29a)
       } else if (id === 'monument') {
-        const ped = new THREE.BoxGeometry(0.8, 0.3, 0.8)
-        ped.translate(px, elev + 0.15, pz)
-        batch.addPositioned(ped, 0x9a9a90)
-        const ob = new THREE.CylinderGeometry(0.05, 0.2, 1.5, 4)
-        ob.translate(px, elev + 1.05, pz)
-        batch.addPositioned(ob, 0x9a9a90)
+        // Obelisk: square plinth → tall tapered column → pyramid cap
+        const plinth = new THREE.BoxGeometry(0.7, 0.22, 0.7)
+        plinth.translate(px, elev + 0.11, pz)
+        batch.addPositioned(plinth, 0x9a9288)
+        const shaft = new THREE.CylinderGeometry(0.12, 0.22, 2.0, 4)
+        shaft.rotateY(Math.PI / 4)
+        shaft.translate(px, elev + 1.22, pz)
+        batch.addPositioned(shaft, 0xbab2a8)
+        const pyramid = new THREE.ConeGeometry(0.2, 0.35, 4)
+        pyramid.rotateY(Math.PI / 4)
+        pyramid.translate(px, elev + 2.4, pz)
+        batch.addPositioned(pyramid, 0xbab2a8)
       } else {
-        const ped = new THREE.BoxGeometry(0.5, 0.5, 0.5)
-        ped.translate(px, elev + 0.25, pz)
-        batch.addPositioned(ped, 0x9a9a90)
-        const body = new THREE.CylinderGeometry(0.12, 0.15, 0.8, 5)
-        body.translate(px, elev + 0.9, pz)
-        batch.addPositioned(body, 0x9a9a90)
+        const statueVariant = hash % 4
+        const ped = new THREE.BoxGeometry(0.55, 0.55, 0.55)
+        ped.translate(px, elev + 0.275, pz)
+        batch.addPositioned(ped, 0x9a9288)
+        if (statueVariant === 0) {
+          // Equestrian: horse body + rider
+          const horseBody = new THREE.BoxGeometry(0.55, 0.28, 0.2)
+          horseBody.translate(px, elev + 0.75, pz)
+          batch.addPositioned(horseBody, 0xbab2a8)
+          const horseHead = new THREE.BoxGeometry(0.18, 0.24, 0.14)
+          horseHead.translate(px + 0.25, elev + 0.95, pz)
+          batch.addPositioned(horseHead, 0xbab2a8)
+          // Legs (4 small blocks)
+          for (const [lx, lz] of [[-0.22, -0.07], [0.22, -0.07], [-0.22, 0.07], [0.22, 0.07]] as const) {
+            const leg = new THREE.BoxGeometry(0.06, 0.22, 0.06)
+            leg.translate(px + lx, elev + 0.65, pz + lz)
+            batch.addPositioned(leg, 0xbab2a8)
+          }
+          // Rider torso
+          const torso = new THREE.BoxGeometry(0.18, 0.3, 0.15)
+          torso.translate(px + 0.02, elev + 1.1, pz)
+          batch.addPositioned(torso, 0xbab2a8)
+          const head = new THREE.SphereGeometry(0.1, 6, 5)
+          head.translate(px + 0.02, elev + 1.32, pz)
+          batch.addPositioned(head, 0xbab2a8)
+        } else if (statueVariant === 1) {
+          // Standing figure: humanoid silhouette
+          const torso = new THREE.BoxGeometry(0.24, 0.5, 0.18)
+          torso.translate(px, elev + 0.85, pz)
+          batch.addPositioned(torso, 0xbab2a8)
+          const head = new THREE.SphereGeometry(0.11, 6, 5)
+          head.translate(px, elev + 1.2, pz)
+          batch.addPositioned(head, 0xbab2a8)
+          // Arm hanging
+          const arm = new THREE.BoxGeometry(0.08, 0.42, 0.08)
+          arm.translate(px + 0.18, elev + 0.85, pz)
+          batch.addPositioned(arm, 0xbab2a8)
+          // Legs (two slim rectangles merged)
+          const legs = new THREE.BoxGeometry(0.22, 0.2, 0.16)
+          legs.translate(px, elev + 0.67, pz)
+          batch.addPositioned(legs, 0xbab2a8)
+        } else if (statueVariant === 2) {
+          // Urn on pedestal
+          const urnBase = new THREE.CylinderGeometry(0.12, 0.18, 0.15, 8)
+          urnBase.translate(px, elev + 0.63, pz)
+          batch.addPositioned(urnBase, 0xbab2a8)
+          const urnBody = new THREE.SphereGeometry(0.22, 7, 6)
+          urnBody.scale(1.0, 0.85, 1.0)
+          urnBody.translate(px, elev + 0.88, pz)
+          batch.addPositioned(urnBody, 0xbab2a8)
+          const urnNeck = new THREE.CylinderGeometry(0.12, 0.16, 0.12, 8)
+          urnNeck.translate(px, elev + 1.1, pz)
+          batch.addPositioned(urnNeck, 0xbab2a8)
+          const urnRim = new THREE.CylinderGeometry(0.18, 0.14, 0.05, 8)
+          urnRim.translate(px, elev + 1.18, pz)
+          batch.addPositioned(urnRim, 0xbab2a8)
+        } else {
+          // Orb on column
+          const shaft = new THREE.CylinderGeometry(0.1, 0.13, 0.9, 6)
+          shaft.translate(px, elev + 1.0, pz)
+          batch.addPositioned(shaft, 0xbab2a8)
+          const orb = new THREE.SphereGeometry(0.22, 7, 6)
+          orb.translate(px, elev + 1.58, pz)
+          batch.addPositioned(orb, 0xbab2a8)
+        }
       }
 
     } else if (id === 'fence' || id === 'iron_fence' || id === 'stone_wall') {
@@ -507,9 +670,47 @@ export function buildPropMeshes(
       }
 
     } else if (id === 'gravestone') {
-      const stone = new THREE.BoxGeometry(0.25, 0.5, 0.08)
-      stone.translate(px, elev + 0.25, pz)
-      batch.addPositioned(stone, 0x707070)
+      // Four gravestone silhouettes by hash so cemeteries feel varied.
+      const gv = hash % 4
+      const stoneColor = 0x747066
+      if (gv === 0) {
+        // Classic slab with rounded top (dome cap)
+        const slab = new THREE.BoxGeometry(0.3, 0.5, 0.08)
+        slab.translate(px, elev + 0.25, pz)
+        batch.addPositioned(slab, stoneColor)
+        const dome = new THREE.SphereGeometry(0.15, 6, 4, 0, Math.PI * 2, 0, Math.PI / 2)
+        dome.scale(1.0, 0.7, 0.55)
+        dome.translate(px, elev + 0.5, pz)
+        batch.addPositioned(dome, stoneColor)
+      } else if (gv === 1) {
+        // Stone cross
+        const vert = new THREE.BoxGeometry(0.1, 0.7, 0.1)
+        vert.translate(px, elev + 0.35, pz)
+        batch.addPositioned(vert, stoneColor)
+        const horiz = new THREE.BoxGeometry(0.36, 0.1, 0.1)
+        horiz.translate(px, elev + 0.55, pz)
+        batch.addPositioned(horiz, stoneColor)
+        // Small plinth
+        const base = new THREE.BoxGeometry(0.28, 0.08, 0.2)
+        base.translate(px, elev + 0.04, pz)
+        batch.addPositioned(base, stoneColor)
+      } else if (gv === 2) {
+        // Urn-topped pedestal
+        const plinth = new THREE.BoxGeometry(0.28, 0.5, 0.24)
+        plinth.translate(px, elev + 0.25, pz)
+        batch.addPositioned(plinth, stoneColor)
+        const urn = new THREE.SphereGeometry(0.14, 6, 5)
+        urn.scale(1.0, 0.9, 1.0)
+        urn.translate(px, elev + 0.6, pz)
+        batch.addPositioned(urn, stoneColor)
+      } else {
+        // Leaning slab (tilted) — the disturbed grave
+        const tiltSign = (hash >> 2) & 1 ? 1 : -1
+        const slab = new THREE.BoxGeometry(0.3, 0.5, 0.08)
+        slab.rotateZ(0.18 * tiltSign)
+        slab.translate(px, elev + 0.22, pz)
+        batch.addPositioned(slab, stoneColor)
+      }
 
     } else if (id === 'garden_arch') {
       for (const sx of [-0.4, 0.4]) {
@@ -521,6 +722,107 @@ export function buildPropMeshes(
       arch.rotateZ(Math.PI)
       arch.translate(px, elev + 1.6, pz)
       batch.addPositioned(arch, 0x5a4a30)
+
+    } else if (id === 'bridge' || id === 'stone_bridge' || id === 'arched_bridge') {
+      // Arched stone bridge: 2–3 stone piers + deck + parapet walls + arched
+      // cut-outs underneath (implied by stacked piers with gaps). Long axis
+      // runs along the longer footprint dimension.
+      const longAxisX = fp.w >= fp.h
+      const L = longAxisX ? fp.w : fp.h
+      const W = longAxisX ? fp.h : fp.w
+      const deckThick = 0.2
+      const deckY = elev + 0.6
+      const stoneColor = 0x8a8478
+      const parapetColor = 0x706a5c
+
+      // Deck slab
+      const deck = new THREE.BoxGeometry(
+        longAxisX ? L * 0.95 : W * 0.85,
+        deckThick,
+        longAxisX ? W * 0.85 : L * 0.95,
+      )
+      deck.translate(px, deckY, pz)
+      batch.addPositioned(deck, stoneColor)
+
+      // Parapet walls (low walls on both sides of the deck)
+      for (const side of [-1, 1]) {
+        const parapet = new THREE.BoxGeometry(
+          longAxisX ? L * 0.95 : 0.12,
+          0.3,
+          longAxisX ? 0.12 : L * 0.95,
+        )
+        parapet.translate(
+          px + (longAxisX ? 0 : side * (W * 0.42)),
+          deckY + 0.25,
+          pz + (longAxisX ? side * (W * 0.42) : 0),
+        )
+        batch.addPositioned(parapet, parapetColor)
+      }
+
+      // Piers under the deck with a visible arch profile (half-cylinder)
+      const pierCount = L > 4 ? 3 : 2
+      for (let i = 0; i < pierCount; i++) {
+        const t = (i + 1) / (pierCount + 1)
+        const pierPos = (t - 0.5) * L * 0.92
+        const pier = new THREE.BoxGeometry(
+          longAxisX ? 0.28 : W * 0.7,
+          0.5,
+          longAxisX ? W * 0.7 : 0.28,
+        )
+        pier.translate(
+          px + (longAxisX ? pierPos : 0),
+          elev + 0.25,
+          pz + (longAxisX ? 0 : pierPos),
+        )
+        batch.addPositioned(pier, stoneColor)
+      }
+
+      // Arch bands on the sides (Torus half, facing outward)
+      for (let i = 0; i <= pierCount; i++) {
+        const archT = (i) / (pierCount + 1) + 1 / (pierCount + 1) / 2
+        const archPos = (archT - 0.5) * L * 0.92
+        for (const faceSide of [-1, 1]) {
+          const archGeo = new THREE.TorusGeometry(0.28, 0.06, 4, 8, Math.PI)
+          archGeo.rotateZ(Math.PI)
+          if (longAxisX) {
+            // Arches face ±Z (the side of the bridge)
+            archGeo.rotateY(Math.PI / 2)
+            archGeo.translate(px + archPos, elev + 0.48, pz + faceSide * W * 0.42)
+          } else {
+            archGeo.translate(px + faceSide * W * 0.42, elev + 0.48, pz + archPos)
+          }
+          batch.addPositioned(archGeo, stoneColor)
+        }
+      }
+
+    } else if (id === 'rock' || id === 'boulder' || id === 'standing_stone' || id === 'rocky_outcrop') {
+      // Natural stone feature: cluster of tilted boulders with slightly
+      // varied colors. Standing stones are taller singletons.
+      const baseSize = Math.max(fp.w, fp.h)
+      if (id === 'standing_stone') {
+        const stone = new THREE.BoxGeometry(
+          baseSize * 0.25, baseSize * 1.4, baseSize * 0.2,
+        )
+        stone.rotateZ(0.08 * (((hash >> 1) & 1) ? 1 : -1))
+        stone.translate(px, elev + baseSize * 0.7, pz)
+        batch.addPositioned(stone, 0x7a746a)
+      } else {
+        // Cluster of 3 boulders at varied positions and heights
+        for (let bi = 0; bi < 3; bi++) {
+          const angle = (bi / 3) * Math.PI * 2 + hash * 0.3
+          const r = baseSize * 0.18
+          const boulder = new THREE.SphereGeometry(
+            baseSize * (0.22 + ((hash >> (bi * 2)) & 3) * 0.04), 5, 4,
+          )
+          boulder.scale(1.0, 0.75, 1.0)
+          boulder.translate(
+            px + Math.cos(angle) * r,
+            elev + baseSize * 0.18,
+            pz + Math.sin(angle) * r,
+          )
+          batch.addPositioned(boulder, [0x7a746a, 0x84796a, 0x6a6460][bi % 3])
+        }
+      }
 
     } else {
       // Fallback — colored box
