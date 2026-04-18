@@ -572,114 +572,68 @@ export function buildPropMeshes(
       }
 
     } else if (id === 'market_stall') {
-      // Hash-pick one of four distinct stall silhouettes.
+      // Four stall silhouettes; each rotates with propRot so canopies
+      // point different directions from stall to stall.
       const variant = hash % 4
       if (variant === 0) {
-        // Classic canopy stall: counter + tall front poles + striped canopy
         const canopyColors = [0xcc3333, 0x3366aa, 0xcc9933, 0x339966]
-        const table = new THREE.BoxGeometry(1.8, 0.08, 0.9)
-        table.translate(px, elev + 0.8, pz)
-        batch.addPositioned(table, 0x7a5a30)
+        emitRot(new THREE.BoxGeometry(1.8, 0.08, 0.9), 0, 0.8, 0, 0x7a5a30)
         for (const [lx, lz] of [[-0.75, -0.35], [0.75, -0.35], [-0.75, 0.35], [0.75, 0.35]] as const) {
-          const leg = new THREE.BoxGeometry(0.07, 0.8, 0.07)
-          leg.translate(px + lx, elev + 0.4, pz + lz)
-          batch.addPositioned(leg, 0x7a5a30)
+          emitRot(new THREE.BoxGeometry(0.07, 0.8, 0.07), lx, 0.4, lz, 0x7a5a30)
         }
         for (const lx of [-0.8, 0.8]) {
-          const pole = new THREE.CylinderGeometry(0.04, 0.04, 1.2, 4)
-          pole.translate(px + lx, elev + 1.4, pz + 0.4)
-          batch.addPositioned(pole, 0x7a5a30)
+          emitRot(new THREE.CylinderGeometry(0.04, 0.04, 1.2, 4), lx, 1.4, 0.4, 0x7a5a30)
         }
         const canopy = new THREE.PlaneGeometry(2.0, 1.2)
         canopy.rotateX(-0.25)
-        canopy.translate(px, elev + 1.9, pz + 0.1)
-        batch.addPositioned(canopy, canopyColors[(hash >> 2) % canopyColors.length])
-        // Stripe under the canopy for visual interest
+        emitRot(canopy, 0, 1.9, 0.1, canopyColors[(hash >> 2) % canopyColors.length])
         const stripe = new THREE.PlaneGeometry(2.0, 0.15)
         stripe.rotateX(-0.25)
-        stripe.translate(px, elev + 1.62, pz + 0.1)
-        batch.addPositioned(stripe, 0xf0f0e0)
+        emitRot(stripe, 0, 1.62, 0.1, 0xf0f0e0)
       } else if (variant === 1) {
-        // Fruit cart: long narrow cart on large wheels, produce piles on top
-        const bed = new THREE.BoxGeometry(1.6, 0.12, 0.7)
-        bed.translate(px, elev + 0.55, pz)
-        batch.addPositioned(bed, 0x7a5030)
-        // Sides (open crates)
+        emitRot(new THREE.BoxGeometry(1.6, 0.12, 0.7), 0, 0.55, 0, 0x7a5030)
         for (const sz of [-0.3, 0.3]) {
-          const side = new THREE.BoxGeometry(1.6, 0.18, 0.04)
-          side.translate(px, elev + 0.7, pz + sz)
-          batch.addPositioned(side, 0x5a3820)
+          emitRot(new THREE.BoxGeometry(1.6, 0.18, 0.04), 0, 0.7, sz, 0x5a3820)
         }
-        // Big cart wheels
         for (const wx of [-0.55, 0.55]) {
           const wheel = new THREE.CylinderGeometry(0.26, 0.26, 0.06, 8)
           wheel.rotateX(Math.PI / 2)
-          wheel.translate(px + wx, elev + 0.26, pz + 0.35)
-          batch.addPositioned(wheel, 0x3a2a1a)
+          emitRot(wheel, wx, 0.26, 0.35, 0x3a2a1a)
           const wheel2 = new THREE.CylinderGeometry(0.26, 0.26, 0.06, 8)
           wheel2.rotateX(Math.PI / 2)
-          wheel2.translate(px + wx, elev + 0.26, pz - 0.35)
-          batch.addPositioned(wheel2, 0x3a2a1a)
+          emitRot(wheel2, wx, 0.26, -0.35, 0x3a2a1a)
         }
-        // Produce mounds: three colored hemispheres
         const produceColors = [0xc04020, 0xb07030, 0xa09040, 0x805030]
         for (let pi = 0; pi < 3; pi++) {
           const mound = new THREE.SphereGeometry(0.18, 6, 4, 0, Math.PI * 2, 0, Math.PI / 2)
-          mound.translate(px - 0.5 + pi * 0.5, elev + 0.68, pz + ((hash >> pi) & 1) * 0.15 - 0.05)
-          batch.addPositioned(mound, produceColors[(hash + pi) % produceColors.length])
+          emitRot(mound, -0.5 + pi * 0.5, 0.68, ((hash >> pi) & 1) * 0.15 - 0.05,
+            produceColors[(hash + pi) % produceColors.length])
         }
-        // Handle bar at one end
-        const handle = new THREE.BoxGeometry(0.05, 0.05, 0.9)
-        handle.translate(px + 0.9, elev + 0.55, pz)
-        batch.addPositioned(handle, 0x5a3820)
+        emitRot(new THREE.BoxGeometry(0.05, 0.05, 0.9), 0.9, 0.55, 0, 0x5a3820)
       } else if (variant === 2) {
-        // Tool stall: anvil + iron rack behind a counter
-        const counter = new THREE.BoxGeometry(1.5, 0.65, 0.6)
-        counter.translate(px, elev + 0.33, pz)
-        batch.addPositioned(counter, 0x6a4a2a)
-        // Anvil on top
-        const anvil = new THREE.BoxGeometry(0.45, 0.15, 0.2)
-        anvil.translate(px - 0.3, elev + 0.73, pz)
-        batch.addPositioned(anvil, 0x3a3a3a)
-        const anvilTop = new THREE.BoxGeometry(0.6, 0.08, 0.22)
-        anvilTop.translate(px - 0.3, elev + 0.83, pz)
-        batch.addPositioned(anvilTop, 0x2a2a2a)
-        // Iron tool rack: vertical posts + crossbar + hanging tool shapes
+        emitRot(new THREE.BoxGeometry(1.5, 0.65, 0.6), 0, 0.33, 0, 0x6a4a2a)
+        emitRot(new THREE.BoxGeometry(0.45, 0.15, 0.2), -0.3, 0.73, 0, 0x3a3a3a)
+        emitRot(new THREE.BoxGeometry(0.6, 0.08, 0.22), -0.3, 0.83, 0, 0x2a2a2a)
         for (const lx of [-0.6, 0.6]) {
-          const post = new THREE.BoxGeometry(0.06, 1.6, 0.06)
-          post.translate(px + lx, elev + 0.8, pz - 0.35)
-          batch.addPositioned(post, 0x4a3a28)
+          emitRot(new THREE.BoxGeometry(0.06, 1.6, 0.06), lx, 0.8, -0.35, 0x4a3a28)
         }
-        const crossbar = new THREE.BoxGeometry(1.4, 0.06, 0.06)
-        crossbar.translate(px, elev + 1.5, pz - 0.35)
-        batch.addPositioned(crossbar, 0x4a3a28)
+        emitRot(new THREE.BoxGeometry(1.4, 0.06, 0.06), 0, 1.5, -0.35, 0x4a3a28)
         for (let ti = 0; ti < 4; ti++) {
-          const tool = new THREE.BoxGeometry(0.06, 0.45 + (ti % 2) * 0.15, 0.03)
-          tool.translate(px - 0.55 + ti * 0.38, elev + 1.2, pz - 0.34)
-          batch.addPositioned(tool, 0x2a2a2a)
+          emitRot(new THREE.BoxGeometry(0.06, 0.45 + (ti % 2) * 0.15, 0.03),
+            -0.55 + ti * 0.38, 1.2, -0.34, 0x2a2a2a)
         }
       } else {
-        // Striped booth: tall narrow booth with a peaked roof
-        const counter = new THREE.BoxGeometry(1.2, 0.6, 0.9)
-        counter.translate(px, elev + 0.3, pz)
-        batch.addPositioned(counter, 0x8a6a3a)
+        emitRot(new THREE.BoxGeometry(1.2, 0.6, 0.9), 0, 0.3, 0, 0x8a6a3a)
         for (const lx of [-0.55, 0.55]) {
-          const post = new THREE.BoxGeometry(0.06, 1.8, 0.06)
-          post.translate(px + lx, elev + 0.9, pz)
-          batch.addPositioned(post, 0x5a3a20)
+          emitRot(new THREE.BoxGeometry(0.06, 1.8, 0.06), lx, 0.9, 0, 0x5a3a20)
         }
-        // Peaked roof — two tilted planes
         const roofColor = [0xa03030, 0x306aa0, 0x6a9a40][hash % 3]
         for (const side of [-1, 1]) {
           const slab = new THREE.PlaneGeometry(1.5, 0.8)
           slab.rotateX(0.4 * side)
-          slab.translate(px, elev + 1.9, pz + side * 0.18)
-          batch.addPositioned(slab, roofColor)
+          emitRot(slab, 0, 1.9, side * 0.18, roofColor)
         }
-        // Stripe band under the roof
-        const band = new THREE.BoxGeometry(1.3, 0.12, 0.08)
-        band.translate(px, elev + 1.65, pz)
-        batch.addPositioned(band, 0xf0e8d0)
+        emitRot(new THREE.BoxGeometry(1.3, 0.12, 0.08), 0, 1.65, 0, 0xf0e8d0)
       }
 
     } else if (id === 'statue' || id === 'column' || id === 'monument') {
@@ -828,128 +782,74 @@ export function buildPropMeshes(
       const signColors = [0xb89050, 0x905040, 0x406050, 0x504080, 0xa05030]
       const boardColor = signColors[hash % signColors.length]
       if (sv === 0 && id === 'hanging_sign') {
-        // Ornate hanging sign — bracket arm + two chains + swinging board + finial
-        const arm = new THREE.BoxGeometry(0.5, 0.05, 0.05)
-        arm.translate(px + 0.25, elev + 1.5, pz)
-        batch.addPositioned(arm, 0x4a3a20)
-        // Tiny finial curl at end of arm
-        const finial = new THREE.SphereGeometry(0.05, 5, 4)
-        finial.translate(px + 0.5, elev + 1.5, pz)
-        batch.addPositioned(finial, 0x4a3a20)
+        emitRot(new THREE.BoxGeometry(0.5, 0.05, 0.05), 0.25, 1.5, 0, 0x4a3a20)
+        emitRot(new THREE.SphereGeometry(0.05, 5, 4), 0.5, 1.5, 0, 0x4a3a20)
         for (const cx of [0.15, 0.4]) {
-          const chain = new THREE.BoxGeometry(0.02, 0.25, 0.02)
-          chain.translate(px + cx, elev + 1.35, pz)
-          batch.addPositioned(chain, 0x2a2a2a)
+          emitRot(new THREE.BoxGeometry(0.02, 0.25, 0.02), cx, 1.35, 0, 0x2a2a2a)
         }
-        const board = new THREE.BoxGeometry(0.5, 0.35, 0.04)
-        board.translate(px + 0.28, elev + 1.05, pz)
-        batch.addPositioned(board, boardColor)
-        // Board frame border (darker thin outline)
-        const frame = new THREE.BoxGeometry(0.54, 0.39, 0.025)
-        frame.translate(px + 0.28, elev + 1.05, pz - 0.01)
-        batch.addPositioned(frame, 0x3a2818)
+        emitRot(new THREE.BoxGeometry(0.5, 0.35, 0.04), 0.28, 1.05, 0, boardColor)
+        emitRot(new THREE.BoxGeometry(0.54, 0.39, 0.025), 0.28, 1.05, -0.01, 0x3a2818)
       } else if (sv === 1) {
-        // Post-mounted shingle sign on two small posts
         for (const lx of [-0.22, 0.22]) {
-          const post = new THREE.BoxGeometry(0.06, 1.3, 0.06)
-          post.translate(px + lx, elev + 0.65, pz)
-          batch.addPositioned(post, 0x5a4020)
+          emitRot(new THREE.BoxGeometry(0.06, 1.3, 0.06), lx, 0.65, 0, 0x5a4020)
         }
-        const shingle = new THREE.BoxGeometry(0.6, 0.3, 0.04)
-        shingle.translate(px, elev + 1.0, pz)
-        batch.addPositioned(shingle, boardColor)
-        // Decorative topper (small cone)
-        const topper = new THREE.ConeGeometry(0.08, 0.12, 4)
-        topper.translate(px, elev + 1.22, pz)
-        batch.addPositioned(topper, 0x5a4020)
+        emitRot(new THREE.BoxGeometry(0.6, 0.3, 0.04), 0, 1.0, 0, boardColor)
+        emitRot(new THREE.ConeGeometry(0.08, 0.12, 4), 0, 1.22, 0, 0x5a4020)
       } else {
-        // A-frame chalkboard sign (two boards hinged)
         for (const side of [-1, 1]) {
           const board = new THREE.BoxGeometry(0.5, 0.7, 0.04)
           board.rotateX(side * 0.3)
-          board.translate(px, elev + 0.4, pz + side * 0.1)
-          batch.addPositioned(board, boardColor)
+          emitRot(board, 0, 0.4, side * 0.1, boardColor)
         }
-        // Frame edge along the top ridge
-        const ridge = new THREE.BoxGeometry(0.5, 0.04, 0.04)
-        ridge.translate(px, elev + 0.7, pz)
-        batch.addPositioned(ridge, 0x3a2818)
+        emitRot(new THREE.BoxGeometry(0.5, 0.04, 0.04), 0, 0.7, 0, 0x3a2818)
       }
 
     } else if (id === 'wagon' || id === 'cart') {
       // Three wagon variants: heavy market wagon, covered wagon, small cart.
       const wv = hash % 3
       if (wv === 0) {
-        // Heavy market wagon — plank bed + 4 spoked wheels + side rails + load
-        const bed = new THREE.BoxGeometry(1.4, 0.08, 0.7)
-        bed.translate(px, elev + 0.42, pz)
-        batch.addPositioned(bed, 0x6a5030)
+        emitRot(new THREE.BoxGeometry(1.4, 0.08, 0.7), 0, 0.42, 0, 0x6a5030)
         for (const sz of [-0.35, 0.35]) {
-          const rail = new THREE.BoxGeometry(1.4, 0.25, 0.04)
-          rail.translate(px, elev + 0.57, pz + sz)
-          batch.addPositioned(rail, 0x6a5030)
+          emitRot(new THREE.BoxGeometry(1.4, 0.25, 0.04), 0, 0.57, sz, 0x6a5030)
         }
         for (const [wx, wz] of [[-0.5, -0.4], [0.5, -0.4], [-0.5, 0.4], [0.5, 0.4]] as const) {
           const wheel = new THREE.CylinderGeometry(0.24, 0.24, 0.06, 8)
           wheel.rotateX(Math.PI / 2)
-          wheel.translate(px + wx, elev + 0.24, pz + wz)
-          batch.addPositioned(wheel, 0x3a2818)
-          // Spoke cross (two thin boxes as spokes)
+          emitRot(wheel, wx, 0.24, wz, 0x3a2818)
           for (let sp = 0; sp < 2; sp++) {
             const spoke = new THREE.BoxGeometry(0.03, 0.42, 0.03)
             spoke.rotateZ(sp * Math.PI / 2)
-            spoke.translate(px + wx, elev + 0.24, pz + wz)
-            batch.addPositioned(spoke, 0x5a4028)
+            emitRot(spoke, wx, 0.24, wz, 0x5a4028)
           }
         }
-        // Crate/sack load on top
-        const load = new THREE.BoxGeometry(0.8, 0.35, 0.5)
-        load.translate(px, elev + 0.64, pz)
-        batch.addPositioned(load, 0x8a6a3a)
+        emitRot(new THREE.BoxGeometry(0.8, 0.35, 0.5), 0, 0.64, 0, 0x8a6a3a)
       } else if (wv === 1) {
-        // Covered wagon — wagon bed + arched cloth cover
-        const bed = new THREE.BoxGeometry(1.3, 0.08, 0.65)
-        bed.translate(px, elev + 0.38, pz)
-        batch.addPositioned(bed, 0x6a5030)
+        emitRot(new THREE.BoxGeometry(1.3, 0.08, 0.65), 0, 0.38, 0, 0x6a5030)
         for (const [wx, wz] of [[-0.45, -0.35], [0.45, -0.35], [-0.45, 0.35], [0.45, 0.35]] as const) {
           const wheel = new THREE.CylinderGeometry(0.2, 0.2, 0.05, 8)
           wheel.rotateX(Math.PI / 2)
-          wheel.translate(px + wx, elev + 0.2, pz + wz)
-          batch.addPositioned(wheel, 0x3a2818)
+          emitRot(wheel, wx, 0.2, wz, 0x3a2818)
         }
-        // Arched cover (simulated with a half-cylinder rotated)
         const cover = new THREE.CylinderGeometry(0.4, 0.4, 1.2, 8, 1, false, 0, Math.PI)
         cover.rotateZ(Math.PI / 2)
-        cover.translate(px, elev + 0.82, pz)
-        batch.addPositioned(cover, 0xd8c8a0)
-        // Cover ribs (thin bands for structure)
+        emitRot(cover, 0, 0.82, 0, 0xd8c8a0)
         for (let ri = 0; ri < 3; ri++) {
           const rib = new THREE.TorusGeometry(0.4, 0.02, 3, 8, Math.PI)
           rib.rotateZ(Math.PI / 2)
           rib.rotateY(Math.PI / 2)
-          rib.translate(px + (ri - 1) * 0.45, elev + 0.82, pz)
-          batch.addPositioned(rib, 0x8a7a50)
+          emitRot(rib, (ri - 1) * 0.45, 0.82, 0, 0x8a7a50)
         }
       } else {
-        // Small hand cart — 2 wheels, open bed, long handle
-        const bed = new THREE.BoxGeometry(0.9, 0.08, 0.5)
-        bed.translate(px, elev + 0.32, pz)
-        batch.addPositioned(bed, 0x6a5030)
+        emitRot(new THREE.BoxGeometry(0.9, 0.08, 0.5), 0, 0.32, 0, 0x6a5030)
         for (const sz of [-0.27, 0.27]) {
-          const rail = new THREE.BoxGeometry(0.9, 0.18, 0.03)
-          rail.translate(px, elev + 0.45, pz + sz)
-          batch.addPositioned(rail, 0x6a5030)
+          emitRot(new THREE.BoxGeometry(0.9, 0.18, 0.03), 0, 0.45, sz, 0x6a5030)
         }
         for (const wx of [-0.35, 0.35]) {
           const wheel = new THREE.CylinderGeometry(0.2, 0.2, 0.04, 8)
           wheel.rotateX(Math.PI / 2)
-          wheel.translate(px + wx, elev + 0.2, pz + 0.3)
-          batch.addPositioned(wheel, 0x3a2818)
+          emitRot(wheel, wx, 0.2, 0.3, 0x3a2818)
         }
-        // Long handle sticking out front
-        const handle = new THREE.BoxGeometry(0.04, 0.04, 0.75)
-        handle.translate(px, elev + 0.35, pz - 0.5)
-        batch.addPositioned(handle, 0x5a3820)
+        emitRot(new THREE.BoxGeometry(0.04, 0.04, 0.75), 0, 0.35, -0.5, 0x5a3820)
       }
 
     } else if (id === 'potted_plant' || id === 'flower_box' || id === 'planter_box') {
