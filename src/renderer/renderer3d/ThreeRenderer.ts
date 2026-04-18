@@ -12,7 +12,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { buildTerrainMesh, getTerrainHeight } from './TerrainMesh'
-import { buildBuildingMeshes, type BuildingBatchResult } from './BuildingFactory'
+import { buildBuildingMeshes, setWallEmissiveIntensity, type BuildingBatchResult } from './BuildingFactory'
 import { buildPropMeshes, type PropBatchResult } from './PropFactory'
 
 /**
@@ -635,8 +635,10 @@ export class ThreeRenderer {
       this.sunLight.intensity = 0.15
       this.sunLight.color.setHex(0x4466aa)
       this.sunLight.position.set(this.townCenterX, 40, sunZ) // moonlight from above
-      this.ambientLight.intensity = 0.2
-      this.ambientLight.color.setHex(0x202848)
+      // Slightly brighter, slightly warmer ambient so silhouettes are readable
+      // instead of pitch-black. Warm-window emissive + bloom do the heavy mood lifting.
+      this.ambientLight.intensity = 0.35
+      this.ambientLight.color.setHex(0x2a3858)
       this.scene.fog = new THREE.FogExp2(0x101830, 0.008)
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x0a0e2a)
@@ -704,25 +706,42 @@ export class ThreeRenderer {
     this.sunLight.target.position.set(this.townCenterX, 0, this.townCenterZ)
     this.updateShadowCamera()
 
-    // Bloom: strong at night/dusk for warm lamp glow, near-zero at noon.
+    // Bloom + window emissive: together they produce the Traverse Town
+    // "warm pools of lamp/window light in a cool night" effect.
+    let windowGlow = 0
     if (this.bloomPass) {
       if (isNight) {
+        this.bloomPass.strength = 1.4
+        this.bloomPass.radius = 0.7
+        this.bloomPass.threshold = 0.35
+        windowGlow = 1.4
+      } else if (isDusk || isDawn) {
         this.bloomPass.strength = 0.9
         this.bloomPass.radius = 0.6
         this.bloomPass.threshold = 0.55
-      } else if (isDusk || isDawn) {
-        this.bloomPass.strength = 0.7
-        this.bloomPass.radius = 0.55
-        this.bloomPass.threshold = 0.7
+        windowGlow = 0.9
       } else if (isGolden) {
-        this.bloomPass.strength = 0.35
+        this.bloomPass.strength = 0.4
         this.bloomPass.radius = 0.5
-        this.bloomPass.threshold = 0.9
+        this.bloomPass.threshold = 0.85
+        windowGlow = 0.35
       } else {
         this.bloomPass.strength = 0.12
         this.bloomPass.radius = 0.4
         this.bloomPass.threshold = 0.98
+        windowGlow = 0
       }
+    }
+    setWallEmissiveIntensity(windowGlow)
+
+    // Smoke particles: bright grey at day reads fine, but at night they
+    // glow unnaturally white. Tint toward a dim ember color after dusk.
+    for (const ps of this.particleSystems) {
+      if (ps.type !== 'smoke') continue
+      const mat = ps.points.material as THREE.PointsMaterial
+      if (isNight) { mat.color.setHex(0x504a52); mat.opacity = 0.22 }
+      else if (isDusk || isDawn) { mat.color.setHex(0x9a8878); mat.opacity = 0.3 }
+      else { mat.color.setHex(0xbbbbbb); mat.opacity = 0.35 }
     }
   }
 

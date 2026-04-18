@@ -12,7 +12,7 @@
 import * as THREE from 'three'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
-import { createFacadeTexture, createFacadeConfig } from './FacadeTexture'
+import { createFacadeTexture, createFacadeConfig, createEmissiveTexture } from './FacadeTexture'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 
 const FLOOR_HEIGHT = 0.75
@@ -85,6 +85,18 @@ const NO_JITTER = new Set<string>([
 // Material cache — share materials across buildings with same facade config
 const _wallMatCache = new Map<string, THREE.Material>()
 
+/**
+ * Drive the warm-window-glow emissive intensity on every cached facade
+ * material at once. ThreeRenderer calls this from updateLighting so the
+ * whole town glows up together at dusk and goes dark at noon.
+ */
+export function setWallEmissiveIntensity(intensity: number): void {
+  for (const mat of _wallMatCache.values()) {
+    const lam = mat as THREE.MeshLambertMaterial
+    if (lam.emissiveMap) lam.emissiveIntensity = intensity
+  }
+}
+
 export interface BuildingBatchResult {
   wallMeshes: THREE.Mesh[]       // individual (textured, emissive)
   batched: THREE.Mesh[]          // merged roof/detail/feature meshes
@@ -135,12 +147,21 @@ export function buildBuildingMeshes(
     // === WALL BODY — facade texture on front/back, plain on sides/top/bottom ===
     const facadeConfig = createFacadeConfig(obj, fp.w, palette, hash)
     const frontTex = createFacadeTexture(facadeConfig, 'front')
+    const emissiveTex = createEmissiveTexture(facadeConfig)
 
-    // Cache materials — textured for front/back, plain for sides/top/bottom
+    // Cache materials — textured for front/back, plain for sides/top/bottom.
+    // Facade material carries an emissive window map; intensity is driven at
+    // runtime by ThreeRenderer.updateLighting (dark at noon, glowing at night).
     const matKey = `${facadeConfig.floors}_${facadeConfig.width}_${palette.wall.toString(16)}_${facadeConfig.hasTimber}_${facadeConfig.hasShutters}_${facadeConfig.hasFlowerBox}_${facadeConfig.style}`
     let facadeMat = _wallMatCache.get(matKey)
     if (!facadeMat) {
-      facadeMat = new THREE.MeshLambertMaterial({ map: frontTex, flatShading: true })
+      facadeMat = new THREE.MeshLambertMaterial({
+        map: frontTex,
+        emissiveMap: emissiveTex,
+        emissive: 0xffffff,
+        emissiveIntensity: 0,
+        flatShading: true,
+      })
       _wallMatCache.set(matKey, facadeMat)
     }
     const plainKey = `plain_${palette.wall.toString(16)}`
