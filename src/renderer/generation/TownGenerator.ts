@@ -1243,16 +1243,48 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    // Cathedral as a major landmark in temple districts
+    // Cathedral as a major landmark — prefer temple district, but every
+    // town should get at least one signature skyline building. Falls back
+    // to noble district, then to the biggest district by radius.
+    let cathedralPlaced = false
     if (buildings.length > 8) {
-      for (const d of districts) {
-        if (d.type !== 'temple') continue
-        const spot = this.findFreeSpot(occupied, d.center.x, d.center.y, 5, 6, w, h, 10)
-        if (spot) {
-          landmarks.push(this.createObj('cathedral', spot.x, spot.y, 2))
-          this.markArea(occupied, spot.x, spot.y, 5, 6, w, h)
-          break
+      const tryInDistrict = (type: DistrictType): boolean => {
+        for (const d of districts) {
+          if (d.type !== type) continue
+          const spot = this.findFreeSpot(occupied, d.center.x, d.center.y, 5, 6, w, h, 12)
+          if (spot) {
+            landmarks.push(this.createObj('cathedral', spot.x, spot.y, 2))
+            this.markArea(occupied, spot.x, spot.y, 5, 6, w, h)
+            return true
+          }
         }
+        return false
+      }
+      cathedralPlaced = tryInDistrict('temple')
+      if (!cathedralPlaced) cathedralPlaced = tryInDistrict('noble')
+      // Fall back to the largest district regardless of type
+      if (!cathedralPlaced) {
+        const byRadius = [...districts].sort((a, b) => b.radius - a.radius)
+        for (const d of byRadius) {
+          const spot = this.findFreeSpot(occupied, d.center.x, d.center.y, 5, 6, w, h, 14)
+          if (spot) {
+            landmarks.push(this.createObj('cathedral', spot.x, spot.y, 2))
+            this.markArea(occupied, spot.x, spot.y, 5, 6, w, h)
+            cathedralPlaced = true
+            break
+          }
+        }
+      }
+    }
+    // Add a bell_tower_tall spire in a noble or market district for a
+    // secondary skyline anchor, so there's never just one tall thing.
+    for (const d of districts) {
+      if (d.type !== 'noble' && d.type !== 'market') continue
+      const spot = this.findFreeSpot(occupied, d.center.x + 4, d.center.y + 4, 3, 3, w, h, 10)
+      if (spot) {
+        landmarks.push(this.createObj('bell_tower_tall', spot.x, spot.y, 1.5))
+        this.markArea(occupied, spot.x, spot.y, 3, 3, w, h)
+        break
       }
     }
 
