@@ -210,23 +210,113 @@ export function buildPropMeshes(
       batch.addPositioned(b, 0x3a7a33)
 
     } else if (id === 'lamppost' || id === 'wall_lantern' || id === 'street_lamp_double' || id === 'double_lamp') {
-      // Lampposts stay individual — emissive material + point lights
+      // Lampposts stay individual — emissive material + point lights.
+      // Four silhouette variants by id + hash:
+      //   - 'street_lamp_double'/'double_lamp': ornate tall post with
+      //     two side arms, each carrying a lamp
+      //   - 'wall_lantern': hanging lantern with small decorative top
+      //   - 'lamppost' with hash%3===0: ornate ceremonial pillar with
+      //     wider stepped base + faceted lamp housing on top
+      //   - 'lamppost' default: classic tall thin pole with round lamp
       const group = new THREE.Group()
       group.position.set(px, elev, pz)
-      const poleMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2a, flatShading: true })
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, h, 4), poleMat)
-      pole.position.y = h / 2
-      group.add(pole)
-      const lampMat = new THREE.MeshLambertMaterial({ color: 0xffcc44, emissive: 0xffaa22, emissiveIntensity: 0.8 })
-      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.15, 6, 4), lampMat)
-      lamp.position.y = h
-      group.add(lamp)
-      if (pointLightCount < MAX_POINT_LIGHTS) {
-        const light = new THREE.PointLight(0xffcc66, 0.8, 8, 1.5)
-        light.position.y = h
-        group.add(light)
-        pointLightCount++
+      const poleMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
+      const lampMat = new THREE.MeshLambertMaterial({
+        color: 0xffcc44, emissive: 0xffaa22, emissiveIntensity: 0.8,
+      })
+
+      if (id === 'street_lamp_double' || id === 'double_lamp') {
+        // Central tall pole + crossbar + two hanging lamps
+        const pole = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.055, 0.08, h + 0.25, 5), poleMat,
+        )
+        pole.position.y = (h + 0.25) / 2
+        group.add(pole)
+        const crossbar = new THREE.Mesh(
+          new THREE.BoxGeometry(0.65, 0.05, 0.05), poleMat,
+        )
+        crossbar.position.y = h + 0.15
+        group.add(crossbar)
+        for (const side of [-1, 1]) {
+          const hang = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.02, 0.02, 0.12, 4), poleMat,
+          )
+          hang.position.set(side * 0.3, h + 0.04, 0)
+          group.add(hang)
+          const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.22, 0.18), lampMat)
+          lamp.position.set(side * 0.3, h - 0.1, 0)
+          group.add(lamp)
+          if (pointLightCount < MAX_POINT_LIGHTS) {
+            const light = new THREE.PointLight(0xffcc66, 0.6, 7, 1.5)
+            light.position.set(side * 0.3, h - 0.1, 0)
+            group.add(light)
+            pointLightCount++
+          }
+        }
+      } else if (id === 'wall_lantern') {
+        // Bracket from wall + small boxy lantern with peaked top
+        const bracket = new THREE.Mesh(
+          new THREE.BoxGeometry(0.35, 0.04, 0.05), poleMat,
+        )
+        bracket.position.set(0.17, h * 0.9, 0)
+        group.add(bracket)
+        const lantern = new THREE.Mesh(
+          new THREE.BoxGeometry(0.16, 0.22, 0.16), lampMat,
+        )
+        lantern.position.set(0.32, h * 0.9 - 0.1, 0)
+        group.add(lantern)
+        const cap = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.1, 4), poleMat)
+        cap.position.set(0.32, h * 0.9 + 0.06, 0)
+        group.add(cap)
+        if (pointLightCount < MAX_POINT_LIGHTS) {
+          const light = new THREE.PointLight(0xffcc66, 0.7, 6, 1.5)
+          light.position.set(0.32, h * 0.9 - 0.1, 0)
+          group.add(light)
+          pointLightCount++
+        }
+      } else if (hash % 3 === 0) {
+        // Ornate ceremonial — stepped stone base + pole + faceted lamp housing
+        const baseLo = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.15, 0.35), poleMat)
+        baseLo.position.y = 0.075
+        group.add(baseLo)
+        const baseHi = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.1, 0.25), poleMat)
+        baseHi.position.y = 0.2
+        group.add(baseHi)
+        const pole = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.06, 0.08, h - 0.25, 6), poleMat,
+        )
+        pole.position.y = 0.25 + (h - 0.25) / 2
+        group.add(pole)
+        const housing = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.13, 0.15, 0.28, 6), lampMat,
+        )
+        housing.position.y = h + 0.05
+        group.add(housing)
+        const cap = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.18, 6), poleMat)
+        cap.position.y = h + 0.28
+        group.add(cap)
+        if (pointLightCount < MAX_POINT_LIGHTS) {
+          const light = new THREE.PointLight(0xffcc66, 0.9, 9, 1.5)
+          light.position.y = h + 0.05
+          group.add(light)
+          pointLightCount++
+        }
+      } else {
+        // Classic simple lamppost
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, h, 4), poleMat)
+        pole.position.y = h / 2
+        group.add(pole)
+        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.15, 6, 4), lampMat)
+        lamp.position.y = h
+        group.add(lamp)
+        if (pointLightCount < MAX_POINT_LIGHTS) {
+          const light = new THREE.PointLight(0xffcc66, 0.8, 8, 1.5)
+          light.position.y = h
+          group.add(light)
+          pointLightCount++
+        }
       }
+
       group.traverse(c => { c.matrixAutoUpdate = false; c.updateMatrix() })
       lampposts.push(group)
 
@@ -880,6 +970,164 @@ export function buildPropMeshes(
           }
           batch.addPositioned(archGeo, stoneColor)
         }
+      }
+
+    } else if (id === 'fishing_boat' || id === 'rowboat' || id === 'skiff') {
+      // Hull: long narrow box with tilted end planks to suggest prow/stern
+      const longAxisX = fp.w >= fp.h
+      const L = longAxisX ? fp.w * 0.85 : fp.h * 0.85
+      const W = longAxisX ? fp.h * 0.55 : fp.w * 0.55
+      const hullColor = 0x6a4a28
+      const plankColor = 0x5a3a20
+      const hull = new THREE.BoxGeometry(longAxisX ? L : W, 0.22, longAxisX ? W : L)
+      hull.translate(px, elev + 0.15, pz)
+      batch.addPositioned(hull, hullColor)
+      // Tilted prow plank (front)
+      const prow = new THREE.BoxGeometry(longAxisX ? 0.2 : W, 0.3, longAxisX ? W : 0.2)
+      prow.rotateZ(longAxisX ? 0.4 : 0)
+      prow.rotateX(longAxisX ? 0 : 0.4)
+      prow.translate(
+        px + (longAxisX ? L / 2 + 0.05 : 0),
+        elev + 0.25,
+        pz + (longAxisX ? 0 : L / 2 + 0.05),
+      )
+      batch.addPositioned(prow, plankColor)
+      // Bench seats inside (two thin cross-planks)
+      for (let si = 0; si < 2; si++) {
+        const seat = new THREE.BoxGeometry(
+          longAxisX ? 0.1 : W * 0.9,
+          0.04,
+          longAxisX ? W * 0.9 : 0.1,
+        )
+        const t = (si === 0 ? -0.2 : 0.2) * L
+        seat.translate(
+          px + (longAxisX ? t : 0),
+          elev + 0.28,
+          pz + (longAxisX ? 0 : t),
+        )
+        batch.addPositioned(seat, plankColor)
+      }
+      // Oar (single) on one side for rowboat/skiff
+      if (id !== 'fishing_boat') {
+        const oar = new THREE.BoxGeometry(longAxisX ? 0.03 : 0.7, 0.03, longAxisX ? 0.7 : 0.03)
+        oar.rotateY(longAxisX ? 0.3 : -0.3)
+        oar.translate(
+          px + (longAxisX ? 0 : W * 0.3),
+          elev + 0.32,
+          pz + (longAxisX ? W * 0.3 : 0),
+        )
+        batch.addPositioned(oar, plankColor)
+      } else {
+        // Fishing net: thin plane draped over the side of a fishing boat
+        const net = new THREE.BoxGeometry(
+          longAxisX ? L * 0.4 : 0.05,
+          0.02,
+          longAxisX ? 0.05 : L * 0.4,
+        )
+        net.translate(
+          px + (longAxisX ? L * 0.2 : W * 0.35),
+          elev + 0.32,
+          pz + (longAxisX ? W * 0.35 : L * 0.2),
+        )
+        batch.addPositioned(net, 0x8a7850)
+      }
+
+    } else if (id === 'crane' || id === 'port_crane') {
+      // Tall wooden crane — vertical post + angled jib + pulley + hanging rope
+      const post = new THREE.BoxGeometry(0.22, 2.2, 0.22)
+      post.translate(px, elev + 1.1, pz)
+      batch.addPositioned(post, 0x6a4a28)
+      // Angled jib (diagonal)
+      const jib = new THREE.BoxGeometry(0.14, 1.6, 0.14)
+      jib.rotateZ(-0.65)
+      jib.translate(px + 0.55, elev + 2.0, pz)
+      batch.addPositioned(jib, 0x6a4a28)
+      // Counter-weight at the bottom of the jib
+      const cw = new THREE.BoxGeometry(0.3, 0.2, 0.3)
+      cw.translate(px - 0.35, elev + 1.55, pz)
+      batch.addPositioned(cw, 0x3a2a18)
+      // Pulley block at end of jib
+      const pulley = new THREE.BoxGeometry(0.15, 0.15, 0.15)
+      pulley.translate(px + 1.08, elev + 2.5, pz)
+      batch.addPositioned(pulley, 0x4a3a20)
+      // Rope hanging from pulley
+      const rope = new THREE.BoxGeometry(0.03, 1.6, 0.03)
+      rope.translate(px + 1.08, elev + 1.7, pz)
+      batch.addPositioned(rope, 0x3a2818)
+      // Hook/crate at rope end
+      const hook = new THREE.BoxGeometry(0.35, 0.3, 0.35)
+      hook.translate(px + 1.08, elev + 0.75, pz)
+      batch.addPositioned(hook, 0x5a3a20)
+
+    } else if (id === 'horse_post' || id === 'hitching_post') {
+      // Thick post with a horizontal rail + small hooked top
+      const post = new THREE.BoxGeometry(0.14, 1.0, 0.14)
+      post.translate(px, elev + 0.5, pz)
+      batch.addPositioned(post, 0x5a3a20)
+      const rail = new THREE.BoxGeometry(0.8, 0.08, 0.08)
+      rail.translate(px, elev + 0.85, pz)
+      batch.addPositioned(rail, 0x5a3a20)
+      // Small metal ring at one end (torus)
+      const ring = new THREE.TorusGeometry(0.06, 0.015, 4, 8)
+      ring.rotateY(Math.PI / 2)
+      ring.translate(px + 0.35, elev + 0.85, pz + 0.09)
+      batch.addPositioned(ring, 0x2a2a2a)
+
+    } else if (id === 'cloth_line' || id === 'clothesline') {
+      // Two posts + a line + a few hanging cloth squares
+      for (const side of [-1, 1]) {
+        const post = new THREE.BoxGeometry(0.08, 1.4, 0.08)
+        post.translate(px + side * fp.w * 0.4, elev + 0.7, pz)
+        batch.addPositioned(post, 0x5a3a20)
+      }
+      const line = new THREE.BoxGeometry(fp.w * 0.8, 0.02, 0.02)
+      line.translate(px, elev + 1.35, pz)
+      batch.addPositioned(line, 0x3a2818)
+      // 4 cloth squares dangling
+      const clothColors = [0xe0c8a0, 0xc0a0a0, 0x90b0c0, 0xa0c0a0]
+      for (let ci = 0; ci < 4; ci++) {
+        const cx = -fp.w * 0.3 + ci * (fp.w * 0.6 / 3)
+        const cloth = new THREE.BoxGeometry(0.2, 0.3, 0.02)
+        cloth.translate(px + cx, elev + 1.17, pz)
+        batch.addPositioned(cloth, clothColors[(hash + ci) % clothColors.length])
+      }
+
+    } else if (id === 'road_marker' || id === 'milestone') {
+      // Small rounded stone with a darker top cap (mile marker)
+      const stone = new THREE.BoxGeometry(0.28, 0.55, 0.18)
+      stone.translate(px, elev + 0.275, pz)
+      batch.addPositioned(stone, 0x8a847a)
+      const cap = new THREE.SphereGeometry(0.14, 6, 4, 0, Math.PI * 2, 0, Math.PI / 2)
+      cap.scale(1.0, 0.6, 0.5)
+      cap.translate(px, elev + 0.55, pz)
+      batch.addPositioned(cap, 0x6a6458)
+
+    } else if (id === 'farm_field') {
+      // Flat tilled ground patch — rectangular low slab with rows suggested
+      // by alternating stripes of tilled earth / crop green.
+      const earthColor = 0x6a4a28
+      const cropColor = 0x4a7a28
+      const base = new THREE.BoxGeometry(fp.w * 0.95, 0.04, fp.h * 0.95)
+      base.translate(px, elev + 0.02, pz)
+      batch.addPositioned(base, earthColor)
+      // Crop rows running along the long axis
+      const longAxisX = fp.w >= fp.h
+      const L = longAxisX ? fp.w * 0.9 : fp.h * 0.9
+      const W = longAxisX ? fp.h * 0.9 : fp.w * 0.9
+      const rowCount = Math.max(3, Math.floor(W * 2.5))
+      for (let r = 0; r < rowCount; r++) {
+        const t = (r + 0.5) / rowCount - 0.5
+        const row = new THREE.BoxGeometry(
+          longAxisX ? L : 0.08,
+          0.1,
+          longAxisX ? 0.08 : L,
+        )
+        row.translate(
+          px + (longAxisX ? 0 : t * W),
+          elev + 0.08,
+          pz + (longAxisX ? t * W : 0),
+        )
+        batch.addPositioned(row, cropColor)
       }
 
     } else if (id === 'haystack' || id === 'hay_bale') {
