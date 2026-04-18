@@ -11,21 +11,24 @@
 import * as THREE from 'three'
 import { SimplexNoise } from '../generation/noise'
 
+// Tile palette — deliberately punchy so districts read as distinct zones.
+// Cobblestone (8) shifted to warm orange-grey so it visually differs from
+// the blue-grey noble-district stone (2). Alley (9) pushed warmer-darker.
 const TERRAIN_COLORS: Record<number, number> = {
-  0: 0x4a8a3a,  // grass — bright green (was dark)
-  1: 0xa08860,  // dirt — warm tan
-  2: 0x8898a8,  // stone — light blue-grey
+  0: 0x4a8a3a,  // grass — vivid spring green
+  1: 0xa88868,  // dirt — warm earthy tan
+  2: 0xc8c0a8,  // stone — pale warm sandstone (was cool blue-grey)
   3: 0x4682b4,  // water — handled separately
-  4: 0xf0e0b0,  // sand — warm light yellow
+  4: 0xe8d090,  // sand — warm light yellow
   5: 0x3a7a28,  // dark grass — forest green
-  6: 0x50a040,  // light grass — vivid green
-  7: 0xa0a090,  // gravel — light grey
-  8: 0x989088,  // cobblestone — warm medium grey (roads)
-  9: 0x686060,  // dark cobblestone — distinct darker (alleys)
+  6: 0x5aae4a,  // light grass — more saturated vivid green
+  7: 0xb0a898,  // gravel — warm light grey
+  8: 0xb09878,  // cobblestone road — warm orange-grey (distinct from alley)
+  9: 0x584838,  // dark cobblestone alley — deep warm brown
   10: 0x70a060, // garden — green-ish
-  11: 0x8a7050, // mud — brown
-  12: 0x389028, // wildflower — bright green
-  13: 0xb8a880, // gravel/path — sandy light
+  11: 0x7a5c3a, // mud — saturated brown
+  12: 0x78b040, // wildflower — bright apple green
+  13: 0xd8c490, // gravel/path — warm sandy
 }
 
 const WALL_COLOR = new THREE.Color(0x887868) // retaining wall stone — warm sandstone

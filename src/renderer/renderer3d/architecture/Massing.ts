@@ -748,8 +748,8 @@ function tmplWallSegment(ctx: MassingContext): Volume[] {
   }]
   // Crenellated merlons: alternating blocks along the wall's top edge.
   const runLen = longAxisX ? wallW : wallD
-  const merlonPitch = 0.65
-  const merlonCount = Math.max(3, Math.floor(runLen / merlonPitch))
+  const merlonPitch = 0.4
+  const merlonCount = Math.max(5, Math.floor(runLen / merlonPitch) * 2 + 1)
   for (let m = 0; m < merlonCount; m++) {
     if (m % 2 === 0) continue // gaps between merlons
     const t = (m + 0.5) / merlonCount - 0.5
