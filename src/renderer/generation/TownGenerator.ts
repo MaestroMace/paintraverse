@@ -752,12 +752,22 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    // Paint road tiles onto terrain
+    // Paint road tiles onto terrain. Tiles in wide road clusters (>=7 road
+    // neighbors in the 3x3 around them) become main-street cobblestone (8,
+    // warm orange-grey). Thinner runs (alleys, road ends) become alley
+    // tile (9, dark brown). With the punchier palette this gives the town
+    // a visible road hierarchy instead of one uniform grey.
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        if (roadMap[y][x] && !waterMap[y][x]) {
-          terrain[y][x] = (x + y) % 4 === 0 ? 9 : 8
+        if (!roadMap[y][x] || waterMap[y][x]) continue
+        let n = 0
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx, ny = y + dy
+            if (nx >= 0 && nx < w && ny >= 0 && ny < h && roadMap[ny][nx]) n++
+          }
         }
+        terrain[y][x] = n >= 7 ? 8 : 9
       }
     }
 
