@@ -30,8 +30,8 @@ const TERRAIN_COLORS: Record<number, number> = {
 
 const WALL_COLOR = new THREE.Color(0x887868) // retaining wall stone — warm sandstone
 
-/** Regenerate height map from seed (deterministic). Values 0..4 in raw
- *  units; world-unit scale applied in getTerrainHeight. Two-octave noise
+/** Regenerate height map from seed (deterministic). Values 0..5.5 in raw
+ *  units; world-unit scale applied in getTerrainHeight. Three-octave noise
  *  plus light terracing so plateaus are visible but not mechanical. */
 function generateHeightMap(w: number, h: number, seed: number): number[][] {
   const noise = new SimplexNoise(seed)
@@ -39,17 +39,19 @@ function generateHeightMap(w: number, h: number, seed: number): number[][] {
   for (let y = 0; y < h; y++) {
     const row: number[] = []
     for (let x = 0; x < w; x++) {
-      // Slightly lower frequencies → broader hills + valleys rather than
-      // noise-texture-like bumps.
-      const n1 = noise.fbm(x * 0.025, y * 0.025, 3, 2, 0.5)
+      // Broad primary hill shape + mid-scale detail. Low primary freq
+      // (0.022) means ~1–2 hill humps across a 48-tile map, which reads
+      // as real topography instead of noise texture.
+      const n1 = noise.fbm(x * 0.022, y * 0.022, 3, 2, 0.5)
       const n2 = noise.fbm(x * 0.055 + 50, y * 0.055 + 50, 2, 2, 0.5)
-      // Raw range expanded to 0..4 (was 0..2.5).
-      const raw = (n1 * 0.7 + n2 * 0.3 + 0.5) * 3.2
-      // Terrace at 0.5-unit steps, then 70/30 blend with raw so flat
-      // plateaus are the norm but slopes aren't perfectly stepped.
+      const n3 = noise.fbm(x * 0.11 + 120, y * 0.11 + 120, 1, 2, 0.5) * 0.4
+      // Raw range expanded to 0..5.5 (was 0..4).
+      const raw = (n1 * 0.6 + n2 * 0.3 + n3 * 0.1 + 0.5) * 4.4
+      // Terrace at 0.5-unit steps, then 60/40 blend with raw so there are
+      // clear plateaus but slopes between them are smooth.
       const terraced = Math.round(raw * 2) / 2
-      const blend = terraced * 0.7 + raw * 0.3
-      row.push(Math.max(0, Math.min(blend, 4.0)))
+      const blend = terraced * 0.6 + raw * 0.4
+      row.push(Math.max(0, Math.min(blend, 5.5)))
     }
     map.push(row)
   }
@@ -57,7 +59,7 @@ function generateHeightMap(w: number, h: number, seed: number): number[][] {
 }
 
 /** World height scale: one raw height unit equals this many world units. */
-const TERRAIN_WORLD_SCALE = 1.3
+const TERRAIN_WORLD_SCALE = 1.8
 
 /** Get the height at a tile position (with bounds checking) in world units. */
 export function getTerrainHeight(heightMap: number[][], x: number, y: number): number {
@@ -96,9 +98,30 @@ function buildGroundWithHeight(
       if (tileId === 3) continue // water handled separately — don't advance vi
 
       const color = new THREE.Color(TERRAIN_COLORS[tileId] ?? 0x808080)
-      const r = color.r, g = color.g, b = color.b
-
       const tileH = getTerrainHeight(heightMap, tx, ty)
+
+      // Elevation-based color shift: high ground gets a grey/rocky bias,
+      // low ground stays saturated. Only applied to natural tiles (grass,
+      // dirt, gravel, garden, wildflower); roads/cobblestone keep their
+      // designed color.
+      const isNatural = tileId === 0 || tileId === 1 || tileId === 4 ||
+        tileId === 5 || tileId === 6 || tileId === 7 || tileId === 10 ||
+        tileId === 11 || tileId === 12 || tileId === 13
+      let r = color.r, g = color.g, b = color.b
+      if (isNatural) {
+        const normH = Math.min(1, tileH / 6) // 0 at valley, ~1 at peak
+        // Bias toward rocky grey (0.55, 0.52, 0.48) as elevation rises.
+        const rockMix = Math.max(0, (normH - 0.35) * 1.2)
+        const rR = 0.55, rG = 0.52, rB = 0.48
+        r = r * (1 - rockMix) + rR * rockMix
+        g = g * (1 - rockMix) + rG * rockMix
+        b = b * (1 - rockMix) + rB * rockMix
+        // Darken lowlands slightly — valley = wetter / shaded.
+        const shadowMix = Math.max(0, (0.25 - normH) * 0.8)
+        r *= (1 - shadowMix * 0.3)
+        g *= (1 - shadowMix * 0.25)
+        b *= (1 - shadowMix * 0.2)
+      }
 
       const x0 = tx, x1 = tx + 1, z0 = ty, z1 = ty + 1
 
