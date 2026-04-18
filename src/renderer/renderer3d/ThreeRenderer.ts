@@ -417,7 +417,17 @@ export class ThreeRenderer {
         const centerZ = obj.y + fp.h / 2
         const bx = centerX + chimSide * fp.w * 0.3 + jitterDX
         const bz = centerZ + jitterDZ
-        const baseY = (obj.elevation || 0) + (heightMap ? getTerrainHeight(heightMap, Math.floor(centerX), Math.floor(centerZ)) : 0)
+        // Sample max terrain height across footprint (matches BuildingFactory).
+        let maxTH = 0
+        if (heightMap) {
+          for (let fy = 0; fy < fp.h; fy++) {
+            for (let fx = 0; fx < fp.w; fx++) {
+              const th = getTerrainHeight(heightMap, obj.x + fx, obj.y + fy)
+              if (th > maxTH) maxTH = th
+            }
+          }
+        }
+        const baseY = heightMap ? maxTH : (obj.elevation || 0)
         const chimTopY = baseY + wallH + roofH * 0.3 + roofH * 0.8
         chimneyPositions.push(new THREE.Vector3(bx, chimTopY, bz))
       }

@@ -30,29 +30,39 @@ const TERRAIN_COLORS: Record<number, number> = {
 
 const WALL_COLOR = new THREE.Color(0x887868) // retaining wall stone — warm sandstone
 
-/** Regenerate height map from seed (deterministic) */
+/** Regenerate height map from seed (deterministic). Values 0..4 in raw
+ *  units; world-unit scale applied in getTerrainHeight. Two-octave noise
+ *  plus light terracing so plateaus are visible but not mechanical. */
 function generateHeightMap(w: number, h: number, seed: number): number[][] {
   const noise = new SimplexNoise(seed)
   const map: number[][] = []
   for (let y = 0; y < h; y++) {
     const row: number[] = []
     for (let x = 0; x < w; x++) {
-      const n1 = noise.fbm(x * 0.03, y * 0.03, 2, 2, 0.5)
-      const n2 = noise.fbm(x * 0.06 + 50, y * 0.06 + 50, 2, 2, 0.5)
-      const raw = (n1 * 0.7 + n2 * 0.3 + 0.5) * 2.0
+      // Slightly lower frequencies → broader hills + valleys rather than
+      // noise-texture-like bumps.
+      const n1 = noise.fbm(x * 0.025, y * 0.025, 3, 2, 0.5)
+      const n2 = noise.fbm(x * 0.055 + 50, y * 0.055 + 50, 2, 2, 0.5)
+      // Raw range expanded to 0..4 (was 0..2.5).
+      const raw = (n1 * 0.7 + n2 * 0.3 + 0.5) * 3.2
+      // Terrace at 0.5-unit steps, then 70/30 blend with raw so flat
+      // plateaus are the norm but slopes aren't perfectly stepped.
       const terraced = Math.round(raw * 2) / 2
       const blend = terraced * 0.7 + raw * 0.3
-      row.push(Math.max(0, Math.min(blend, 2.5)))
+      row.push(Math.max(0, Math.min(blend, 4.0)))
     }
     map.push(row)
   }
   return map
 }
 
-/** Get the height at a tile position (with bounds checking) */
+/** World height scale: one raw height unit equals this many world units. */
+const TERRAIN_WORLD_SCALE = 1.3
+
+/** Get the height at a tile position (with bounds checking) in world units. */
 export function getTerrainHeight(heightMap: number[][], x: number, y: number): number {
   if (y < 0 || y >= heightMap.length || x < 0 || x >= (heightMap[0]?.length ?? 0)) return 0
-  return heightMap[y][x] * 0.5 // scale: 1 height unit = 0.5 world units
+  return heightMap[y][x] * TERRAIN_WORLD_SCALE
 }
 
 export function buildTerrainMesh(

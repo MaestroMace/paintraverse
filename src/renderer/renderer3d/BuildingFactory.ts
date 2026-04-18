@@ -132,13 +132,43 @@ export function buildBuildingMeshes(
 
     const wallH = floors * FLOOR_HEIGHT * heightMult * hScale
 
-    // World position of building center (including terrain height + jitter)
+    // World position of building center. Sample terrain height across
+    // EVERY footprint tile and use the max so the building sits on the
+    // highest ground covered; the min is used to size a foundation plinth
+    // that fills the gap over lower tiles. Fixes "hovering over low tiles"
+    // for multi-tile buildings.
+    //
+    // We *ignore* obj.elevation when getHeight is available: the generator
+    // stored elevation in raw heightMap units (0..2.5) whereas terrainH is
+    // in scaled world units, so adding them double-counts the terrain.
     const centerTileX = obj.x + fp.w / 2
     const centerTileZ = obj.y + fp.h / 2
-    const terrainH = getHeight ? getHeight(Math.floor(centerTileX), Math.floor(centerTileZ)) : 0
+    let maxTH = 0, minTH = Infinity
+    if (getHeight) {
+      for (let fy = 0; fy < fp.h; fy++) {
+        for (let fx = 0; fx < fp.w; fx++) {
+          const th = getHeight(obj.x + fx, obj.y + fy)
+          if (th > maxTH) maxTH = th
+          if (th < minTH) minTH = th
+        }
+      }
+    } else {
+      minTH = 0
+    }
+    if (!isFinite(minTH)) minTH = 0
     const wx = centerTileX + jitterDX
-    const wy = (obj.elevation || 0) + terrainH
+    const wy = getHeight ? maxTH : (obj.elevation || 0)
     const wz = centerTileZ + jitterDZ
+
+    // Foundation plinth — fills the space between the lowest footprint tile
+    // and the building's base so multi-tile buildings on uneven ground look
+    // planted on a stone ledge, not floating above empty air.
+    const plinthH = maxTH - minTH
+    if (plinthH > 0.08 && !NO_JITTER.has(obj.definitionId)) {
+      const plinth = new THREE.BoxGeometry(fp.w + 0.12, plinthH, fp.h + 0.12)
+      plinth.translate(centerTileX, minTH + plinthH / 2, centerTileZ)
+      detailBatch.addPositioned(plinth, 0x6a5a48) // stone foundation
+    }
 
     // === PARAMETRIC MASSING ===
     // The style vector drives a weighted blend of archetypes; pickMassing

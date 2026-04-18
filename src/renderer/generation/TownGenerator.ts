@@ -1091,16 +1091,20 @@ export class TownGenerator implements IMapGenerator {
       for (let x = 3; x < w - 2 && filled < fillMax; x++) {
         if (occupied[y][x] || !this.isRoadAdjacent(x, y, roadMap, w, h)) continue
 
+        // Loosened from 0.7 → 0.92 so the outer ring of the map gets filled
+        // instead of leaving massive empty space around the edges.
         const distFromC = Math.sqrt((x - center.x) ** 2 + (y - center.y) ** 2) / maxDist
-        if (distFromC > 0.7) continue
+        if (distFromC > 0.92) continue
 
         const elev = Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2)
         const dId = districtMap[y]?.[x] ?? -1
         const district = districts.find(d => d.id === dId)
         const dType = district?.type || 'residential'
 
-        // Try building_small (2x2) first for better density
-        if (rng() > 0.4 && y + 1 < h && x + 1 < w &&
+        // Try building_small (2x2) first for better density.
+        // Skip-probability dropped from 0.4 → 0.15 so 85% of viable slots
+        // actually get filled instead of 60% being randomly skipped.
+        if (rng() > 0.15 && y + 1 < h && x + 1 < w &&
             !occupied[y][x + 1] && !occupied[y + 1][x] && !occupied[y + 1][x + 1]) {
           const defId = rng() > 0.5 ? 'building_small' : 'corner_building'
           buildings.push({
