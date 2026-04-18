@@ -52,6 +52,9 @@ const FOOTPRINTS: Record<string, { w: number; h: number }> = {
   stable: { w: 4, h: 3 }, mill: { w: 3, h: 3 },
   bell_tower_tall: { w: 3, h: 3 }, aqueduct: { w: 5, h: 1 },
   windmill: { w: 3, h: 3 },
+  // Town-wall variants: horizontal runs 2x1, vertical runs 1x2.
+  stone_wall: { w: 2, h: 1 }, stone_wall_v: { w: 1, h: 2 },
+  crenellated_wall: { w: 2, h: 1 },
 }
 
 // Height multipliers tuned so towers read as chunky landmarks rather than
@@ -78,6 +81,7 @@ function rand01(hash: number, salt: number): number {
 // interlock cleanly — archways, walls, gates, staircases.
 const NO_JITTER = new Set<string>([
   'archway', 'town_gate', 'gatehouse', 'staircase', 'aqueduct',
+  'stone_wall', 'stone_wall_v', 'crenellated_wall',
 ])
 
 export interface BuildingBatchResult {
@@ -162,9 +166,10 @@ export function buildBuildingMeshes(
 
     // Foundation plinth — fills the space between the lowest footprint tile
     // and the building's base so multi-tile buildings on uneven ground look
-    // planted on a stone ledge, not floating above empty air.
+    // planted on a stone ledge, not floating above empty air. Applies to
+    // walls and gates too (they still need the plinth on slopes).
     const plinthH = maxTH - minTH
-    if (plinthH > 0.08 && !NO_JITTER.has(obj.definitionId)) {
+    if (plinthH > 0.08) {
       const plinth = new THREE.BoxGeometry(fp.w + 0.12, plinthH, fp.h + 0.12)
       plinth.translate(centerTileX, minTH + plinthH / 2, centerTileZ)
       detailBatch.addPositioned(plinth, 0x6a5a48) // stone foundation
@@ -205,10 +210,24 @@ export function buildBuildingMeshes(
     }
 
     // Wealth-driven size scaling — slums shrink to 0.78x, palatial buildings
-    // grow to 1.22x. Applied to every volume in place (width, depth, height,
-    // offsets, roofHeight, bottomY). Slight inter-tile overlap is fine; it
-    // actually helps the town feel less like a checkerboard.
-    const sizeScale = 0.78 + styleVector.wealth * 0.44
+    // grow to 1.22x. Signature landmark buildings ALSO get a flat +25–40%
+    // scale bump on top so they visibly dominate their districts. Applied to
+    // every volume in place (width, depth, height, offsets, roofHeight,
+    // bottomY). Slight inter-tile overlap is fine; it actually helps the town
+    // feel less like a checkerboard.
+    const wealthScale = 0.78 + styleVector.wealth * 0.44
+    const landmarkScale =
+      obj.definitionId === 'cathedral' ? 1.35 :
+      obj.definitionId === 'temple' ? 1.3 :
+      obj.definitionId === 'bell_tower_tall' ? 1.25 :
+      obj.definitionId === 'bell_tower' ? 1.2 :
+      obj.definitionId === 'clock_tower' ? 1.2 :
+      obj.definitionId === 'lighthouse' ? 1.2 :
+      obj.definitionId === 'mansion' ? 1.18 :
+      obj.definitionId === 'guild_hall' ? 1.15 :
+      obj.definitionId === 'watchtower' ? 1.15 :
+      1.0
+    const sizeScale = wealthScale * landmarkScale
     if (Math.abs(sizeScale - 1.0) > 0.02 && !NO_JITTER.has(obj.definitionId)) {
       massing.volumes = massing.volumes.map(v => ({
         ...v,
@@ -250,14 +269,17 @@ export function buildBuildingMeshes(
     // Skip entirely if massing already supplies a chimney volume.
     // Big/tall buildings (floors >= 3 or wealth archetype) get two chimneys.
     if (!massingHasChimney && hash % 5 < 2 && mainRoofH > 0) {
+      // Clamp chimney height to a fixed range (0.5–0.9 world units) so the
+      // scaling stopped producing 2-4 world unit black sticks once wallH
+      // doubled. Width bumped to 0.3 so they read as stacks, not sticks.
       const chimCount = (floors >= 3 || styleVector.wealth > 0.6) ? 2 : 1
-      const baseH = Math.max(0.45, mainRoofH * 1.1)
+      const baseH = 0.55 + rand01(hash, 701) * 0.3  // 0.55–0.85
+      const chimW = 0.3
       for (let c = 0; c < chimCount; c++) {
         const chimSide = c === 0
           ? ((obj.properties.chimneyPos === 'left') ? -1 : 1)
           : (((obj.properties.chimneyPos === 'left') ? 1 : -1))
         const chimH = baseH * (c === 0 ? 1.0 : 0.85)
-        const chimW = 0.24
         // Main stack
         const stack = new THREE.BoxGeometry(chimW, chimH, chimW)
         stack.translate(
@@ -267,10 +289,10 @@ export function buildBuildingMeshes(
         )
         detailBatch.addPositioned(stack, 0x704030)
         // Cap (slightly wider thin disc)
-        const cap = new THREE.BoxGeometry(chimW + 0.1, 0.06, chimW + 0.1)
+        const cap = new THREE.BoxGeometry(chimW + 0.12, 0.08, chimW + 0.12)
         cap.translate(
           wx + chimSide * fp.w * 0.3,
-          mainTopY + mainRoofH * 0.3 + chimH + 0.03,
+          mainTopY + mainRoofH * 0.3 + chimH + 0.04,
           wz + (c === 0 ? 0 : (rand01(hash, 600 + c) - 0.5) * fp.h * 0.4),
         )
         detailBatch.addPositioned(cap, 0x5a3020)

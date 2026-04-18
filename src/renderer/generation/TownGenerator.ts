@@ -2099,9 +2099,13 @@ export class TownGenerator implements IMapGenerator {
       return false
     }
 
-    // Place walls along perimeter
+    // Place walls along perimeter.
+    // Horizontal edges (top/bottom) use stone_wall (fp 2x1, runs along X).
+    // Vertical edges (left/right) use stone_wall_v (fp 1x2, runs along Y).
+    // Both route to tmplWallSegment which renders a 2.2-tall crenellated
+    // fortification — not a garden wall.
     const occupied = new Set<string>()
-    const placeWall = (x: number, y: number) => {
+    const placeHorizontalWall = (x: number, y: number) => {
       const key = `${x},${y}`
       if (occupied.has(key) || x < 0 || x + 1 >= w || y < 0 || y >= h) return
       if (waterMap[y]?.[x] || isGateNear(x, y)) return
@@ -2109,28 +2113,44 @@ export class TownGenerator implements IMapGenerator {
       occupied.add(`${x + 1},${y}`)
       walls.push(this.createObj('stone_wall', x, y, 0.3))
     }
-
-    // Top and bottom edges
-    for (let x = minX; x < maxX; x += 2) {
-      placeWall(x, minY)
-      placeWall(x, maxY)
-    }
-    // Left and right edges
-    for (let y = minY; y < maxY; y += 2) {
-      placeWall(minX, y)
-      placeWall(maxX, y)
+    const placeVerticalWall = (x: number, y: number) => {
+      const key = `${x},${y}`
+      if (occupied.has(key) || x < 0 || x >= w || y < 0 || y + 1 >= h) return
+      if (waterMap[y]?.[x] || isGateNear(x, y)) return
+      occupied.add(key)
+      occupied.add(`${x},${y + 1}`)
+      walls.push(this.createObj('stone_wall_v', x, y, 0.3))
     }
 
-    // Corner watchtowers
+    // Reserve the 2×2 corner tower footprints FIRST so wall segments
+    // don't collide with them (the old code placed walls first, corner
+    // towers second → overlap + gaps at corners).
     const cornerPositions = [
-      { x: minX, y: minY }, { x: maxX - 1, y: minY },
-      { x: minX, y: maxY - 1 }, { x: maxX - 1, y: maxY - 1 }
+      { x: minX, y: minY },
+      { x: maxX - 2, y: minY },
+      { x: minX, y: maxY - 2 },
+      { x: maxX - 2, y: maxY - 2 },
     ]
     for (const pos of cornerPositions) {
-      if (pos.x >= 0 && pos.x + 1 < w && pos.y >= 0 && pos.y + 1 < h &&
-          !waterMap[pos.y][pos.x]) {
-        walls.push(this.createObj('watchtower', pos.x, pos.y, 1.0))
+      if (pos.x < 0 || pos.x + 1 >= w || pos.y < 0 || pos.y + 1 >= h) continue
+      if (waterMap[pos.y][pos.x]) continue
+      walls.push(this.createObj('watchtower', pos.x, pos.y, 1.0))
+      for (let dy = 0; dy < 2; dy++) {
+        for (let dx = 0; dx < 2; dx++) {
+          occupied.add(`${pos.x + dx},${pos.y + dy}`)
+        }
       }
+    }
+
+    // Now place walls between the corner towers. Walls step by 2 tiles
+    // (matching stone_wall footprint 2x1 / stone_wall_v footprint 1x2).
+    for (let x = minX + 2; x < maxX - 2; x += 2) {
+      placeHorizontalWall(x, minY)
+      placeHorizontalWall(x, maxY - 1)
+    }
+    for (let y = minY + 2; y < maxY - 2; y += 2) {
+      placeVerticalWall(minX, y)
+      placeVerticalWall(maxX - 1, y)
     }
 
     return walls
@@ -2831,6 +2851,7 @@ export class TownGenerator implements IMapGenerator {
       wagon: { w: 3, h: 2 }, fountain: { w: 2, h: 2 },
       bench: { w: 2, h: 1 }, fence: { w: 2, h: 1 },
       stone_wall: { w: 2, h: 1 }, planter_box: { w: 2, h: 1 },
+      stone_wall_v: { w: 1, h: 2 }, crenellated_wall: { w: 2, h: 1 },
       // New buildings
       chapel: { w: 3, h: 4 }, guild_hall: { w: 4, h: 4 },
       warehouse: { w: 4, h: 3 }, watchtower: { w: 2, h: 2 },

@@ -725,6 +725,51 @@ function tmplStackedTower(ctx: MassingContext): Volume[] {
   ]
 }
 
+/** Crenellated wall segment — tall fortification with battlement merlons.
+ *  Footprint orientation (w vs d) determines wall orientation: the wall
+ *  runs along the LONGER axis. Height is fixed (2.2 world units) so the
+ *  wall reads as an actual fortification, not a garden wall. */
+function tmplWallSegment(ctx: MassingContext): Volume[] {
+  const wallH = 2.2
+  const thickness = 0.55
+  const longAxisX = ctx.footW >= ctx.footD
+  const wallW = longAxisX ? ctx.footW : thickness
+  const wallD = longAxisX ? thickness : ctx.footD
+  const stoneColor = 0x8a8478
+  const volumes: Volume[] = [{
+    role: 'mainBody',
+    offsetX: 0, offsetZ: 0,
+    width: wallW, depth: wallD,
+    bottomY: 0, height: wallH,
+    roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+    wallColor: stoneColor, roofColor: stoneColor,
+    textured: false, cornice: false,
+    floors: 1,
+  }]
+  // Crenellated merlons: alternating blocks along the wall's top edge.
+  const runLen = longAxisX ? wallW : wallD
+  const merlonPitch = 0.65
+  const merlonCount = Math.max(3, Math.floor(runLen / merlonPitch))
+  for (let m = 0; m < merlonCount; m++) {
+    if (m % 2 === 0) continue // gaps between merlons
+    const t = (m + 0.5) / merlonCount - 0.5
+    const merlonW = runLen / merlonCount * 0.85
+    volumes.push({
+      role: 'penthouse',
+      offsetX: longAxisX ? t * runLen : 0,
+      offsetZ: longAxisX ? 0 : t * runLen,
+      width: longAxisX ? merlonW : thickness,
+      depth: longAxisX ? thickness : merlonW,
+      bottomY: wallH, height: 0.4,
+      roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+      wallColor: stoneColor, roofColor: stoneColor,
+      textured: false, cornice: false,
+      floors: 1,
+    })
+  }
+  return volumes
+}
+
 /** Windmill: narrow circular tower + conical cap + four cross-arm sails. */
 function tmplWindmill(ctx: MassingContext): Volume[] {
   const diameter = Math.max(1.2, Math.min(ctx.footW, ctx.footD) * 0.7)
@@ -831,6 +876,9 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   town_gate: (ctx) => tmplGatehouse(ctx),
   gatehouse: (ctx) => tmplGatehouse(ctx),
   windmill: (ctx) => tmplWindmill(ctx),
+  stone_wall: (ctx) => tmplWallSegment(ctx),
+  stone_wall_v: (ctx) => tmplWallSegment(ctx),
+  crenellated_wall: (ctx) => tmplWallSegment(ctx),
   mansion: (ctx) => rand01(ctx.hash, 515) < 0.5 ? tmplCornerTower(ctx) : tmplLShape(ctx),
   guild_hall: (ctx) => rand01(ctx.hash, 517) < 0.5 ? tmplLShape(ctx) : tmplSideBay(ctx),
   inn: (ctx) => rand01(ctx.hash, 519) < 0.5 ? tmplSideBay(ctx) : tmplJettiedUpper(ctx),
