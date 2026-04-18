@@ -437,9 +437,57 @@ export function buildPropMeshes(
       batch.addPositioned(rope, 0x3a2818)
 
     } else if (id === 'barrel' || id === 'rain_barrel') {
-      const b = new THREE.CylinderGeometry(0.2, 0.22, 0.5, 8)
-      b.translate(px, elev + 0.25, pz)
-      batch.addPositioned(b, 0x6a4a28)
+      // Three barrel variants: classic wooden, wide wine/beer cask on side,
+      // tall rain barrel with metal hoops.
+      const bv = id === 'rain_barrel' ? 2 : (hash % 3)
+      if (bv === 0) {
+        // Classic standing barrel with two visible hoops
+        const body = new THREE.CylinderGeometry(0.2, 0.22, 0.5, 8)
+        body.translate(px, elev + 0.25, pz)
+        batch.addPositioned(body, 0x6a4a28)
+        for (const hy of [0.08, 0.42]) {
+          const hoop = new THREE.TorusGeometry(0.22, 0.015, 3, 8)
+          hoop.rotateX(Math.PI / 2)
+          hoop.translate(px, elev + hy, pz)
+          batch.addPositioned(hoop, 0x3a3a3a)
+        }
+        // Lid (slightly darker disc on top)
+        const lid = new THREE.CylinderGeometry(0.2, 0.2, 0.02, 8)
+        lid.translate(px, elev + 0.51, pz)
+        batch.addPositioned(lid, 0x5a3a18)
+      } else if (bv === 1) {
+        // Wine cask laid on its side with end hoops
+        const body = new THREE.CylinderGeometry(0.26, 0.26, 0.55, 8)
+        body.rotateZ(Math.PI / 2)
+        body.translate(px, elev + 0.28, pz)
+        batch.addPositioned(body, 0x7a5030)
+        for (const ex of [-0.22, 0.22]) {
+          const hoop = new THREE.TorusGeometry(0.26, 0.02, 3, 8)
+          hoop.rotateY(Math.PI / 2)
+          hoop.translate(px + ex, elev + 0.28, pz)
+          batch.addPositioned(hoop, 0x2a2a2a)
+        }
+        // Small wooden chock beneath (stops it rolling)
+        const chock = new THREE.BoxGeometry(0.35, 0.04, 0.2)
+        chock.translate(px, elev + 0.02, pz)
+        batch.addPositioned(chock, 0x5a3a20)
+      } else {
+        // Tall rain barrel with many metal hoops
+        const body = new THREE.CylinderGeometry(0.22, 0.24, 0.7, 8)
+        body.translate(px, elev + 0.35, pz)
+        batch.addPositioned(body, 0x5a3820)
+        for (let hi = 0; hi < 4; hi++) {
+          const hy = 0.08 + hi * 0.2
+          const hoop = new THREE.TorusGeometry(0.24, 0.015, 3, 8)
+          hoop.rotateX(Math.PI / 2)
+          hoop.translate(px, elev + hy, pz)
+          batch.addPositioned(hoop, 0x2a2a2a)
+        }
+        // Water surface (dark circle at the top)
+        const water = new THREE.CylinderGeometry(0.2, 0.2, 0.02, 8)
+        water.translate(px, elev + 0.71, pz)
+        batch.addPositioned(water, 0x3a5068)
+      }
 
     } else if (id === 'barrel_stack') {
       for (const [bx, bz, by] of [[0, -0.15, 0], [0.25, 0.15, 0], [-0.25, 0.15, 0], [0, 0, 0.45]] as const) {
@@ -801,49 +849,205 @@ export function buildPropMeshes(
       batch.addPositioned(leg, 0x8a7a5a)
 
     } else if (id === 'hanging_sign' || id === 'sign') {
-      const bracket = new THREE.BoxGeometry(0.5, 0.04, 0.04)
-      bracket.translate(px + 0.25, elev + 1.2, pz)
-      batch.addPositioned(bracket, 0x5a4020)
-      const signColors = [0xb89050, 0x905040, 0x406050, 0x504080]
-      const board = new THREE.BoxGeometry(0.4, 0.25, 0.03)
-      board.translate(px + 0.35, elev + 0.95, pz)
-      batch.addPositioned(board, signColors[hash % signColors.length])
+      // Three sign variants by hash: hanging tavern sign on bracket,
+      // wooden shop shingle on posts, and two-sided A-frame sign board.
+      const sv = hash % 3
+      const signColors = [0xb89050, 0x905040, 0x406050, 0x504080, 0xa05030]
+      const boardColor = signColors[hash % signColors.length]
+      if (sv === 0 && id === 'hanging_sign') {
+        // Ornate hanging sign — bracket arm + two chains + swinging board + finial
+        const arm = new THREE.BoxGeometry(0.5, 0.05, 0.05)
+        arm.translate(px + 0.25, elev + 1.5, pz)
+        batch.addPositioned(arm, 0x4a3a20)
+        // Tiny finial curl at end of arm
+        const finial = new THREE.SphereGeometry(0.05, 5, 4)
+        finial.translate(px + 0.5, elev + 1.5, pz)
+        batch.addPositioned(finial, 0x4a3a20)
+        for (const cx of [0.15, 0.4]) {
+          const chain = new THREE.BoxGeometry(0.02, 0.25, 0.02)
+          chain.translate(px + cx, elev + 1.35, pz)
+          batch.addPositioned(chain, 0x2a2a2a)
+        }
+        const board = new THREE.BoxGeometry(0.5, 0.35, 0.04)
+        board.translate(px + 0.28, elev + 1.05, pz)
+        batch.addPositioned(board, boardColor)
+        // Board frame border (darker thin outline)
+        const frame = new THREE.BoxGeometry(0.54, 0.39, 0.025)
+        frame.translate(px + 0.28, elev + 1.05, pz - 0.01)
+        batch.addPositioned(frame, 0x3a2818)
+      } else if (sv === 1) {
+        // Post-mounted shingle sign on two small posts
+        for (const lx of [-0.22, 0.22]) {
+          const post = new THREE.BoxGeometry(0.06, 1.3, 0.06)
+          post.translate(px + lx, elev + 0.65, pz)
+          batch.addPositioned(post, 0x5a4020)
+        }
+        const shingle = new THREE.BoxGeometry(0.6, 0.3, 0.04)
+        shingle.translate(px, elev + 1.0, pz)
+        batch.addPositioned(shingle, boardColor)
+        // Decorative topper (small cone)
+        const topper = new THREE.ConeGeometry(0.08, 0.12, 4)
+        topper.translate(px, elev + 1.22, pz)
+        batch.addPositioned(topper, 0x5a4020)
+      } else {
+        // A-frame chalkboard sign (two boards hinged)
+        for (const side of [-1, 1]) {
+          const board = new THREE.BoxGeometry(0.5, 0.7, 0.04)
+          board.rotateX(side * 0.3)
+          board.translate(px, elev + 0.4, pz + side * 0.1)
+          batch.addPositioned(board, boardColor)
+        }
+        // Frame edge along the top ridge
+        const ridge = new THREE.BoxGeometry(0.5, 0.04, 0.04)
+        ridge.translate(px, elev + 0.7, pz)
+        batch.addPositioned(ridge, 0x3a2818)
+      }
 
     } else if (id === 'wagon' || id === 'cart') {
-      const bed = new THREE.BoxGeometry(1.2, 0.06, 0.6)
-      bed.translate(px, elev + 0.35, pz)
-      batch.addPositioned(bed, 0x6a5030)
-      for (const sz of [-0.3, 0.3]) {
-        const rail = new THREE.BoxGeometry(1.2, 0.2, 0.03)
-        rail.translate(px, elev + 0.48, pz + sz)
-        batch.addPositioned(rail, 0x6a5030)
-      }
-      for (const [wx, wz] of [[-0.4, -0.35], [0.4, -0.35], [-0.4, 0.35], [0.4, 0.35]] as const) {
-        const wheel = new THREE.CylinderGeometry(0.18, 0.18, 0.04, 8)
-        wheel.rotateX(Math.PI / 2)
-        wheel.translate(px + wx, elev + 0.18, pz + wz)
-        batch.addPositioned(wheel, 0x3a3020)
+      // Three wagon variants: heavy market wagon, covered wagon, small cart.
+      const wv = hash % 3
+      if (wv === 0) {
+        // Heavy market wagon — plank bed + 4 spoked wheels + side rails + load
+        const bed = new THREE.BoxGeometry(1.4, 0.08, 0.7)
+        bed.translate(px, elev + 0.42, pz)
+        batch.addPositioned(bed, 0x6a5030)
+        for (const sz of [-0.35, 0.35]) {
+          const rail = new THREE.BoxGeometry(1.4, 0.25, 0.04)
+          rail.translate(px, elev + 0.57, pz + sz)
+          batch.addPositioned(rail, 0x6a5030)
+        }
+        for (const [wx, wz] of [[-0.5, -0.4], [0.5, -0.4], [-0.5, 0.4], [0.5, 0.4]] as const) {
+          const wheel = new THREE.CylinderGeometry(0.24, 0.24, 0.06, 8)
+          wheel.rotateX(Math.PI / 2)
+          wheel.translate(px + wx, elev + 0.24, pz + wz)
+          batch.addPositioned(wheel, 0x3a2818)
+          // Spoke cross (two thin boxes as spokes)
+          for (let sp = 0; sp < 2; sp++) {
+            const spoke = new THREE.BoxGeometry(0.03, 0.42, 0.03)
+            spoke.rotateZ(sp * Math.PI / 2)
+            spoke.translate(px + wx, elev + 0.24, pz + wz)
+            batch.addPositioned(spoke, 0x5a4028)
+          }
+        }
+        // Crate/sack load on top
+        const load = new THREE.BoxGeometry(0.8, 0.35, 0.5)
+        load.translate(px, elev + 0.64, pz)
+        batch.addPositioned(load, 0x8a6a3a)
+      } else if (wv === 1) {
+        // Covered wagon — wagon bed + arched cloth cover
+        const bed = new THREE.BoxGeometry(1.3, 0.08, 0.65)
+        bed.translate(px, elev + 0.38, pz)
+        batch.addPositioned(bed, 0x6a5030)
+        for (const [wx, wz] of [[-0.45, -0.35], [0.45, -0.35], [-0.45, 0.35], [0.45, 0.35]] as const) {
+          const wheel = new THREE.CylinderGeometry(0.2, 0.2, 0.05, 8)
+          wheel.rotateX(Math.PI / 2)
+          wheel.translate(px + wx, elev + 0.2, pz + wz)
+          batch.addPositioned(wheel, 0x3a2818)
+        }
+        // Arched cover (simulated with a half-cylinder rotated)
+        const cover = new THREE.CylinderGeometry(0.4, 0.4, 1.2, 8, 1, false, 0, Math.PI)
+        cover.rotateZ(Math.PI / 2)
+        cover.translate(px, elev + 0.82, pz)
+        batch.addPositioned(cover, 0xd8c8a0)
+        // Cover ribs (thin bands for structure)
+        for (let ri = 0; ri < 3; ri++) {
+          const rib = new THREE.TorusGeometry(0.4, 0.02, 3, 8, Math.PI)
+          rib.rotateZ(Math.PI / 2)
+          rib.rotateY(Math.PI / 2)
+          rib.translate(px + (ri - 1) * 0.45, elev + 0.82, pz)
+          batch.addPositioned(rib, 0x8a7a50)
+        }
+      } else {
+        // Small hand cart — 2 wheels, open bed, long handle
+        const bed = new THREE.BoxGeometry(0.9, 0.08, 0.5)
+        bed.translate(px, elev + 0.32, pz)
+        batch.addPositioned(bed, 0x6a5030)
+        for (const sz of [-0.27, 0.27]) {
+          const rail = new THREE.BoxGeometry(0.9, 0.18, 0.03)
+          rail.translate(px, elev + 0.45, pz + sz)
+          batch.addPositioned(rail, 0x6a5030)
+        }
+        for (const wx of [-0.35, 0.35]) {
+          const wheel = new THREE.CylinderGeometry(0.2, 0.2, 0.04, 8)
+          wheel.rotateX(Math.PI / 2)
+          wheel.translate(px + wx, elev + 0.2, pz + 0.3)
+          batch.addPositioned(wheel, 0x3a2818)
+        }
+        // Long handle sticking out front
+        const handle = new THREE.BoxGeometry(0.04, 0.04, 0.75)
+        handle.translate(px, elev + 0.35, pz - 0.5)
+        batch.addPositioned(handle, 0x5a3820)
       }
 
     } else if (id === 'potted_plant' || id === 'flower_box' || id === 'planter_box') {
+      // Four variants — tall urn with trailing flowers, wide box, stone
+      // bowl, and classic terracotta pot.
+      const pv = hash % 4
+      const flowerColors = [0xc04040, 0xc08040, 0xe0c040, 0x9050c0, 0xe08090]
+      const flowerColor = flowerColors[(hash >> 2) % flowerColors.length]
       if (id === 'planter_box' || id === 'flower_box') {
-        const box = new THREE.BoxGeometry(0.7, 0.25, 0.25)
-        box.translate(px, elev + 0.12, pz)
+        const box = new THREE.BoxGeometry(0.8, 0.3, 0.3)
+        box.translate(px, elev + 0.15, pz)
         batch.addPositioned(box, 0x8a5a30)
-        for (let pi = 0; pi < 3; pi++) {
+        // Trim strip along the top
+        const trim = new THREE.BoxGeometry(0.85, 0.04, 0.33)
+        trim.translate(px, elev + 0.32, pz)
+        batch.addPositioned(trim, 0x6a4028)
+        // Four plants across
+        for (let pi = 0; pi < 4; pi++) {
           const p = geo.bushGeo.clone()
-          p.scale(0.24, 0.24, 0.24)
-          p.translate(px - 0.2 + pi * 0.2, elev + 0.35, pz)
+          p.scale(0.2, 0.22, 0.2)
+          p.translate(px - 0.3 + pi * 0.2, elev + 0.42, pz)
           batch.addPositioned(p, 0x3a8a3a)
+          // A flower bud on two of them
+          if (pi % 2 === 0) {
+            const bud = new THREE.SphereGeometry(0.06, 5, 4)
+            bud.translate(px - 0.3 + pi * 0.2, elev + 0.52, pz)
+            batch.addPositioned(bud, flowerColor)
+          }
         }
-      } else {
-        const pot = new THREE.CylinderGeometry(0.15, 0.12, 0.25, 6)
-        pot.translate(px, elev + 0.12, pz)
-        batch.addPositioned(pot, 0x8a5a30)
+      } else if (pv === 0) {
+        // Tall urn with trailing flowers (Mediterranean vibe)
+        const base = new THREE.CylinderGeometry(0.1, 0.14, 0.15, 6)
+        base.translate(px, elev + 0.08, pz)
+        batch.addPositioned(base, 0x8a5a30)
+        const body = new THREE.CylinderGeometry(0.18, 0.12, 0.45, 6)
+        body.translate(px, elev + 0.38, pz)
+        batch.addPositioned(body, 0x8a5a30)
+        // Plant on top
+        const leafy = geo.bushGeo.clone()
+        leafy.scale(0.4, 0.3, 0.4)
+        leafy.translate(px, elev + 0.66, pz)
+        batch.addPositioned(leafy, 0x3a8a3a)
+        // Three flower buds peeking out
+        for (let fi = 0; fi < 3; fi++) {
+          const ang = (fi / 3) * Math.PI * 2
+          const bud = new THREE.SphereGeometry(0.05, 5, 4)
+          bud.translate(px + Math.cos(ang) * 0.18, elev + 0.78, pz + Math.sin(ang) * 0.18)
+          batch.addPositioned(bud, flowerColor)
+        }
+      } else if (pv === 1) {
+        // Stone bowl with plant
+        const bowl = new THREE.CylinderGeometry(0.25, 0.16, 0.18, 8)
+        bowl.translate(px, elev + 0.09, pz)
+        batch.addPositioned(bowl, 0x908878)
         const plant = geo.bushGeo.clone()
-        plant.scale(0.4, 0.4, 0.4)
-        plant.translate(px, elev + 0.4, pz)
+        plant.scale(0.35, 0.3, 0.35)
+        plant.translate(px, elev + 0.32, pz)
         batch.addPositioned(plant, 0x3a8a3a)
+      } else {
+        // Terracotta pot with flowering plant
+        const pot = new THREE.CylinderGeometry(0.15, 0.12, 0.28, 6)
+        pot.translate(px, elev + 0.14, pz)
+        batch.addPositioned(pot, 0xa05830)
+        const plant = geo.bushGeo.clone()
+        plant.scale(0.42, 0.42, 0.42)
+        plant.translate(px, elev + 0.45, pz)
+        batch.addPositioned(plant, 0x3a8a3a)
+        // A single flower on top
+        const bud = new THREE.SphereGeometry(0.07, 5, 4)
+        bud.translate(px, elev + 0.58, pz)
+        batch.addPositioned(bud, flowerColor)
       }
 
     } else if (id === 'gravestone') {
