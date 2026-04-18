@@ -683,6 +683,46 @@ function tmplStackedTower(ctx: MassingContext): Volume[] {
   ]
 }
 
+/** Windmill: narrow circular tower + conical cap + four cross-arm sails. */
+function tmplWindmill(ctx: MassingContext): Volume[] {
+  const diameter = Math.max(1.2, Math.min(ctx.footW, ctx.footD) * 0.7)
+  const bodyH = ctx.wallH * 1.5
+  const volumes: Volume[] = [{
+    role: 'tower',
+    offsetX: 0, offsetZ: 0,
+    width: diameter, depth: diameter,
+    bottomY: 0, height: bodyH,
+    roofStyle: 'pointed', roofHeight: bodyH * 0.55,
+    roofAxis: 'x',
+    wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+    textured: false, cornice: true,
+    circular: true,
+    floors: Math.max(3, Math.round(bodyH / 0.9)),
+  }]
+  // Four cross arms — thin long boxes as sail representation at upper body.
+  const armLen = diameter * 2.2
+  const armT = 0.14
+  const armY = bodyH * 0.88
+  const arms: Array<[number, number, boolean]> = [
+    [armLen / 2, 0, true], [-armLen / 2, 0, true],
+    [0, armLen / 2, false], [0, -armLen / 2, false],
+  ]
+  for (const [ox, oz, isX] of arms) {
+    volumes.push({
+      role: 'wing',
+      offsetX: ox, offsetZ: oz,
+      width: isX ? armLen : armT,
+      depth: isX ? armT : armLen,
+      bottomY: armY, height: armT,
+      roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+      wallColor: 0x5a4030, roofColor: 0x5a4030,
+      textured: false, cornice: false,
+      floors: 1,
+    })
+  }
+  return volumes
+}
+
 /* ------------------------------------------------------------------ */
 /* Template selection                                                 */
 /* ------------------------------------------------------------------ */
@@ -716,22 +756,32 @@ const TEMPLATES_BY_ARCHETYPE: Record<ArchetypeId, TemplateFn[]> = {
   ],
 }
 
-/** Definition-ID overrides for specialty buildings. */
+/** Definition-ID overrides for specialty buildings. Some fork probabilistically
+ *  so e.g. half of cathedrals get a central spire tower (crossPlan) and half
+ *  get a plain nave+transept cross. */
 const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   tower: (ctx) => tmplCircularTower(ctx, false),
   watchtower: (ctx) => tmplCircularTower(ctx, false),
   round_tower: (ctx) => tmplCircularTower(ctx, false),
   lighthouse: (ctx) => tmplCircularTower(ctx, true),
-  bell_tower: (ctx) => tmplCornerTower(ctx),
-  bell_tower_tall: (ctx) => tmplSpireEnd(ctx),
-  clock_tower: (ctx) => tmplCornerTower(ctx),
-  cathedral: (ctx) => tmplNaveTransept(ctx),
-  temple: (ctx) => tmplNaveTransept(ctx),
-  chapel: (ctx) => tmplSpireEnd(ctx),
+  bell_tower: (ctx) => rand01(ctx.hash, 503) < 0.5 ? tmplStackedTower(ctx) : tmplCornerTower(ctx),
+  bell_tower_tall: (ctx) => rand01(ctx.hash, 505) < 0.6 ? tmplSpireEnd(ctx) : tmplStackedTower(ctx),
+  clock_tower: (ctx) => rand01(ctx.hash, 507) < 0.55 ? tmplStackedTower(ctx) : tmplCornerTower(ctx),
+  cathedral: (ctx) => rand01(ctx.hash, 509) < 0.6 ? tmplCrossPlan(ctx) : tmplNaveTransept(ctx),
+  temple: (ctx) => rand01(ctx.hash, 511) < 0.5 ? tmplCrossPlan(ctx) : tmplNaveTransept(ctx),
+  chapel: (ctx) => rand01(ctx.hash, 513) < 0.7 ? tmplSpireEnd(ctx) : tmplAttachedChapel(ctx),
   archway: (ctx) => tmplGatehouse(ctx),
   town_gate: (ctx) => tmplGatehouse(ctx),
   gatehouse: (ctx) => tmplGatehouse(ctx),
-  windmill: (ctx) => tmplCircularTower(ctx, false),
+  windmill: (ctx) => tmplWindmill(ctx),
+  mansion: (ctx) => rand01(ctx.hash, 515) < 0.5 ? tmplCornerTower(ctx) : tmplLShape(ctx),
+  guild_hall: (ctx) => rand01(ctx.hash, 517) < 0.5 ? tmplLShape(ctx) : tmplSideBay(ctx),
+  inn: (ctx) => rand01(ctx.hash, 519) < 0.5 ? tmplSideBay(ctx) : tmplJettiedUpper(ctx),
+  tavern: (ctx) => rand01(ctx.hash, 521) < 0.55 ? tmplSideBay(ctx) : tmplPorchFront(ctx),
+  covered_market: (ctx) => tmplPorchFront(ctx),
+  warehouse: (ctx) => tmplSimpleBody(ctx),
+  stable: (ctx) => tmplFarmstead(ctx),
+  mill: (ctx) => rand01(ctx.hash, 523) < 0.3 ? tmplWindmill(ctx) : tmplSimpleBody(ctx),
 }
 
 /**

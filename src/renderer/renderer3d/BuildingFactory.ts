@@ -176,14 +176,35 @@ export function buildBuildingMeshes(
     // Does massing already include a chimney volume? (cottageSmall does.)
     const massingHasChimney = massing.volumes.some(v => v.role === 'chimneyVol')
 
-    // === CHIMNEY → batched ===
-    // Skip if massing already supplies a chimney volume (cottageSmall).
+    // === CHIMNEYS → batched ===
+    // Skip entirely if massing already supplies a chimney volume.
+    // Big/tall buildings (floors >= 3 or wealth archetype) get two chimneys.
     if (!massingHasChimney && hash % 5 < 2 && mainRoofH > 0) {
-      const chimSide = (obj.properties.chimneyPos === 'left') ? -1 : 1
-      const chimH = Math.max(0.4, mainRoofH * 0.9)
-      const geo = new THREE.BoxGeometry(0.22, chimH, 0.22)
-      geo.translate(wx + chimSide * fp.w * 0.3, mainTopY + mainRoofH * 0.3 + chimH / 2, wz)
-      detailBatch.addPositioned(geo, 0x704030)
+      const chimCount = (floors >= 3 || styleVector.wealth > 0.6) ? 2 : 1
+      const baseH = Math.max(0.45, mainRoofH * 1.1)
+      for (let c = 0; c < chimCount; c++) {
+        const chimSide = c === 0
+          ? ((obj.properties.chimneyPos === 'left') ? -1 : 1)
+          : (((obj.properties.chimneyPos === 'left') ? 1 : -1))
+        const chimH = baseH * (c === 0 ? 1.0 : 0.85)
+        const chimW = 0.24
+        // Main stack
+        const stack = new THREE.BoxGeometry(chimW, chimH, chimW)
+        stack.translate(
+          wx + chimSide * fp.w * 0.3,
+          mainTopY + mainRoofH * 0.3 + chimH / 2,
+          wz + (c === 0 ? 0 : (rand01(hash, 600 + c) - 0.5) * fp.h * 0.4),
+        )
+        detailBatch.addPositioned(stack, 0x704030)
+        // Cap (slightly wider thin disc)
+        const cap = new THREE.BoxGeometry(chimW + 0.1, 0.06, chimW + 0.1)
+        cap.translate(
+          wx + chimSide * fp.w * 0.3,
+          mainTopY + mainRoofH * 0.3 + chimH + 0.03,
+          wz + (c === 0 ? 0 : (rand01(hash, 600 + c) - 0.5) * fp.h * 0.4),
+        )
+        detailBatch.addPositioned(cap, 0x5a3020)
+      }
     }
 
     // === FOUNDATION → batched ===
