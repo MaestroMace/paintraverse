@@ -1636,34 +1636,44 @@ export class TownGenerator implements IMapGenerator {
       this.markArea(occupied, center.x - 1, center.y - 1, 2, 2, w, h)
     }
 
-    // Statue near center
-    const sx = center.x + Math.floor(rng() * 4) - 2
-    const sy = center.y + Math.floor(rng() * 4) - 2
-    if (sx >= 0 && sx < w && sy >= 0 && sy < h && !occupied[sy][sx]) {
-      props.push(this.createObj('statue', sx, sy))
-      occupied[sy][sx] = true
+    // Two concentric rings around the fountain instead of a random
+    // scatter. Inner ring: 8 cafe tables at cardinal/diagonal angles.
+    // Outer ring: market stalls alternating with benches. The radial
+    // composition reads as a deliberate town square from any angle.
+    const innerR = Math.max(2, plazaRadius * 0.45)
+    const outerR = Math.max(3, plazaRadius * 0.85)
+    const placePlaza = (defId: string, cx: number, cy: number, fpW = 1, fpH = 1) => {
+      if (cx < 0 || cy < 0 || cx + fpW > w || cy + fpH > h) return false
+      if (!this.areaFree(occupied, cx, cy, fpW, fpH, w, h)) return false
+      props.push(this.createObj(defId, cx, cy))
+      this.markArea(occupied, cx, cy, fpW, fpH, w, h)
+      return true
     }
 
-    // Market stalls around main plaza — doubled density
-    const stallCount = Math.floor(4 + density * 8)
-    for (let i = 0; i < stallCount; i++) {
-      const mx = center.x + Math.floor(rng() * plazaRadius * 2) - plazaRadius
-      const my = center.y + Math.floor(rng() * plazaRadius * 2) - plazaRadius
-      if (this.areaFree(occupied, mx, my, 2, 2, w, h)) {
-        props.push(this.createObj('market_stall', mx, my))
-        this.markArea(occupied, mx, my, 2, 2, w, h)
-      }
+    // Inner ring — cafe tables + potted plants
+    for (let i = 0; i < 8; i++) {
+      const ang = (i / 8) * Math.PI * 2
+      const tx = Math.round(center.x + Math.cos(ang) * innerR)
+      const ty = Math.round(center.y + Math.sin(ang) * innerR)
+      const item = i % 3 === 0 ? 'potted_plant' : 'cafe_table'
+      placePlaza(item, tx, ty)
     }
 
-    // Café tables ring around main fountain
-    for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
-      const tx = Math.floor(center.x + Math.cos(angle) * (plazaRadius * 0.6))
-      const ty = Math.floor(center.y + Math.sin(angle) * (plazaRadius * 0.6))
-      if (tx >= 0 && tx < w && ty >= 0 && ty < h && !occupied[ty][tx]) {
-        props.push(this.createObj('cafe_table', tx, ty))
-        occupied[ty][tx] = true
-      }
+    // Outer ring — market stalls (2x2) alternating with benches.
+    const outerCount = Math.max(8, Math.floor(8 + density * 6))
+    for (let i = 0; i < outerCount; i++) {
+      const ang = (i / outerCount) * Math.PI * 2
+      const rx = Math.round(center.x + Math.cos(ang) * outerR)
+      const ry = Math.round(center.y + Math.sin(ang) * outerR)
+      if (i % 2 === 0) placePlaza('market_stall', rx, ry, 2, 2)
+      else placePlaza('bench', rx, ry, 2, 1)
     }
+
+    // One statue asymmetrically near the fountain (just off-center)
+    const statueAng = rng() * Math.PI * 2
+    const sx = Math.round(center.x + Math.cos(statueAng) * (innerR * 0.55))
+    const sy = Math.round(center.y + Math.sin(statueAng) * (innerR * 0.55))
+    placePlaza('statue', sx, sy)
 
     // District plaza features — richer per-district
     for (const d of districts) {
