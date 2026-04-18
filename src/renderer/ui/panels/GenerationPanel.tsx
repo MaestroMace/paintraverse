@@ -15,13 +15,9 @@ export function GenerationPanel() {
     height: 48,
     complexity: 0.5,
     density: 0.5,
-    assetFrequencies: {
-      lamppost: 0.5,
-      bench: 0.3,
-      sign: 0.3,
-      fountain: 0.3,
-      well: 0.2
-    },
+    // assetFrequencies panel removed — the values were never consumed by
+    // the generator, so leaving as empty record keeps the type happy.
+    assetFrequencies: {},
     levelCount: 1,
     customParams: {}
   })
@@ -62,13 +58,6 @@ export function GenerationPanel() {
       setMap(map)
       setLastSeed(newSeed)
     }, 0)
-  }
-
-  const updateFreq = (key: string, value: number) => {
-    setConfig((c) => ({
-      ...c,
-      assetFrequencies: { ...c.assetFrequencies, [key]: value }
-    }))
   }
 
   return (
@@ -142,29 +131,6 @@ export function GenerationPanel() {
                 value={config.density}
                 onChange={(v) => setConfig((c) => ({ ...c, density: v }))}
               />
-
-              {/* Asset Frequencies */}
-              <div
-                style={{
-                  fontSize: 10,
-                  color: 'var(--text-dim)',
-                  textTransform: 'uppercase',
-                  padding: '8px 0 4px',
-                  letterSpacing: '0.5px',
-                  borderTop: '1px solid var(--border)',
-                  marginTop: 4
-                }}
-              >
-                Asset Frequencies
-              </div>
-              {Object.entries(config.assetFrequencies).map(([key, value]) => (
-                <SliderRow
-                  key={key}
-                  label={key}
-                  value={value}
-                  onChange={(v) => updateFreq(key, v)}
-                />
-              ))}
 
               {/* Generate buttons */}
               <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>

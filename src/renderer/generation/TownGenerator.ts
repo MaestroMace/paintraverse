@@ -306,7 +306,8 @@ export class TownGenerator implements IMapGenerator {
     }
 
     const env: EnvironmentState = {
-      timeOfDay: 12, weather: 'clear', weatherIntensity: 0,
+      // 6:30 PM (dusk) — see store.ts comment.
+      timeOfDay: 18.5, weather: 'clear', weatherIntensity: 0,
       celestial: { moonPhase: 0.5, starDensity: 0.5, sunAngle: 45 },
       lighting: {
         ambientColor: '#ffffff', ambientIntensity: 0.6,

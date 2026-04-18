@@ -12,6 +12,16 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { buildTerrainMesh, getTerrainHeight } from './TerrainMesh'
+
+// First-person walkaround constants. Minecraft-ish feel.
+const EYE_HEIGHT = 1.6
+const JUMP_STRENGTH = 7.0
+const GRAVITY = 22.0
+const WALK_SPEED = 6.0
+const FLY_SPEED = 10.0
+const DOUBLE_TAP_MS = 300
+const MOUSE_YAW_SENS = 0.0025
+const MOUSE_PITCH_SENS = 0.002
 import { buildBuildingMeshes, setWallEmissiveIntensity, type BuildingBatchResult } from './BuildingFactory'
 import { buildPropMeshes, type PropBatchResult } from './PropFactory'
 
@@ -142,13 +152,16 @@ export class ThreeRenderer {
   private clock = new THREE.Clock()
   private animId = 0
 
-  // Camera movement
+  // Camera movement — first-person walkaround
   private keysHeld = new Set<string>()
   private cameraYaw = Math.PI * 0.75
-  private cameraPitch = -0.4
-  private mouseDown = false
-  private lastMouseX = 0
-  private lastMouseY = 0
+  private cameraPitch = -0.1
+  private pointerLocked = false
+  private flyMode = false
+  private verticalVel = 0    // walk-mode physics only
+  private lastSpaceTap = 0   // ms timestamp for double-tap detection
+  // Cached height map for ground sampling; populated in loadMap.
+  private terrainHeightMap: number[][] | null = null
 
   // Scene objects
   private terrainGroup = new THREE.Group()
@@ -187,6 +200,7 @@ export class ThreeRenderer {
   private _onKeyDown: ((e: KeyboardEvent) => void) | null = null
   private _onKeyUp: ((e: KeyboardEvent) => void) | null = null
   private _onMouseMove: ((e: MouseEvent) => void) | null = null
+  private _onPointerLockChange: (() => void) | null = null
   private _resizeObserver: ResizeObserver | null = null
   // Track town extents for shadow camera
   private townCenterX = 24
@@ -292,9 +306,30 @@ export class ThreeRenderer {
     this.composer.addPass(this.bloomPass)
     this.composer.addPass(new OutputPass())
 
-    // Input — WASD + right-click drag to look
+    // First-person input — click canvas to lock pointer, ESC to exit.
+    // Mouse movement rotates the camera while locked (no button hold).
+    // WASD = horizontal movement, Space = jump / fly-rise, double-tap
+    // Space = toggle fly mode, ShiftLeft = fly-descend.
     this._onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return
+      // Space: single tap jumps (walk) / noop (fly); double tap toggles fly.
+      if (e.code === 'Space') {
+        e.preventDefault()
+        const now = performance.now()
+        const isDouble = (now - this.lastSpaceTap) < DOUBLE_TAP_MS
+        this.lastSpaceTap = now
+        if (isDouble) {
+          this.flyMode = !this.flyMode
+          this.verticalVel = 0
+        } else if (!this.flyMode) {
+          // Jump only if roughly on the ground (verticalVel ~= 0 means we
+          // just landed or are planted)
+          if (Math.abs(this.verticalVel) < 0.01) {
+            this.verticalVel = JUMP_STRENGTH
+          }
+        }
+        // In fly mode, holding Space is what rises; the update loop handles it.
+      }
       this.keysHeld.add(e.code)
     }
     this._onKeyUp = (e: KeyboardEvent) => {
@@ -303,26 +338,27 @@ export class ThreeRenderer {
     window.addEventListener('keydown', this._onKeyDown)
     window.addEventListener('keyup', this._onKeyUp)
 
-    // Right-click drag to look around (works without pointer lock)
     const canvas = this.renderer.domElement
-    canvas.addEventListener('mousedown', (e) => {
-      if (e.button === 2 || e.button === 0) {
-        this.mouseDown = true
-        this.lastMouseX = e.clientX
-        this.lastMouseY = e.clientY
-      }
+    // Click to enter pointer lock (standard FPS convention); ESC exits.
+    canvas.addEventListener('click', () => {
+      if (!this.pointerLocked) canvas.requestPointerLock()
     })
-    canvas.addEventListener('mouseup', () => { this.mouseDown = false })
-    this._onMouseMove = (e: MouseEvent) => {
-      if (!this.mouseDown) return
-      const dx = e.clientX - this.lastMouseX
-      const dy = e.clientY - this.lastMouseY
-      this.cameraYaw += dx * 0.004
-      this.cameraPitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.cameraPitch + dy * 0.003))
-      this.lastMouseX = e.clientX
-      this.lastMouseY = e.clientY
+    this._onPointerLockChange = () => {
+      this.pointerLocked = document.pointerLockElement === canvas
+      // Drop all held keys when unlocking so movement doesn't continue
+      // while user is interacting with UI behind the canvas.
+      if (!this.pointerLocked) this.keysHeld.clear()
     }
-    canvas.addEventListener('mousemove', this._onMouseMove)
+    document.addEventListener('pointerlockchange', this._onPointerLockChange)
+    this._onMouseMove = (e: MouseEvent) => {
+      if (!this.pointerLocked) return
+      this.cameraYaw += e.movementX * MOUSE_YAW_SENS
+      this.cameraPitch = Math.max(
+        -Math.PI / 2 + 0.01,
+        Math.min(Math.PI / 2 - 0.01, this.cameraPitch - e.movementY * MOUSE_PITCH_SENS),
+      )
+    }
+    document.addEventListener('mousemove', this._onMouseMove)
     canvas.addEventListener('contextmenu', (e) => e.preventDefault())
 
     // Resize (render at RENDER_SCALE, CSS fills container)
@@ -372,6 +408,9 @@ export class ThreeRenderer {
       this.terrainGroup.add(terrainGroup)
       heightMap = (terrainGroup as any)._heightMap ?? null
     }
+    // Cache heightMap for the FPS ground-follow sampler so we don't
+    // traverse the scene every frame.
+    this.terrainHeightMap = heightMap
 
     // Height lookup function for factories (bakes terrain height into geometry)
     const hLookup = heightMap
@@ -455,11 +494,16 @@ export class ThreeRenderer {
       this.generateStaircases(heightMap, map.gridWidth, map.gridHeight)
     }
 
-    // Position camera for overview of town — elevated, looking toward center
+    // Spawn the player at ground level just outside the town center,
+    // looking toward the main plaza. First-person eye-height.
     const cx = map.gridWidth / 2, cz = map.gridHeight / 2
-    this.camera.position.set(cx - 15, 12, cz - 15)
-    this.cameraYaw = Math.atan2(cz - this.camera.position.z, cx - this.camera.position.x)
-    this.cameraPitch = -0.25
+    const spawnX = cx - 10, spawnZ = cz - 10
+    const spawnGround = heightMap ? getTerrainHeight(heightMap, spawnX, spawnZ) : 0
+    this.camera.position.set(spawnX, spawnGround + EYE_HEIGHT, spawnZ)
+    this.cameraYaw = Math.atan2(cz - spawnZ, cx - spawnX)
+    this.cameraPitch = -0.05
+    this.verticalVel = 0
+    this.flyMode = false
 
     // Buildings cast shadows (dramatic alley silhouettes). Props/walkways
     // only receive, to keep the shadow map's caster list small.
@@ -915,22 +959,54 @@ export class ThreeRenderer {
     this.animId = requestAnimationFrame(loop)
   }
 
+  private sampleGroundY(x: number, z: number): number {
+    if (!this.terrainHeightMap) return 0
+    return getTerrainHeight(this.terrainHeightMap, x, z)
+  }
+
   private updateCamera(dt: number): void {
-    const speed = 8 * dt
+    // Horizontal movement uses yaw only — Minecraft/FPS convention,
+    // looking up while walking doesn't launch you into the sky.
+    const fwdX = Math.cos(this.cameraYaw)
+    const fwdZ = Math.sin(this.cameraYaw)
+    const rightX = -fwdZ
+    const rightZ = fwdX
+    const moveSpeed = (this.flyMode ? FLY_SPEED : WALK_SPEED) * dt
+
+    let dx = 0, dz = 0
+    if (this.keysHeld.has('KeyW')) { dx += fwdX; dz += fwdZ }
+    if (this.keysHeld.has('KeyS')) { dx -= fwdX; dz -= fwdZ }
+    if (this.keysHeld.has('KeyA')) { dx -= rightX; dz -= rightZ }
+    if (this.keysHeld.has('KeyD')) { dx += rightX; dz += rightZ }
+    // Normalize diagonal movement so strafing isn't faster.
+    const mag = Math.hypot(dx, dz)
+    if (mag > 0) {
+      this.camera.position.x += (dx / mag) * moveSpeed
+      this.camera.position.z += (dz / mag) * moveSpeed
+    }
+
+    if (this.flyMode) {
+      // Hold Space to rise, ShiftLeft to descend. Velocity is immediate
+      // (no gravity) — standard Minecraft creative flight.
+      if (this.keysHeld.has('Space')) this.camera.position.y += FLY_SPEED * dt
+      if (this.keysHeld.has('ShiftLeft')) this.camera.position.y -= FLY_SPEED * dt
+    } else {
+      // Gravity + ground collision.
+      this.verticalVel -= GRAVITY * dt
+      this.camera.position.y += this.verticalVel * dt
+      const groundY = this.sampleGroundY(this.camera.position.x, this.camera.position.z) + EYE_HEIGHT
+      if (this.camera.position.y <= groundY) {
+        this.camera.position.y = groundY
+        this.verticalVel = 0
+      }
+    }
+
+    // Aim direction — full yaw + pitch for free look.
     this._fwd.set(
       Math.cos(this.cameraYaw) * Math.cos(this.cameraPitch),
       Math.sin(this.cameraPitch),
-      Math.sin(this.cameraYaw) * Math.cos(this.cameraPitch)
+      Math.sin(this.cameraYaw) * Math.cos(this.cameraPitch),
     ).normalize()
-    this._right.crossVectors(this._fwd, this._up).normalize()
-
-    if (this.keysHeld.has('KeyW')) this.camera.position.addScaledVector(this._fwd, speed)
-    if (this.keysHeld.has('KeyS')) this.camera.position.addScaledVector(this._fwd, -speed)
-    if (this.keysHeld.has('KeyA')) this.camera.position.addScaledVector(this._right, -speed)
-    if (this.keysHeld.has('KeyD')) this.camera.position.addScaledVector(this._right, speed)
-    if (this.keysHeld.has('KeyQ')) this.camera.position.y += speed * 0.7
-    if (this.keysHeld.has('KeyE')) this.camera.position.y = Math.max(1, this.camera.position.y - speed * 0.7)
-
     this._target.copy(this.camera.position).add(this._fwd)
     this.camera.lookAt(this._target)
   }
@@ -950,6 +1026,9 @@ export class ThreeRenderer {
     // Remove all event listeners
     if (this._onKeyDown) window.removeEventListener('keydown', this._onKeyDown)
     if (this._onKeyUp) window.removeEventListener('keyup', this._onKeyUp)
+    if (this._onMouseMove) document.removeEventListener('mousemove', this._onMouseMove)
+    if (this._onPointerLockChange) document.removeEventListener('pointerlockchange', this._onPointerLockChange)
+    if (document.pointerLockElement) document.exitPointerLock()
     this._resizeObserver?.disconnect()
 
     // Dispose all geometries and materials in the scene

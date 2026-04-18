@@ -23,7 +23,9 @@ import type { BuildingPalette } from '../inspiration/StyleMapper'
 
 function createDefaultEnvironment(): EnvironmentState {
   return {
-    timeOfDay: 12,
+    // 6:30 PM (dusk) — bloom + window glow + warm ambient all kick in here,
+    // and noon at render scale looks washed out.
+    timeOfDay: 18.5,
     weather: 'clear',
     weatherIntensity: 0,
     celestial: { moonPhase: 0.5, starDensity: 0.5, sunAngle: 45 },
