@@ -26,7 +26,12 @@ const VALID_DISTRICTS: Set<string> = new Set([
   'temple', 'slum', 'garden', 'harbor', 'fortress', 'cemetery',
 ])
 
-const FLOOR_HEIGHT = 0.75
+const FLOOR_HEIGHT = 1.05
+
+// Districts where buildings should read as urban — taller floor counts.
+const URBAN_DISTRICTS = new Set<string>([
+  'residential', 'market', 'artisan', 'noble',
+])
 
 const FOOTPRINTS: Record<string, { w: number; h: number }> = {
   building_small: { w: 2, h: 2 }, building_medium: { w: 3, h: 3 },
@@ -97,7 +102,25 @@ export function buildBuildingMeshes(
 
     const fp = FOOTPRINTS[obj.definitionId] || { w: def.footprint.w, h: def.footprint.h }
     const hash = simpleHash(obj.id)
-    const floors = (obj.properties.floors as number) || 1 + (hash % 2)
+    const style = (obj.properties.style as string) || 'standard'
+    const district = (obj.properties.district as string) || 'residential'
+
+    // Floor count: generator-provided value wins, but otherwise bias urban
+    // districts taller (2–4) and rural/fringe shorter (1–2). narrow_house is
+    // always tall regardless of district (it's meant to read as a Traverse-
+    // Town-style tall-narrow house). This is the biggest lever for aspect
+    // ratio — a 2×2×3-floor building stops looking like a cube.
+    let floors: number
+    if (typeof obj.properties.floors === 'number') {
+      floors = obj.properties.floors as number
+    } else if (obj.definitionId === 'narrow_house') {
+      floors = 3 + (hash % 2) // 3 or 4
+    } else if (URBAN_DISTRICTS.has(district)) {
+      floors = 2 + (hash % 3) // 2, 3, or 4
+    } else {
+      floors = 1 + (hash % 2) // 1 or 2
+    }
+
     const heightMult = HEIGHT_MULT[obj.definitionId] ?? 1.0
 
     // Per-instance jitter so the town stops reading as a grid. Keyed off
@@ -108,8 +131,6 @@ export function buildBuildingMeshes(
     const jitterDZ = jitter ? (rand01(hash, 3) - 0.5) * 0.35 : 0
 
     const wallH = floors * FLOOR_HEIGHT * heightMult * hScale
-    const style = (obj.properties.style as string) || 'standard'
-    const district = (obj.properties.district as string) || 'residential'
 
     // World position of building center (including terrain height + jitter)
     const centerTileX = obj.x + fp.w / 2

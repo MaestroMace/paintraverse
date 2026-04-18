@@ -389,19 +389,27 @@ export class ThreeRenderer {
       // Collect chimney positions for smoke particles. Must mirror the
       // jitter applied in BuildingFactory so smoke lines up with the
       // chimney's actual position, not its pre-jitter grid cell.
+      const URBAN_DISTRICT_IDS = new Set(['residential', 'market', 'artisan', 'noble'])
       for (const obj of structureLayer.objects) {
         const hash = simpleHash(obj.id)
         if (hash % 5 >= 2) continue
         const def = defMap.get(obj.definitionId)
         if (!def) continue
         const fp = { w: def.footprint.w, h: def.footprint.h }
-        const floors = (obj.properties.floors as number) || 1 + (hash % 2)
+        const district = (obj.properties.district as string) || 'residential'
+        // Mirrored floor-count logic from BuildingFactory (urban districts
+        // taller, narrow_house always tall, otherwise 1–2 floors).
+        let floors: number
+        if (typeof obj.properties.floors === 'number') floors = obj.properties.floors as number
+        else if (obj.definitionId === 'narrow_house') floors = 3 + (hash % 2)
+        else if (URBAN_DISTRICT_IDS.has(district)) floors = 2 + (hash % 3)
+        else floors = 1 + (hash % 2)
         const heightMult = HEIGHT_MULT_MAP[obj.definitionId] ?? 1.0
         const jitter = !NO_JITTER_MAP.has(obj.definitionId)
         const hScale = jitter ? 0.85 + rand01(hash, 1) * 0.3 : 1.0
         const jitterDX = jitter ? (rand01(hash, 2) - 0.5) * 0.35 : 0
         const jitterDZ = jitter ? (rand01(hash, 3) - 0.5) * 0.35 : 0
-        const wallH = floors * 0.75 * heightMult * hScale
+        const wallH = floors * 1.05 * heightMult * hScale
         const roofFrac = ROOF_FRAC_MAP[obj.definitionId] ?? 0.3
         const roofH = wallH * roofFrac
         const chimSide = (obj.properties.chimneyPos === 'left') ? -1 : 1

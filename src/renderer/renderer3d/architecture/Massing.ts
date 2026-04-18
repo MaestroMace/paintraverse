@@ -112,14 +112,17 @@ function tmplSimpleBody(ctx: MassingContext): Volume[] {
   }]
 }
 
-/** Ground floor slightly smaller than the jetty'd upper floor. */
+/** Dramatic jetty — squat ground floor, tall upper floor with a HUGE overhang.
+ *  Upper footprint is expanded beyond the nominal building footprint for
+ *  maximum silhouette impact. The lower floor shrinks aggressively. */
 function tmplJettiedUpper(ctx: MassingContext): Volume[] {
-  const lowerH = ctx.wallH * 0.42
-  const upperH = ctx.wallH - lowerH
-  const jetty = 0.25 + ctx.sv.overhang * 0.35   // 0.25–0.6 tile overhang, dramatic
-  const lowerInsetFrac = Math.min(0.35, jetty / Math.max(ctx.footW, ctx.footD) * 0.9)
-  const lowerW = Math.max(1.2, ctx.footW * (1 - lowerInsetFrac))
-  const lowerD = Math.max(1.2, ctx.footD * (1 - lowerInsetFrac * 0.7))
+  const lowerH = ctx.wallH * 0.32
+  const upperH = ctx.wallH - lowerH + ctx.wallH * 0.08 // upper is ~76% of total
+  const jettyFrac = 0.32 + ctx.sv.overhang * 0.22   // 0.32–0.54 of footprint
+  const lowerW = Math.max(0.9, ctx.footW * (1 - jettyFrac))
+  const lowerD = Math.max(0.9, ctx.footD * (1 - jettyFrac * 0.7))
+  const upperW = ctx.footW * 1.15 // upper is WIDER than nominal
+  const upperD = ctx.footD * 1.08
   const upperRoof = roofFromStyle(ctx.sv, ctx.hash, 2)
   return [
     {
@@ -130,31 +133,37 @@ function tmplJettiedUpper(ctx: MassingContext): Volume[] {
       roofStyle: 'flat', roofHeight: 0,
       roofAxis: 'x',
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
-      textured: true, cornice: false,
+      textured: false, cornice: false,
       floors: 1,
     },
     {
       role: 'upperFloor',
       offsetX: 0, offsetZ: 0,
-      width: ctx.footW, depth: ctx.footD,
+      width: upperW, depth: upperD,
       bottomY: lowerH, height: upperH,
       roofStyle: upperRoof, roofHeight: roofHeightFor(upperRoof, upperH, ctx.sv),
-      roofAxis: roofAxisFor(ctx.footW, ctx.footD),
+      roofAxis: roofAxisFor(upperW, upperD),
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: ctx.sv.cornice > 0.25,
-      floors: Math.max(1, ctx.floors - 1),
+      floors: Math.max(2, ctx.floors),
     },
   ]
 }
 
-/** Tall primary body + a smaller penthouse / tower room on top. */
+/** Tall primary body + a dramatically-tall penthouse on top — 55%/55% split
+ *  (total height = 110% of nominal wallH), penthouse uses ~55% of main's
+ *  footprint, placed with a deliberate asymmetric offset so the step is
+ *  visually lopsided rather than centred. */
 function tmplStepBack(ctx: MassingContext): Volume[] {
-  const mainH = ctx.wallH * 0.78
-  const topH = ctx.wallH - mainH + ctx.wallH * 0.15
-  const topW = ctx.footW * 0.62
-  const topD = ctx.footD * 0.62
+  const mainH = ctx.wallH * 0.55
+  const topH = ctx.wallH * 0.55
+  const topW = ctx.footW * 0.55
+  const topD = ctx.footD * 0.55
   const mainRoof: RoofStyle = 'flat'
   const topRoof = roofFromStyle(ctx.sv, ctx.hash, 3)
+  // Strong asymmetric offset so the step is obvious from any angle.
+  const sideX = rand01(ctx.hash, 31) < 0.5 ? -1 : 1
+  const sideZ = rand01(ctx.hash, 33) < 0.5 ? -1 : 1
   return [
     {
       role: 'mainBody',
@@ -165,19 +174,19 @@ function tmplStepBack(ctx: MassingContext): Volume[] {
       roofAxis: roofAxisFor(ctx.footW, ctx.footD),
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: ctx.sv.cornice > 0.2,
-      floors: Math.max(1, ctx.floors - 1),
+      floors: Math.max(2, ctx.floors - 1),
     },
     {
       role: 'penthouse',
-      offsetX: (rand01(ctx.hash, 31) - 0.5) * (ctx.footW - topW) * 0.6,
-      offsetZ: (rand01(ctx.hash, 33) - 0.5) * (ctx.footD - topD) * 0.6,
+      offsetX: sideX * (ctx.footW - topW) * 0.35,
+      offsetZ: sideZ * (ctx.footD - topD) * 0.35,
       width: topW, depth: topD,
       bottomY: mainH, height: topH,
       roofStyle: topRoof, roofHeight: roofHeightFor(topRoof, topH, ctx.sv),
       roofAxis: roofAxisFor(topW, topD),
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: false,
-      floors: 1,
+      floors: Math.max(1, Math.round(topH / 1.0)),
     },
   ]
 }
@@ -330,38 +339,43 @@ function tmplNaveTransept(ctx: MassingContext): Volume[] {
   ]
 }
 
-/** Small cottage body + large visible chimney volume. */
-function tmplCottageSmall(ctx: MassingContext): Volume[] {
-  const bodyH = ctx.wallH * 0.85
-  const bodyRoof: RoofStyle = rand01(ctx.hash, 29) < 0.6 ? 'steep' : 'gabled'
-  const chimW = 0.55, chimH = bodyH * 1.35
-  const chimSide = rand01(ctx.hash, 31) < 0.5 ? -1 : 1
-  return [
-    {
-      role: 'mainBody',
-      offsetX: 0, offsetZ: 0,
-      width: ctx.footW, depth: ctx.footD,
-      bottomY: 0, height: bodyH,
-      roofStyle: bodyRoof,
-      roofHeight: roofHeightFor(bodyRoof, bodyH, ctx.sv),
-      roofAxis: roofAxisFor(ctx.footW, ctx.footD),
-      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
-      textured: true, cornice: false,
-      floors: Math.max(1, ctx.floors - (rand01(ctx.hash, 33) < 0.5 ? 1 : 0)),
-    },
-    {
-      role: 'chimneyVol',
-      offsetX: chimSide * (ctx.footW / 2 + chimW * 0.2),
-      offsetZ: (rand01(ctx.hash, 35) - 0.5) * ctx.footD * 0.5,
-      width: chimW, depth: chimW,
-      bottomY: 0, height: chimH,
-      roofStyle: 'flat', roofHeight: 0,
+/** Steep-gable house: tall narrow body with a VERY steep gable roof
+ *  (1:1 gable-height-to-wall-height), optional side shed. Produces the
+ *  quintessential medieval "tall narrow townhouse" silhouette. */
+function tmplSteepGable(ctx: MassingContext): Volume[] {
+  const bodyH = ctx.wallH * 1.1
+  const roofH = bodyH * 0.85 // gable height ~85% of wall height — VERY steep
+  const hasShed = rand01(ctx.hash, 201) < 0.45
+  const shedSide = rand01(ctx.hash, 203) < 0.5 ? -1 : 1
+  const volumes: Volume[] = [{
+    role: 'mainBody',
+    offsetX: 0, offsetZ: 0,
+    width: ctx.footW, depth: ctx.footD,
+    bottomY: 0, height: bodyH,
+    roofStyle: 'steep', roofHeight: roofH,
+    roofAxis: roofAxisFor(ctx.footW, ctx.footD),
+    wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+    textured: true, cornice: false,
+    floors: ctx.floors,
+  }]
+  if (hasShed) {
+    const shedW = Math.max(0.9, ctx.footW * 0.48)
+    const shedD = Math.max(0.9, ctx.footD * 0.45)
+    const shedH = bodyH * 0.55
+    volumes.push({
+      role: 'wing',
+      offsetX: shedSide * (ctx.footW / 2 + shedW / 2 - 0.1),
+      offsetZ: (rand01(ctx.hash, 205) - 0.5) * (ctx.footD - shedD) * 0.5,
+      width: shedW, depth: shedD,
+      bottomY: 0, height: shedH,
+      roofStyle: 'gabled', roofHeight: shedH * 0.35,
       roofAxis: 'x',
-      wallColor: 0x6b4a38, roofColor: 0x6b4a38,
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: false, cornice: false,
       floors: 1,
-    },
-  ]
+    })
+  }
+  return volumes
 }
 
 /** Body + forward porch (smaller, lower) with shed roof. */
@@ -616,38 +630,66 @@ function tmplSideBay(ctx: MassingContext): Volume[] {
   ]
 }
 
-/** Humble farmstead: tiny body + attached lean-to shed with mono-pitch roof. */
+/** Farmstead: cottage + full-size barn. The barn is ~70% of the nominal
+ *  footprint with its own gabled roof at a perpendicular axis — reads as
+ *  a distinct second building joined at one corner. */
 function tmplFarmstead(ctx: MassingContext): Volume[] {
-  const bodyRoof: RoofStyle = rand01(ctx.hash, 101) < 0.5 ? 'steep' : 'gabled'
-  const shedW = Math.max(0.9, ctx.footW * 0.5)
-  const shedD = Math.max(0.9, ctx.footD * 0.45)
-  const shedH = ctx.wallH * 0.55
-  const shedSide = rand01(ctx.hash, 103) < 0.5 ? -1 : 1
+  const cottageW = Math.max(1.0, ctx.footW * 0.55)
+  const cottageD = Math.max(1.0, ctx.footD * 0.55)
+  const cottageH = ctx.wallH * 0.95
+  const cottageRoof: RoofStyle = rand01(ctx.hash, 101) < 0.5 ? 'steep' : 'gabled'
+  const barnW = Math.max(1.4, ctx.footW * 0.72)
+  const barnD = Math.max(1.4, ctx.footD * 0.65)
+  const barnH = ctx.wallH * 0.8
+  // Arrange cottage NW, barn SE (or mirrored).
+  const swap = rand01(ctx.hash, 103) < 0.5 ? -1 : 1
   return [
     {
       role: 'mainBody',
-      offsetX: 0, offsetZ: -shedD * 0.25,
-      width: ctx.footW, depth: ctx.footD * 0.9,
-      bottomY: 0, height: ctx.wallH,
-      roofStyle: bodyRoof, roofHeight: roofHeightFor(bodyRoof, ctx.wallH, ctx.sv),
-      roofAxis: roofAxisFor(ctx.footW, ctx.footD * 0.9),
+      offsetX: swap * (ctx.footW / 2 - cottageW / 2),
+      offsetZ: -(ctx.footD / 2 - cottageD / 2),
+      width: cottageW, depth: cottageD,
+      bottomY: 0, height: cottageH,
+      roofStyle: cottageRoof, roofHeight: roofHeightFor(cottageRoof, cottageH, ctx.sv),
+      roofAxis: roofAxisFor(cottageW, cottageD),
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: false,
       floors: 1,
     },
     {
       role: 'wing',
-      offsetX: shedSide * (ctx.footW / 2 - shedW / 2),
-      offsetZ: ctx.footD / 2 - shedD / 2 + 0.05,
-      width: shedW, depth: shedD,
-      bottomY: 0, height: shedH,
-      roofStyle: 'hipped', roofHeight: shedH * 0.3,
-      roofAxis: 'x',
+      offsetX: -swap * (ctx.footW / 2 - barnW / 2),
+      offsetZ: (ctx.footD / 2 - barnD / 2),
+      width: barnW, depth: barnD,
+      bottomY: 0, height: barnH,
+      // Barn ridge runs perpendicular to cottage
+      roofStyle: 'gabled', roofHeight: barnH * 0.6,
+      roofAxis: roofAxisFor(cottageW, cottageD) === 'x' ? 'z' : 'x',
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
-      textured: false, cornice: false,
+      textured: true, cornice: false,
       floors: 1,
     },
   ]
+}
+
+/** Tall narrow tower-house — footprint shrinks to square, height explodes
+ *  to 2.4× nominal. The Traverse Town signature silhouette: a tall narrow
+ *  house crowned by a steep pointed roof. Used by landmark promotion. */
+function tmplTallTowerHouse(ctx: MassingContext): Volume[] {
+  const baseW = Math.max(1.1, Math.min(ctx.footW, ctx.footD) * 0.75)
+  const tallH = ctx.wallH * 2.2
+  const roofStyle: RoofStyle = rand01(ctx.hash, 221) < 0.55 ? 'steep' : 'pointed'
+  return [{
+    role: 'tower',
+    offsetX: 0, offsetZ: 0,
+    width: baseW, depth: baseW,
+    bottomY: 0, height: tallH,
+    roofStyle, roofHeight: roofHeightFor(roofStyle, tallH, ctx.sv),
+    roofAxis: 'x',
+    wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+    textured: true, cornice: ctx.sv.cornice > 0.15,
+    floors: Math.max(3, Math.round(tallH / 1.05)),
+  }]
 }
 
 /** Body + dramatic centered tall tower (like a keep). */
@@ -729,32 +771,47 @@ function tmplWindmill(ctx: MassingContext): Volume[] {
 
 type TemplateFn = (ctx: MassingContext) => Volume[]
 
+// Archetype template pools. IMPORTANT: tmplSimpleBody is deliberately
+// excluded from every pool — a single textured box is the silhouette we're
+// trying to eliminate. It only appears as the emergency fallback in
+// pickMassing. Each pool now produces dramatic multi-volume compositions.
 const TEMPLATES_BY_ARCHETYPE: Record<ArchetypeId, TemplateFn[]> = {
   traverseCozy: [
-    tmplSimpleBody, tmplStepBack, tmplJettiedUpper, tmplPorchFront,
-    tmplTwinGables, tmplSideBay,
+    tmplStepBack, tmplJettiedUpper, tmplJettiedUpper, tmplSteepGable,
+    tmplTwinGables, tmplSideBay, tmplTallTowerHouse,
   ],
   nobleStone: [
     tmplCornerTower, tmplLShape, tmplStepBack, tmplStackedTower,
-    tmplCrossPlan, tmplSideBay,
+    tmplCrossPlan, tmplSideBay, tmplTallTowerHouse,
   ],
   halfTimberTudor: [
-    tmplJettiedUpper, tmplJettiedUpper, tmplLShape, tmplTwinGables,
-    tmplSideBay, tmplStepBack,
+    tmplJettiedUpper, tmplJettiedUpper, tmplJettiedUpper, tmplLShape,
+    tmplTwinGables, tmplSideBay, tmplStepBack, tmplSteepGable,
   ],
   medievalRustic: [
-    tmplCottageSmall, tmplSimpleBody, tmplPorchFront, tmplFarmstead,
-    tmplFarmstead, tmplTwinGables,
+    tmplSteepGable, tmplSteepGable, tmplFarmstead, tmplFarmstead,
+    tmplTwinGables, tmplPorchFront,
   ],
   mediterraneanStucco: [
-    tmplLShape, tmplPorchFront, tmplSimpleBody, tmplStepBack,
+    tmplLShape, tmplPorchFront, tmplStepBack, tmplStepBack,
     tmplCrossPlan, tmplSideBay,
   ],
   gothicStone: [
     tmplNaveTransept, tmplSpireEnd, tmplCornerTower,
     tmplAttachedChapel, tmplCrossPlan, tmplStackedTower,
+    tmplTallTowerHouse,
   ],
 }
+
+// Landmark promotion: any generic building has this chance of being
+// promoted to a dramatic silhouette template, regardless of archetype.
+// Guarantees ~25% of buildings anywhere in town have an unmistakable
+// vertical presence (tower, spire, keep, tall narrow house).
+const LANDMARK_PROMOTION_CHANCE = 0.28
+const DRAMATIC_POOL: TemplateFn[] = [
+  tmplTallTowerHouse, tmplTallTowerHouse,
+  tmplCornerTower, tmplStackedTower, tmplSpireEnd, tmplCrossPlan,
+]
 
 /** Definition-ID overrides for specialty buildings. Some fork probabilistically
  *  so e.g. half of cathedrals get a central spire tower (crossPlan) and half
@@ -779,9 +836,9 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   inn: (ctx) => rand01(ctx.hash, 519) < 0.5 ? tmplSideBay(ctx) : tmplJettiedUpper(ctx),
   tavern: (ctx) => rand01(ctx.hash, 521) < 0.55 ? tmplSideBay(ctx) : tmplPorchFront(ctx),
   covered_market: (ctx) => tmplPorchFront(ctx),
-  warehouse: (ctx) => tmplSimpleBody(ctx),
+  warehouse: (ctx) => tmplStepBack(ctx),
   stable: (ctx) => tmplFarmstead(ctx),
-  mill: (ctx) => rand01(ctx.hash, 523) < 0.3 ? tmplWindmill(ctx) : tmplSimpleBody(ctx),
+  mill: (ctx) => rand01(ctx.hash, 523) < 0.3 ? tmplWindmill(ctx) : tmplFarmstead(ctx),
 }
 
 /**
@@ -830,8 +887,14 @@ export function pickMassing(input: PickMassingInput): MassingResult {
   let volumes: Volume[]
   if (override) {
     volumes = override(ctx)
+  } else if (rand01(input.hash, 901) < LANDMARK_PROMOTION_CHANCE) {
+    // Landmark promotion — skip the archetype pool and pick a dramatic
+    // vertical silhouette. Guarantees ~28% of generic buildings read as
+    // towers, spires, keeps, or tall narrow houses.
+    const idx = Math.floor(rand01(input.hash, 903) * DRAMATIC_POOL.length)
+    volumes = DRAMATIC_POOL[Math.min(idx, DRAMATIC_POOL.length - 1)](ctx)
   } else {
-    const options = TEMPLATES_BY_ARCHETYPE[input.dominantArchetype] ?? [tmplSimpleBody]
+    const options = TEMPLATES_BY_ARCHETYPE[input.dominantArchetype] ?? [tmplStepBack]
     const idx = Math.floor(rand01(input.hash, 301) * options.length)
     volumes = options[Math.min(idx, options.length - 1)](ctx)
   }
