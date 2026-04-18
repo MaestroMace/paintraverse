@@ -75,51 +75,132 @@ export function buildPropMeshes(
     const hash = simpleHash(obj.id)
 
     if (id === 'tree' || id === 'orchard_tree') {
-      const species = (obj.properties.species as string) || 'oak'
-      const trunkH = species === 'pine' ? 2.4 : species === 'willow' ? 1.5 : 1.8
-      const trunkColor = species === 'birch' ? 0xd0c8b8 : 0x5a3a1a
-      const canopyColor = species === 'pine' ? 0x1a4a1a : species === 'birch' ? 0x4a8a3a
-        : species === 'willow' ? 0x3a6a2a : species === 'maple' ? 0x6a8a2a : 0x2d5a27
+      // If no species set, hash-pick one so tree clusters aren't all identical.
+      let species = (obj.properties.species as string) || ''
+      if (!species) {
+        const pool = id === 'orchard_tree'
+          ? ['apple', 'pear', 'oak']
+          : ['oak', 'pine', 'birch', 'maple', 'willow', 'poplar', 'oak']
+        species = pool[hash % pool.length]
+      }
+      const heightJitter = 0.85 + ((hash >> 3) % 30) / 100  // 0.85–1.15
+      const trunkH =
+        species === 'pine' ? 2.8 * heightJitter :
+        species === 'poplar' ? 3.0 * heightJitter :
+        species === 'birch' ? 2.4 * heightJitter :
+        species === 'willow' ? 1.4 * heightJitter :
+        species === 'apple' || species === 'pear' ? 1.3 * heightJitter :
+        1.9 * heightJitter
+      const trunkColor = species === 'birch' ? 0xd0c8b8
+        : species === 'willow' ? 0x503820
+        : species === 'poplar' ? 0x6a4a2a
+        : 0x5a3a1a
+      const canopyColor =
+        species === 'pine' ? 0x1a4a1a :
+        species === 'birch' ? 0x6ba64a :
+        species === 'willow' ? 0x4a7a3a :
+        species === 'maple' ? 0xaa5a30 :
+        species === 'poplar' ? 0x3a7a33 :
+        species === 'apple' ? 0x4a8a3a :
+        species === 'pear' ? 0x6a9a4a :
+        0x2d5a27
 
-      // Trunk — scaled up 50%
+      // Trunk — thicker for oak/maple, thin for birch/poplar
+      const trunkThick = species === 'oak' || species === 'maple' ? 1.5
+        : species === 'birch' || species === 'poplar' ? 0.85 : 1.2
       const trunk = geo.treeTrunk.clone()
-      trunk.scale(1.4, trunkH / 1.2, 1.4)
+      trunk.scale(trunkThick, trunkH / 1.2, trunkThick)
       trunk.translate(px, elev + trunkH / 2, pz)
       batch.addPositioned(trunk, trunkColor)
 
       // Canopy
       if (species === 'pine') {
-        for (let layer = 0; layer < 3; layer++) {
-          const r = 0.9 - layer * 0.18
+        // Taller, narrower layered pine
+        for (let layer = 0; layer < 4; layer++) {
+          const r = 1.05 - layer * 0.2
           const c = geo.pineCone.clone()
-          c.scale(r / 0.6, 1.3, r / 0.6)
-          c.translate(px, elev + trunkH + 0.3 + layer * 0.6 + 0.45, pz)
+          c.scale(r / 0.6, 1.6, r / 0.6)
+          c.translate(px, elev + trunkH + 0.2 + layer * 0.55, pz)
           batch.addPositioned(c, canopyColor)
         }
+      } else if (species === 'poplar') {
+        // Narrow columnar poplar — 3 tall stacked ellipsoids
+        for (let layer = 0; layer < 3; layer++) {
+          const c = geo.treeCanopy.clone()
+          c.scale(0.55, 1.4, 0.55)
+          c.translate(px, elev + trunkH + 0.4 + layer * 1.1, pz)
+          batch.addPositioned(c, layer === 1 ? canopyColor
+            : new THREE.Color(canopyColor).multiplyScalar(0.8).getHex())
+        }
       } else if (species === 'willow') {
+        // Wider, drooping skirt — a dome + two lower trailing lobes
         const d = geo.willowDome.clone()
-        d.scale(1.5, 0.9, 1.5)
-        d.translate(px, elev + trunkH + 0.4, pz)
+        d.scale(1.9, 0.85, 1.9)
+        d.translate(px, elev + trunkH + 0.35, pz)
         batch.addPositioned(d, canopyColor)
-      } else {
-        // Oak/birch/maple — 3 overlapping lobes + top
-        const baseY = elev + trunkH + 0.3
-        const lobeR = species === 'birch' ? 0.8 : 1.0
-        for (let li = 0; li < 3; li++) {
-          const angle = (li / 3) * Math.PI * 2 + (hash * 0.7)
+        for (let li = 0; li < 5; li++) {
+          const angle = (li / 5) * Math.PI * 2
           const lobe = geo.treeCanopy.clone()
-          lobe.scale(lobeR, lobeR, lobeR)
+          lobe.scale(0.55, 0.45, 0.55)
           lobe.translate(
-            px + Math.cos(angle) * 0.4,
-            baseY + Math.sin(li * 1.3) * 0.2,
-            pz + Math.sin(angle) * 0.4
+            px + Math.cos(angle) * 1.2,
+            elev + trunkH + 0.05,
+            pz + Math.sin(angle) * 1.2,
           )
-          batch.addPositioned(lobe, li % 2 === 0 ? canopyColor : new THREE.Color(canopyColor).multiplyScalar(0.75).getHex())
+          batch.addPositioned(lobe, new THREE.Color(canopyColor).multiplyScalar(0.85).getHex())
+        }
+      } else if (species === 'birch') {
+        // Airy, narrow lobes
+        const baseY = elev + trunkH + 0.35
+        for (let li = 0; li < 4; li++) {
+          const angle = (li / 4) * Math.PI * 2 + hash * 0.5
+          const lobe = geo.treeCanopy.clone()
+          lobe.scale(0.55, 0.65, 0.55)
+          lobe.translate(
+            px + Math.cos(angle) * 0.32,
+            baseY + Math.sin(li * 1.1) * 0.25,
+            pz + Math.sin(angle) * 0.32,
+          )
+          batch.addPositioned(lobe, li % 2 === 0 ? canopyColor
+            : new THREE.Color(canopyColor).multiplyScalar(0.8).getHex())
+        }
+      } else {
+        // Oak / maple / apple / pear — 3 big overlapping lobes + top
+        const baseY = elev + trunkH + 0.3
+        const lobeR = species === 'oak' ? 1.2 : species === 'maple' ? 1.1
+          : 0.85   // apple / pear smaller
+        for (let li = 0; li < 3; li++) {
+          const angle = (li / 3) * Math.PI * 2 + hash * 0.7
+          const lobe = geo.treeCanopy.clone()
+          lobe.scale(lobeR, lobeR * 0.9, lobeR)
+          lobe.translate(
+            px + Math.cos(angle) * 0.5,
+            baseY + Math.sin(li * 1.3) * 0.25,
+            pz + Math.sin(angle) * 0.5,
+          )
+          batch.addPositioned(lobe, li % 2 === 0 ? canopyColor
+            : new THREE.Color(canopyColor).multiplyScalar(0.78).getHex())
         }
         const top = geo.treeCanopy.clone()
-        top.scale(lobeR * 0.7, lobeR * 0.7, lobeR * 0.7)
-        top.translate(px, baseY + lobeR * 0.5, pz)
+        top.scale(lobeR * 0.75, lobeR * 0.75, lobeR * 0.75)
+        top.translate(px, baseY + lobeR * 0.55, pz)
         batch.addPositioned(top, canopyColor)
+
+        // Fruit dots on apple/pear — 4 tiny red/yellow spheres
+        if (species === 'apple' || species === 'pear') {
+          const fruitColor = species === 'apple' ? 0xa02810 : 0xc0a030
+          for (let fi = 0; fi < 4; fi++) {
+            const ang = (fi / 4) * Math.PI * 2 + hash
+            const fruit = geo.treeCanopy.clone()
+            fruit.scale(0.11, 0.11, 0.11)
+            fruit.translate(
+              px + Math.cos(ang) * lobeR * 0.7,
+              baseY + 0.1,
+              pz + Math.sin(ang) * lobeR * 0.7,
+            )
+            batch.addPositioned(fruit, fruitColor)
+          }
+        }
       }
 
     } else if (id === 'bush' || id === 'hedge') {
