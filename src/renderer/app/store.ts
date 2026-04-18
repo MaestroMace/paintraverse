@@ -11,7 +11,10 @@ import type {
   RenderCamera,
   ToolType,
   Command,
-  EnvironmentState
+  EnvironmentState,
+  AppMode,
+  SearchResult,
+  GeneratedAsset
 } from '../core/types'
 import type { ExtractedPalette } from '../inspiration/PaletteExtractor'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
@@ -71,7 +74,7 @@ function createDefaultMap(): MapDocument {
 // === DEFAULT OBJECT DEFINITIONS ===
 
 const defaultObjectDefs: ObjectDefinition[] = [
-  // === BUILDINGS (Tier 1 Architecture) ===
+  // === BUILDINGS — Heritage Architecture ===
   {
     id: 'building_small',
     name: 'Small House',
@@ -152,6 +155,151 @@ const defaultObjectDefs: ObjectDefinition[] = [
     color: '#808078',
     footprint: { w: 2, h: 3 },
     styleSetSlots: []
+  },
+  {
+    id: 'row_house',
+    name: 'Row House',
+    category: 'building',
+    tags: ['structure', 'residential', 'narrow'],
+    color: '#A89880',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  {
+    id: 'town_gate',
+    name: 'Town Gate',
+    category: 'building',
+    tags: ['structure', 'landmark', 'passage'],
+    color: '#5A5A60',
+    footprint: { w: 3, h: 1 },
+    styleSetSlots: ['wall']
+  },
+  {
+    id: 'corner_building',
+    name: 'Corner Building',
+    category: 'building',
+    tags: ['structure', 'commercial'],
+    color: '#B8A890',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'awning']
+  },
+  // --- New heritage buildings ---
+  {
+    id: 'chapel',
+    name: 'Chapel',
+    category: 'building',
+    tags: ['structure', 'religious', 'landmark'],
+    color: '#A0A098',
+    footprint: { w: 3, h: 4 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  {
+    id: 'guild_hall',
+    name: 'Guild Hall',
+    category: 'building',
+    tags: ['structure', 'commercial', 'landmark'],
+    color: '#8A7A68',
+    footprint: { w: 4, h: 4 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'banner']
+  },
+  {
+    id: 'warehouse',
+    name: 'Warehouse',
+    category: 'building',
+    tags: ['structure', 'commercial', 'storage'],
+    color: '#6A5A48',
+    footprint: { w: 4, h: 3 },
+    styleSetSlots: ['wall', 'roof', 'door']
+  },
+  {
+    id: 'watchtower',
+    name: 'Watchtower',
+    category: 'building',
+    tags: ['structure', 'military', 'landmark'],
+    color: '#5A5A5A',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'window']
+  },
+  {
+    id: 'mansion',
+    name: 'Mansion',
+    category: 'building',
+    tags: ['structure', 'residential', 'noble'],
+    color: '#C8B8A0',
+    footprint: { w: 5, h: 4 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'balcony']
+  },
+  {
+    id: 'bakery',
+    name: 'Bakery',
+    category: 'building',
+    tags: ['structure', 'commercial'],
+    color: '#B89878',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'awning']
+  },
+  {
+    id: 'apothecary',
+    name: 'Apothecary',
+    category: 'building',
+    tags: ['structure', 'commercial'],
+    color: '#7A8A6A',
+    footprint: { w: 2, h: 3 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'sign']
+  },
+  {
+    id: 'inn',
+    name: 'Inn',
+    category: 'building',
+    tags: ['structure', 'commercial', 'social'],
+    color: '#9A7A58',
+    footprint: { w: 3, h: 3 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'sign', 'balcony']
+  },
+  {
+    id: 'temple',
+    name: 'Temple',
+    category: 'building',
+    tags: ['structure', 'religious', 'landmark'],
+    color: '#B0A890',
+    footprint: { w: 5, h: 5 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  {
+    id: 'covered_market',
+    name: 'Covered Market',
+    category: 'building',
+    tags: ['structure', 'commercial'],
+    color: '#8A7A60',
+    footprint: { w: 4, h: 3 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'bell_tower',
+    name: 'Bell Tower',
+    category: 'building',
+    tags: ['structure', 'landmark'],
+    color: '#9A9A90',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'window']
+  },
+  {
+    id: 'half_timber',
+    name: 'Half-Timber House',
+    category: 'building',
+    tags: ['structure', 'residential'],
+    color: '#C8B090',
+    footprint: { w: 3, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  {
+    id: 'narrow_house',
+    name: 'Narrow House',
+    category: 'building',
+    tags: ['structure', 'residential'],
+    color: '#A89070',
+    footprint: { w: 1, h: 3 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
   },
 
   // === VEGETATION ===
@@ -385,12 +533,268 @@ const defaultObjectDefs: ObjectDefinition[] = [
     color: '#8A8A88',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
-  }
+  },
+  // --- New props: life and heritage ---
+  {
+    id: 'horse_post',
+    name: 'Horse Post',
+    category: 'prop',
+    tags: ['transport'],
+    color: '#5A4A30',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'flower_box',
+    name: 'Flower Box',
+    category: 'vegetation',
+    tags: ['nature', 'decoration'],
+    color: '#8A5A3A',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'rain_barrel',
+    name: 'Rain Barrel',
+    category: 'prop',
+    tags: ['water', 'storage'],
+    color: '#5A4A38',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'woodpile',
+    name: 'Woodpile',
+    category: 'prop',
+    tags: ['storage'],
+    color: '#7A5A30',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'cart',
+    name: 'Cart',
+    category: 'prop',
+    tags: ['transport'],
+    color: '#6A5030',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'column',
+    name: 'Column',
+    category: 'infrastructure',
+    tags: ['decoration', 'architectural'],
+    color: '#A0A098',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'monument',
+    name: 'Monument',
+    category: 'prop',
+    tags: ['decoration', 'landmark'],
+    color: '#8A8A80',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: []
+  },
+  {
+    id: 'garden_arch',
+    name: 'Garden Arch',
+    category: 'vegetation',
+    tags: ['decoration', 'nature'],
+    color: '#4A7A3A',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'cloth_line',
+    name: 'Clothesline',
+    category: 'prop',
+    tags: ['domestic'],
+    color: '#C0B090',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'hay_bale',
+    name: 'Hay Bale',
+    category: 'prop',
+    tags: ['agricultural'],
+    color: '#C8A850',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'dock',
+    name: 'Dock',
+    category: 'infrastructure',
+    tags: ['water', 'harbor'],
+    color: '#6A5030',
+    footprint: { w: 3, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'crane',
+    name: 'Crane',
+    category: 'infrastructure',
+    tags: ['harbor', 'industrial'],
+    color: '#4A4A4A',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: []
+  },
+  {
+    id: 'pier',
+    name: 'Pier',
+    category: 'infrastructure',
+    tags: ['water', 'harbor'],
+    color: '#5A4A30',
+    footprint: { w: 4, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'fishing_boat',
+    name: 'Fishing Boat',
+    category: 'prop',
+    tags: ['water', 'harbor'],
+    color: '#6A5030',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'gravestone',
+    name: 'Gravestone',
+    category: 'prop',
+    tags: ['cemetery', 'decoration'],
+    color: '#8A8A80',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'iron_fence',
+    name: 'Iron Fence',
+    category: 'infrastructure',
+    tags: ['barrier', 'cemetery'],
+    color: '#3A3A3A',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'windmill',
+    name: 'Windmill',
+    category: 'building',
+    tags: ['structure', 'landmark', 'countryside'],
+    color: '#C8B898',
+    footprint: { w: 3, h: 3 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'farm_field',
+    name: 'Farm Field',
+    category: 'prop',
+    tags: ['agricultural', 'countryside'],
+    color: '#8A7A40',
+    footprint: { w: 4, h: 3 },
+    styleSetSlots: []
+  },
+  {
+    id: 'orchard_tree',
+    name: 'Orchard Tree',
+    category: 'vegetation',
+    tags: ['nature', 'countryside'],
+    color: '#2D7A27',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'road_marker',
+    name: 'Road Marker',
+    category: 'prop',
+    tags: ['info', 'countryside'],
+    color: '#8A8A80',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'cathedral',
+    name: 'Cathedral',
+    category: 'building',
+    tags: ['structure', 'landmark', 'religious'],
+    color: '#C8B898',
+    footprint: { w: 5, h: 6 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'lighthouse',
+    name: 'Lighthouse',
+    category: 'building',
+    tags: ['structure', 'landmark', 'harbor'],
+    color: '#E8E0D0',
+    footprint: { w: 3, h: 3 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'round_tower',
+    name: 'Round Tower',
+    category: 'building',
+    tags: ['structure', 'fortification'],
+    color: '#8A8A80',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'gatehouse',
+    name: 'Gatehouse',
+    category: 'building',
+    tags: ['structure', 'fortification', 'landmark'],
+    color: '#8A8A80',
+    footprint: { w: 4, h: 2 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'stable',
+    name: 'Stable',
+    category: 'building',
+    tags: ['structure', 'functional'],
+    color: '#8A7050',
+    footprint: { w: 4, h: 3 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'mill',
+    name: 'Mill',
+    category: 'building',
+    tags: ['structure', 'functional', 'waterfront'],
+    color: '#A09070',
+    footprint: { w: 3, h: 3 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'bell_tower_tall',
+    name: 'Bell Tower',
+    category: 'building',
+    tags: ['structure', 'landmark', 'religious'],
+    color: '#C8B898',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'aqueduct',
+    name: 'Aqueduct',
+    category: 'infrastructure',
+    tags: ['structure', 'landmark'],
+    color: '#8A8A80',
+    footprint: { w: 5, h: 1 },
+    styleSetSlots: ['wall']
+  },
 ]
 
 // === STORE ===
 
 interface AppState {
+  // App mode
+  appMode: AppMode
+
   // Document
   map: MapDocument
   projectName: string
@@ -425,9 +829,19 @@ interface AppState {
   inspirationPalette: ExtractedPalette | null
   buildingPalettes: BuildingPalette[] | null  // null = use defaults
 
+  // Search & Asset Generation
+  searchResults: SearchResult[]
+  searchQuery: string
+  searchLoading: boolean
+  generatedAssets: GeneratedAsset[]
+  selectedSearchResult: SearchResult | null
+
   // Undo/redo
   undoStack: Command[]
   redoStack: Command[]
+
+  // Mode
+  setAppMode: (mode: AppMode) => void
 
   // Map operations
   setMap: (map: MapDocument) => void
@@ -482,6 +896,15 @@ interface AppState {
   updateManifestEntry: (id: string, updates: Partial<ManifestEntry>) => void
   removeManifestEntry: (id: string) => void
 
+  // Search & Asset Generation
+  setSearchResults: (results: SearchResult[]) => void
+  setSearchQuery: (query: string) => void
+  setSearchLoading: (loading: boolean) => void
+  setSelectedSearchResult: (result: SearchResult | null) => void
+  addGeneratedAsset: (asset: GeneratedAsset) => void
+  updateGeneratedAsset: (id: string, updates: Partial<GeneratedAsset>) => void
+  removeGeneratedAsset: (id: string) => void
+
   // Undo/redo
   executeCommand: (cmd: Command) => void
   undo: () => void
@@ -494,6 +917,7 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set, get) => ({
   // Initial state
+  appMode: 'menu' as AppMode,
   map: createDefaultMap(),
   projectName: 'Untitled Project',
   projectPath: null,
@@ -511,24 +935,56 @@ export const useAppStore = create<AppState>((set, get) => ({
   renderCamera: {
     id: 'default-camera',
     name: 'Camera 1',
-    worldX: 16,
-    worldY: 16,
-    lookAtX: 24,
-    lookAtY: 24,
-    elevation: 20,
-    fov: 50,
-    outputWidth: 320,
-    outputHeight: 240,
+    worldX: 14,
+    worldY: 12,
+    lookAtX: 26,
+    lookAtY: 26,
+    elevation: 3,
+    fov: 55,
+    outputWidth: 640,
+    outputHeight: 480,
     paletteId: 'db32'
   },
   inspirationImage: null,
   inspirationPalette: null,
   buildingPalettes: null,
+  searchResults: [],
+  searchQuery: '',
+  searchLoading: false,
+  generatedAssets: [],
+  selectedSearchResult: null,
   undoStack: [],
   redoStack: [],
 
+  // Mode
+  setAppMode: (mode) => set({ appMode: mode }),
+
   // Map operations
-  setMap: (map) => set({ map, dirty: true }),
+  setMap: (map) => {
+    // Auto-center camera on new map
+    const cx = map.gridWidth / 2
+    const cy = map.gridHeight / 2
+    const mapSize = Math.max(map.gridWidth, map.gridHeight)
+    const elevation = Math.max(3, mapSize * 0.2)
+    const fov = 48
+    const halfFov = (fov * Math.PI / 180) / 2
+    const framingDist = (mapSize * 0.6) / Math.tan(halfFov)
+    const dist = Math.max(mapSize * 0.3, Math.min(mapSize * 1.5, framingDist))
+    const angle = -Math.PI * 0.75
+    const hDist = Math.sqrt(Math.max(0, dist * dist - elevation * elevation)) || dist * 0.5
+    set({
+      map, dirty: true,
+      renderCamera: {
+        ...get().renderCamera,
+        worldX: Math.round((cx + Math.cos(angle) * hDist) * 2) / 2,
+        worldY: Math.round((cy + Math.sin(angle) * hDist) * 2) / 2,
+        lookAtX: cx,
+        lookAtY: cy,
+        elevation,
+        fov,
+      }
+    })
+  },
   setProjectPath: (path) => set({ projectPath: path }),
   setDirty: (dirty) => set({ dirty }),
 
@@ -599,21 +1055,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       dirty: true
     })),
 
-  // Terrain operations
+  // Terrain operations — only clone the changed row, skip no-ops
   paintTerrain: (layerId, x, y, tileId) =>
-    set((state) => ({
-      map: {
-        ...state.map,
-        layers: state.map.layers.map((l) => {
-          if (l.id !== layerId || !l.terrainTiles) return l
-          const newTiles = l.terrainTiles.map((row, ry) =>
-            ry === y ? row.map((t, rx) => (rx === x ? tileId : t)) : row
-          )
-          return { ...l, terrainTiles: newTiles }
-        })
-      },
-      dirty: true
-    })),
+    set((state) => {
+      const layers = state.map.layers.map((l) => {
+        if (l.id !== layerId || !l.terrainTiles) return l
+        if (l.terrainTiles[y]?.[x] === tileId) return l // no-op: already this tile
+        const newRow = [...l.terrainTiles[y]]
+        newRow[x] = tileId
+        const newTiles = [...l.terrainTiles]
+        newTiles[y] = newRow
+        return { ...l, terrainTiles: newTiles }
+      })
+      if (layers === state.map.layers) return state // nothing changed
+      return { map: { ...state.map, layers }, dirty: true }
+    }),
 
   // Selection
   setSelectedObjectIds: (ids) => set({ selectedObjectIds: ids }),
@@ -688,6 +1144,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       manifest: state.manifest.filter((e) => e.id !== id),
       dirty: true
+    })),
+
+  // Search & Asset Generation
+  setSearchResults: (results) => set({ searchResults: results }),
+  setSearchQuery: (query) => set({ searchQuery: query }),
+  setSearchLoading: (loading) => set({ searchLoading: loading }),
+  setSelectedSearchResult: (result) => set({ selectedSearchResult: result }),
+  addGeneratedAsset: (asset) =>
+    set((state) => ({ generatedAssets: [...state.generatedAssets, asset] })),
+  updateGeneratedAsset: (id, updates) =>
+    set((state) => ({
+      generatedAssets: state.generatedAssets.map((a) =>
+        a.id === id ? { ...a, ...updates } : a
+      )
+    })),
+  removeGeneratedAsset: (id) =>
+    set((state) => ({
+      generatedAssets: state.generatedAssets.filter((a) => a.id !== id)
     })),
 
   // Undo/redo

@@ -5,6 +5,7 @@ import { StructureLayer } from './layers/StructureLayer'
 import { PropLayer } from './layers/PropLayer'
 import { OverlayLayer } from './layers/OverlayLayer'
 import type { MapDocument, ObjectDefinition } from '../core/types'
+import { useAppStore } from '../app/store'
 
 export class EditorViewport {
   app: Application
@@ -22,6 +23,16 @@ export class EditorViewport {
   private _lastPanX = 0
   private _lastPanY = 0
   private _spaceHeld = false
+  private _keysHeld = new Set<string>()
+  private _cameraTickId = 0
+  private _renderScheduled = false
+  private _lastHoverTileX = -1
+  private _lastHoverTileY = -1
+  private _objectBoundsCache: ReturnType<EditorViewport['getAllObjects']> | null = null
+  // Stored listener refs for cleanup
+  private _wheelHandler: ((e: WheelEvent) => void) | null = null
+  private _keyDownHandler: ((e: KeyboardEvent) => void) | null = null
+  private _keyUpHandler: ((e: KeyboardEvent) => void) | null = null
 
   // Callbacks
   onTileClick?: (tileX: number, tileY: number, event: FederatedPointerEvent) => void
@@ -40,14 +51,38 @@ export class EditorViewport {
   }
 
   async init(canvas: HTMLCanvasElement): Promise<void> {
-    await this.app.init({
+    // Pre-check: can we actually get a WebGL context?
+    const testCanvas = document.createElement('canvas')
+    const gl = testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl')
+    if (!gl) {
+      throw new Error('WebGL is not available. Software rendering may not be supported.')
+    }
+    // Clean up the test context
+    const ext = (gl as WebGLRenderingContext).getExtension('WEBGL_lose_context')
+    if (ext) ext.loseContext()
+
+    // Race PixiJS init against a 6-second timeout
+    const initPromise = this.app.init({
       canvas,
       resizeTo: canvas.parentElement!,
-      backgroundColor: 0x1a1a2e,
+      backgroundColor: 0x080c1a,
       antialias: false,
-      resolution: window.devicePixelRatio || 1,
-      autoDensity: true
+      resolution: 1,
+      autoDensity: true,
+      preferWebGLVersion: 1,
+      preference: 'webgl',
+      hello: false
     })
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('PixiJS init timed out after 6s. WebGL context may be stuck.')), 6000)
+    })
+
+    await Promise.race([initPromise, timeoutPromise])
+
+    // Throttle idle rendering to 1 FPS (keeps event system alive, near-zero cost)
+    // Explicit requestRender() calls handle on-demand frames during interaction
+    this.app.ticker.maxFPS = 1
 
     // Pass app to terrain layer for RenderTexture support
     this.terrainLayer.setApp(this.app)
@@ -61,6 +96,17 @@ export class EditorViewport {
 
     this.setupInteraction()
     this.centerView(32, 32, 32)
+    this.requestRender()
+  }
+
+  /** Coalesce render requests — at most one render per animation frame */
+  requestRender(): void {
+    if (this._renderScheduled) return
+    this._renderScheduled = true
+    requestAnimationFrame(() => {
+      this._renderScheduled = false
+      this.app.render()
+    })
   }
 
   centerView(gridWidth: number, gridHeight: number, tileSize: number): void {
@@ -101,8 +147,12 @@ export class EditorViewport {
 
       const tile = this.screenToTile(e.globalX, e.globalY)
 
-      // Always fire hover for preview feedback
-      this.onTileHover?.(tile.x, tile.y, e)
+      // Only fire hover when tile coordinate changes (not every pixel)
+      if (tile.x !== this._lastHoverTileX || tile.y !== this._lastHoverTileY) {
+        this._lastHoverTileX = tile.x
+        this._lastHoverTileY = tile.y
+        this.onTileHover?.(tile.x, tile.y, e)
+      }
 
       // Drag support for tools
       if (e.buttons === 1 && !this._spaceHeld) {
@@ -123,11 +173,12 @@ export class EditorViewport {
 
     stage.on('pointerleave', () => {
       this.overlayLayer.clearPreview()
+      this.requestRender()
     })
 
     // Zoom with scroll wheel - smooth
     const canvasEl = this.app.canvas
-    canvasEl.addEventListener('wheel', (e: WheelEvent) => {
+    this._wheelHandler = (e: WheelEvent) => {
       e.preventDefault()
       const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1
       const newZoom = Math.max(0.1, Math.min(10, this._zoom * zoomFactor))
@@ -139,28 +190,98 @@ export class EditorViewport {
       this._zoom = newZoom
 
       this.updateTransform()
-    }, { passive: false })
+    }
+    canvasEl.addEventListener('wheel', this._wheelHandler, { passive: false })
 
-    // Space key for panning
-    window.addEventListener('keydown', (e: KeyboardEvent) => {
+    // Space key for panning + WASD for camera movement
+    this._keyDownHandler = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !e.repeat) {
         this._spaceHeld = true
         canvasEl.style.cursor = 'grab'
       }
-    })
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'].includes(e.code)) {
+        this._keysHeld.add(e.code)
+        if (this._keysHeld.size === 1) this.startCameraTick()
+      }
+    }
+    window.addEventListener('keydown', this._keyDownHandler)
 
-    window.addEventListener('keyup', (e: KeyboardEvent) => {
+    this._keyUpHandler = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         this._spaceHeld = false
         canvasEl.style.cursor = 'default'
       }
-    })
+      this._keysHeld.delete(e.code)
+      if (this._keysHeld.size === 0) this.stopCameraTick()
+    }
+    window.addEventListener('keyup', this._keyUpHandler)
   }
 
   private updateTransform(): void {
     this.worldContainer.x = this._panX
     this.worldContainer.y = this._panY
     this.worldContainer.scale.set(this._zoom)
+    this.requestRender()
+  }
+
+  // === WASD Camera Movement ===
+
+  private startCameraTick(): void {
+    if (this._cameraTickId) return
+    const tick = () => {
+      if (this._keysHeld.size === 0) {
+        this._cameraTickId = 0
+        return // Stop loop when no keys held
+      }
+      this.tickCamera()
+      this._cameraTickId = requestAnimationFrame(tick)
+    }
+    this._cameraTickId = requestAnimationFrame(tick)
+  }
+
+  private stopCameraTick(): void {
+    if (this._cameraTickId) {
+      cancelAnimationFrame(this._cameraTickId)
+      this._cameraTickId = 0
+    }
+  }
+
+  private tickCamera(): void {
+    if (this._keysHeld.size === 0) return
+    const store = useAppStore.getState()
+    const cam = store.renderCamera
+    const speed = 0.25 // tiles per frame
+
+    // Forward/right vectors from camera→lookAt direction
+    const dx = cam.lookAtX - cam.worldX
+    const dy = cam.lookAtY - cam.worldY
+    const len = Math.sqrt(dx * dx + dy * dy) || 1
+    const fwdX = dx / len, fwdY = dy / len
+    const rightX = -fwdY, rightY = fwdX
+
+    let moveX = 0, moveY = 0, moveElev = 0
+    if (this._keysHeld.has('KeyW')) { moveX += fwdX * speed; moveY += fwdY * speed }
+    if (this._keysHeld.has('KeyS')) { moveX -= fwdX * speed; moveY -= fwdY * speed }
+    if (this._keysHeld.has('KeyA')) { moveX -= rightX * speed; moveY -= rightY * speed }
+    if (this._keysHeld.has('KeyD')) { moveX += rightX * speed; moveY += rightY * speed }
+    if (this._keysHeld.has('KeyQ')) { moveElev += speed * 0.5 }
+    if (this._keysHeld.has('KeyE')) { moveElev -= speed * 0.5 }
+
+    if (moveX || moveY || moveElev) {
+      store.updateRenderCamera({
+        worldX: cam.worldX + moveX,
+        worldY: cam.worldY + moveY,
+        lookAtX: cam.lookAtX + moveX,
+        lookAtY: cam.lookAtY + moveY,
+        elevation: Math.max(0.5, cam.elevation + moveElev),
+      })
+      // Update camera overlay if visible
+      this.overlayLayer.showCameraFrustum(
+        useAppStore.getState().renderCamera,
+        store.map.tileSize
+      )
+      this.requestRender()
+    }
   }
 
   screenToTile(screenX: number, screenY: number): { x: number; y: number } {
@@ -197,17 +318,24 @@ export class EditorViewport {
     if (propLayer) {
       this.propLayer.update(propLayer, map.tileSize, objectDefs)
     }
+
+    this._objectBoundsCache = null
+    this.requestRender()
   }
 
   updateSelection(selectedIds: string[], hoveredId: string | null, tileSize: number): void {
     this.overlayLayer.updateSelection(selectedIds, hoveredId, tileSize, this.getAllObjects())
+    this.requestRender()
   }
 
   getAllObjects() {
-    return [
-      ...this.structureLayer.getObjectBounds(),
-      ...this.propLayer.getObjectBounds()
-    ]
+    if (!this._objectBoundsCache) {
+      this._objectBoundsCache = [
+        ...this.structureLayer.getObjectBounds(),
+        ...this.propLayer.getObjectBounds()
+      ]
+    }
+    return this._objectBoundsCache
   }
 
   updateLayerVisibility(layers: MapDocument['layers']): void {
@@ -224,13 +352,26 @@ export class EditorViewport {
           break
       }
     }
+    this.requestRender()
   }
 
   resize(): void {
     this.app.resize()
+    this.requestRender()
   }
 
   destroy(): void {
+    // Clean up event listeners to prevent memory leaks
+    this.stopCameraTick()
+    if (this._wheelHandler) {
+      this.app.canvas.removeEventListener('wheel', this._wheelHandler)
+    }
+    if (this._keyDownHandler) {
+      window.removeEventListener('keydown', this._keyDownHandler)
+    }
+    if (this._keyUpHandler) {
+      window.removeEventListener('keyup', this._keyUpHandler)
+    }
     this.app.destroy(true)
   }
 }

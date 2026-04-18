@@ -27,13 +27,22 @@ export function GenerationPanel() {
   })
 
   const [lastSeed, setLastSeed] = useState<number | null>(null)
+  const [genError, setGenError] = useState<string | null>(null)
 
   const handleGenerate = () => {
-    const gen = getGenerator(config.mapType)
-    if (!gen) return
-    const map = gen.generate(config)
-    setMap(map)
-    setLastSeed(config.seed)
+    setGenError(null)
+    try {
+      const gen = getGenerator(config.mapType)
+      if (!gen) {
+        setGenError('No generator found for type: ' + config.mapType)
+        return
+      }
+      const map = gen.generate(config)
+      setMap(map)
+      setLastSeed(config.seed)
+    } catch (e) {
+      setGenError(String(e))
+    }
   }
 
   const handleRandomSeed = () => {
@@ -175,7 +184,12 @@ export function GenerationPanel() {
                 </button>
               </div>
 
-              {lastSeed !== null && (
+              {genError && (
+                <div style={{ fontSize: 11, color: '#d95763', marginTop: 4, wordBreak: 'break-word' }}>
+                  {genError}
+                </div>
+              )}
+              {lastSeed !== null && !genError && (
                 <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 4, textAlign: 'center' }}>
                   Last seed: {lastSeed}
                 </div>

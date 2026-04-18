@@ -177,6 +177,32 @@ export interface Project {
 
 export type ToolType = 'select' | 'place' | 'erase' | 'brush' | 'camera'
 
+// === APP MODES ===
+
+export type AppMode = 'menu' | 'landscape' | 'asset-creator'
+
+// === SEARCH / ASSET GENERATION ===
+
+export interface SearchResult {
+  id: string
+  url: string
+  thumbnailUrl: string
+  title: string
+  source: string
+  width: number
+  height: number
+}
+
+export interface GeneratedAsset {
+  id: string
+  name: string
+  prompt: string
+  imageUrl: string
+  modelUrl?: string
+  status: 'pending' | 'generating' | 'complete' | 'error'
+  createdAt: number
+}
+
 export interface SelectionState {
   selectedIds: string[]
   hoveredId: string | null

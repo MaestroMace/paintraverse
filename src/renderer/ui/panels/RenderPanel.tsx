@@ -1,14 +1,36 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAppStore } from '../../app/store'
-import { renderPixelArt } from '../../renderer3d/RenderPipeline'
+import { renderPixelArt, renderPreviewFrame } from '../../renderer3d/RenderPipeline'
 import { PALETTES } from '../../renderer3d/PaletteQuantizer'
+import { ThreeRenderer } from '../../renderer3d/ThreeRenderer'
+import { getActiveThreeRenderer } from '../components/ThreeViewport'
+
+const CAMERA_PRESETS = [
+  { label: 'Street', elevation: 1.5, fov: 60, desc: 'Low angle among buildings' },
+  { label: 'Eye Level', elevation: 3, fov: 55, desc: 'Standing perspective' },
+  { label: 'Rooftop', elevation: 8, fov: 48, desc: 'Above the rooftops' },
+  { label: 'Overview', elevation: 16, fov: 42, desc: 'Wide town view' },
+  { label: "Bird's Eye", elevation: 30, fov: 35, desc: 'Near top-down' },
+]
 
 export function RenderPanel() {
   const [collapsed, setCollapsed] = useState(false)
   const [rendering, setRendering] = useState(false)
   const [previewURL, setPreviewURL] = useState<string | null>(null)
+  const canvasContainerRef = useRef<HTMLDivElement>(null)
+  const liveCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [playing, setPlaying] = useState(false)
+  const [fps, setFps] = useState(0)
   const previewRef = useRef<HTMLDivElement>(null)
+  const animFrameRef = useRef<number>(0)
+  const timeRef = useRef(0)
+  const fpsCountRef = useRef(0)
+  const fpsTimerRef = useRef(0)
+  const threeRef = useRef<ThreeRenderer | null>(null)
+  const threeContainerRef = useRef<HTMLDivElement>(null)
+  const [threeActive, setThreeActive] = useState(false)
 
   const map = useAppStore((s) => s.map)
   const objectDefs = useAppStore((s) => s.objectDefinitions)
@@ -18,22 +40,23 @@ export function RenderPanel() {
   const buildingPalettes = useAppStore((s) => s.buildingPalettes)
 
   const [renderOpts, setRenderOpts] = useState({
-    dithering: 'ordered' as 'none' | 'ordered' | 'floyd-steinberg',
-    outlines: true
+    dithering: 'none' as 'none' | 'ordered' | 'floyd-steinberg',
+    outlines: false
   })
 
   const handleRender = () => {
     setRendering(true)
     setError(null)
     setPreviewURL(null)
-
+    setPlaying(false)
     requestAnimationFrame(() => {
       try {
         const result = renderPixelArt(map, camera, objectDefs, {
           paletteId: camera.paletteId,
           dithering: renderOpts.dithering,
-          outlines: renderOpts.outlines
-        }, buildingPalettes)
+          outlines: renderOpts.outlines,
+          quality: 'final'
+        }, buildingPalettes, timeRef.current)
         setPreviewURL(result.imageDataURL)
       } catch (e) {
         setError(String(e))
@@ -43,161 +66,457 @@ export function RenderPanel() {
     })
   }
 
+  // Animation loop — renders continuously in preview quality
+  const renderFrame = useCallback((ts: number) => {
+    const dt = fpsTimerRef.current ? (ts - fpsTimerRef.current) / 1000 : 0
+    fpsTimerRef.current = ts
+    timeRef.current += dt
+    fpsCountRef.current++
+
+    // Update FPS display every second
+    if (fpsCountRef.current % 15 === 0) {
+      setFps(dt > 0 ? Math.round(1 / dt) : 0)
+    }
+
+    try {
+      const state = useAppStore.getState()
+      // FAST PATH: renderPreviewFrame returns canvas directly
+      // No getImageData, no putImageData, no post-processing, no PNG encode
+      const srcCanvas = renderPreviewFrame(
+        state.map, state.renderCamera, state.objectDefinitions,
+        state.buildingPalettes, timeRef.current
+      )
+      // Paint to live canvas with drawImage (GPU→GPU, ~0.1ms)
+      const container = canvasContainerRef.current
+      if (container) {
+        if (!liveCanvasRef.current || liveCanvasRef.current.width !== srcCanvas.width || liveCanvasRef.current.height !== srcCanvas.height) {
+          if (liveCanvasRef.current) container.removeChild(liveCanvasRef.current)
+          const c = document.createElement('canvas')
+          c.width = srcCanvas.width; c.height = srcCanvas.height
+          c.style.width = '100%'
+          c.style.maxHeight = '400px'
+          c.style.objectFit = 'contain'
+          c.style.imageRendering = 'pixelated'
+          c.style.border = '1px solid var(--border)'
+          c.style.borderRadius = '3px'
+          c.style.background = '#000'
+          container.appendChild(c)
+          liveCanvasRef.current = c
+        }
+        const lctx = liveCanvasRef.current.getContext('2d')!
+        lctx.drawImage(srcCanvas, 0, 0)
+      }
+    } catch (_) { /* skip frame on error */ }
+
+    animFrameRef.current = requestAnimationFrame(renderFrame)
+  }, [])
+
+  useEffect(() => {
+    if (!playing) {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
+      // Clean up live canvas when stopping
+      if (liveCanvasRef.current && canvasContainerRef.current) {
+        canvasContainerRef.current.removeChild(liveCanvasRef.current)
+        liveCanvasRef.current = null
+      }
+      return
+    }
+    fpsTimerRef.current = 0
+    fpsCountRef.current = 0
+    animFrameRef.current = requestAnimationFrame(renderFrame)
+    return () => { cancelAnimationFrame(animFrameRef.current) }
+  }, [playing, renderFrame])
+
+  // === Three.js 3D View lifecycle ===
+  useEffect(() => {
+    if (!threeActive) {
+      if (threeRef.current) {
+        threeRef.current.dispose()
+        threeRef.current = null
+      }
+      return
+    }
+    const container = threeContainerRef.current
+    if (!container) return
+
+    const renderer = new ThreeRenderer()
+    renderer.init(container)
+    renderer.loadMap(map, objectDefs, buildingPalettes)
+    threeRef.current = renderer
+
+    return () => {
+      renderer.dispose()
+      threeRef.current = null
+    }
+  }, [threeActive]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reload map when it changes while 3D view is active
+  useEffect(() => {
+    if (threeRef.current && threeActive) {
+      threeRef.current.loadMap(map, objectDefs, buildingPalettes)
+    }
+  }, [map, objectDefs, buildingPalettes, threeActive])
+
   const handleExport = () => {
-    if (!previewURL) return
+    // Render final quality if no preview exists
+    let url = previewURL
+    if (!url) {
+      try {
+        const result = renderPixelArt(map, camera, objectDefs, {
+          paletteId: camera.paletteId, dithering: renderOpts.dithering,
+          outlines: renderOpts.outlines, quality: 'final'
+        }, buildingPalettes, timeRef.current)
+        url = result.imageDataURL
+        setPreviewURL(url)
+      } catch { return }
+    }
     const link = document.createElement('a')
     link.download = `${map.name.replace(/\s+/g, '_')}_render.png`
-    link.href = previewURL
+    link.href = url
     link.click()
   }
 
-  const handleCenterCamera = () => {
+  const handleDebugPackage = () => {
+    // Gather all current settings and state into a debug bundle
+    const debugData: Record<string, unknown> = {
+      timestamp: new Date().toISOString(),
+      camera: { ...camera },
+      renderOptions: { ...renderOpts, paletteId: camera.paletteId },
+      environment: { ...map.environment },
+      mapInfo: {
+        name: map.name,
+        gridWidth: map.gridWidth,
+        gridHeight: map.gridHeight,
+        tileSize: map.tileSize,
+        layerCount: map.layers.length,
+        layers: map.layers.map((l) => ({
+          name: l.name,
+          type: l.type,
+          objectCount: l.objects.length,
+          visible: l.visible
+        }))
+      },
+      totalObjects: map.layers.reduce((sum, l) => sum + l.objects.length, 0),
+      buildingPalettes: buildingPalettes ? buildingPalettes.length : 'default'
+    }
+
+    // Capture 3D view if active, otherwise editor canvas
+    const threeRenderer = getActiveThreeRenderer()
+    const threeURL = threeRenderer ? threeRenderer.captureScreenshot() : null
+    const editorCanvas = document.querySelector('canvas') as HTMLCanvasElement | null
+    const overheadURL = (!threeURL && editorCanvas) ? editorCanvas.toDataURL('image/png') : null
+
+    // Build a single HTML file with everything embedded
+    const html = `<!DOCTYPE html>
+<html><head><title>Debug Package - ${map.name}</title>
+<style>
+body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; max-width: 1200px; margin: 0 auto; }
+h1 { color: #fff; border-bottom: 1px solid #333; padding-bottom: 8px; }
+h2 { color: #aaa; margin-top: 24px; }
+.images { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }
+.images div { flex: 1; min-width: 300px; }
+.images img { width: 100%; image-rendering: pixelated; border: 2px solid #333; border-radius: 4px; }
+pre { background: #0d0d1a; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; line-height: 1.5; }
+.label { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 4px; }
+</style></head><body>
+<h1>Debug Package</h1>
+<p>${new Date().toLocaleString()}</p>
+
+<div class="images">
+${threeURL ? `<div><div class="label">3D View (real-time)</div><img src="${threeURL}" /></div>` : ''}
+${previewURL ? `<div><div class="label">Rendered Output (${camera.outputWidth}x${camera.outputHeight})</div><img src="${previewURL}" /></div>` : '<div><div class="label">No render available</div></div>'}
+${overheadURL ? `<div><div class="label">Overhead / Editor View</div><img src="${overheadURL}" /></div>` : ''}
+</div>
+
+<h2>Settings</h2>
+<pre>${JSON.stringify(debugData, null, 2)}</pre>
+</body></html>`
+
+    const blob = new Blob([html], { type: 'text/html' })
+    const link = document.createElement('a')
+    link.download = `${map.name.replace(/\s+/g, '_')}_debug_${Date.now()}.html`
+    link.href = URL.createObjectURL(blob)
+    link.click()
+    URL.revokeObjectURL(link.href)
+  }
+
+  // Place camera at a given elevation looking at map center.
+  // Uses the FOV and elevation to compute proper distance so the
+  // town fills the frame. Camera is placed "in front" (lower Y)
+  // at an angle that feels like a 3/4 view.
+  const placeCamera = (elevation: number, fov: number) => {
     const cx = map.gridWidth / 2
     const cy = map.gridHeight / 2
     const mapSize = Math.max(map.gridWidth, map.gridHeight)
+
+    // Distance from look-at center: enough to see the town.
+    // At higher elevations we pull back; at low we stay close.
+    const halfFovRad = (fov * Math.PI / 180) / 2
+    // Desired visible width ≈ mapSize tiles → distance = mapSize / (2 * tan(halfFov))
+    const framingDist = (mapSize * 0.6) / Math.tan(halfFovRad)
+    // Clamp to keep a reasonable range
+    const dist = Math.max(mapSize * 0.3, Math.min(mapSize * 1.5, framingDist))
+
+    // Camera offset: 45-degree angle "southwest" of center, so we see
+    // both the front and right sides of buildings.
+    const angle = -Math.PI * 0.75 // 225° — looking northeast
+    const hDist = Math.sqrt(Math.max(0, dist * dist - elevation * elevation)) || dist * 0.5
+
     updateCamera({
-      worldX: cx - mapSize * 0.35,
-      worldY: cy + mapSize * 0.45,
+      worldX: Math.round((cx + Math.cos(angle) * hDist) * 2) / 2,
+      worldY: Math.round((cy + Math.sin(angle) * hDist) * 2) / 2,
       lookAtX: cx,
       lookAtY: cy,
-      elevation: mapSize * 0.4,
-      fov: 50
+      elevation,
+      fov,
     })
+  }
+
+  const handleCenterCamera = () => {
+    placeCamera(camera.elevation, camera.fov)
+  }
+
+  const applyPreset = (preset: typeof CAMERA_PRESETS[0]) => {
+    placeCamera(preset.elevation, preset.fov)
   }
 
   return (
     <div className="panel">
       <div className="panel-header" onClick={() => setCollapsed(!collapsed)}>
-        <span>Pixel Art Render</span>
+        <span>Camera & Render</span>
         <span>{collapsed ? '+' : '-'}</span>
       </div>
       {!collapsed && (
         <div className="panel-content">
-          {/* Camera placement hint */}
-          <div style={{
-            background: 'var(--bg-dark)', borderRadius: 3, padding: '6px 8px',
-            marginBottom: 8, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.4
-          }}>
-            Use the <button
-              onClick={() => setActiveTool('camera')}
-              style={{ display: 'inline', padding: '1px 6px', fontSize: 11, verticalAlign: 'baseline' }}
-            >Camera</button> tool (C) to click where you want the camera, then drag toward where it should look.
-            The blue cone shows what's in frame.
-          </div>
-
-          {/* Camera Position - editable but also set by tool */}
-          <div style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
-            Camera Position
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr', gap: '3px 6px', fontSize: 12, marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-dim)' }}>From X</span>
-            <input type="number" value={camera.worldX} step={0.5}
-              onChange={(e) => updateCamera({ worldX: Number(e.target.value) })} />
-            <span style={{ color: 'var(--text-dim)' }}>From Y</span>
-            <input type="number" value={camera.worldY} step={0.5}
-              onChange={(e) => updateCamera({ worldY: Number(e.target.value) })} />
-            <span style={{ color: 'var(--text-dim)' }}>Height</span>
-            <input type="range" min={2} max={60} step={0.5} value={camera.elevation}
-              onChange={(e) => updateCamera({ elevation: Number(e.target.value) })} />
-            <span /><span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{camera.elevation.toFixed(1)} tiles up</span>
-            <span style={{ color: 'var(--text-dim)' }}>Look X</span>
-            <input type="number" value={camera.lookAtX} step={0.5}
-              onChange={(e) => updateCamera({ lookAtX: Number(e.target.value) })} />
-            <span style={{ color: 'var(--text-dim)' }}>Look Y</span>
-            <input type="number" value={camera.lookAtY} step={0.5}
-              onChange={(e) => updateCamera({ lookAtY: Number(e.target.value) })} />
-            <span style={{ color: 'var(--text-dim)' }}>FOV</span>
-            <input type="range" min={25} max={90} value={camera.fov}
-              onChange={(e) => updateCamera({ fov: Number(e.target.value) })} />
-            <span /><span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{camera.fov}&deg; (wider = more in frame)</span>
-          </div>
-
-          <button onClick={handleCenterCamera} style={{ width: '100%', marginBottom: 6, fontSize: 11 }}>
-            Auto-position: Cinematic Overview
-          </button>
-
-          {/* Output Settings */}
-          <div style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4, borderTop: '1px solid var(--border)', paddingTop: 6 }}>
-            Output Settings
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr', gap: '3px 6px', fontSize: 12, marginBottom: 6 }}>
-            <span style={{ color: 'var(--text-dim)' }}>Width</span>
-            <input type="number" value={camera.outputWidth}
-              onChange={(e) => updateCamera({ outputWidth: Number(e.target.value) })} />
-            <span style={{ color: 'var(--text-dim)' }}>Height</span>
-            <input type="number" value={camera.outputHeight}
-              onChange={(e) => updateCamera({ outputHeight: Number(e.target.value) })} />
-          </div>
-
-          {/* Palette */}
-          <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 2 }}>Palette</label>
-          <select
-            value={camera.paletteId}
-            onChange={(e) => updateCamera({ paletteId: e.target.value })}
-            style={{ marginBottom: 6 }}
-          >
-            {Object.entries(PALETTES).map(([id, p]) => (
-              <option key={id} value={id}>{p.name}</option>
-            ))}
-          </select>
-
-          {/* Dithering */}
-          <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 2 }}>Dithering</label>
-          <select
-            value={renderOpts.dithering}
-            onChange={(e) => setRenderOpts((o) => ({ ...o, dithering: e.target.value as typeof o.dithering }))}
-            style={{ marginBottom: 6 }}
-          >
-            <option value="none">None</option>
-            <option value="ordered">Ordered (Bayer)</option>
-            <option value="floyd-steinberg">Floyd-Steinberg</option>
-          </select>
-
-          {/* Outlines */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginBottom: 8 }}>
-            <input
-              type="checkbox"
-              checked={renderOpts.outlines}
-              onChange={(e) => setRenderOpts((o) => ({ ...o, outlines: e.target.checked }))}
-            />
-            Pixel art outlines
-          </label>
-
-          {/* Render button */}
+          {/* 3D View — Three.js real-time renderer */}
           <button
-            onClick={handleRender}
-            className="active"
-            style={{ width: '100%', padding: '8px 10px', fontWeight: 600 }}
-            disabled={rendering}
+            onClick={() => { setThreeActive(!threeActive); if (playing) setPlaying(false) }}
+            style={{
+              width: '100%', padding: '8px 6px', fontSize: 13, fontWeight: 700,
+              marginBottom: 6,
+              background: threeActive ? 'linear-gradient(135deg, #2a6a3a, #1a4a2a)' : undefined,
+              color: threeActive ? '#4ade80' : undefined,
+              borderColor: threeActive ? '#4ade80' : undefined,
+            }}
           >
-            {rendering ? 'Rendering...' : 'Render Pixel Art'}
+            {threeActive ? '[ 3D View Active — WASD to move, drag to look ]' : 'Enter 3D View'}
           </button>
 
-          {error && (
-            <div style={{ color: '#d95763', fontSize: 11, marginTop: 4 }}>{error}</div>
+          {threeActive && (
+            <div
+              ref={threeContainerRef}
+              style={{
+                width: '100%', height: 350, marginBottom: 6,
+                border: '1px solid var(--border)', borderRadius: 3,
+                background: '#000', overflow: 'hidden',
+              }}
+            />
           )}
 
-          {previewURL && (
-            <div ref={previewRef} style={{ marginTop: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase' }}>
-                  Preview ({camera.outputWidth}x{camera.outputHeight})
-                </span>
-                <button onClick={handleExport} style={{ fontSize: 10, padding: '2px 8px' }}>
-                  Export PNG
-                </button>
-              </div>
+          {/* Render + Play buttons (Canvas2D path) */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+            <button
+              onClick={handleRender}
+              className="active"
+              style={{ flex: 2, padding: '7px 6px', fontSize: 12, fontWeight: 700 }}
+              disabled={rendering || playing}
+            >
+              {rendering ? 'Rendering...' : 'Render'}
+            </button>
+            <button
+              onClick={() => setPlaying(!playing)}
+              style={{
+                flex: 1, padding: '7px 6px', fontSize: 12, fontWeight: 700,
+                background: playing ? '#d95763' : undefined,
+                color: playing ? 'white' : undefined,
+                borderColor: playing ? '#d95763' : undefined
+              }}
+              disabled={rendering}
+            >
+              {playing ? 'Stop' : 'Play'}
+            </button>
+            {playing && fps > 0 && (
+              <span style={{ fontSize: 10, color: 'var(--text-dim)', alignSelf: 'center', minWidth: 30 }}>
+                {fps}fps
+              </span>
+            )}
+          </div>
+
+          {error && (
+            <div style={{ color: '#d95763', fontSize: 11, marginBottom: 4, wordBreak: 'break-word' }}>{error}</div>
+          )}
+
+          {/* Preview - immediately below render button */}
+          {/* Live canvas container for animation playback (zero-copy, no PNG encode) */}
+          <div ref={canvasContainerRef} style={{ marginBottom: playing ? 6 : 0 }} />
+
+          {/* Static preview image for final renders */}
+          {previewURL && !playing && (
+            <div ref={previewRef} style={{ marginBottom: 6 }}>
               <img
                 src={previewURL}
                 alt="Pixel art render"
                 style={{
                   width: '100%',
+                  maxHeight: 400,
+                  objectFit: 'contain',
                   imageRendering: 'pixelated',
                   border: '1px solid var(--border)',
                   borderRadius: 3,
-                  background: '#000'
+                  background: '#000',
+                  marginBottom: 3
                 }}
               />
+            </div>
+          )}
+
+          {/* Export/Debug always available */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+            <button onClick={handleExport} style={{ flex: 1, fontSize: 10, padding: '2px 8px' }}>
+              Export PNG
+            </button>
+            <button onClick={handleDebugPackage} style={{ flex: 1, fontSize: 10, padding: '2px 8px' }} title="Download render + overhead + all settings as a single HTML file">
+              Debug Pkg
+            </button>
+          </div>
+
+          {/* Camera presets + palette - compact, always visible */}
+          <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', marginBottom: 4 }}>
+            {CAMERA_PRESETS.map((p) => (
+              <button
+                key={p.label}
+                onClick={() => applyPreset(p)}
+                title={p.desc}
+                style={{
+                  padding: '3px 7px', fontSize: 10,
+                  background: Math.abs(camera.elevation - p.elevation) < 1 ? 'var(--accent)' : undefined,
+                  color: Math.abs(camera.elevation - p.elevation) < 1 ? 'white' : undefined,
+                  borderColor: Math.abs(camera.elevation - p.elevation) < 1 ? 'var(--accent)' : undefined
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+            <select
+              value={camera.paletteId}
+              onChange={(e) => updateCamera({ paletteId: e.target.value })}
+              style={{ flex: 1 }}
+            >
+              {Object.entries(PALETTES).map(([id, p]) => (
+                <option key={id} value={id}>{p.name}</option>
+              ))}
+            </select>
+            <button onClick={handleCenterCamera} style={{ padding: '3px 8px', fontSize: 10 }}>
+              Center
+            </button>
+          </div>
+
+          {/* All adjustable controls - collapsed by default */}
+          <div
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            style={{
+              fontSize: 10, color: 'var(--text-dim)', cursor: 'pointer',
+              userSelect: 'none', display: 'flex', justifyContent: 'space-between',
+              borderTop: '1px solid var(--border)', paddingTop: 4, marginBottom: 4
+            }}
+          >
+            <span>Adjust</span>
+            <span>{showAdvanced ? '-' : '+'}</span>
+          </div>
+
+          {showAdvanced && (
+            <div style={{ marginBottom: 6 }}>
+              {/* Height slider */}
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 1 }}>
+                  <span style={{ color: 'var(--text-dim)' }}>Height</span>
+                  <span>{camera.elevation.toFixed(1)} tiles</span>
+                </div>
+                <input
+                  type="range" min={0.3} max={50} step={0.1} value={camera.elevation}
+                  onChange={(e) => updateCamera({ elevation: Number(e.target.value) })}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              {/* FOV slider */}
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 1 }}>
+                  <span style={{ color: 'var(--text-dim)' }}>Field of View</span>
+                  <span>{camera.fov}&deg;</span>
+                </div>
+                <input
+                  type="range" min={20} max={100} value={camera.fov}
+                  onChange={(e) => updateCamera({ fov: Number(e.target.value) })}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <button
+                onClick={() => setActiveTool('camera')}
+                style={{ width: '100%', padding: '4px 6px', fontSize: 11, marginBottom: 4 }}
+                title="WASD to move, click/drag map to aim, Q/E height"
+              >
+                Camera Mode
+              </button>
+
+              <div style={{
+                fontSize: 9, color: 'var(--text-dim)', marginBottom: 6,
+                padding: '4px 6px', background: 'rgba(255,255,255,0.03)',
+                borderRadius: 3, lineHeight: 1.6, fontFamily: 'monospace'
+              }}>
+                <span style={{ color: 'var(--accent)' }}>WASD</span> move &nbsp;
+                <span style={{ color: 'var(--accent)' }}>Q/E</span> height &nbsp;
+                <span style={{ color: 'var(--accent)' }}>Click</span> aim
+              </div>
+
+              <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 2 }}>
+                Camera at ({camera.worldX.toFixed(1)}, {camera.worldY.toFixed(1)}) → ({camera.lookAtX.toFixed(1)}, {camera.lookAtY.toFixed(1)})
+                &nbsp;|&nbsp;Map: {map.gridWidth}×{map.gridHeight}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr', gap: '3px 6px', fontSize: 12, marginBottom: 6 }}>
+                <span style={{ color: 'var(--text-dim)' }} title="Camera tile column (left-right)">Cam Col</span>
+                <input type="number" value={camera.worldX} step={0.5}
+                  onChange={(e) => updateCamera({ worldX: Number(e.target.value) })} />
+                <span style={{ color: 'var(--text-dim)' }} title="Camera tile row (top-bottom)">Cam Row</span>
+                <input type="number" value={camera.worldY} step={0.5}
+                  onChange={(e) => updateCamera({ worldY: Number(e.target.value) })} />
+                <span style={{ color: 'var(--text-dim)' }} title="Look-at tile column">Aim Col</span>
+                <input type="number" value={camera.lookAtX} step={0.5}
+                  onChange={(e) => updateCamera({ lookAtX: Number(e.target.value) })} />
+                <span style={{ color: 'var(--text-dim)' }} title="Look-at tile row">Aim Row</span>
+                <input type="number" value={camera.lookAtY} step={0.5}
+                  onChange={(e) => updateCamera({ lookAtY: Number(e.target.value) })} />
+                <span style={{ color: 'var(--text-dim)' }}>Width</span>
+                <input type="number" value={camera.outputWidth}
+                  onChange={(e) => updateCamera({ outputWidth: Number(e.target.value) })} />
+                <span style={{ color: 'var(--text-dim)' }}>Height</span>
+                <input type="number" value={camera.outputHeight}
+                  onChange={(e) => updateCamera({ outputHeight: Number(e.target.value) })} />
+              </div>
+
+              <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 2 }}>Dithering</label>
+              <select
+                value={renderOpts.dithering}
+                onChange={(e) => setRenderOpts((o) => ({ ...o, dithering: e.target.value as typeof o.dithering }))}
+                style={{ marginBottom: 4 }}
+              >
+                <option value="none">None</option>
+                <option value="ordered">Ordered (Bayer)</option>
+                <option value="floyd-steinberg">Floyd-Steinberg</option>
+              </select>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                <input
+                  type="checkbox"
+                  checked={renderOpts.outlines}
+                  onChange={(e) => setRenderOpts((o) => ({ ...o, outlines: e.target.checked }))}
+                />
+                Pixel art outlines
+              </label>
             </div>
           )}
         </div>

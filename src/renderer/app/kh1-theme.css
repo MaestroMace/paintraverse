@@ -1,0 +1,401 @@
+/* ========================================
+   Kingdom Hearts 1 - Magical Theme
+   ======================================== */
+
+/* -- Sparkle keyframes -- */
+@keyframes sparkle-float {
+  0% { transform: translateY(0) scale(1); opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { transform: translateY(-120px) scale(0.3); opacity: 0; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 8px var(--glow-color, rgba(100, 160, 255, 0.3)); }
+  50% { box-shadow: 0 0 16px var(--glow-color, rgba(100, 160, 255, 0.5)); }
+}
+
+@keyframes shine-sweep {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes card-hover-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(240, 192, 64, 0.15), inset 0 0 20px rgba(240, 192, 64, 0.05); }
+  50% { box-shadow: 0 0 30px rgba(240, 192, 64, 0.3), inset 0 0 30px rgba(240, 192, 64, 0.1); }
+}
+
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+/* -- Glassmorphism panel -- */
+.kh-panel {
+  background: linear-gradient(
+    135deg,
+    rgba(12, 16, 40, 0.88) 0%,
+    rgba(18, 24, 56, 0.82) 50%,
+    rgba(12, 16, 40, 0.88) 100%
+  );
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(100, 140, 255, 0.15);
+  border-radius: 12px;
+  box-shadow:
+    0 0 12px rgba(60, 100, 200, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.kh-panel:hover {
+  border-color: rgba(100, 140, 255, 0.25);
+  box-shadow:
+    0 0 18px rgba(60, 100, 200, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* -- KH1 Command Menu button style -- */
+.kh-cmd-item {
+  position: relative;
+  padding: 6px 14px 6px 24px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  width: 100%;
+}
+
+.kh-cmd-item::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: transparent;
+  transition: all 0.2s ease;
+}
+
+.kh-cmd-item:hover {
+  background: rgba(100, 140, 255, 0.1);
+}
+
+.kh-cmd-item:hover::before {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.kh-cmd-item.active {
+  background: linear-gradient(90deg, rgba(240, 192, 64, 0.15), transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.kh-cmd-item.active::before {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  width: 8px;
+  height: 8px;
+}
+
+/* -- KH1 Pill button -- */
+.kh-btn {
+  background: linear-gradient(135deg, rgba(30, 40, 80, 0.9), rgba(20, 28, 60, 0.9));
+  border: 1px solid rgba(100, 140, 255, 0.2);
+  border-radius: 20px;
+  padding: 6px 16px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.kh-btn:hover {
+  border-color: rgba(240, 192, 64, 0.4);
+  box-shadow: 0 0 12px rgba(240, 192, 64, 0.15);
+  color: var(--accent);
+}
+
+.kh-btn:active {
+  transform: scale(0.97);
+}
+
+.kh-btn.primary {
+  background: linear-gradient(135deg, rgba(240, 192, 64, 0.2), rgba(200, 160, 40, 0.1));
+  border-color: rgba(240, 192, 64, 0.4);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.kh-btn.primary:hover {
+  background: linear-gradient(135deg, rgba(240, 192, 64, 0.3), rgba(200, 160, 40, 0.15));
+  box-shadow: 0 0 16px rgba(240, 192, 64, 0.25);
+}
+
+/* -- CRT / Retro-future search styling -- */
+.crt-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.crt-container::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.08) 2px,
+    rgba(0, 0, 0, 0.08) 4px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+.crt-input {
+  font-family: 'Courier New', 'Consolas', monospace;
+  background: rgba(0, 8, 16, 0.9);
+  border: 1px solid rgba(80, 200, 120, 0.3);
+  color: #50c878;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  caret-color: #50c878;
+}
+
+.crt-input::placeholder {
+  color: rgba(80, 200, 120, 0.4);
+}
+
+.crt-input:focus {
+  border-color: rgba(80, 200, 120, 0.6);
+  box-shadow: 0 0 12px rgba(80, 200, 120, 0.15);
+  outline: none;
+}
+
+.crt-input.amber {
+  border-color: rgba(240, 192, 64, 0.3);
+  color: #f0c040;
+  caret-color: #f0c040;
+}
+
+.crt-input.amber::placeholder {
+  color: rgba(240, 192, 64, 0.4);
+}
+
+.crt-input.amber:focus {
+  border-color: rgba(240, 192, 64, 0.6);
+  box-shadow: 0 0 12px rgba(240, 192, 64, 0.15);
+}
+
+/* -- Mode card -- */
+.mode-card {
+  position: relative;
+  padding: 32px 24px;
+  border-radius: 16px;
+  background: linear-gradient(
+    145deg,
+    rgba(16, 22, 50, 0.9) 0%,
+    rgba(24, 32, 64, 0.85) 100%
+  );
+  border: 1px solid rgba(100, 140, 255, 0.2);
+  cursor: pointer;
+  transition: all 0.35s ease;
+  overflow: hidden;
+  min-width: 240px;
+  text-align: center;
+}
+
+.mode-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.03) 45%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0.03) 55%,
+    transparent 100%
+  );
+  transition: left 0.6s ease;
+}
+
+.mode-card:hover {
+  transform: translateY(-4px) scale(1.02);
+  border-color: rgba(240, 192, 64, 0.4);
+  box-shadow: 0 8px 32px rgba(240, 192, 64, 0.12), 0 0 20px rgba(60, 100, 200, 0.1);
+}
+
+.mode-card:hover::before {
+  left: 100%;
+}
+
+.mode-card:active {
+  transform: translateY(-2px) scale(1.01);
+}
+
+.mode-card .mode-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  display: block;
+  filter: drop-shadow(0 0 8px rgba(240, 192, 64, 0.3));
+}
+
+.mode-card .mode-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+
+.mode-card .mode-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+/* -- Transition overlay -- */
+.transition-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(ellipse at center, rgba(10, 10, 30, 0.95), rgba(5, 5, 15, 1));
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.transition-overlay.active {
+  opacity: 1;
+  pointer-events: all;
+}
+
+/* -- Search result grid -- */
+.search-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.search-result-card {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(100, 140, 255, 0.1);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  aspect-ratio: 1;
+}
+
+.search-result-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 10px rgba(240, 192, 64, 0.2);
+  transform: scale(1.04);
+  z-index: 2;
+}
+
+.search-result-card.selected {
+  border-color: var(--accent);
+  border-width: 2px;
+  box-shadow: 0 0 14px rgba(240, 192, 64, 0.3);
+}
+
+.search-result-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* -- Asset preview 3D canvas -- */
+.asset-preview-3d {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(100, 140, 255, 0.15);
+  background: radial-gradient(ellipse at 50% 40%, rgba(20, 30, 60, 1), rgba(8, 12, 24, 1));
+  position: relative;
+}
+
+.asset-preview-3d canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* -- Asset library drawer -- */
+.asset-drawer {
+  background: linear-gradient(0deg, rgba(8, 10, 24, 0.95), rgba(12, 16, 36, 0.9));
+  border-top: 1px solid rgba(100, 140, 255, 0.15);
+  padding: 8px;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  align-items: center;
+}
+
+.asset-drawer::-webkit-scrollbar {
+  height: 4px;
+}
+
+.asset-drawer-item {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  border: 1px solid rgba(100, 140, 255, 0.15);
+  background: rgba(16, 22, 44, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.asset-drawer-item:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 8px rgba(240, 192, 64, 0.2);
+}
+
+.asset-drawer-item.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(240, 192, 64, 0.3);
+}

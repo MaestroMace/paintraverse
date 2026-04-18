@@ -2,6 +2,18 @@ import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync } from 'fs'
 
+// GPU/rendering: use ANGLE→SwiftShader (software GL), disable Vulkan (incomplete on Ivy Bridge)
+// Native GL via ANGLE doesn't work in this environment, so SwiftShader is required.
+// Performance is managed by on-demand rendering in the editor (no continuous 60fps loop).
+app.commandLine.appendSwitch('no-sandbox')
+app.commandLine.appendSwitch('disable-gpu-sandbox')
+app.commandLine.appendSwitch('in-process-gpu')
+app.commandLine.appendSwitch('disable-vulkan')
+app.commandLine.appendSwitch('use-gl', 'angle')
+app.commandLine.appendSwitch('use-angle', 'swiftshader')
+app.commandLine.appendSwitch('enable-unsafe-swiftshader')
+app.commandLine.appendSwitch('disable-dev-shm-usage')
+
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
@@ -14,7 +26,9 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: false,
+      webgl: true
     }
   })
 

@@ -1,12 +1,23 @@
 .toolbar {
   display: flex;
   align-items: center;
-  padding: 4px 8px;
-  background: var(--bg-panel);
+  padding: 0 12px;
+  background: linear-gradient(180deg, rgba(14, 18, 40, 0.96), rgba(10, 14, 32, 0.98));
   border-bottom: 1px solid var(--border);
   gap: 4px;
-  height: 40px;
+  height: 44px;
   flex-shrink: 0;
+  position: relative;
+}
+
+.toolbar::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(100, 140, 255, 0.15), transparent);
 }
 
 .toolbar-group {
@@ -21,13 +32,14 @@
   color: var(--accent);
   padding: 0 8px;
   letter-spacing: -0.5px;
+  text-shadow: 0 0 12px rgba(240, 192, 64, 0.3);
 }
 
 .toolbar-divider {
   width: 1px;
   height: 24px;
   background: var(--border);
-  margin: 0 4px;
+  margin: 0 6px;
 }
 
 .toolbar-spacer {
@@ -38,4 +50,76 @@
   font-size: 11px;
   color: var(--text-dim);
   padding-right: 8px;
+}
+
+/* Mode switcher */
+.toolbar-mode-switcher {
+  display: flex;
+  gap: 2px;
+  margin-left: 8px;
+  background: rgba(8, 12, 24, 0.6);
+  border-radius: 8px;
+  padding: 2px;
+  border: 1px solid rgba(100, 140, 255, 0.08);
+}
+
+.toolbar-mode-btn {
+  padding: 3px 10px !important;
+  border-radius: 6px !important;
+  font-size: 11px !important;
+  border: none !important;
+  background: transparent !important;
+  color: var(--text-dim) !important;
+  transition: all 0.2s ease !important;
+  cursor: pointer;
+}
+
+.toolbar-mode-btn:hover {
+  color: var(--text) !important;
+  background: rgba(100, 140, 255, 0.08) !important;
+}
+
+.toolbar-mode-btn.active {
+  color: var(--accent) !important;
+  background: rgba(240, 192, 64, 0.1) !important;
+  box-shadow: 0 0 8px rgba(240, 192, 64, 0.1) !important;
+}
+
+/* Tool buttons */
+.toolbar-tool-btn {
+  padding: 3px 10px !important;
+  border-radius: 6px !important;
+  font-size: 11px !important;
+  transition: all 0.2s ease !important;
+}
+
+.toolbar-tool-btn.active {
+  background: linear-gradient(135deg, rgba(240, 192, 64, 0.15), rgba(200, 160, 40, 0.08)) !important;
+  border-color: rgba(240, 192, 64, 0.3) !important;
+  color: var(--accent) !important;
+  box-shadow: 0 0 8px rgba(240, 192, 64, 0.12) !important;
+}
+
+/* Action buttons (undo/redo) */
+.toolbar-action-btn {
+  padding: 3px 10px !important;
+  border-radius: 6px !important;
+  font-size: 11px !important;
+}
+
+/* Home button */
+.toolbar-home-btn {
+  padding: 3px 8px !important;
+  font-size: 14px !important;
+  border-radius: 6px !important;
+  border: none !important;
+  background: transparent !important;
+  color: var(--text-dim) !important;
+  cursor: pointer;
+  transition: all 0.2s ease !important;
+}
+
+.toolbar-home-btn:hover {
+  color: var(--accent) !important;
+  text-shadow: 0 0 8px rgba(240, 192, 64, 0.3);
 }

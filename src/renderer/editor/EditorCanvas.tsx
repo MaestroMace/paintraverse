@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { EditorViewport } from './EditorViewport'
 import { SelectTool } from './tools/SelectTool'
 import { PlaceTool } from './tools/PlaceTool'
@@ -20,6 +20,8 @@ export function EditorCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const viewportRef = useRef<EditorViewport | null>(null)
   const activeToolRef = useRef<ITool>(tools.select)
+  const [initError, setInitError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
   const map = useAppStore((s) => s.map)
   const objectDefinitions = useAppStore((s) => s.objectDefinitions)
@@ -27,15 +29,20 @@ export function EditorCanvas() {
   const selectedObjectIds = useAppStore((s) => s.selectedObjectIds)
   const hoveredObjectId = useAppStore((s) => s.hoveredObjectId)
 
-  // Initialize PixiJS
+  // Initialize PixiJS with timeout and error handling
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
 
+    let destroyed = false
     const viewport = new EditorViewport()
     viewportRef.current = viewport
 
+    // EditorViewport.init() has its own 6s internal timeout race
     viewport.init(canvas).then(() => {
+      if (destroyed) return
+      setIsLoading(false)
+
       viewport.updateFromMap(map, objectDefinitions)
       viewport.centerView(map.gridWidth, map.gridHeight, map.tileSize)
 
@@ -45,7 +52,7 @@ export function EditorCanvas() {
       viewport.onTileUp = (tx, ty, e) => activeToolRef.current.onTileUp?.(tx, ty, e)
 
       // Hover callback for live previews
-      viewport.onTileHover = (tx, ty, _e) => {
+      viewport.onTileHover = (tileX, tileY, _e) => {
         const store = useAppStore.getState()
         const tool = activeToolRef.current
         const ts = store.map.tileSize
@@ -53,14 +60,12 @@ export function EditorCanvas() {
         const gh = store.map.gridHeight
 
         if (tool.name === 'place') {
-          // Show placement ghost
           const defId = store.selectedDefinitionId
           const def = defId ? store.objectDefinitions.find((d) => d.id === defId) : null
           if (def) {
-            const inBounds = tx >= 0 && ty >= 0 &&
-              tx + def.footprint.w <= gw && ty + def.footprint.h <= gh
+            const inBounds = tileX >= 0 && tileY >= 0 &&
+              tileX + def.footprint.w <= gw && tileY + def.footprint.h <= gh
 
-            // Check overlap
             const layerType = def.category === 'building' ? 'structure' : 'prop'
             const layer = store.map.layers.find((l) => l.type === layerType)
             let valid = inBounds
@@ -69,81 +74,101 @@ export function EditorCanvas() {
                 const oDef = store.objectDefinitions.find((d) => d.id === o.definitionId)
                 if (!oDef) return false
                 return !(
-                  tx + def.footprint.w <= o.x ||
-                  tx >= o.x + oDef.footprint.w ||
-                  ty + def.footprint.h <= o.y ||
-                  ty >= o.y + oDef.footprint.h
+                  tileX + def.footprint.w <= o.x ||
+                  tileX >= o.x + oDef.footprint.w ||
+                  tileY + def.footprint.h <= o.y ||
+                  tileY >= o.y + oDef.footprint.h
                 )
               })
             }
             viewport.overlayLayer.showPlacementPreview(
-              tx, ty, def.footprint.w, def.footprint.h, ts, valid
+              tileX, tileY, def.footprint.w, def.footprint.h, ts, valid
             )
+            viewport.requestRender()
           }
         } else if (tool.name === 'brush') {
-          // Show tile highlight for brush
-          if (tx >= 0 && ty >= 0 && tx < gw && ty < gh) {
-            viewport.overlayLayer.showTileHighlight(tx, ty, ts)
+          if (tileX >= 0 && tileY >= 0 && tileX < gw && tileY < gh) {
+            viewport.overlayLayer.showTileHighlight(tileX, tileY, ts)
           } else {
             viewport.overlayLayer.clearPreview()
           }
+          viewport.requestRender()
         } else if (tool.name === 'select' || tool.name === 'erase') {
-          // Show hover highlight on objects
           const allObjects = viewport.getAllObjects()
-          const worldX = tx * ts + ts / 2
-          const worldY = ty * ts + ts / 2
+          const worldX = tileX * ts + ts / 2
+          const worldY = tileY * ts + ts / 2
           const hit = allObjects.find(
             (o) => worldX >= o.x && worldX <= o.x + o.width &&
                    worldY >= o.y && worldY <= o.y + o.height
           )
           store.setHoveredObjectId(hit?.id ?? null)
-          if (!hit) viewport.overlayLayer.clearPreview()
-        } else if (tool.name === 'camera') {
-          // Camera tool: show current frustum + tile highlight for placement
-          if (tx >= 0 && ty >= 0 && tx < gw && ty < gh) {
-            viewport.overlayLayer.showTileHighlight(tx, ty, ts)
+          if (!hit) {
+            viewport.overlayLayer.clearPreview()
+            viewport.requestRender()
           }
-          // Keep camera frustum visible (drawn by CameraTool)
+        } else if (tool.name === 'camera') {
+          if (tileX >= 0 && tileY >= 0 && tileX < gw && tileY < gh) {
+            viewport.overlayLayer.showTileHighlight(tileX, tileY, ts)
+          }
+          viewport.requestRender()
         } else {
           viewport.overlayLayer.clearPreview()
+          viewport.requestRender()
         }
       }
 
       activeToolRef.current.onActivate?.(viewport)
+    }).catch((err) => {
+      if (destroyed) return
+      console.error('EditorCanvas init failed:', err)
+      setInitError(`${err?.message || 'Canvas failed to initialize'}`)
+      setIsLoading(false)
     })
 
-    const handleResize = () => viewport.resize()
+    const handleResize = () => {
+      if (!destroyed) viewport.resize()
+    }
     window.addEventListener('resize', handleResize)
 
     return () => {
+      destroyed = true
       window.removeEventListener('resize', handleResize)
       viewport.destroy()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update map rendering when data changes
+  // Update map rendering when map data changes (not on hover)
   useEffect(() => {
     const vp = viewportRef.current
-    if (!vp) return
+    if (!vp || initError || isLoading) return
     vp.updateFromMap(map, objectDefinitions)
     vp.updateLayerVisibility(map.layers)
+    vp.centerView(map.gridWidth, map.gridHeight, map.tileSize)
+  }, [map, objectDefinitions, initError, isLoading]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update selection/hover overlay only (lightweight)
+  useEffect(() => {
+    const vp = viewportRef.current
+    if (!vp || initError || isLoading) return
     vp.updateSelection(selectedObjectIds, hoveredObjectId, map.tileSize)
-  }, [map, objectDefinitions, selectedObjectIds, hoveredObjectId])
+  }, [selectedObjectIds, hoveredObjectId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Switch tools
   useEffect(() => {
     const vp = viewportRef.current
-    if (!vp) return
+    if (!vp || initError) return
     activeToolRef.current.onDeactivate?.()
     activeToolRef.current = tools[activeTool] || tools.select
     activeToolRef.current.onActivate?.(vp)
-    canvasRef.current!.style.cursor = activeToolRef.current.cursor
+    if (canvasRef.current) {
+      canvasRef.current.style.cursor = activeToolRef.current.cursor
+    }
     vp.overlayLayer.clearPreview()
-  }, [activeTool])
+    vp.requestRender()
+  }, [activeTool, initError])
 
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    // Don't capture if typing in an input
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
 
     const store = useAppStore.getState()
@@ -165,6 +190,9 @@ export function EditorCanvas() {
       }
     }
 
+    // WASD/QE reserved for camera movement — don't trigger tool switches
+    if ('wasdqe'.includes(e.key.toLowerCase())) return
+
     if (e.key === 'v' || e.key === '1') store.setActiveTool('select')
     if (e.key === 'p' || e.key === '2') store.setActiveTool('place')
     if (e.key === 'e' || e.key === '3') store.setActiveTool('erase')
@@ -177,8 +205,50 @@ export function EditorCanvas() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
 
+  // Error state
+  if (initError) {
+    return (
+      <div style={{
+        flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', gap: 16, padding: 32, textAlign: 'center',
+        background: 'var(--bg-dark)'
+      }}>
+        <div style={{ fontSize: 36, opacity: 0.4 }}>{'\u26A0'}</div>
+        <div style={{ color: 'var(--accent)', fontSize: 14, fontWeight: 600 }}>
+          Canvas Initialization Error
+        </div>
+        <div style={{ color: 'var(--text-dim)', fontSize: 12, maxWidth: 400, lineHeight: 1.6 }}>
+          {initError}
+        </div>
+        <button
+          onClick={() => window.location.reload()}
+          style={{ marginTop: 8 }}
+        >
+          Reload
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      {isLoading && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 12,
+          background: 'var(--bg-dark)', zIndex: 10
+        }}>
+          <div style={{
+            width: 32, height: 32, border: '2px solid rgba(240, 192, 64, 0.2)',
+            borderTopColor: 'var(--accent)', borderRadius: '50%',
+            animation: 'spin 1s linear infinite'
+          }} />
+          <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>
+            Initializing canvas...
+          </div>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
       <canvas
         ref={canvasRef}
         style={{ width: '100%', height: '100%', display: 'block' }}
