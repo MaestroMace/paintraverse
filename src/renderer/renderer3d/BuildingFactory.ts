@@ -14,7 +14,7 @@ import type { ObjectDefinition, PlacedObject } from '../core/types'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
-import { pickMassing, rotateVolume } from './architecture/Massing'
+import { pickMassing } from './architecture/Massing'
 import { emitVolume, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
 import { pickPaletteForStyle } from './architecture/PaletteBias'
 
@@ -164,13 +164,26 @@ export function buildBuildingMeshes(
     const wy = getHeight ? maxTH : (obj.elevation || 0)
     const wz = centerTileZ + jitterDZ
 
+    // Continuous Y rotation per building — computed once and applied to
+    // the plinth, chimneys, and all volumes so they rotate as a unit.
+    // Amplitude scales with footprint aspect so long narrow buildings
+    // don't diagonal-overflow their grid slot catastrophically.
+    let rotationY = 0
+    if (!NO_JITTER.has(obj.definitionId)) {
+      const aspect = Math.min(fp.w, fp.h) / Math.max(fp.w, fp.h)
+      const maxRot = aspect * 0.5                              // ~28° for square
+      rotationY = (rand01(hash, 6) - 0.5) * 2 * maxRot
+      if (rand01(hash, 7) < 0.25) rotationY = 0                // 25% stay aligned
+    }
+
     // Foundation plinth — fills the space between the lowest footprint tile
     // and the building's base so multi-tile buildings on uneven ground look
-    // planted on a stone ledge, not floating above empty air. Applies to
-    // walls and gates too (they still need the plinth on slopes).
+    // planted on a stone ledge, not floating above empty air. Rotates with
+    // the building so it stays under the walls.
     const plinthH = maxTH - minTH
     if (plinthH > 0.08) {
       const plinth = new THREE.BoxGeometry(fp.w + 0.12, plinthH, fp.h + 0.12)
+      if (rotationY !== 0) plinth.rotateY(rotationY)
       plinth.translate(centerTileX, minTH + plinthH / 2, centerTileZ)
       detailBatch.addPositioned(plinth, 0x6a5a48) // stone foundation
     }
@@ -197,17 +210,9 @@ export function buildBuildingMeshes(
       wallColor: palette.wall, roofColor: palette.roof,
     })
 
-    // Building rotation — 0/90/180/270°. Square footprints can rotate
-    // any quarter-turn; rectangular footprints only flip 0/180 so they
-    // still fit the grid cell assigned by TownGenerator. Skipped for
-    // NO_JITTER types (gates, staircases) so they still interlock.
-    let rotSteps = 0
-    if (!NO_JITTER.has(obj.definitionId)) {
-      rotSteps = fp.w === fp.h ? (hash % 4) : ((hash % 2) * 2)
-    }
-    if (rotSteps !== 0) {
-      massing.volumes = massing.volumes.map(v => rotateVolume(v, rotSteps))
-    }
+    // (rotationY already computed above — before plinth emission — so
+    // the plinth rotates with the building. Reused here for the volume
+    // loop and emitCtx below.)
 
     // Wealth-driven size scaling — slums shrink to 0.78x, palatial buildings
     // grow to 1.22x. Signature landmark buildings ALSO get a flat +25–40%
@@ -250,7 +255,7 @@ export function buildBuildingMeshes(
       hasFlowerBox: !!obj.properties.hasFlowerBox,
       style,
       palette,
-      rotationY: 0,
+      rotationY,
       hash,
       weather: styleVector.weather,
     }
@@ -280,21 +285,19 @@ export function buildBuildingMeshes(
           ? ((obj.properties.chimneyPos === 'left') ? -1 : 1)
           : (((obj.properties.chimneyPos === 'left') ? 1 : -1))
         const chimH = baseH * (c === 0 ? 1.0 : 0.85)
-        // Main stack
+        // LOCAL position of chimney relative to building center; rotated
+        // with the building so the chimney sits on the rotated roof.
+        const localX = chimSide * fp.w * 0.3
+        const localZ = c === 0 ? 0 : (rand01(hash, 600 + c) - 0.5) * fp.h * 0.4
         const stack = new THREE.BoxGeometry(chimW, chimH, chimW)
-        stack.translate(
-          wx + chimSide * fp.w * 0.3,
-          mainTopY + mainRoofH * 0.3 + chimH / 2,
-          wz + (c === 0 ? 0 : (rand01(hash, 600 + c) - 0.5) * fp.h * 0.4),
-        )
+        stack.translate(localX, 0, localZ)
+        if (rotationY !== 0) stack.rotateY(rotationY)
+        stack.translate(wx, mainTopY + mainRoofH * 0.3 + chimH / 2, wz)
         detailBatch.addPositioned(stack, 0x704030)
-        // Cap (slightly wider thin disc)
         const cap = new THREE.BoxGeometry(chimW + 0.12, 0.08, chimW + 0.12)
-        cap.translate(
-          wx + chimSide * fp.w * 0.3,
-          mainTopY + mainRoofH * 0.3 + chimH + 0.04,
-          wz + (c === 0 ? 0 : (rand01(hash, 600 + c) - 0.5) * fp.h * 0.4),
-        )
+        cap.translate(localX, 0, localZ)
+        if (rotationY !== 0) cap.rotateY(rotationY)
+        cap.translate(wx, mainTopY + mainRoofH * 0.3 + chimH + 0.04, wz)
         detailBatch.addPositioned(cap, 0x5a3020)
       }
     }
