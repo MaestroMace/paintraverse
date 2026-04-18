@@ -5,11 +5,60 @@
  */
 
 import * as THREE from 'three'
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { buildTerrainMesh, getTerrainHeight } from './TerrainMesh'
 import { buildBuildingMeshes, type BuildingBatchResult } from './BuildingFactory'
 import { buildPropMeshes, type PropBatchResult } from './PropFactory'
+
+/**
+ * Patch a material's fog to fade in more strongly near ground level, so
+ * mist appears to pool in valleys and plazas while ridges and roofs stay
+ * clear. Uses Three.js onBeforeCompile shader injection. Idempotent.
+ */
+function patchHeightFog(material: THREE.Material): void {
+  const m = material as THREE.Material & { __heightFogPatched?: boolean }
+  if (m.__heightFogPatched) return
+  m.__heightFogPatched = true
+  const prev = material.onBeforeCompile?.bind(material)
+  material.onBeforeCompile = (shader, renderer) => {
+    if (prev) prev(shader, renderer)
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <fog_pars_vertex>',
+        '#include <fog_pars_vertex>\n#ifdef USE_FOG\nvarying float vWorldY;\n#endif'
+      )
+      .replace(
+        '#include <fog_vertex>',
+        '#include <fog_vertex>\n#ifdef USE_FOG\nvWorldY = (modelMatrix * vec4(transformed, 1.0)).y;\n#endif'
+      )
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <fog_pars_fragment>',
+        '#include <fog_pars_fragment>\n#ifdef USE_FOG\nvarying float vWorldY;\n#endif'
+      )
+      .replace(
+        '#include <fog_fragment>',
+        `#ifdef USE_FOG
+          float groundT = 1.0 - smoothstep(0.0, 4.0, vWorldY);
+          #ifdef FOG_EXP2
+            float densityBoost = 1.0 + groundT * 3.0;
+            float fogFactor = 1.0 - exp(-fogDensity * fogDensity * densityBoost * densityBoost * vFogDepth * vFogDepth);
+          #else
+            float rangeShrink = 1.0 - groundT * 0.6;
+            float fogFactor = smoothstep(fogNear, fogFar * rangeShrink, vFogDepth);
+          #endif
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, clamp(fogFactor, 0.0, 1.0));
+        #endif`
+      )
+  }
+  material.customProgramCacheKey = () => 'heightFog'
+  material.needsUpdate = true
+}
 
 function simpleHash(id: string): number {
   let h = 0
@@ -132,9 +181,14 @@ export class ThreeRenderer {
   private _onKeyUp: ((e: KeyboardEvent) => void) | null = null
   private _onMouseMove: ((e: MouseEvent) => void) | null = null
   private _resizeObserver: ResizeObserver | null = null
-  // Track town center for shadow camera
+  // Track town extents for shadow camera
   private townCenterX = 24
   private townCenterZ = 24
+  private townRadius = 32
+
+  // Post-processing
+  private composer: EffectComposer | null = null
+  private bloomPass: UnrealBloomPass | null = null
 
   constructor() {
     this.scene = new THREE.Scene()
@@ -144,9 +198,16 @@ export class ThreeRenderer {
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.5, 500)
     this.camera.position.set(20, 8, 20)
 
-    // Sun light (shadows disabled for performance — too many meshes)
+    // Sun light — casts shadows on buildings only for dramatic alley silhouettes.
+    // Shadow camera bounds are tuned per-map in loadMap via updateShadowCamera().
     this.sunLight = new THREE.DirectionalLight(0xfff4e0, 1.2)
     this.sunLight.position.set(30, 50, 20)
+    this.sunLight.castShadow = true
+    this.sunLight.shadow.mapSize.set(1024, 1024)
+    this.sunLight.shadow.bias = -0.0008
+    this.sunLight.shadow.normalBias = 0.04
+    this.sunLight.shadow.camera.near = 1
+    this.sunLight.shadow.camera.far = 200
     this.scene.add(this.sunLight)
     this.scene.add(this.sunLight.target)
 
@@ -204,7 +265,8 @@ export class ThreeRenderer {
     const rh = Math.max(1, Math.floor(container.clientHeight * RENDER_SCALE))
     this.renderer.setPixelRatio(1)
     this.renderer.setSize(rw, rh, false)
-    this.renderer.shadowMap.enabled = false
+    this.renderer.shadowMap.enabled = true
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     container.appendChild(this.renderer.domElement)
     this.renderer.domElement.style.width = '100%'
@@ -213,6 +275,15 @@ export class ThreeRenderer {
 
     this.camera.aspect = container.clientWidth / container.clientHeight
     this.camera.updateProjectionMatrix()
+
+    // Post-processing: bloom for warm evening lamp/window glow. OutputPass
+    // applies the final color-space conversion (replaces the renderer's).
+    this.composer = new EffectComposer(this.renderer)
+    this.composer.setSize(rw, rh)
+    this.composer.addPass(new RenderPass(this.scene, this.camera))
+    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(rw, rh), 0.2, 0.6, 0.95)
+    this.composer.addPass(this.bloomPass)
+    this.composer.addPass(new OutputPass())
 
     // Input — WASD + right-click drag to look
     this._onKeyDown = (e: KeyboardEvent) => {
@@ -252,11 +323,11 @@ export class ThreeRenderer {
       if (!this.renderer || !this.container) return
       const w = this.container.clientWidth, h = this.container.clientHeight
       if (w === 0 || h === 0) return
-      this.renderer.setSize(
-        Math.max(1, Math.floor(w * RENDER_SCALE)),
-        Math.max(1, Math.floor(h * RENDER_SCALE)),
-        false
-      )
+      const rw = Math.max(1, Math.floor(w * RENDER_SCALE))
+      const rh = Math.max(1, Math.floor(h * RENDER_SCALE))
+      this.renderer.setSize(rw, rh, false)
+      this.composer?.setSize(rw, rh)
+      this.bloomPass?.setSize(rw, rh)
       this.camera.aspect = w / h
       this.camera.updateProjectionMatrix()
     })
@@ -280,9 +351,10 @@ export class ThreeRenderer {
     const palettes = buildingPalettes || DEFAULT_BUILDING_PALETTES
     const defMap = new Map(objectDefs.map(d => [d.id, d]))
 
-    // Track town center for shadow camera
+    // Track town extents for shadow camera sizing
     this.townCenterX = map.gridWidth / 2
     this.townCenterZ = map.gridHeight / 2
+    this.townRadius = Math.max(16, Math.max(map.gridWidth, map.gridHeight) * 0.7)
 
     // Terrain (with height map from seed)
     const seed = map.generationConfig?.seed ?? 0
@@ -356,6 +428,38 @@ export class ThreeRenderer {
     this.cameraYaw = Math.atan2(cz - this.camera.position.z, cx - this.camera.position.x)
     this.cameraPitch = -0.25
 
+    // Buildings cast shadows (dramatic alley silhouettes). Props/walkways
+    // only receive, to keep the shadow map's caster list small.
+    this.buildingGroup.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        child.castShadow = true
+        child.receiveShadow = true
+      }
+    })
+    this.terrainGroup.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) child.receiveShadow = true
+    })
+    this.propGroup.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) child.receiveShadow = true
+    })
+
+    // Patch every material's fog to accumulate near ground level.
+    // Sky dome and sun disc are skipped (fog:false / outside these groups).
+    const patched = new Set<THREE.Material>()
+    const patchMesh = (child: THREE.Object3D) => {
+      const mesh = child as THREE.Mesh
+      if (!mesh.isMesh) return
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+      for (const mat of mats) {
+        if (!mat || patched.has(mat)) continue
+        patched.add(mat)
+        patchHeightFog(mat)
+      }
+    }
+    this.terrainGroup.traverse(patchMesh)
+    this.buildingGroup.traverse(patchMesh)
+    this.propGroup.traverse(patchMesh)
+
     // Freeze all static transforms (saves ~3800 matrix recalcs per frame)
     for (const group of [this.terrainGroup, this.buildingGroup, this.propGroup]) {
       group.traverse((child) => {
@@ -366,6 +470,17 @@ export class ThreeRenderer {
 
     // Lighting from environment
     this.updateLighting(map.environment.timeOfDay)
+  }
+
+  /** Size and aim the sun's shadow camera to cover the town tightly. */
+  private updateShadowCamera(): void {
+    const cam = this.sunLight.shadow.camera as THREE.OrthographicCamera
+    const r = this.townRadius
+    cam.left = -r
+    cam.right = r
+    cam.top = r
+    cam.bottom = -r
+    cam.updateProjectionMatrix()
   }
 
   /** Generate elevated walkways/bridges between close buildings */
@@ -572,7 +687,28 @@ export class ThreeRenderer {
 
     // Shadow camera follows sun position, targets town center
     this.sunLight.target.position.set(this.townCenterX, 0, this.townCenterZ)
+    this.updateShadowCamera()
 
+    // Bloom: strong at night/dusk for warm lamp glow, near-zero at noon.
+    if (this.bloomPass) {
+      if (isNight) {
+        this.bloomPass.strength = 0.9
+        this.bloomPass.radius = 0.6
+        this.bloomPass.threshold = 0.55
+      } else if (isDusk || isDawn) {
+        this.bloomPass.strength = 0.7
+        this.bloomPass.radius = 0.55
+        this.bloomPass.threshold = 0.7
+      } else if (isGolden) {
+        this.bloomPass.strength = 0.35
+        this.bloomPass.radius = 0.5
+        this.bloomPass.threshold = 0.9
+      } else {
+        this.bloomPass.strength = 0.12
+        this.bloomPass.radius = 0.4
+        this.bloomPass.threshold = 0.98
+      }
+    }
   }
 
   /** Initialize particle systems for smoke and fireflies */
@@ -712,7 +848,8 @@ export class ThreeRenderer {
       this.updateCamera(dt)
       this.updateParticles(dt)
       if (this.skyMesh) this.skyMesh.position.copy(this.camera.position)
-      this.renderer?.render(this.scene, this.camera)
+      if (this.composer) this.composer.render()
+      else this.renderer?.render(this.scene, this.camera)
       // FPS counter
       this._fpsFrames++
       this._fpsTime += dt
@@ -749,7 +886,8 @@ export class ThreeRenderer {
   /** Capture a screenshot of the current 3D view as a data URL */
   captureScreenshot(): string {
     if (!this.renderer) return ''
-    this.renderer.render(this.scene, this.camera)
+    if (this.composer) this.composer.render()
+    else this.renderer.render(this.scene, this.camera)
     return this.renderer.domElement.toDataURL('image/png')
   }
 
@@ -778,6 +916,10 @@ export class ThreeRenderer {
     })
 
     this.particleSystems = []
+    this.composer?.dispose()
+    this.bloomPass?.dispose()
+    this.composer = null
+    this.bloomPass = null
     this.renderer?.dispose()
     if (this.renderer?.domElement.parentElement) {
       this.renderer.domElement.parentElement.removeChild(this.renderer.domElement)
