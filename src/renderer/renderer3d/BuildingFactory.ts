@@ -14,6 +14,19 @@ import type { ObjectDefinition, PlacedObject } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { createFacadeTexture, createFacadeConfig, createEmissiveTexture } from './FacadeTexture'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
+import { buildingStyleVector, composeBuilding } from './architecture'
+import type { DistrictId } from './architecture'
+
+/**
+ * Flag for the parametric ornament pass. Keep as a top-level const so
+ * flipping is a one-line rollback during the Phase 1 rollout.
+ */
+const USE_PARAMETRIC_ARCHITECTURE = true
+
+const VALID_DISTRICTS: Set<string> = new Set([
+  'market', 'residential', 'artisan', 'noble', 'waterfront',
+  'temple', 'slum', 'garden', 'harbor', 'fortress', 'cemetery',
+])
 
 const FLOOR_HEIGHT = 0.75
 const ROOF_FRACTION: Record<string, number> = {
@@ -111,6 +124,7 @@ export function buildBuildingMeshes(
   const wallMeshes: THREE.Mesh[] = []
   const roofBatch = new BatchedMeshBuilder()
   const detailBatch = new BatchedMeshBuilder()
+  const ornamentBatch = new BatchedMeshBuilder()
 
   for (const obj of objects) {
     const def = defMap.get(obj.definitionId)
@@ -303,6 +317,31 @@ export function buildBuildingMeshes(
         detailBatch.addPositioned(bg, 0x705a40)
       }
     }
+
+    // === PARAMETRIC ORNAMENT PASS ===
+    // Cornices, string courses, window trim, bay oriels, dormers — driven
+    // by the per-building style vector blended from district-weighted
+    // archetypes. Chimney stays in the existing path above; we pass
+    // addChimney:false so we don't double up.
+    if (USE_PARAMETRIC_ARCHITECTURE && !NO_JITTER.has(obj.definitionId)) {
+      const districtId: DistrictId = VALID_DISTRICTS.has(district)
+        ? (district as DistrictId) : 'residential'
+      const styleVector = buildingStyleVector(districtId, hash)
+      composeBuilding({
+        centerX: wx,
+        centerZ: wz,
+        baseY: wy,
+        wallH,
+        footW: fp.w,
+        footD: fp.h,
+        floors,
+        style: styleVector,
+        palette,
+        hash,
+        primaryFace: 'z+',
+        addChimney: false,
+      }, ornamentBatch)
+    }
   }
 
   // Build batched meshes
@@ -311,6 +350,14 @@ export function buildBuildingMeshes(
   if (roofMesh) batched.push(roofMesh)
   const detailMesh = detailBatch.build()
   if (detailMesh) batched.push(detailMesh)
+  const ornamentMesh = ornamentBatch.build()
+  if (ornamentMesh) {
+    // Ornaments are thin geometry — self-shadowing acne under CSM looks
+    // worse than the silhouette-depth gain, so disable casting. Still receive.
+    ornamentMesh.castShadow = false
+    ornamentMesh.receiveShadow = true
+    batched.push(ornamentMesh)
+  }
 
   return { wallMeshes, batched }
 }

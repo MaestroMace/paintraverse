@@ -45,16 +45,20 @@ export function composeFacade(
   palette: BuildingPalette,
   batch: BatchedMeshBuilder,
 ): void {
-  // Window grid — matches the 2D facade texture layout: cols = floor(width * 1.5)
-  const cols = Math.max(1, Math.floor(face.width * (0.9 + sv.windowDensity * 0.9)))
+  // Window grid — match FacadeTexture.ts exactly so 3D trim aligns with
+  // the painted windows on ±Z faces:
+  //   cols     = max(1, floor(width * 1.5))
+  //   colSpacing = width / (cols + 1)
+  //   winW (tex) = 0.22 * TEXTURE_SCALE  → 0.22 tile in world
+  //   winH (tex) = 0.35 * TEXTURE_SCALE  → 0.35 * floorH in world
+  //   winYcenter (tex) = 0.575 of the way up a floor band
+  const cols = Math.max(1, Math.floor(face.width * 1.5))
   const floorH = face.height / Math.max(1, face.floors)
   const colSpacing = face.width / (cols + 1)
   const faceLeftOffset = -face.width / 2
 
-  // Window size scales slightly with floor height; taller buildings get
-  // taller windows up to a cap.
-  const winH = Math.min(0.7, floorH * 0.45)
-  const winW = Math.min(0.55, colSpacing * 0.55)
+  const winW = Math.min(colSpacing * 0.6, 0.26)
+  const winH = Math.min(floorH * 0.4, 0.55)
 
   // Only emit trim if the style calls for perceptible recess — below
   // ~0.2 we'd be making frames that barely read at camera distance.
@@ -66,8 +70,8 @@ export function composeFacade(
   // For each floor and column, emit a window trim. Skip ~10% deterministically
   // to give a "one window boarded/missing" natural feel.
   for (let floor = 0; floor < face.floors; floor++) {
-    // Window vertical center: 55% up inside the floor band.
-    const winCy = face.baseY + floor * floorH + floorH * 0.55
+    // Window vertical center: ~57.5% up the floor band (matches 2D texture).
+    const winCy = face.baseY + floor * floorH + floorH * 0.575
     for (let col = 0; col < cols; col++) {
       const salt = 17 + floor * 101 + col * 7 + normalSalt(face.normal)
       if (rand01(hash, salt) < 0.1) continue
