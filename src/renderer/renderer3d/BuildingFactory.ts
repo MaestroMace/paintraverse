@@ -11,17 +11,14 @@
 
 import * as THREE from 'three'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
-import type { BuildingPalette } from '../inspiration/StyleMapper'
-import { createFacadeTexture, createFacadeConfig, createEmissiveTexture } from './FacadeTexture'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
-import { buildingStyleVector, composeBuilding } from './architecture'
+import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
+import { pickMassing } from './architecture/Massing'
+import { emitVolume, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
 
-/**
- * Flag for the parametric ornament pass. Keep as a top-level const so
- * flipping is a one-line rollback during the Phase 1 rollout.
- */
-const USE_PARAMETRIC_ARCHITECTURE = true
+/** Re-export so ThreeRenderer can keep importing from BuildingFactory. */
+export const setWallEmissiveIntensity = setVolumeEmissiveIntensity
 
 const VALID_DISTRICTS: Set<string> = new Set([
   'market', 'residential', 'artisan', 'noble', 'waterfront',
@@ -29,24 +26,6 @@ const VALID_DISTRICTS: Set<string> = new Set([
 ])
 
 const FLOOR_HEIGHT = 0.75
-const ROOF_FRACTION: Record<string, number> = {
-  flat: 0, gabled: 0.35, hipped: 0.3, pointed: 0.7, steep: 0.5, dome: 0.4, none: 0,
-}
-
-type RoofStyle = 'flat' | 'gabled' | 'hipped' | 'pointed' | 'steep' | 'dome' | 'none'
-const ROOF_STYLE: Record<string, RoofStyle> = {
-  building_small: 'gabled', building_medium: 'gabled', building_large: 'hipped',
-  tavern: 'gabled', shop: 'steep', tower: 'pointed', clock_tower: 'pointed',
-  balcony_house: 'gabled', row_house: 'steep', corner_building: 'hipped',
-  archway: 'none', staircase: 'none', town_gate: 'flat',
-  chapel: 'steep', guild_hall: 'hipped', warehouse: 'gabled',
-  watchtower: 'pointed', mansion: 'hipped', bakery: 'gabled',
-  apothecary: 'steep', inn: 'gabled', temple: 'dome',
-  covered_market: 'gabled', bell_tower: 'pointed', half_timber: 'gabled',
-  narrow_house: 'steep', windmill: 'pointed', cathedral: 'steep',
-  lighthouse: 'dome', round_tower: 'pointed', gatehouse: 'flat',
-  stable: 'gabled', mill: 'gabled', bell_tower_tall: 'pointed', aqueduct: 'none',
-}
 
 const FOOTPRINTS: Record<string, { w: number; h: number }> = {
   building_small: { w: 2, h: 2 }, building_medium: { w: 3, h: 3 },
@@ -95,21 +74,6 @@ const NO_JITTER = new Set<string>([
   'archway', 'town_gate', 'gatehouse', 'staircase', 'aqueduct',
 ])
 
-// Material cache — share materials across buildings with same facade config
-const _wallMatCache = new Map<string, THREE.Material>()
-
-/**
- * Drive the warm-window-glow emissive intensity on every cached facade
- * material at once. ThreeRenderer calls this from updateLighting so the
- * whole town glows up together at dusk and goes dark at noon.
- */
-export function setWallEmissiveIntensity(intensity: number): void {
-  for (const mat of _wallMatCache.values()) {
-    const lam = mat as THREE.MeshLambertMaterial
-    if (lam.emissiveMap) lam.emissiveIntensity = intensity
-  }
-}
-
 export interface BuildingBatchResult {
   wallMeshes: THREE.Mesh[]       // individual (textured, emissive)
   batched: THREE.Mesh[]          // merged roof/detail/feature meshes
@@ -143,9 +107,6 @@ export function buildBuildingMeshes(
     const jitterDZ = jitter ? (rand01(hash, 3) - 0.5) * 0.35 : 0
 
     const wallH = floors * FLOOR_HEIGHT * heightMult * hScale
-    const roofStyle = ROOF_STYLE[obj.definitionId] || 'gabled'
-    const roofFrac = ROOF_FRACTION[roofStyle] ?? 0.3
-    const roofH = wallH * roofFrac
     const palette = palettes[hash % palettes.length]
     const style = (obj.properties.style as string) || 'standard'
     const district = (obj.properties.district as string) || 'residential'
@@ -158,83 +119,56 @@ export function buildBuildingMeshes(
     const wy = (obj.elevation || 0) + terrainH
     const wz = centerTileZ + jitterDZ
 
-    // === WALL BODY — facade texture on front/back, plain on sides/top/bottom ===
-    const facadeConfig = createFacadeConfig(obj, fp.w, palette, hash)
-    const frontTex = createFacadeTexture(facadeConfig, 'front')
-    const emissiveTex = createEmissiveTexture(facadeConfig)
+    // === PARAMETRIC MASSING ===
+    // The style vector drives a weighted blend of archetypes; pickMassing
+    // then chooses a massing template (body + tower, L-shape, jetty, spire,
+    // nave-transept, cottage-plus-chimney, etc.) and emits Volume[] which
+    // we render one at a time. Buildings are no longer single boxes.
+    const districtId: DistrictId = VALID_DISTRICTS.has(district)
+      ? (district as DistrictId) : 'residential'
+    const styleVector = buildingStyleVector(districtId, hash)
+    const picks = pickArchetypes(districtId, hash)
+    const dominantArchetype = picks[0]?.id ?? 'traverseCozy'
 
-    // Cache materials — textured for front/back, plain for sides/top/bottom.
-    // Facade material carries an emissive window map; intensity is driven at
-    // runtime by ThreeRenderer.updateLighting (dark at noon, glowing at night).
-    const matKey = `${facadeConfig.floors}_${facadeConfig.width}_${palette.wall.toString(16)}_${facadeConfig.hasTimber}_${facadeConfig.hasShutters}_${facadeConfig.hasFlowerBox}_${facadeConfig.style}`
-    let facadeMat = _wallMatCache.get(matKey)
-    if (!facadeMat) {
-      facadeMat = new THREE.MeshLambertMaterial({
-        map: frontTex,
-        emissiveMap: emissiveTex,
-        emissive: 0xffffff,
-        emissiveIntensity: 0,
-        flatShading: true,
-      })
-      _wallMatCache.set(matKey, facadeMat)
+    const massing = pickMassing({
+      definitionId: obj.definitionId,
+      dominantArchetype,
+      sv: styleVector,
+      hash,
+      footW: fp.w, footD: fp.h,
+      wallH, floors,
+      wallColor: palette.wall, roofColor: palette.roof,
+    })
+
+    const emitCtx = {
+      centerX: wx,
+      centerZ: wz,
+      baseY: wy,
+      hasTimber: !!obj.properties.hasTimber || hash % 3 === 0,
+      hasShutters: !!obj.properties.hasShutters || hash % 4 !== 0,
+      hasFlowerBox: !!obj.properties.hasFlowerBox,
+      style,
+      palette,
+      rotationY: 0,
     }
-    const plainKey = `plain_${palette.wall.toString(16)}`
-    let plainMat = _wallMatCache.get(plainKey)
-    if (!plainMat) {
-      plainMat = new THREE.MeshLambertMaterial({ color: palette.wall, flatShading: true })
-      _wallMatCache.set(plainKey, plainMat)
-    }
-    // BoxGeometry groups: 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z(front), 5=-Z(back)
-    const wallMats = [plainMat, plainMat, plainMat, plainMat, facadeMat, facadeMat]
-
-    const hasOverhang = style === 'ornate' || obj.definitionId === 'half_timber' || obj.definitionId === 'balcony_house'
-    if (hasOverhang && floors >= 2) {
-      const groundH = FLOOR_HEIGHT * heightMult * hScale
-      const groundGeo = new THREE.BoxGeometry(fp.w * 0.95, groundH, fp.h * 0.95)
-      groundGeo.translate(wx, wy + groundH / 2, wz)
-      const mesh1 = new THREE.Mesh(groundGeo, wallMats)
-      mesh1.matrixAutoUpdate = false; mesh1.updateMatrix()
-      wallMeshes.push(mesh1)
-
-      const upperH = wallH - groundH
-      const upperGeo = new THREE.BoxGeometry(fp.w * 1.02, upperH, fp.h * 1.02)
-      upperGeo.translate(wx, wy + groundH + upperH / 2, wz)
-      const mesh2 = new THREE.Mesh(upperGeo, wallMats)
-      mesh2.matrixAutoUpdate = false; mesh2.updateMatrix()
-      wallMeshes.push(mesh2)
-    } else {
-      const wallGeo = new THREE.BoxGeometry(fp.w, wallH, fp.h)
-      wallGeo.translate(wx, wy + wallH / 2, wz)
-      const mesh = new THREE.Mesh(wallGeo, wallMats)
-      mesh.matrixAutoUpdate = false; mesh.updateMatrix()
-      wallMeshes.push(mesh)
+    for (const vol of massing.volumes) {
+      emitVolume(vol, emitCtx, wallMeshes, roofBatch, ornamentBatch)
     }
 
-    // === ROOF → batched ===
-    if (roofStyle === 'pointed') {
-      const r = Math.max(fp.w, fp.h) * 0.55
-      const geo = new THREE.ConeGeometry(r, roofH, 4)
-      geo.rotateY(Math.PI / 4)
-      geo.translate(wx, wy + wallH + roofH / 2, wz)
-      roofBatch.addPositioned(geo, palette.roof)
-    } else if (roofStyle === 'dome') {
-      const r = Math.max(fp.w, fp.h) * 0.45
-      const geo = new THREE.SphereGeometry(r, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2)
-      geo.scale(1, roofH / r, 1)
-      geo.translate(wx, wy + wallH, wz)
-      roofBatch.addPositioned(geo, palette.roof)
-    } else if (roofStyle === 'gabled' || roofStyle === 'steep' || roofStyle === 'hipped') {
-      const geo = createGabledRoof(fp.w, fp.h, roofH, roofStyle === 'hipped')
-      geo.translate(wx, wy + wallH, wz)
-      roofBatch.addPositioned(geo, palette.roof)
-    }
+    // Approximate mainBody roof top for chimney + ornament placement.
+    const mainVol = massing.volumes[0]
+    const mainTopY = wy + (mainVol.bottomY ?? 0) + mainVol.height
+    const mainRoofH = mainVol.roofHeight
+    // Does massing already include a chimney volume? (cottageSmall does.)
+    const massingHasChimney = massing.volumes.some(v => v.role === 'chimneyVol')
 
     // === CHIMNEY → batched ===
-    if (hash % 5 < 2 && roofH > 0) {
+    // Skip if massing already supplies a chimney volume (cottageSmall).
+    if (!massingHasChimney && hash % 5 < 2 && mainRoofH > 0) {
       const chimSide = (obj.properties.chimneyPos === 'left') ? -1 : 1
-      const chimH = roofH * 0.8
-      const geo = new THREE.BoxGeometry(0.2, chimH, 0.2)
-      geo.translate(wx + chimSide * fp.w * 0.3, wy + wallH + roofH * 0.3 + chimH / 2, wz)
+      const chimH = Math.max(0.4, mainRoofH * 0.9)
+      const geo = new THREE.BoxGeometry(0.22, chimH, 0.22)
+      geo.translate(wx + chimSide * fp.w * 0.3, mainTopY + mainRoofH * 0.3 + chimH / 2, wz)
       detailBatch.addPositioned(geo, 0x704030)
     }
 
@@ -252,39 +186,9 @@ export function buildBuildingMeshes(
       detailBatch.addPositioned(geo, 0x808080)
     }
 
-    // === CIRCULAR TOWER → batched ===
-    if (obj.definitionId === 'tower' || obj.definitionId === 'watchtower' || obj.definitionId === 'round_tower') {
-      const geo = new THREE.CylinderGeometry(fp.w * 0.45, fp.w * 0.48, wallH, 8)
-      geo.translate(wx, wy + wallH / 2, wz)
-      detailBatch.addPositioned(geo, palette.wall)
-    }
-
-    // === BAY WINDOW → batched ===
-    if ((obj.definitionId === 'mansion' || obj.definitionId === 'guild_hall' || obj.definitionId === 'balcony_house') && floors >= 2) {
-      const bayW = fp.w * 0.25, bayH = FLOOR_HEIGHT * 0.6, bayD = 0.3
-      const bayY = FLOOR_HEIGHT * 1.3 * heightMult
-      const geo = new THREE.BoxGeometry(bayW, bayH, bayD)
-      geo.translate(wx + fp.w * 0.2, wy + bayY, wz + fp.h / 2 + bayD / 2)
-      detailBatch.addPositioned(geo, palette.wall)
-      const glassGeo = new THREE.BoxGeometry(bayW * 0.8, bayH * 0.7, 0.02)
-      glassGeo.translate(wx + fp.w * 0.2, wy + bayY, wz + fp.h / 2 + bayD + 0.01)
-      detailBatch.addPositioned(glassGeo, 0x405060)
-    }
-
-    // === ARCHWAY → batched ===
-    if (obj.definitionId === 'archway' || obj.definitionId === 'town_gate' || obj.definitionId === 'gatehouse') {
-      const pillarW = 0.3, archH = wallH * 0.7, archW = fp.w * 0.5
-      const lp = new THREE.BoxGeometry(pillarW, archH, fp.h)
-      lp.translate(wx - archW / 2 - pillarW / 2, wy + archH / 2, wz)
-      detailBatch.addPositioned(lp, palette.wall)
-      const rp = new THREE.BoxGeometry(pillarW, archH, fp.h)
-      rp.translate(wx + archW / 2 + pillarW / 2, wy + archH / 2, wz)
-      detailBatch.addPositioned(rp, palette.wall)
-      const at = new THREE.CylinderGeometry(archW / 2, archW / 2, fp.h, 8, 1, false, 0, Math.PI)
-      at.rotateX(Math.PI / 2); at.rotateZ(Math.PI)
-      at.translate(wx, wy + archH, wz)
-      detailBatch.addPositioned(at, palette.wall)
-    }
+    // Circular tower, bay window, and archway specialty blocks moved to
+    // architecture/Massing.ts (tmplCircularTower / tmplGatehouse /
+    // tmplStepBack-and-friends produce the projecting bays).
 
     // === COLONNADE → batched ===
     if ((obj.definitionId === 'temple' || obj.definitionId === 'cathedral' || obj.definitionId === 'guild_hall') && fp.w >= 4) {
@@ -318,30 +222,9 @@ export function buildBuildingMeshes(
       }
     }
 
-    // === PARAMETRIC ORNAMENT PASS ===
-    // Cornices, string courses, window trim, bay oriels, dormers — driven
-    // by the per-building style vector blended from district-weighted
-    // archetypes. Chimney stays in the existing path above; we pass
-    // addChimney:false so we don't double up.
-    if (USE_PARAMETRIC_ARCHITECTURE && !NO_JITTER.has(obj.definitionId)) {
-      const districtId: DistrictId = VALID_DISTRICTS.has(district)
-        ? (district as DistrictId) : 'residential'
-      const styleVector = buildingStyleVector(districtId, hash)
-      composeBuilding({
-        centerX: wx,
-        centerZ: wz,
-        baseY: wy,
-        wallH,
-        footW: fp.w,
-        footD: fp.h,
-        floors,
-        style: styleVector,
-        palette,
-        hash,
-        primaryFace: 'z+',
-        addChimney: false,
-      }, ornamentBatch)
-    }
+    // (Per-volume cornice is emitted inside emitVolume; nothing further
+    // needed here. Style-driven roof dormers and window trim are deferred
+    // until camera angle / render scale let them read visibly.)
   }
 
   // Build batched meshes
@@ -360,43 +243,4 @@ export function buildBuildingMeshes(
   }
 
   return { wallMeshes, batched }
-}
-
-/** Create a gabled/hipped roof as BufferGeometry */
-function createGabledRoof(w: number, d: number, h: number, hipped: boolean): THREE.BufferGeometry {
-  const hw = w / 2, hd = d / 2
-  const ow = hw + 0.08, od = hd + 0.08
-
-  if (hipped) {
-    const inset = Math.min(hw, hd) * 0.25
-    const verts = new Float32Array([
-      -ow, 0, -od,  ow, 0, -od,  inset, h, -inset,
-      -ow, 0, -od,  inset, h, -inset,  -inset, h, -inset,
-      ow, 0, od,  -ow, 0, od,  -inset, h, inset,
-      ow, 0, od,  -inset, h, inset,  inset, h, inset,
-      ow, 0, -od,  ow, 0, od,  inset, h, inset,
-      ow, 0, -od,  inset, h, inset,  inset, h, -inset,
-      -ow, 0, od,  -ow, 0, -od,  -inset, h, -inset,
-      -ow, 0, od,  -inset, h, -inset,  -inset, h, inset,
-      -inset, h, -inset,  inset, h, -inset,  inset, h, inset,
-      -inset, h, -inset,  inset, h, inset,  -inset, h, inset,
-    ])
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.BufferAttribute(verts, 3))
-    geo.computeVertexNormals()
-    return geo
-  } else {
-    const verts = new Float32Array([
-      -ow, 0, -od,  ow, 0, -od,  0, h, -od,
-      ow, 0, od,  -ow, 0, od,  0, h, od,
-      -ow, 0, od,  -ow, 0, -od,  0, h, -od,
-      -ow, 0, od,  0, h, -od,  0, h, od,
-      ow, 0, -od,  ow, 0, od,  0, h, od,
-      ow, 0, -od,  0, h, od,  0, h, -od,
-    ])
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.BufferAttribute(verts, 3))
-    geo.computeVertexNormals()
-    return geo
-  }
 }

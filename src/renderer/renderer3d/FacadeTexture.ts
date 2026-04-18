@@ -19,6 +19,7 @@ interface FacadeConfig {
   hasFlowerBox: boolean
   style: string // 'ornate' | 'standard' | 'rustic' | 'weathered'
 }
+export type { FacadeConfig }
 
 const TEXTURE_SCALE = 64 // pixels per tile unit
 const _textureCache = new Map<string, THREE.CanvasTexture>()
