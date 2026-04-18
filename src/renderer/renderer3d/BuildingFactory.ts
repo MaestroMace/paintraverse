@@ -153,6 +153,24 @@ export function buildBuildingMeshes(
       massing.volumes = massing.volumes.map(v => rotateVolume(v, rotSteps))
     }
 
+    // Wealth-driven size scaling — slums shrink to 0.78x, palatial buildings
+    // grow to 1.22x. Applied to every volume in place (width, depth, height,
+    // offsets, roofHeight, bottomY). Slight inter-tile overlap is fine; it
+    // actually helps the town feel less like a checkerboard.
+    const sizeScale = 0.78 + styleVector.wealth * 0.44
+    if (Math.abs(sizeScale - 1.0) > 0.02 && !NO_JITTER.has(obj.definitionId)) {
+      massing.volumes = massing.volumes.map(v => ({
+        ...v,
+        width: v.width * sizeScale,
+        depth: v.depth * sizeScale,
+        offsetX: v.offsetX * sizeScale,
+        offsetZ: v.offsetZ * sizeScale,
+        height: v.height * sizeScale,
+        roofHeight: v.roofHeight * sizeScale,
+        bottomY: v.bottomY * sizeScale,
+      }))
+    }
+
     const emitCtx = {
       centerX: wx,
       centerZ: wz,
@@ -164,6 +182,7 @@ export function buildBuildingMeshes(
       palette,
       rotationY: 0,
       hash,
+      weather: styleVector.weather,
     }
     for (const vol of massing.volumes) {
       emitVolume(vol, emitCtx, wallMeshes, roofBatch, ornamentBatch)

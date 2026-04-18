@@ -88,8 +88,35 @@ export interface EmitVolumeContext {
   rotationY: number
   /** Stable hash of the building id (for randomized ornament placement). */
   hash: number
+  /** Style-vector weather in [0,1] — drives color darkening / mossy tint. */
+  weather: number
   /** If true, suppress fancy roof ornaments (dormer/finial) for this volume. */
   skipRoofOrnaments?: boolean
+}
+
+/**
+ * Apply weathering to a color: darken by up to 25%, and at high weather
+ * shift slightly toward a dim moss green for organic decay feel.
+ */
+function weatheredColor(color: number, weather: number): number {
+  if (weather <= 0.05) return color
+  const r = (color >> 16) & 0xff
+  const g = (color >> 8) & 0xff
+  const b = color & 0xff
+  // Darken uniformly.
+  const darken = 1 - Math.min(0.28, weather * 0.32)
+  let nr = r * darken
+  let ng = g * darken
+  let nb = b * darken
+  // High-weather mossy tint: bias g, pull b down slightly.
+  if (weather > 0.55) {
+    const t = (weather - 0.55) * 0.7
+    ng = ng * (1 - t * 0.1) + 60 * t
+    nb = nb * (1 - t * 0.15)
+  }
+  return ((Math.min(255, Math.max(0, Math.round(nr))) << 16) |
+          (Math.min(255, Math.max(0, Math.round(ng))) << 8) |
+          (Math.min(255, Math.max(0, Math.round(nb)))))
 }
 
 export function emitVolume(
@@ -103,16 +130,23 @@ export function emitVolume(
   const wz = ctx.centerZ + v.offsetZ
   const wy = ctx.baseY + v.bottomY
   const floors = Math.max(1, v.floors ?? Math.max(1, Math.round(v.height / 0.9)))
+  // Weathering darkens + mossy-tints the volume's colors. Chimneys and
+  // small cottage shed volumes are skipped (they already use brown/stone
+  // browns that shouldn't go mossy).
+  const applyWeather = v.role !== 'chimneyVol'
+  const wallColor = applyWeather ? weatheredColor(v.wallColor, ctx.weather) : v.wallColor
+  const roofColor = applyWeather ? weatheredColor(v.roofColor, ctx.weather) : v.roofColor
 
   // --- Walls ---
+  // Facade texture always uses the volume's *unweathered* wall color so the
+  // material cache doesn't explode across weather variants. Sides/plain mats
+  // and roof/cornice/base use the weathered color so weathered buildings
+  // still read as "dirtier" even though the painted face stays clean.
   if (v.circular) {
     const r = v.width / 2
     const geo = new THREE.CylinderGeometry(r, r * 1.02, v.height, 10)
     geo.translate(wx, wy + v.height / 2, wz)
-    const mat = v.textured
-      ? getFacadeMatForCircular(v.wallColor)
-      : getPlainMat(v.wallColor)
-    const mesh = new THREE.Mesh(geo, mat)
+    const mesh = new THREE.Mesh(geo, getPlainMat(wallColor))
     mesh.castShadow = true
     mesh.receiveShadow = true
     wallMeshes.push(mesh)
@@ -133,7 +167,7 @@ export function emitVolume(
         style: ctx.style,
       }
       const facadeMat = getFacadeMat(cfg)
-      const plainMat = getPlainMat(v.wallColor)
+      const plainMat = getPlainMat(wallColor)
       // Face order: +X -X +Y -Y +Z(front) -Z(back)
       const mats = [plainMat, plainMat, plainMat, plainMat, facadeMat, facadeMat]
       const mesh = new THREE.Mesh(geo, mats)
@@ -141,7 +175,7 @@ export function emitVolume(
       mesh.receiveShadow = true
       wallMeshes.push(mesh)
     } else {
-      const mesh = new THREE.Mesh(geo, getPlainMat(v.wallColor))
+      const mesh = new THREE.Mesh(geo, getPlainMat(wallColor))
       mesh.castShadow = true
       mesh.receiveShadow = true
       wallMeshes.push(mesh)
@@ -154,7 +188,7 @@ export function emitVolume(
   if (!v.circular && v.role !== 'chimneyVol' && v.height > 0.9) {
     const baseH = Math.min(0.28, v.height * 0.18)
     const baseProj = 0.08
-    const baseColor = shiftColor(v.wallColor, -0.12, -0.1, -0.08) // darker + slightly desaturated
+    const baseColor = shiftColor(wallColor, -0.12, -0.1, -0.08)
     const bFront = new THREE.BoxGeometry(v.width + baseProj * 2, baseH, baseProj)
     bFront.translate(wx, wy + baseH / 2, wz + v.depth / 2 + baseProj / 2)
     ornamentBatch.addPositioned(bFront, baseColor)
@@ -173,7 +207,7 @@ export function emitVolume(
   const roofGeo = buildRoof(v.width, v.depth, v.roofHeight, v.roofStyle, v.roofAxis)
   if (roofGeo) {
     roofGeo.translate(wx, wy + v.height, wz)
-    roofBatch.addPositioned(roofGeo, v.roofColor)
+    roofBatch.addPositioned(roofGeo, roofColor)
   }
 
   // --- Cornice around top of wall (for rectangular textured volumes) ---
@@ -181,13 +215,13 @@ export function emitVolume(
     const topOfWall = wy + v.height
     emitCornice(
       ornamentBatch, wx, wz, topOfWall,
-      v.width, v.depth, v.wallColor, v.role === 'tower' || v.role === 'spire',
+      v.width, v.depth, wallColor, v.role === 'tower' || v.role === 'spire',
     )
   }
 
   // --- Roof ornaments (dormers, spire finials) ---
   if (!ctx.skipRoofOrnaments) {
-    emitRoofOrnaments(v, wx, wz, wy, ctx, roofBatch, ornamentBatch)
+    emitRoofOrnaments(v, wx, wz, wy, ctx, wallColor, roofColor, roofBatch, ornamentBatch)
   }
 }
 
@@ -199,6 +233,7 @@ function emitRoofOrnaments(
   v: Volume,
   wx: number, wz: number, wy: number,
   ctx: EmitVolumeContext,
+  wallColor: number, roofColor: number,
   roofBatch: BatchedMeshBuilder,
   ornamentBatch: BatchedMeshBuilder,
 ): void {
@@ -233,7 +268,7 @@ function emitRoofOrnaments(
           wx + tAlong * v.width, wz + sideSign * (v.depth / 2 - 0.35),
           topOfWall - 0.02,
           dormerW, dormerD, dormerWallH, dormerGableH,
-          v.wallColor, v.roofColor,
+          wallColor, roofColor,
         )
       } else {
         emitDormer(
@@ -241,7 +276,7 @@ function emitRoofOrnaments(
           wx + sideSign * (v.width / 2 - 0.35), wz + tAlong * v.depth,
           topOfWall - 0.02,
           dormerW, dormerD, dormerWallH, dormerGableH,
-          v.wallColor, v.roofColor,
+          wallColor, roofColor,
         )
       }
     }
@@ -282,13 +317,8 @@ function emitRoofOrnaments(
       const pz = wz + (ridgeOnX ? 0 : tAlong * v.depth)
       const knob = new THREE.ConeGeometry(0.08, 0.22, 4)
       knob.translate(px, topOfWall + v.roofHeight + 0.11, pz)
-      ornamentBatch.addPositioned(knob, v.roofColor)
+      ornamentBatch.addPositioned(knob, roofColor)
     }
   }
 }
 
-function getFacadeMatForCircular(wallColor: number): THREE.MeshLambertMaterial {
-  // Cylinder walls use plain material — the facade texture is designed for
-  // flat BoxGeometry UVs. Towers get their visual variety from color only.
-  return getPlainMat(wallColor)
-}
