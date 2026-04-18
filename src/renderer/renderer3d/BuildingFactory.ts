@@ -52,14 +52,16 @@ const FOOTPRINTS: Record<string, { w: number; h: number }> = {
   cathedral: { w: 5, h: 6 }, lighthouse: { w: 3, h: 3 },
   round_tower: { w: 2, h: 2 }, gatehouse: { w: 4, h: 2 },
   stable: { w: 4, h: 3 }, mill: { w: 3, h: 3 },
-  bell_tower_tall: { w: 2, h: 2 }, aqueduct: { w: 5, h: 1 },
+  bell_tower_tall: { w: 3, h: 3 }, aqueduct: { w: 5, h: 1 },
   windmill: { w: 3, h: 3 },
 }
 
+// Height multipliers tuned so towers read as chunky landmarks rather than
+// flagpoles. Anything over ~3.0 with a 2x2 footprint rendered as a stick.
 const HEIGHT_MULT: Record<string, number> = {
-  tower: 2.5, clock_tower: 3.0, bell_tower: 3.5, bell_tower_tall: 4.5,
-  watchtower: 2.8, cathedral: 2.0, lighthouse: 4.0, chapel: 1.5,
-  temple: 1.5, town_gate: 1.8, archway: 1.5, round_tower: 3.0,
+  tower: 2.0, clock_tower: 2.4, bell_tower: 2.6, bell_tower_tall: 3.0,
+  watchtower: 2.2, cathedral: 2.0, lighthouse: 3.0, chapel: 1.5,
+  temple: 1.5, town_gate: 1.8, archway: 1.5, round_tower: 2.4,
 }
 
 function simpleHash(id: string): number {
@@ -67,6 +69,18 @@ function simpleHash(id: string): number {
   for (let i = 0; i < id.length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0
   return Math.abs(h)
 }
+
+/** Deterministic 0..1 pseudo-random from an integer hash and a salt. */
+function rand01(hash: number, salt: number): number {
+  const n = (hash * 2654435761 + salt * 1597334677) >>> 0
+  return n / 0xffffffff
+}
+
+// Big, grid-aligned, flat-roofed types stay on the grid so they still
+// interlock cleanly — archways, walls, gates, staircases.
+const NO_JITTER = new Set<string>([
+  'archway', 'town_gate', 'gatehouse', 'staircase', 'aqueduct',
+])
 
 // Material cache — share materials across buildings with same facade config
 const _wallMatCache = new Map<string, THREE.Material>()
@@ -94,7 +108,15 @@ export function buildBuildingMeshes(
     const hash = simpleHash(obj.id)
     const floors = (obj.properties.floors as number) || 1 + (hash % 2)
     const heightMult = HEIGHT_MULT[obj.definitionId] ?? 1.0
-    const wallH = floors * FLOOR_HEIGHT * heightMult
+
+    // Per-instance jitter so the town stops reading as a grid. Keyed off
+    // the object id hash, so regenerating the same seed is stable.
+    const jitter = !NO_JITTER.has(obj.definitionId)
+    const hScale = jitter ? 0.85 + rand01(hash, 1) * 0.3 : 1.0          // 0.85–1.15
+    const jitterDX = jitter ? (rand01(hash, 2) - 0.5) * 0.35 : 0         // ±0.175 tile
+    const jitterDZ = jitter ? (rand01(hash, 3) - 0.5) * 0.35 : 0
+
+    const wallH = floors * FLOOR_HEIGHT * heightMult * hScale
     const roofStyle = ROOF_STYLE[obj.definitionId] || 'gabled'
     const roofFrac = ROOF_FRACTION[roofStyle] ?? 0.3
     const roofH = wallH * roofFrac
@@ -102,11 +124,13 @@ export function buildBuildingMeshes(
     const style = (obj.properties.style as string) || 'standard'
     const district = (obj.properties.district as string) || 'residential'
 
-    // World position of building center (including terrain height)
-    const wx = obj.x + fp.w / 2
-    const terrainH = getHeight ? getHeight(Math.floor(wx), Math.floor(obj.y + fp.h / 2)) : 0
+    // World position of building center (including terrain height + jitter)
+    const centerTileX = obj.x + fp.w / 2
+    const centerTileZ = obj.y + fp.h / 2
+    const terrainH = getHeight ? getHeight(Math.floor(centerTileX), Math.floor(centerTileZ)) : 0
+    const wx = centerTileX + jitterDX
     const wy = (obj.elevation || 0) + terrainH
-    const wz = obj.y + fp.h / 2
+    const wz = centerTileZ + jitterDZ
 
     // === WALL BODY — facade texture on front/back, plain on sides/top/bottom ===
     const facadeConfig = createFacadeConfig(obj, fp.w, palette, hash)
@@ -130,7 +154,7 @@ export function buildBuildingMeshes(
 
     const hasOverhang = style === 'ornate' || obj.definitionId === 'half_timber' || obj.definitionId === 'balcony_house'
     if (hasOverhang && floors >= 2) {
-      const groundH = FLOOR_HEIGHT * heightMult
+      const groundH = FLOOR_HEIGHT * heightMult * hScale
       const groundGeo = new THREE.BoxGeometry(fp.w * 0.95, groundH, fp.h * 0.95)
       groundGeo.translate(wx, wy + groundH / 2, wz)
       const mesh1 = new THREE.Mesh(groundGeo, wallMats)

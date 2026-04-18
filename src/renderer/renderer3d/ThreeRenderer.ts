@@ -68,9 +68,16 @@ function simpleHash(id: string): number {
 
 // Mirrored from BuildingFactory so we can compute chimney positions
 const HEIGHT_MULT_MAP: Record<string, number> = {
-  tower: 2.5, clock_tower: 3.0, bell_tower: 3.5, bell_tower_tall: 4.5,
-  watchtower: 2.8, cathedral: 2.0, lighthouse: 4.0, chapel: 1.5,
-  temple: 1.5, town_gate: 1.8, archway: 1.5, round_tower: 3.0,
+  tower: 2.0, clock_tower: 2.4, bell_tower: 2.6, bell_tower_tall: 3.0,
+  watchtower: 2.2, cathedral: 2.0, lighthouse: 3.0, chapel: 1.5,
+  temple: 1.5, town_gate: 1.8, archway: 1.5, round_tower: 2.4,
+}
+const NO_JITTER_MAP = new Set<string>([
+  'archway', 'town_gate', 'gatehouse', 'staircase', 'aqueduct',
+])
+function rand01(hash: number, salt: number): number {
+  const n = (hash * 2654435761 + salt * 1597334677) >>> 0
+  return n / 0xffffffff
 }
 const ROOF_FRAC_MAP: Record<string, number> = {
   flat: 0, gabled: 0.35, hipped: 0.3, pointed: 0.7, steep: 0.5, dome: 0.4, none: 0,
@@ -379,7 +386,9 @@ export class ThreeRenderer {
       for (const m of result.wallMeshes) this.buildingGroup.add(m)
       for (const m of result.batched) this.buildingGroup.add(m)
 
-      // Collect chimney positions for smoke particles
+      // Collect chimney positions for smoke particles. Must mirror the
+      // jitter applied in BuildingFactory so smoke lines up with the
+      // chimney's actual position, not its pre-jitter grid cell.
       for (const obj of structureLayer.objects) {
         const hash = simpleHash(obj.id)
         if (hash % 5 >= 2) continue
@@ -388,13 +397,19 @@ export class ThreeRenderer {
         const fp = { w: def.footprint.w, h: def.footprint.h }
         const floors = (obj.properties.floors as number) || 1 + (hash % 2)
         const heightMult = HEIGHT_MULT_MAP[obj.definitionId] ?? 1.0
-        const wallH = floors * 0.75 * heightMult
+        const jitter = !NO_JITTER_MAP.has(obj.definitionId)
+        const hScale = jitter ? 0.85 + rand01(hash, 1) * 0.3 : 1.0
+        const jitterDX = jitter ? (rand01(hash, 2) - 0.5) * 0.35 : 0
+        const jitterDZ = jitter ? (rand01(hash, 3) - 0.5) * 0.35 : 0
+        const wallH = floors * 0.75 * heightMult * hScale
         const roofFrac = ROOF_FRAC_MAP[obj.definitionId] ?? 0.3
         const roofH = wallH * roofFrac
         const chimSide = (obj.properties.chimneyPos === 'left') ? -1 : 1
-        const bx = obj.x + fp.w / 2 + chimSide * fp.w * 0.3
-        const bz = obj.y + fp.h / 2
-        const baseY = (obj.elevation || 0) + (heightMap ? getTerrainHeight(heightMap, Math.floor(obj.x + fp.w / 2), Math.floor(obj.y + fp.h / 2)) : 0)
+        const centerX = obj.x + fp.w / 2
+        const centerZ = obj.y + fp.h / 2
+        const bx = centerX + chimSide * fp.w * 0.3 + jitterDX
+        const bz = centerZ + jitterDZ
+        const baseY = (obj.elevation || 0) + (heightMap ? getTerrainHeight(heightMap, Math.floor(centerX), Math.floor(centerZ)) : 0)
         const chimTopY = baseY + wallH + roofH * 0.3 + roofH * 0.8
         chimneyPositions.push(new THREE.Vector3(bx, chimTopY, bz))
       }
