@@ -368,12 +368,45 @@ export function buildPropMeshes(
       }
 
     } else if (id === 'bench') {
-      const seat = new THREE.BoxGeometry(0.9, 0.04, 0.3)
-      seat.translate(px, elev + 0.35, pz)
-      batch.addPositioned(seat, 0x6a4a28)
-      const back = new THREE.BoxGeometry(0.9, 0.35, 0.03)
-      back.translate(px, elev + 0.55, pz - 0.13)
-      batch.addPositioned(back, 0x6a4a28)
+      // Three bench variants by hash: wooden with backrest, stone slab,
+      // wooden backless with end arms.
+      const bv = hash % 3
+      if (bv === 0) {
+        const seat = new THREE.BoxGeometry(0.9, 0.04, 0.3)
+        seat.translate(px, elev + 0.35, pz)
+        batch.addPositioned(seat, 0x6a4a28)
+        const back = new THREE.BoxGeometry(0.9, 0.35, 0.03)
+        back.translate(px, elev + 0.55, pz - 0.13)
+        batch.addPositioned(back, 0x6a4a28)
+        for (const lx of [-0.38, 0.38]) {
+          const leg = new THREE.BoxGeometry(0.07, 0.33, 0.28)
+          leg.translate(px + lx, elev + 0.17, pz)
+          batch.addPositioned(leg, 0x5a3a1a)
+        }
+      } else if (bv === 1) {
+        // Stone slab bench — two stone supports + thick slab
+        const slab = new THREE.BoxGeometry(1.0, 0.1, 0.35)
+        slab.translate(px, elev + 0.35, pz)
+        batch.addPositioned(slab, 0x8a847a)
+        for (const lx of [-0.38, 0.38]) {
+          const leg = new THREE.BoxGeometry(0.18, 0.3, 0.3)
+          leg.translate(px + lx, elev + 0.15, pz)
+          batch.addPositioned(leg, 0x7a7468)
+        }
+      } else {
+        // Wooden backless with end arm rests
+        const seat = new THREE.BoxGeometry(0.9, 0.05, 0.3)
+        seat.translate(px, elev + 0.4, pz)
+        batch.addPositioned(seat, 0x7a5a30)
+        for (const lx of [-0.43, 0.43]) {
+          const arm = new THREE.BoxGeometry(0.06, 0.15, 0.32)
+          arm.translate(px + lx, elev + 0.5, pz)
+          batch.addPositioned(arm, 0x5a3a1a)
+          const leg = new THREE.BoxGeometry(0.06, 0.4, 0.3)
+          leg.translate(px + lx, elev + 0.2, pz)
+          batch.addPositioned(leg, 0x5a3a1a)
+        }
+      }
 
     } else if (id === 'market_stall') {
       // Hash-pick one of four distinct stall silhouettes.
@@ -586,27 +619,81 @@ export function buildPropMeshes(
         }
       }
 
-    } else if (id === 'fence' || id === 'iron_fence' || id === 'stone_wall') {
-      if (id === 'stone_wall') {
-        const w = new THREE.BoxGeometry(fp.w * 0.9, 0.8, 0.2)
-        w.translate(px, elev + 0.4, pz)
-        batch.addPositioned(w, 0x707070)
+    } else if (id === 'fence' || id === 'iron_fence' || id === 'stone_wall' || id === 'crenellated_wall' || id === 'picket_fence') {
+      const crenellated = id === 'crenellated_wall' || (id === 'stone_wall' && (hash % 3 === 0))
+      if (crenellated) {
+        // Low crenellated stone wall — body + merlons along the top.
+        const body = new THREE.BoxGeometry(fp.w * 0.9, 0.65, 0.22)
+        body.translate(px, elev + 0.325, pz)
+        batch.addPositioned(body, 0x787268)
+        const merlonCount = Math.max(3, Math.floor(fp.w * 2))
+        for (let mi = 0; mi < merlonCount; mi++) {
+          if (mi % 2 === 0) continue // gaps form the battlement pattern
+          const mx = -fp.w * 0.42 + mi * (fp.w * 0.84 / (merlonCount - 1))
+          const merlon = new THREE.BoxGeometry(fp.w * 0.84 / (merlonCount - 1) * 0.8, 0.2, 0.22)
+          merlon.translate(px + mx, elev + 0.75, pz)
+          batch.addPositioned(merlon, 0x787268)
+        }
+      } else if (id === 'stone_wall') {
+        // Stacked rough-stone wall — body + stone course band (darker)
+        const body = new THREE.BoxGeometry(fp.w * 0.9, 0.65, 0.22)
+        body.translate(px, elev + 0.325, pz)
+        batch.addPositioned(body, 0x807a70)
+        const cap = new THREE.BoxGeometry(fp.w * 0.95, 0.08, 0.28)
+        cap.translate(px, elev + 0.69, pz)
+        batch.addPositioned(cap, 0x6a6458)
       } else if (id === 'iron_fence') {
-        const rail = new THREE.BoxGeometry(fp.w * 0.9, 0.03, 0.03)
-        rail.translate(px, elev + 0.5, pz)
-        batch.addPositioned(rail, 0x2a2a2a)
+        // Ornate iron fence with posts, rails, finials on posts
+        const rail1 = new THREE.BoxGeometry(fp.w * 0.9, 0.04, 0.04)
+        rail1.translate(px, elev + 0.15, pz)
+        batch.addPositioned(rail1, 0x1a1a1a)
+        const rail2 = new THREE.BoxGeometry(fp.w * 0.9, 0.04, 0.04)
+        rail2.translate(px, elev + 0.72, pz)
+        batch.addPositioned(rail2, 0x1a1a1a)
         const numBars = Math.max(3, Math.floor(fp.w * 3))
         for (let bi = 0; bi < numBars; bi++) {
-          const bx = -fp.w * 0.4 + bi * (fp.w * 0.8 / (numBars - 1))
-          const bar = new THREE.CylinderGeometry(0.012, 0.012, 0.6, 3)
-          bar.translate(px + bx, elev + 0.3, pz)
-          batch.addPositioned(bar, 0x2a2a2a)
+          const bx = -fp.w * 0.4 + bi * (fp.w * 0.8 / Math.max(1, numBars - 1))
+          const bar = new THREE.CylinderGeometry(0.015, 0.015, 0.7, 3)
+          bar.translate(px + bx, elev + 0.43, pz)
+          batch.addPositioned(bar, 0x1a1a1a)
+          // Point finials on every third bar
+          if (bi % 3 === 0) {
+            const finial = new THREE.ConeGeometry(0.03, 0.1, 4)
+            finial.translate(px + bx, elev + 0.82, pz)
+            batch.addPositioned(finial, 0x1a1a1a)
+          }
+        }
+        // Posts at the ends (taller, thicker)
+        for (const pxSide of [-fp.w * 0.45, fp.w * 0.45]) {
+          const post = new THREE.BoxGeometry(0.08, 0.95, 0.08)
+          post.translate(px + pxSide, elev + 0.47, pz)
+          batch.addPositioned(post, 0x1a1a1a)
+          const ball = new THREE.SphereGeometry(0.06, 5, 4)
+          ball.translate(px + pxSide, elev + 0.97, pz)
+          batch.addPositioned(ball, 0x1a1a1a)
+        }
+      } else if (id === 'picket_fence') {
+        // Picket fence — pointed-top slats with a rail behind them.
+        const rail = new THREE.BoxGeometry(fp.w * 0.92, 0.04, 0.04)
+        rail.translate(px, elev + 0.35, pz - 0.02)
+        batch.addPositioned(rail, 0xd8c8a8)
+        const slatCount = Math.max(4, Math.floor(fp.w * 3))
+        for (let si = 0; si < slatCount; si++) {
+          const sx = -fp.w * 0.42 + si * (fp.w * 0.84 / Math.max(1, slatCount - 1))
+          const slat = new THREE.BoxGeometry(0.06, 0.55, 0.03)
+          slat.translate(px + sx, elev + 0.275, pz)
+          batch.addPositioned(slat, 0xe8d8b8)
+          // Pointed cap
+          const cap = new THREE.ConeGeometry(0.04, 0.08, 4)
+          cap.translate(px + sx, elev + 0.58, pz)
+          batch.addPositioned(cap, 0xe8d8b8)
         }
       } else {
+        // Classic wooden fence (2 rails + 3 posts)
         for (const ry of [0.2, 0.45]) {
-          const rail = new THREE.BoxGeometry(fp.w * 0.9, 0.04, 0.03)
-          rail.translate(px, elev + ry, pz)
-          batch.addPositioned(rail, 0x6a4a28)
+          const r = new THREE.BoxGeometry(fp.w * 0.9, 0.04, 0.03)
+          r.translate(px, elev + ry, pz)
+          batch.addPositioned(r, 0x6a4a28)
         }
         for (const fx of [-fp.w * 0.4, 0, fp.w * 0.4]) {
           const post = new THREE.BoxGeometry(0.06, 0.55, 0.06)
@@ -792,6 +879,109 @@ export function buildPropMeshes(
             archGeo.translate(px + faceSide * W * 0.42, elev + 0.48, pz + archPos)
           }
           batch.addPositioned(archGeo, stoneColor)
+        }
+      }
+
+    } else if (id === 'haystack' || id === 'hay_bale') {
+      // Haystack: mounded golden cone (single) or round bale (short cylinder).
+      if (id === 'hay_bale') {
+        const bale = new THREE.CylinderGeometry(0.38, 0.38, 0.5, 8)
+        bale.rotateZ(Math.PI / 2)
+        bale.translate(px, elev + 0.38, pz)
+        batch.addPositioned(bale, 0xd4b060)
+      } else {
+        const mound = new THREE.ConeGeometry(0.6, 0.9, 8)
+        mound.translate(px, elev + 0.45, pz)
+        batch.addPositioned(mound, 0xd4b060)
+        // Cap (smaller cone on top for the "hat")
+        const cap = new THREE.ConeGeometry(0.3, 0.35, 7)
+        cap.translate(px, elev + 1.05, pz)
+        batch.addPositioned(cap, 0xc0a050)
+      }
+
+    } else if (id === 'woodpile') {
+      // Stacked logs: horizontal cylinders in two rows, offset second row
+      const logColor = 0x7a5a30
+      for (let row = 0; row < 2; row++) {
+        const count = 4 - row
+        for (let i = 0; i < count; i++) {
+          const log = new THREE.CylinderGeometry(0.1, 0.1, 0.8, 6)
+          log.rotateZ(Math.PI / 2)
+          log.translate(
+            px + (i - (count - 1) / 2) * 0.21 + row * 0.1,
+            elev + 0.1 + row * 0.21,
+            pz,
+          )
+          batch.addPositioned(log, logColor)
+        }
+      }
+      // End caps (darker circles at pile ends)
+      for (const endX of [-0.4, 0.4]) {
+        const endCap = new THREE.CylinderGeometry(0.12, 0.12, 0.02, 6)
+        endCap.rotateZ(Math.PI / 2)
+        endCap.translate(px + endX, elev + 0.2, pz)
+        batch.addPositioned(endCap, 0x5a3a18)
+      }
+
+    } else if (id === 'tent' || id === 'pavilion') {
+      // Peaked cloth tent — pyramidal cone on a square base platform
+      const base = new THREE.BoxGeometry(fp.w * 0.85, 0.08, fp.h * 0.85)
+      base.translate(px, elev + 0.04, pz)
+      batch.addPositioned(base, 0x6a5030)
+      // Cone tent top
+      const r = Math.max(fp.w, fp.h) * 0.55
+      const tent = new THREE.ConeGeometry(r, 1.4, 4)
+      tent.rotateY(Math.PI / 4)
+      tent.translate(px, elev + 0.78, pz)
+      const tentColors = [0xc04040, 0x404080, 0x60803a, 0x805020]
+      batch.addPositioned(tent, tentColors[hash % tentColors.length])
+      // Flag at the peak
+      const flagpole = new THREE.BoxGeometry(0.03, 0.35, 0.03)
+      flagpole.translate(px, elev + 1.6, pz)
+      batch.addPositioned(flagpole, 0x3a2818)
+      const flag = new THREE.PlaneGeometry(0.3, 0.15)
+      flag.translate(px + 0.15, elev + 1.7, pz)
+      batch.addPositioned(flag, 0xe0e0e0)
+
+    } else if (id === 'dock' || id === 'pier') {
+      // Wooden pier: long plank deck supported by visible posts sticking into water
+      const longAxisX = fp.w >= fp.h
+      const L = longAxisX ? fp.w : fp.h
+      const W = longAxisX ? fp.h : fp.w
+      const deck = new THREE.BoxGeometry(
+        longAxisX ? L * 0.92 : W * 0.7,
+        0.12,
+        longAxisX ? W * 0.7 : L * 0.92,
+      )
+      deck.translate(px, elev + 0.4, pz)
+      batch.addPositioned(deck, 0x8a6a40)
+      // Plank grooves suggestion: thin darker stripes along the deck
+      for (let pi = 0; pi < 5; pi++) {
+        const groove = new THREE.BoxGeometry(
+          longAxisX ? L * 0.92 : 0.02,
+          0.01,
+          longAxisX ? 0.02 : L * 0.92,
+        )
+        const t = pi / 4 - 0.5
+        groove.translate(
+          px + (longAxisX ? 0 : t * W * 0.7),
+          elev + 0.47,
+          pz + (longAxisX ? t * W * 0.7 : 0),
+        )
+        batch.addPositioned(groove, 0x5a3a20)
+      }
+      // Support posts (stick into water below the deck)
+      const postCount = Math.max(4, Math.floor(L * 0.8))
+      for (let pi = 0; pi < postCount; pi++) {
+        const t = (pi + 0.5) / postCount - 0.5
+        for (const side of [-1, 1]) {
+          const post = new THREE.BoxGeometry(0.08, 0.8, 0.08)
+          post.translate(
+            px + (longAxisX ? t * L * 0.88 : side * W * 0.3),
+            elev,
+            pz + (longAxisX ? side * W * 0.3 : t * L * 0.88),
+          )
+          batch.addPositioned(post, 0x5a3a20)
         }
       }
 
