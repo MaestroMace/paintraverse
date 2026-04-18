@@ -499,21 +499,17 @@ export function buildPropMeshes(
         lid.translate(px, elev + 0.51, pz)
         batch.addPositioned(lid, 0x5a3a18)
       } else if (bv === 1) {
-        // Wine cask laid on its side with end hoops
+        // Wine cask laid on its side — rotates with propRot so casks line
+        // up at varied angles, not all along world X.
         const body = new THREE.CylinderGeometry(0.26, 0.26, 0.55, 8)
         body.rotateZ(Math.PI / 2)
-        body.translate(px, elev + 0.28, pz)
-        batch.addPositioned(body, 0x7a5030)
+        emitRot(body, 0, 0.28, 0, 0x7a5030)
         for (const ex of [-0.22, 0.22]) {
           const hoop = new THREE.TorusGeometry(0.26, 0.02, 3, 8)
           hoop.rotateY(Math.PI / 2)
-          hoop.translate(px + ex, elev + 0.28, pz)
-          batch.addPositioned(hoop, 0x2a2a2a)
+          emitRot(hoop, ex, 0.28, 0, 0x2a2a2a)
         }
-        // Small wooden chock beneath (stops it rolling)
-        const chock = new THREE.BoxGeometry(0.35, 0.04, 0.2)
-        chock.translate(px, elev + 0.02, pz)
-        batch.addPositioned(chock, 0x5a3a20)
+        emitRot(new THREE.BoxGeometry(0.35, 0.04, 0.2), 0, 0.02, 0, 0x5a3a20)
       } else {
         // Tall rain barrel with many metal hoops
         const body = new THREE.CylinderGeometry(0.22, 0.24, 0.7, 8)
@@ -924,46 +920,27 @@ export function buildPropMeshes(
       }
 
     } else if (id === 'gravestone') {
-      // Four gravestone silhouettes by hash so cemeteries feel varied.
       const gv = hash % 4
       const stoneColor = 0x747066
       if (gv === 0) {
-        // Classic slab with rounded top (dome cap)
-        const slab = new THREE.BoxGeometry(0.3, 0.5, 0.08)
-        slab.translate(px, elev + 0.25, pz)
-        batch.addPositioned(slab, stoneColor)
+        emitRot(new THREE.BoxGeometry(0.3, 0.5, 0.08), 0, 0.25, 0, stoneColor)
         const dome = new THREE.SphereGeometry(0.15, 6, 4, 0, Math.PI * 2, 0, Math.PI / 2)
         dome.scale(1.0, 0.7, 0.55)
-        dome.translate(px, elev + 0.5, pz)
-        batch.addPositioned(dome, stoneColor)
+        emitRot(dome, 0, 0.5, 0, stoneColor)
       } else if (gv === 1) {
-        // Stone cross
-        const vert = new THREE.BoxGeometry(0.1, 0.7, 0.1)
-        vert.translate(px, elev + 0.35, pz)
-        batch.addPositioned(vert, stoneColor)
-        const horiz = new THREE.BoxGeometry(0.36, 0.1, 0.1)
-        horiz.translate(px, elev + 0.55, pz)
-        batch.addPositioned(horiz, stoneColor)
-        // Small plinth
-        const base = new THREE.BoxGeometry(0.28, 0.08, 0.2)
-        base.translate(px, elev + 0.04, pz)
-        batch.addPositioned(base, stoneColor)
+        emitRot(new THREE.BoxGeometry(0.1, 0.7, 0.1), 0, 0.35, 0, stoneColor)
+        emitRot(new THREE.BoxGeometry(0.36, 0.1, 0.1), 0, 0.55, 0, stoneColor)
+        emitRot(new THREE.BoxGeometry(0.28, 0.08, 0.2), 0, 0.04, 0, stoneColor)
       } else if (gv === 2) {
-        // Urn-topped pedestal
-        const plinth = new THREE.BoxGeometry(0.28, 0.5, 0.24)
-        plinth.translate(px, elev + 0.25, pz)
-        batch.addPositioned(plinth, stoneColor)
+        emitRot(new THREE.BoxGeometry(0.28, 0.5, 0.24), 0, 0.25, 0, stoneColor)
         const urn = new THREE.SphereGeometry(0.14, 6, 5)
         urn.scale(1.0, 0.9, 1.0)
-        urn.translate(px, elev + 0.6, pz)
-        batch.addPositioned(urn, stoneColor)
+        emitRot(urn, 0, 0.6, 0, stoneColor)
       } else {
-        // Leaning slab (tilted) — the disturbed grave
         const tiltSign = (hash >> 2) & 1 ? 1 : -1
         const slab = new THREE.BoxGeometry(0.3, 0.5, 0.08)
         slab.rotateZ(0.18 * tiltSign)
-        slab.translate(px, elev + 0.22, pz)
-        batch.addPositioned(slab, stoneColor)
+        emitRot(slab, 0, 0.22, 0, stoneColor)
       }
 
     } else if (id === 'garden_arch') {
