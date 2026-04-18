@@ -231,36 +231,120 @@ export function buildPropMeshes(
       lampposts.push(group)
 
     } else if (id === 'fountain' || id === 'fountain_grand') {
-      const scale = id === 'fountain_grand' ? 1.5 : 1.0
-      // Basin
-      const basin = new THREE.CylinderGeometry(0.9 * scale, 1.0 * scale, 0.4, 8)
-      basin.translate(px, elev + 0.2, pz)
-      batch.addPositioned(basin, 0x909898)
-      // Water
-      const water = new THREE.CylinderGeometry(0.7 * scale, 0.7 * scale, 0.06, 8)
-      water.translate(px, elev + 0.38, pz)
-      batch.addPositioned(water, 0x5090c0)
-      // Pillar
-      const pillar = new THREE.CylinderGeometry(0.1, 0.14, 1.0 * scale, 6)
-      pillar.translate(px, elev + 0.7 * scale, pz)
-      batch.addPositioned(pillar, 0x909898)
-      // Top orb
-      const orb = new THREE.SphereGeometry(0.15 * scale, 6, 4)
-      orb.translate(px, elev + 1.2 * scale, pz)
-      batch.addPositioned(orb, 0x909898)
+      const grand = id === 'fountain_grand'
+      const scale = grand ? 1.8 : 1.15
+      const stone = 0x989890
+      const stoneDark = 0x707070
+      const water = 0x5090c0
+
+      // Octagonal base step (stone plinth) — wider than basin
+      const step = new THREE.CylinderGeometry(1.15 * scale, 1.2 * scale, 0.18, 8)
+      step.translate(px, elev + 0.09, pz)
+      batch.addPositioned(step, stoneDark)
+
+      // Lower basin
+      const basin = new THREE.CylinderGeometry(0.95 * scale, 1.05 * scale, 0.42, 8)
+      basin.translate(px, elev + 0.39, pz)
+      batch.addPositioned(basin, stone)
+
+      // Water surface in lower basin
+      const waterL = new THREE.CylinderGeometry(0.78 * scale, 0.78 * scale, 0.06, 8)
+      waterL.translate(px, elev + 0.58, pz)
+      batch.addPositioned(waterL, water)
+
+      // Central pillar (stepped — thicker bottom, thinner top)
+      const pillarLower = new THREE.CylinderGeometry(0.18 * scale, 0.22 * scale, 0.55 * scale, 6)
+      pillarLower.translate(px, elev + 0.61 + 0.28 * scale, pz)
+      batch.addPositioned(pillarLower, stone)
+      const pillarUpper = new THREE.CylinderGeometry(0.12 * scale, 0.16 * scale, 0.6 * scale, 6)
+      pillarUpper.translate(px, elev + 0.61 + 0.56 * scale + 0.3 * scale, pz)
+      batch.addPositioned(pillarUpper, stone)
+
+      // Upper tier — smaller basin catching falling water (grand only)
+      if (grand) {
+        const upperBasin = new THREE.CylinderGeometry(0.42 * scale, 0.52 * scale, 0.18, 8)
+        upperBasin.translate(px, elev + 0.61 + 1.18 * scale, pz)
+        batch.addPositioned(upperBasin, stone)
+        const upperWater = new THREE.CylinderGeometry(0.32 * scale, 0.32 * scale, 0.05, 8)
+        upperWater.translate(px, elev + 0.61 + 1.3 * scale, pz)
+        batch.addPositioned(upperWater, water)
+      }
+
+      // Top ornament — stepped finial (ball + crown + small ball)
+      const capY = grand ? elev + 0.61 + 1.45 * scale : elev + 0.61 + 1.2 * scale
+      const ballL = new THREE.SphereGeometry(0.18 * scale, 7, 5)
+      ballL.translate(px, capY, pz)
+      batch.addPositioned(ballL, stone)
+      const neck = new THREE.CylinderGeometry(0.06 * scale, 0.08 * scale, 0.15 * scale, 6)
+      neck.translate(px, capY + 0.18 * scale, pz)
+      batch.addPositioned(neck, stone)
+      const ballT = new THREE.SphereGeometry(0.1 * scale, 6, 4)
+      ballT.translate(px, capY + 0.28 * scale, pz)
+      batch.addPositioned(ballT, stone)
+
+      // Four small water jets around the pillar — tiny blue cylinders
+      for (let j = 0; j < 4; j++) {
+        const ang = (j / 4) * Math.PI * 2
+        const jetR = 0.32 * scale
+        const jet = new THREE.CylinderGeometry(0.035, 0.035, 0.28 * scale, 4)
+        jet.translate(
+          px + Math.cos(ang) * jetR,
+          elev + 0.72 + 0.14 * scale,
+          pz + Math.sin(ang) * jetR,
+        )
+        batch.addPositioned(jet, water)
+      }
 
     } else if (id === 'well' || id === 'well_grand') {
-      const ring = new THREE.TorusGeometry(0.35, 0.12, 6, 8)
-      ring.rotateX(Math.PI / 2); ring.translate(px, elev + 0.4, pz)
-      batch.addPositioned(ring, 0x707878)
-      for (const sx of [-0.3, 0.3]) {
-        const post = new THREE.BoxGeometry(0.06, 0.8, 0.06)
-        post.translate(px + sx, elev + 0.8, pz)
-        batch.addPositioned(post, 0x5a4020)
+      const grand = id === 'well_grand'
+      const scale = grand ? 1.25 : 1.0
+      const stone = 0x8a8478
+      const darkStone = 0x6a6458
+      const wood = 0x5a4020
+
+      // Octagonal stone base (slightly wider than the ring)
+      const base = new THREE.CylinderGeometry(0.48 * scale, 0.54 * scale, 0.22, 8)
+      base.translate(px, elev + 0.11, pz)
+      batch.addPositioned(base, darkStone)
+
+      // Ring wall around the well opening
+      const ring = new THREE.TorusGeometry(0.38 * scale, 0.12 * scale, 6, 10)
+      ring.rotateX(Math.PI / 2); ring.translate(px, elev + 0.42, pz)
+      batch.addPositioned(ring, stone)
+      // Dark water circle inside
+      const wellWater = new THREE.CylinderGeometry(0.24 * scale, 0.24 * scale, 0.04, 8)
+      wellWater.translate(px, elev + 0.3, pz)
+      batch.addPositioned(wellWater, 0x203040)
+
+      // Twin posts supporting a roof over the well
+      for (const sx of [-0.34 * scale, 0.34 * scale]) {
+        const post = new THREE.BoxGeometry(0.08, 0.9 * scale, 0.08)
+        post.translate(px + sx, elev + 0.55 + 0.45 * scale, pz)
+        batch.addPositioned(post, wood)
       }
-      const roof = new THREE.BoxGeometry(0.8, 0.04, 0.4)
-      roof.translate(px, elev + 1.22, pz)
-      batch.addPositioned(roof, 0x5a4020)
+
+      // Crossbeam
+      const crossbeam = new THREE.BoxGeometry(0.9 * scale, 0.08, 0.08)
+      crossbeam.translate(px, elev + 0.55 + 0.9 * scale + 0.04, pz)
+      batch.addPositioned(crossbeam, wood)
+
+      // Gabled roof (two slanted slabs meeting at a ridge)
+      const roofY = elev + 0.55 + 0.9 * scale + 0.22
+      for (const side of [-1, 1]) {
+        const slab = new THREE.BoxGeometry(0.95 * scale, 0.05, 0.55 * scale)
+        slab.rotateX(0.5 * side)
+        slab.translate(px, roofY, pz + side * 0.14 * scale)
+        batch.addPositioned(slab, 0x5a3a28)
+      }
+
+      // Bucket hanging from a tiny horizontal rod under the crossbeam
+      const bucketY = elev + 0.75
+      const bucket = new THREE.CylinderGeometry(0.1, 0.09, 0.18, 6)
+      bucket.translate(px, bucketY, pz)
+      batch.addPositioned(bucket, 0x6a4a2a)
+      const rope = new THREE.BoxGeometry(0.02, 0.9 * scale * 0.55, 0.02)
+      rope.translate(px, elev + 0.55 + 0.9 * scale - 0.3 * scale, pz)
+      batch.addPositioned(rope, 0x3a2818)
 
     } else if (id === 'barrel' || id === 'rain_barrel') {
       const b = new THREE.CylinderGeometry(0.2, 0.22, 0.5, 8)
