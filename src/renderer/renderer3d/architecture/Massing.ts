@@ -463,6 +463,226 @@ function tmplGatehouse(ctx: MassingContext): Volume[] {
   ]
 }
 
+/** Two parallel tall narrow gabled bodies joined side-by-side (rowhouse pair). */
+function tmplTwinGables(ctx: MassingContext): Volume[] {
+  const splitAxisZ = ctx.footW >= ctx.footD
+  const halfW = splitAxisZ ? ctx.footW / 2 : ctx.footW
+  const halfD = splitAxisZ ? ctx.footD : ctx.footD / 2
+  const leftRoof = roofFromStyle(ctx.sv, ctx.hash, 61)
+  const rightRoof = roofFromStyle(ctx.sv, ctx.hash, 63)
+  // Slight height difference so roofline isn't symmetric
+  const leftH = ctx.wallH * (0.92 + rand01(ctx.hash, 65) * 0.12)
+  const rightH = ctx.wallH * (0.92 + rand01(ctx.hash, 67) * 0.12)
+  return [
+    {
+      role: 'mainBody',
+      offsetX: splitAxisZ ? -halfW / 2 : 0,
+      offsetZ: splitAxisZ ? 0 : -halfD / 2,
+      width: halfW * 0.98, depth: halfD * 0.98,
+      bottomY: 0, height: leftH,
+      roofStyle: leftRoof, roofHeight: roofHeightFor(leftRoof, leftH, ctx.sv),
+      roofAxis: splitAxisZ ? 'z' : 'x',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: ctx.sv.cornice > 0.25,
+      floors: ctx.floors,
+    },
+    {
+      role: 'wing',
+      offsetX: splitAxisZ ? halfW / 2 : 0,
+      offsetZ: splitAxisZ ? 0 : halfD / 2,
+      width: halfW * 0.98, depth: halfD * 0.98,
+      bottomY: 0, height: rightH,
+      roofStyle: rightRoof, roofHeight: roofHeightFor(rightRoof, rightH, ctx.sv),
+      roofAxis: splitAxisZ ? 'z' : 'x',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: ctx.sv.cornice > 0.25,
+      floors: ctx.floors,
+    },
+  ]
+}
+
+/** Main body + small side chapel with its own pointed roof (gothic). */
+function tmplAttachedChapel(ctx: MassingContext): Volume[] {
+  const mainRoof = roofFromStyle(ctx.sv, ctx.hash, 71)
+  const chapW = Math.max(1.3, ctx.footW * 0.42)
+  const chapD = Math.max(1.3, ctx.footD * 0.55)
+  const chapSide = rand01(ctx.hash, 73) < 0.5 ? -1 : 1
+  const chapRoof: RoofStyle = rand01(ctx.hash, 75) < 0.55 ? 'steep' : 'pointed'
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: ctx.wallH,
+      roofStyle: mainRoof, roofHeight: roofHeightFor(mainRoof, ctx.wallH, ctx.sv),
+      roofAxis: roofAxisFor(ctx.footW, ctx.footD),
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: true,
+      floors: ctx.floors,
+    },
+    {
+      role: 'wing',
+      offsetX: chapSide * (ctx.footW / 2 + chapW / 2 - 0.15),
+      offsetZ: (rand01(ctx.hash, 77) - 0.5) * (ctx.footD - chapD) * 0.4,
+      width: chapW, depth: chapD,
+      bottomY: 0, height: ctx.wallH * 0.82,
+      roofStyle: chapRoof, roofHeight: roofHeightFor(chapRoof, ctx.wallH * 0.82, ctx.sv),
+      roofAxis: chapW >= chapD ? 'x' : 'z',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: ctx.sv.cornice > 0.3,
+      floors: Math.max(1, ctx.floors - 1),
+    },
+  ]
+}
+
+/** Cross-plan: main body + perpendicular wing + central tower at intersection. */
+function tmplCrossPlan(ctx: MassingContext): Volume[] {
+  const mainRoof = roofFromStyle(ctx.sv, ctx.hash, 81)
+  const wingRoof = roofFromStyle(ctx.sv, ctx.hash, 82)
+  const armW = ctx.footW, armD = Math.max(1.4, ctx.footD * 0.55)
+  const armW2 = Math.max(1.4, ctx.footW * 0.55), armD2 = ctx.footD
+  const towerW = Math.max(1.2, Math.min(armD, armW2) * 0.85)
+  const towerH = ctx.wallH * (1.3 + ctx.sv.wealth * 0.4)
+  const towerRoof: RoofStyle = rand01(ctx.hash, 84) < 0.55 ? 'pointed' : 'spire'
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: armW, depth: armD,
+      bottomY: 0, height: ctx.wallH,
+      roofStyle: mainRoof, roofHeight: roofHeightFor(mainRoof, ctx.wallH, ctx.sv),
+      roofAxis: 'x',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: true,
+      floors: ctx.floors,
+    },
+    {
+      role: 'transept',
+      offsetX: 0, offsetZ: 0,
+      width: armW2, depth: armD2,
+      bottomY: 0, height: ctx.wallH * 0.95,
+      roofStyle: wingRoof, roofHeight: roofHeightFor(wingRoof, ctx.wallH * 0.95, ctx.sv),
+      roofAxis: 'z',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: true,
+      floors: ctx.floors,
+    },
+    {
+      role: 'tower',
+      offsetX: 0, offsetZ: 0,
+      width: towerW, depth: towerW,
+      bottomY: 0, height: towerH,
+      roofStyle: towerRoof, roofHeight: roofHeightFor(towerRoof, towerH, ctx.sv),
+      roofAxis: 'x',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: true,
+      floors: Math.max(3, Math.round(towerH / 0.9)),
+    },
+  ]
+}
+
+/** Body with a full-height projecting bay on one long side. */
+function tmplSideBay(ctx: MassingContext): Volume[] {
+  const mainRoof = roofFromStyle(ctx.sv, ctx.hash, 91)
+  const bayW = Math.max(1.2, ctx.footW * 0.45)
+  const bayD = 0.7
+  const bayH = ctx.wallH * 0.92
+  const baySide = rand01(ctx.hash, 93) < 0.5 ? -1 : 1
+  const bayRoof: RoofStyle = rand01(ctx.hash, 95) < 0.55 ? 'hipped' : 'gabled'
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: ctx.wallH,
+      roofStyle: mainRoof, roofHeight: roofHeightFor(mainRoof, ctx.wallH, ctx.sv),
+      roofAxis: roofAxisFor(ctx.footW, ctx.footD),
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: ctx.sv.cornice > 0.25,
+      floors: ctx.floors,
+    },
+    {
+      role: 'wing',
+      offsetX: (rand01(ctx.hash, 97) - 0.5) * (ctx.footW - bayW) * 0.6,
+      offsetZ: baySide * (ctx.footD / 2 + bayD / 2 - 0.1),
+      width: bayW, depth: bayD,
+      bottomY: 0, height: bayH,
+      roofStyle: bayRoof, roofHeight: roofHeightFor(bayRoof, bayH, ctx.sv),
+      roofAxis: 'x',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: ctx.sv.cornice > 0.3,
+      floors: ctx.floors,
+    },
+  ]
+}
+
+/** Humble farmstead: tiny body + attached lean-to shed with mono-pitch roof. */
+function tmplFarmstead(ctx: MassingContext): Volume[] {
+  const bodyRoof: RoofStyle = rand01(ctx.hash, 101) < 0.5 ? 'steep' : 'gabled'
+  const shedW = Math.max(0.9, ctx.footW * 0.5)
+  const shedD = Math.max(0.9, ctx.footD * 0.45)
+  const shedH = ctx.wallH * 0.55
+  const shedSide = rand01(ctx.hash, 103) < 0.5 ? -1 : 1
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: -shedD * 0.25,
+      width: ctx.footW, depth: ctx.footD * 0.9,
+      bottomY: 0, height: ctx.wallH,
+      roofStyle: bodyRoof, roofHeight: roofHeightFor(bodyRoof, ctx.wallH, ctx.sv),
+      roofAxis: roofAxisFor(ctx.footW, ctx.footD * 0.9),
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: false,
+      floors: 1,
+    },
+    {
+      role: 'wing',
+      offsetX: shedSide * (ctx.footW / 2 - shedW / 2),
+      offsetZ: ctx.footD / 2 - shedD / 2 + 0.05,
+      width: shedW, depth: shedD,
+      bottomY: 0, height: shedH,
+      roofStyle: 'hipped', roofHeight: shedH * 0.3,
+      roofAxis: 'x',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: false, cornice: false,
+      floors: 1,
+    },
+  ]
+}
+
+/** Body + dramatic centered tall tower (like a keep). */
+function tmplStackedTower(ctx: MassingContext): Volume[] {
+  const mainRoof: RoofStyle = 'flat'
+  const towerW = Math.max(1.2, Math.min(ctx.footW, ctx.footD) * 0.55)
+  const towerH = ctx.wallH * (1.8 + ctx.sv.wealth * 0.4)
+  const towerRoof: RoofStyle = rand01(ctx.hash, 113) < 0.5 ? 'pointed' : 'hipped'
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: ctx.wallH,
+      roofStyle: mainRoof, roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: true,
+      floors: Math.max(1, ctx.floors - 1),
+    },
+    {
+      role: 'tower',
+      offsetX: (rand01(ctx.hash, 115) - 0.5) * (ctx.footW - towerW) * 0.4,
+      offsetZ: (rand01(ctx.hash, 117) - 0.5) * (ctx.footD - towerW) * 0.4,
+      width: towerW, depth: towerW,
+      bottomY: 0, height: towerH,
+      roofStyle: towerRoof, roofHeight: roofHeightFor(towerRoof, towerH, ctx.sv),
+      roofAxis: 'x',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: true,
+      floors: Math.max(3, Math.round(towerH / 0.9)),
+    },
+  ]
+}
+
 /* ------------------------------------------------------------------ */
 /* Template selection                                                 */
 /* ------------------------------------------------------------------ */
@@ -470,12 +690,30 @@ function tmplGatehouse(ctx: MassingContext): Volume[] {
 type TemplateFn = (ctx: MassingContext) => Volume[]
 
 const TEMPLATES_BY_ARCHETYPE: Record<ArchetypeId, TemplateFn[]> = {
-  traverseCozy: [tmplSimpleBody, tmplStepBack, tmplJettiedUpper, tmplPorchFront],
-  nobleStone: [tmplCornerTower, tmplLShape, tmplStepBack],
-  halfTimberTudor: [tmplJettiedUpper, tmplJettiedUpper, tmplLShape],
-  medievalRustic: [tmplCottageSmall, tmplSimpleBody, tmplPorchFront],
-  mediterraneanStucco: [tmplLShape, tmplPorchFront, tmplSimpleBody, tmplStepBack],
-  gothicStone: [tmplNaveTransept, tmplSpireEnd, tmplCornerTower],
+  traverseCozy: [
+    tmplSimpleBody, tmplStepBack, tmplJettiedUpper, tmplPorchFront,
+    tmplTwinGables, tmplSideBay,
+  ],
+  nobleStone: [
+    tmplCornerTower, tmplLShape, tmplStepBack, tmplStackedTower,
+    tmplCrossPlan, tmplSideBay,
+  ],
+  halfTimberTudor: [
+    tmplJettiedUpper, tmplJettiedUpper, tmplLShape, tmplTwinGables,
+    tmplSideBay, tmplStepBack,
+  ],
+  medievalRustic: [
+    tmplCottageSmall, tmplSimpleBody, tmplPorchFront, tmplFarmstead,
+    tmplFarmstead, tmplTwinGables,
+  ],
+  mediterraneanStucco: [
+    tmplLShape, tmplPorchFront, tmplSimpleBody, tmplStepBack,
+    tmplCrossPlan, tmplSideBay,
+  ],
+  gothicStone: [
+    tmplNaveTransept, tmplSpireEnd, tmplCornerTower,
+    tmplAttachedChapel, tmplCrossPlan, tmplStackedTower,
+  ],
 }
 
 /** Definition-ID overrides for specialty buildings. */
@@ -494,6 +732,27 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   town_gate: (ctx) => tmplGatehouse(ctx),
   gatehouse: (ctx) => tmplGatehouse(ctx),
   windmill: (ctx) => tmplCircularTower(ctx, false),
+}
+
+/**
+ * Rotate a Volume around the building's local origin by steps * 90°.
+ * Swaps width↔depth, rotates offsetX/Z, and flips the roof ridge axis.
+ * Circular volumes are unchanged. Use 0..3 for steps; other integers are
+ * normalized mod 4.
+ */
+export function rotateVolume(v: Volume, steps: number): Volume {
+  const n = ((steps % 4) + 4) % 4
+  if (n === 0 || v.circular) return v
+  let ox = v.offsetX, oz = v.offsetZ
+  let w = v.width, d = v.depth
+  let axis = v.roofAxis
+  for (let i = 0; i < n; i++) {
+    const nOx = -oz; const nOz = ox
+    ox = nOx; oz = nOz
+    const tmp = w; w = d; d = tmp
+    axis = axis === 'x' ? 'z' : 'x'
+  }
+  return { ...v, offsetX: ox, offsetZ: oz, width: w, depth: d, roofAxis: axis }
 }
 
 export interface PickMassingInput {

@@ -14,8 +14,9 @@ import type { ObjectDefinition, PlacedObject } from '../core/types'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
-import { pickMassing } from './architecture/Massing'
+import { pickMassing, rotateVolume } from './architecture/Massing'
 import { emitVolume, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
+import { pickPaletteForStyle } from './architecture/PaletteBias'
 
 /** Re-export so ThreeRenderer can keep importing from BuildingFactory. */
 export const setWallEmissiveIntensity = setVolumeEmissiveIntensity
@@ -107,7 +108,6 @@ export function buildBuildingMeshes(
     const jitterDZ = jitter ? (rand01(hash, 3) - 0.5) * 0.35 : 0
 
     const wallH = floors * FLOOR_HEIGHT * heightMult * hScale
-    const palette = palettes[hash % palettes.length]
     const style = (obj.properties.style as string) || 'standard'
     const district = (obj.properties.district as string) || 'residential'
 
@@ -129,6 +129,7 @@ export function buildBuildingMeshes(
     const styleVector = buildingStyleVector(districtId, hash)
     const picks = pickArchetypes(districtId, hash)
     const dominantArchetype = picks[0]?.id ?? 'traverseCozy'
+    const palette = pickPaletteForStyle(palettes, styleVector, hash)
 
     const massing = pickMassing({
       definitionId: obj.definitionId,
@@ -140,6 +141,18 @@ export function buildBuildingMeshes(
       wallColor: palette.wall, roofColor: palette.roof,
     })
 
+    // Building rotation — 0/90/180/270°. Square footprints can rotate
+    // any quarter-turn; rectangular footprints only flip 0/180 so they
+    // still fit the grid cell assigned by TownGenerator. Skipped for
+    // NO_JITTER types (gates, staircases) so they still interlock.
+    let rotSteps = 0
+    if (!NO_JITTER.has(obj.definitionId)) {
+      rotSteps = fp.w === fp.h ? (hash % 4) : ((hash % 2) * 2)
+    }
+    if (rotSteps !== 0) {
+      massing.volumes = massing.volumes.map(v => rotateVolume(v, rotSteps))
+    }
+
     const emitCtx = {
       centerX: wx,
       centerZ: wz,
@@ -150,6 +163,7 @@ export function buildBuildingMeshes(
       style,
       palette,
       rotationY: 0,
+      hash,
     }
     for (const vol of massing.volumes) {
       emitVolume(vol, emitCtx, wallMeshes, roofBatch, ornamentBatch)
