@@ -49,6 +49,12 @@ function simpleHash(s: string): number {
   return Math.abs(h)
 }
 
+/** Deterministic 0..1 pseudo-random from an integer hash and a salt. */
+function rand01(hash: number, salt: number): number {
+  const n = (hash * 2654435761 + salt * 1597334677) >>> 0
+  return n / 0xffffffff
+}
+
 export interface PropBatchResult {
   batched: THREE.Mesh[]          // merged geometry meshes
   lampposts: THREE.Object3D[]    // individual (emissive + lights)
@@ -85,6 +91,27 @@ export function buildPropMeshes(
     }
     const elev = getHeight ? terrainH : (obj.elevation || 0)
     const hash = simpleHash(obj.id)
+
+    // Per-prop Y rotation so benches/signs/carts/lamps don't all point at
+    // world +Z. 1×1 props can rotate any angle; multi-tile props rotate
+    // less so they don't overflow their occupied grid cell too badly.
+    // Fountains + wells stay 0 (Y-symmetric — rotation has no visual effect).
+    const isSingleTile = fp.w === 1 && fp.h === 1
+    const maxPropRot = isSingleTile ? Math.PI : Math.PI * 0.2  // 180° vs ~36°
+    const propRot = (id === 'fountain' || id === 'fountain_grand' || id === 'well' || id === 'well_grand')
+      ? 0
+      : (rand01(hash, 17) - 0.5) * 2 * maxPropRot
+
+    // Emit a geometry at local offset (dx, dy, dz) from the prop center,
+    // rotated by propRot around that center, then translated to world.
+    // Every batch.addPositioned call below that wants rotation should use
+    // this helper instead of baking world coords into .translate(px+dx, ...).
+    const emitRot = (g: THREE.BufferGeometry, dx: number, dy: number, dz: number, color: number) => {
+      g.translate(dx, dy, dz)
+      if (propRot !== 0) g.rotateY(propRot)
+      g.translate(px, elev, pz)
+      batch.addPositioned(g, color)
+    }
 
     if (id === 'tree' || id === 'orchard_tree') {
       // If no species set, hash-pick one so tree clusters aren't all identical.
@@ -329,6 +356,10 @@ export function buildPropMeshes(
         }
       }
 
+      // Rotate the lamppost group so ornate / double-arm / wall-lantern
+      // variants face non-axial directions. Simple single-sphere lamps
+      // are rotationally symmetric so this is a no-op for them visually.
+      group.rotation.y = propRot
       group.traverse(c => { c.matrixAutoUpdate = false; c.updateMatrix() })
       lampposts.push(group)
 
@@ -519,42 +550,24 @@ export function buildPropMeshes(
 
     } else if (id === 'bench') {
       // Three bench variants by hash: wooden with backrest, stone slab,
-      // wooden backless with end arms.
+      // wooden backless with end arms. All rotate with propRot.
       const bv = hash % 3
       if (bv === 0) {
-        const seat = new THREE.BoxGeometry(0.9, 0.04, 0.3)
-        seat.translate(px, elev + 0.35, pz)
-        batch.addPositioned(seat, 0x6a4a28)
-        const back = new THREE.BoxGeometry(0.9, 0.35, 0.03)
-        back.translate(px, elev + 0.55, pz - 0.13)
-        batch.addPositioned(back, 0x6a4a28)
+        emitRot(new THREE.BoxGeometry(0.9, 0.04, 0.3), 0, 0.35, 0, 0x6a4a28)
+        emitRot(new THREE.BoxGeometry(0.9, 0.35, 0.03), 0, 0.55, -0.13, 0x6a4a28)
         for (const lx of [-0.38, 0.38]) {
-          const leg = new THREE.BoxGeometry(0.07, 0.33, 0.28)
-          leg.translate(px + lx, elev + 0.17, pz)
-          batch.addPositioned(leg, 0x5a3a1a)
+          emitRot(new THREE.BoxGeometry(0.07, 0.33, 0.28), lx, 0.17, 0, 0x5a3a1a)
         }
       } else if (bv === 1) {
-        // Stone slab bench — two stone supports + thick slab
-        const slab = new THREE.BoxGeometry(1.0, 0.1, 0.35)
-        slab.translate(px, elev + 0.35, pz)
-        batch.addPositioned(slab, 0x8a847a)
+        emitRot(new THREE.BoxGeometry(1.0, 0.1, 0.35), 0, 0.35, 0, 0x8a847a)
         for (const lx of [-0.38, 0.38]) {
-          const leg = new THREE.BoxGeometry(0.18, 0.3, 0.3)
-          leg.translate(px + lx, elev + 0.15, pz)
-          batch.addPositioned(leg, 0x7a7468)
+          emitRot(new THREE.BoxGeometry(0.18, 0.3, 0.3), lx, 0.15, 0, 0x7a7468)
         }
       } else {
-        // Wooden backless with end arm rests
-        const seat = new THREE.BoxGeometry(0.9, 0.05, 0.3)
-        seat.translate(px, elev + 0.4, pz)
-        batch.addPositioned(seat, 0x7a5a30)
+        emitRot(new THREE.BoxGeometry(0.9, 0.05, 0.3), 0, 0.4, 0, 0x7a5a30)
         for (const lx of [-0.43, 0.43]) {
-          const arm = new THREE.BoxGeometry(0.06, 0.15, 0.32)
-          arm.translate(px + lx, elev + 0.5, pz)
-          batch.addPositioned(arm, 0x5a3a1a)
-          const leg = new THREE.BoxGeometry(0.06, 0.4, 0.3)
-          leg.translate(px + lx, elev + 0.2, pz)
-          batch.addPositioned(leg, 0x5a3a1a)
+          emitRot(new THREE.BoxGeometry(0.06, 0.15, 0.32), lx, 0.5, 0, 0x5a3a1a)
+          emitRot(new THREE.BoxGeometry(0.06, 0.4, 0.3), lx, 0.2, 0, 0x5a3a1a)
         }
       }
 
@@ -675,97 +688,45 @@ export function buildPropMeshes(
       //   monument   → obelisk (tall pyramid-capped pillar)
       //   statue     → hash picks equestrian / figure / urn / orb
       if (id === 'column') {
-        const base = new THREE.BoxGeometry(0.4, 0.12, 0.4)
-        base.translate(px, elev + 0.06, pz)
-        batch.addPositioned(base, 0xaaa29a)
-        const shaft = new THREE.CylinderGeometry(0.09, 0.12, 1.6, 6)
-        shaft.translate(px, elev + 0.92, pz)
-        batch.addPositioned(shaft, 0xbab2aa)
-        // Capital (wider block at top)
-        const cap = new THREE.BoxGeometry(0.32, 0.12, 0.32)
-        cap.translate(px, elev + 1.78, pz)
-        batch.addPositioned(cap, 0xaaa29a)
-        const capTop = new THREE.BoxGeometry(0.38, 0.06, 0.38)
-        capTop.translate(px, elev + 1.87, pz)
-        batch.addPositioned(capTop, 0xaaa29a)
+        emitRot(new THREE.BoxGeometry(0.4, 0.12, 0.4), 0, 0.06, 0, 0xaaa29a)
+        emitRot(new THREE.CylinderGeometry(0.09, 0.12, 1.6, 6), 0, 0.92, 0, 0xbab2aa)
+        emitRot(new THREE.BoxGeometry(0.32, 0.12, 0.32), 0, 1.78, 0, 0xaaa29a)
+        emitRot(new THREE.BoxGeometry(0.38, 0.06, 0.38), 0, 1.87, 0, 0xaaa29a)
       } else if (id === 'monument') {
-        // Obelisk: square plinth → tall tapered column → pyramid cap
-        const plinth = new THREE.BoxGeometry(0.7, 0.22, 0.7)
-        plinth.translate(px, elev + 0.11, pz)
-        batch.addPositioned(plinth, 0x9a9288)
+        emitRot(new THREE.BoxGeometry(0.7, 0.22, 0.7), 0, 0.11, 0, 0x9a9288)
         const shaft = new THREE.CylinderGeometry(0.12, 0.22, 2.0, 4)
         shaft.rotateY(Math.PI / 4)
-        shaft.translate(px, elev + 1.22, pz)
-        batch.addPositioned(shaft, 0xbab2a8)
+        emitRot(shaft, 0, 1.22, 0, 0xbab2a8)
         const pyramid = new THREE.ConeGeometry(0.2, 0.35, 4)
         pyramid.rotateY(Math.PI / 4)
-        pyramid.translate(px, elev + 2.4, pz)
-        batch.addPositioned(pyramid, 0xbab2a8)
+        emitRot(pyramid, 0, 2.4, 0, 0xbab2a8)
       } else {
         const statueVariant = hash % 4
-        const ped = new THREE.BoxGeometry(0.55, 0.55, 0.55)
-        ped.translate(px, elev + 0.275, pz)
-        batch.addPositioned(ped, 0x9a9288)
+        emitRot(new THREE.BoxGeometry(0.55, 0.55, 0.55), 0, 0.275, 0, 0x9a9288)
         if (statueVariant === 0) {
-          // Equestrian: horse body + rider
-          const horseBody = new THREE.BoxGeometry(0.55, 0.28, 0.2)
-          horseBody.translate(px, elev + 0.75, pz)
-          batch.addPositioned(horseBody, 0xbab2a8)
-          const horseHead = new THREE.BoxGeometry(0.18, 0.24, 0.14)
-          horseHead.translate(px + 0.25, elev + 0.95, pz)
-          batch.addPositioned(horseHead, 0xbab2a8)
-          // Legs (4 small blocks)
+          // Equestrian — the horse faces the propRot direction
+          emitRot(new THREE.BoxGeometry(0.55, 0.28, 0.2), 0, 0.75, 0, 0xbab2a8)
+          emitRot(new THREE.BoxGeometry(0.18, 0.24, 0.14), 0.25, 0.95, 0, 0xbab2a8)
           for (const [lx, lz] of [[-0.22, -0.07], [0.22, -0.07], [-0.22, 0.07], [0.22, 0.07]] as const) {
-            const leg = new THREE.BoxGeometry(0.06, 0.22, 0.06)
-            leg.translate(px + lx, elev + 0.65, pz + lz)
-            batch.addPositioned(leg, 0xbab2a8)
+            emitRot(new THREE.BoxGeometry(0.06, 0.22, 0.06), lx, 0.65, lz, 0xbab2a8)
           }
-          // Rider torso
-          const torso = new THREE.BoxGeometry(0.18, 0.3, 0.15)
-          torso.translate(px + 0.02, elev + 1.1, pz)
-          batch.addPositioned(torso, 0xbab2a8)
-          const head = new THREE.SphereGeometry(0.1, 6, 5)
-          head.translate(px + 0.02, elev + 1.32, pz)
-          batch.addPositioned(head, 0xbab2a8)
+          emitRot(new THREE.BoxGeometry(0.18, 0.3, 0.15), 0.02, 1.1, 0, 0xbab2a8)
+          emitRot(new THREE.SphereGeometry(0.1, 6, 5), 0.02, 1.32, 0, 0xbab2a8)
         } else if (statueVariant === 1) {
-          // Standing figure: humanoid silhouette
-          const torso = new THREE.BoxGeometry(0.24, 0.5, 0.18)
-          torso.translate(px, elev + 0.85, pz)
-          batch.addPositioned(torso, 0xbab2a8)
-          const head = new THREE.SphereGeometry(0.11, 6, 5)
-          head.translate(px, elev + 1.2, pz)
-          batch.addPositioned(head, 0xbab2a8)
-          // Arm hanging
-          const arm = new THREE.BoxGeometry(0.08, 0.42, 0.08)
-          arm.translate(px + 0.18, elev + 0.85, pz)
-          batch.addPositioned(arm, 0xbab2a8)
-          // Legs (two slim rectangles merged)
-          const legs = new THREE.BoxGeometry(0.22, 0.2, 0.16)
-          legs.translate(px, elev + 0.67, pz)
-          batch.addPositioned(legs, 0xbab2a8)
+          emitRot(new THREE.BoxGeometry(0.24, 0.5, 0.18), 0, 0.85, 0, 0xbab2a8)
+          emitRot(new THREE.SphereGeometry(0.11, 6, 5), 0, 1.2, 0, 0xbab2a8)
+          emitRot(new THREE.BoxGeometry(0.08, 0.42, 0.08), 0.18, 0.85, 0, 0xbab2a8)
+          emitRot(new THREE.BoxGeometry(0.22, 0.2, 0.16), 0, 0.67, 0, 0xbab2a8)
         } else if (statueVariant === 2) {
-          // Urn on pedestal
-          const urnBase = new THREE.CylinderGeometry(0.12, 0.18, 0.15, 8)
-          urnBase.translate(px, elev + 0.63, pz)
-          batch.addPositioned(urnBase, 0xbab2a8)
+          emitRot(new THREE.CylinderGeometry(0.12, 0.18, 0.15, 8), 0, 0.63, 0, 0xbab2a8)
           const urnBody = new THREE.SphereGeometry(0.22, 7, 6)
           urnBody.scale(1.0, 0.85, 1.0)
-          urnBody.translate(px, elev + 0.88, pz)
-          batch.addPositioned(urnBody, 0xbab2a8)
-          const urnNeck = new THREE.CylinderGeometry(0.12, 0.16, 0.12, 8)
-          urnNeck.translate(px, elev + 1.1, pz)
-          batch.addPositioned(urnNeck, 0xbab2a8)
-          const urnRim = new THREE.CylinderGeometry(0.18, 0.14, 0.05, 8)
-          urnRim.translate(px, elev + 1.18, pz)
-          batch.addPositioned(urnRim, 0xbab2a8)
+          emitRot(urnBody, 0, 0.88, 0, 0xbab2a8)
+          emitRot(new THREE.CylinderGeometry(0.12, 0.16, 0.12, 8), 0, 1.1, 0, 0xbab2a8)
+          emitRot(new THREE.CylinderGeometry(0.18, 0.14, 0.05, 8), 0, 1.18, 0, 0xbab2a8)
         } else {
-          // Orb on column
-          const shaft = new THREE.CylinderGeometry(0.1, 0.13, 0.9, 6)
-          shaft.translate(px, elev + 1.0, pz)
-          batch.addPositioned(shaft, 0xbab2a8)
-          const orb = new THREE.SphereGeometry(0.22, 7, 6)
-          orb.translate(px, elev + 1.58, pz)
-          batch.addPositioned(orb, 0xbab2a8)
+          emitRot(new THREE.CylinderGeometry(0.1, 0.13, 0.9, 6), 0, 1.0, 0, 0xbab2a8)
+          emitRot(new THREE.SphereGeometry(0.22, 7, 6), 0, 1.58, 0, 0xbab2a8)
         }
       }
 
