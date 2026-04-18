@@ -259,7 +259,8 @@ export class TownGenerator implements IMapGenerator {
     // 15. Plaza features (fountain, market stalls, statues)
     const plazaProps = this.placePlazaFeatures(
       width, height, mainCenter, plazaRadius, districts,
-      [...buildings, ...landmarks, ...gates, ...props, ...lights], density, rng
+      [...buildings, ...landmarks, ...gates, ...props, ...lights], density, rng,
+      roadMap, waterMap,
     )
 
     // 16. Vegetation with district awareness + species variety
@@ -1504,9 +1505,12 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    // Scatter street furniture on roads — 2.5x denser
+    // Scatter street furniture on tiles adjacent to roads — 2.5x denser.
+    // hanging_sign / wall_lantern removed: they render with a bracket that
+    // needs a wall to attach to, so they float weirdly when free-standing.
+    // They still appear in DISTRICT_PROPS (building-adjacent placement).
     const streetFurnitureCount = Math.floor(density * w * h * 0.015)
-    const streetItems = ['cafe_table', 'bench', 'sign', 'hanging_sign', 'barrel', 'crate', 'potted_plant']
+    const streetItems = ['cafe_table', 'bench', 'sign', 'barrel', 'crate', 'potted_plant']
     for (let i = 0; i < streetFurnitureCount; i++) {
       const x = Math.floor(rng() * w)
       const y = Math.floor(rng() * h)
@@ -1516,7 +1520,7 @@ export class TownGenerator implements IMapGenerator {
         const dist = districts.find(d => d.id === dId)
         let item: string
         if (dist?.type === 'market' && rng() > 0.3) {
-          item = ['cafe_table', 'barrel', 'crate', 'hanging_sign', 'crate_stack'][Math.floor(rng() * 5)]
+          item = ['cafe_table', 'barrel', 'crate', 'sign', 'crate_stack'][Math.floor(rng() * 5)]
         } else if (dist?.type === 'noble' && rng() > 0.4) {
           item = ['potted_plant', 'bench', 'planter_box'][Math.floor(rng() * 3)]
         } else {
@@ -1593,8 +1597,11 @@ export class TownGenerator implements IMapGenerator {
           const lx = x + dx, ly = y + dy
           if (lx >= 0 && lx < w && ly >= 0 && ly < h &&
               !roadMap[ly][lx] && !occupied[ly][lx]) {
-            const lightType = count % 5 === 0 ? 'street_lamp_double'
-              : count % 3 === 0 ? 'wall_lantern' : 'lamppost'
+            // wall_lantern was in this rotation but it's a bracket-style
+            // fixture that needs a wall behind it — free-standing on
+            // open ground it rendered floating. Street lights stay to
+            // freestanding lamppost forms.
+            const lightType = count % 6 === 0 ? 'street_lamp_double' : 'lamppost'
             lights.push(this.createObj(lightType, lx, ly))
             occupied[ly][lx] = true
             count++
@@ -1613,10 +1620,14 @@ export class TownGenerator implements IMapGenerator {
     center: { x: number; y: number }, plazaRadius: number,
     districts: District[],
     existingObjs: PlacedObject[],
-    density: number, rng: () => number
+    density: number, rng: () => number,
+    roadMap: boolean[][], waterMap: boolean[][],
   ): PlacedObject[] {
     const props: PlacedObject[] = []
-    const occupied = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
+    // BUG FIX: was creating a blank occupied map, so fountains / statues /
+    // market stalls / cafe tables in plaza features could land on roads or
+    // water. Using createOccupied which marks both.
+    const occupied = this.createOccupied(w, h, roadMap, waterMap)
     this.markObjects(occupied, existingObjs, w, h)
 
     // Fountain at main center
