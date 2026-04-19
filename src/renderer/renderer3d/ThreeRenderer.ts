@@ -23,7 +23,8 @@ const DOUBLE_TAP_MS = 300
 const MOUSE_YAW_SENS = 0.0025
 const MOUSE_PITCH_SENS = 0.002
 import { buildBuildingMeshes, setWallEmissiveIntensity, type BuildingBatchResult } from './BuildingFactory'
-import { buildLanternStrings, setLanternEmissiveIntensity } from './LanternStrings'
+import { tickWallEmissive } from './architecture/VolumeRenderer'
+import { buildLanternStrings, setLanternEmissiveIntensity, tickLanternEmissive } from './LanternStrings'
 import { buildPropMeshes, type PropBatchResult } from './PropFactory'
 
 /**
@@ -1041,7 +1042,14 @@ export class ThreeRenderer {
   }
 
   /** Animate all particle systems */
-  private updateParticles(dt: number): void {
+  private updateParticles(dt: number, time = 0): void {
+    // Global low-frequency wind vector — same for all smoke particles this
+    // frame, but it drifts over time so smoke columns lean in changing
+    // directions. Two sine components of different frequencies give a
+    // non-repeating natural wobble.
+    const windX = Math.sin(time * 0.32) * 0.18 + Math.sin(time * 0.91 + 1.3) * 0.06
+    const windZ = Math.cos(time * 0.41) * 0.14 + Math.sin(time * 1.07 + 0.7) * 0.05
+
     for (const ps of this.particleSystems) {
       const pos = ps.positions
       const vel = ps.velocities
@@ -1064,6 +1072,17 @@ export class ThreeRenderer {
             vel[i3 + 2] = (Math.random() - 0.5) * 0.05
           }
         } else {
+          // Smoke: apply shared wind acceleration so columns lean + drift
+          // with a changing wind, and longer-lived particles catch more of
+          // it (accumulating velocity as they rise).
+          if (ps.type === 'smoke') {
+            vel[i3] += windX * dt
+            vel[i3 + 2] += windZ * dt
+            // Lateral damping so the wind doesn't add up unboundedly.
+            vel[i3] *= 0.985
+            vel[i3 + 2] *= 0.985
+          }
+
           pos[i3] += vel[i3] * dt
           pos[i3 + 1] += vel[i3 + 1] * dt
           pos[i3 + 2] += vel[i3 + 2] * dt
@@ -1098,8 +1117,11 @@ export class ThreeRenderer {
       if (this.disposed) return
       this.animId = requestAnimationFrame(loop)
       const dt = Math.min(this.clock.getDelta(), 0.1)
+      const t = this.clock.elapsedTime
       this.updateCamera(dt)
-      this.updateParticles(dt)
+      this.updateParticles(dt, t)
+      tickWallEmissive(t)
+      tickLanternEmissive(t)
       if (this.skyMesh) this.skyMesh.position.copy(this.camera.position)
       if (this.composer) this.composer.render()
       else this.renderer?.render(this.scene, this.camera)

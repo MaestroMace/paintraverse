@@ -40,11 +40,24 @@ const _ropeMat = new THREE.MeshLambertMaterial({
   flatShading: true,
 })
 
-/** Driver for the shared lantern emissive — ThreeRenderer.updateLighting
- *  calls this with the same intensity it passes to setWallEmissiveIntensity
- *  so lanterns warm up at dusk along with the windows. */
+/** Base intensity set by updateLighting on time-of-day change. Per-frame
+ *  flicker multiplies this in tickLanternEmissive(). */
+let _lanternBase = 0
 export function setLanternEmissiveIntensity(intensity: number): void {
+  _lanternBase = intensity
   _lanternMat.emissiveIntensity = intensity
+}
+/** Per-frame lantern flicker — slower + gentler than window flicker so
+ *  lanterns read as a steadier outdoor light source. Single phase for
+ *  the whole shared material (all lanterns pulse together subtly,
+ *  rather than buzzing independently). */
+export function tickLanternEmissive(time: number): void {
+  if (_lanternBase <= 0) {
+    _lanternMat.emissiveIntensity = 0
+    return
+  }
+  const flicker = 1 + 0.05 * Math.sin(time * 1.7)
+  _lanternMat.emissiveIntensity = _lanternBase * flicker
 }
 
 export interface LanternStringsResult {

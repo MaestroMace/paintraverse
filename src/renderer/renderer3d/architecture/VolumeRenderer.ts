@@ -40,6 +40,21 @@ function facadeKey(cfg: FacadeConfig): string {
   return `${cfg.floors}_${cfg.width}_${cfg.wallColor.toString(16)}_${cfg.hasTimber}_${cfg.hasShutters}_${cfg.hasFlowerBox}_${cfg.style}`
 }
 
+/** Per-material flicker phase so each building's windows flicker on its
+ *  own schedule. Stored in userData so it survives cache lookups. */
+interface FlickerState {
+  flickerPhase: number
+  flickerRate: number
+}
+function ensureFlickerState(mat: THREE.Material): FlickerState {
+  const d = (mat.userData as Partial<FlickerState>)
+  if (typeof d.flickerPhase !== 'number') {
+    d.flickerPhase = Math.random() * Math.PI * 2
+    d.flickerRate = 2.2 + Math.random() * 2.2  // 2.2–4.4 Hz
+  }
+  return d as FlickerState
+}
+
 function getFacadeMat(cfg: FacadeConfig): THREE.MeshLambertMaterial {
   const key = facadeKey(cfg)
   let mat = _wallMatCache.get(key)
@@ -51,6 +66,7 @@ function getFacadeMat(cfg: FacadeConfig): THREE.MeshLambertMaterial {
       emissiveIntensity: 0,
       flatShading: true,
     })
+    ensureFlickerState(mat)
     _wallMatCache.set(key, mat)
   }
   return mat
@@ -65,10 +81,39 @@ function getPlainMat(wallColor: number): THREE.MeshLambertMaterial {
   return mat
 }
 
-/** Walk the facade cache and update emissive intensity on all textured materials. */
+/** Current *base* intensity the updateLighting path wants. Actual material
+ *  intensity = base * flickerMultiplier(time), applied per-frame from
+ *  tickWallEmissive. Stored at module level so the tick function doesn't
+ *  need a second argument every frame. */
+let _wallEmissiveBase = 0
+
+/** Set the base emissive intensity (0..2-ish). Called from updateLighting
+ *  on time-of-day change. The per-frame tick multiplies this by a small
+ *  per-material flicker oscillation. */
 export function setWallEmissiveIntensity(intensity: number): void {
+  _wallEmissiveBase = intensity
+  // Apply immediately (in case tick isn't running) so a time-of-day change
+  // doesn't visually wait for the next frame.
   for (const mat of _wallMatCache.values()) {
     mat.emissiveIntensity = intensity
+  }
+}
+
+/** Per-frame driver — applies a subtle candle-flicker oscillation to each
+ *  facade material's emissive intensity. Time argument is the frame's
+ *  seconds-since-start so phases advance continuously. Amplitude is
+ *  deliberately small (±8%) so it reads as "rooms lit by flame" not
+ *  "light show". */
+export function tickWallEmissive(time: number): void {
+  if (_wallEmissiveBase <= 0) {
+    // Noon / no-glow — skip the sin loop; keep all materials at 0.
+    for (const mat of _wallMatCache.values()) mat.emissiveIntensity = 0
+    return
+  }
+  for (const mat of _wallMatCache.values()) {
+    const fs = ensureFlickerState(mat)
+    const flicker = 1 + 0.08 * Math.sin(time * fs.flickerRate + fs.flickerPhase)
+    mat.emissiveIntensity = _wallEmissiveBase * flicker
   }
 }
 
