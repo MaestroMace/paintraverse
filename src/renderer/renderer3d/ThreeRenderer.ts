@@ -23,6 +23,7 @@ const DOUBLE_TAP_MS = 300
 const MOUSE_YAW_SENS = 0.0025
 const MOUSE_PITCH_SENS = 0.002
 import { buildBuildingMeshes, setWallEmissiveIntensity, type BuildingBatchResult } from './BuildingFactory'
+import { buildLanternStrings, setLanternEmissiveIntensity } from './LanternStrings'
 import { buildPropMeshes, type PropBatchResult } from './PropFactory'
 
 /**
@@ -583,6 +584,16 @@ export class ThreeRenderer {
       for (const m of result.lampposts) this.propGroup.add(m)
     }
 
+    // === HANGING LANTERN STRINGS ===
+    // Iconic Traverse-Town overhead chains of warm lanterns strung between
+    // close buildings. Emissive intensity is driven from updateLighting so
+    // they light up at dusk with the windows.
+    {
+      const ls = buildLanternStrings(map, defMap, heightMap)
+      if (ls.ropeMesh) this.propGroup.add(ls.ropeMesh)
+      if (ls.lanternMesh) this.propGroup.add(ls.lanternMesh)
+    }
+
     // Spawn particles
     this.initParticles(chimneyPositions, map.gridWidth, map.gridHeight)
 
@@ -936,6 +947,11 @@ export class ThreeRenderer {
       }
     }
     setWallEmissiveIntensity(windowGlow)
+    // Hanging lanterns: always a bit brighter than windows (they're supposed
+    // to be the primary overhead light source at dusk) but still ramp with
+    // time of day. Multiplier picked so the lantern-bulb color clips into
+    // the bloom threshold at night → warm halos over the street.
+    setLanternEmissiveIntensity(windowGlow * 1.4 + (windowGlow > 0 ? 0.2 : 0))
 
     // Smoke particles: bright grey at day reads fine, but at night they
     // glow unnaturally white. Tint toward a dim ember color after dusk.
