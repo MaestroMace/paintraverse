@@ -244,6 +244,24 @@ function buildRetainingWalls(
   }))
 }
 
+/** Shared water material — module singleton so ThreeRenderer can tick
+ *  its color over time for the shimmer effect without having to find
+ *  the water mesh each frame. */
+const _waterMat = new THREE.MeshLambertMaterial({
+  color: 0x3070a0, transparent: true, opacity: 0.75, flatShading: true,
+})
+const _waterBaseColor = new THREE.Color(0x3070a0)
+const _waterTint = new THREE.Color(0x50a0c0)
+
+/** Called every frame from ThreeRenderer — nudges the water color with
+ *  a low-frequency sine wobble so the surface appears to shimmer. Also
+ *  varies opacity slightly for the sparkle feel. */
+export function tickWater(time: number): void {
+  const wobble = Math.sin(time * 0.9) * 0.5 + 0.5
+  _waterMat.color.copy(_waterBaseColor).lerp(_waterTint, wobble * 0.25)
+  _waterMat.opacity = 0.7 + Math.sin(time * 1.3) * 0.06
+}
+
 function buildWaterMesh(
   tiles: number[][], gridWidth: number, gridHeight: number,
   heightMap: number[][]
@@ -269,7 +287,5 @@ function buildWaterMesh(
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3))
   geo.computeVertexNormals()
 
-  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
-    color: 0x3070a0, transparent: true, opacity: 0.75, flatShading: true,
-  }))
+  return new THREE.Mesh(geo, _waterMat)
 }

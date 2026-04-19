@@ -11,7 +11,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
-import { buildTerrainMesh, getTerrainHeight } from './TerrainMesh'
+import { buildTerrainMesh, getTerrainHeight, tickWater } from './TerrainMesh'
 
 // First-person walkaround constants. Minecraft-ish feel.
 const EYE_HEIGHT = 1.6
@@ -1127,6 +1127,7 @@ export class ThreeRenderer {
       this.updateParticles(dt, t)
       tickWallEmissive(t)
       tickLanternEmissive(t)
+      tickWater(t)
       if (this.skyMesh) this.skyMesh.position.copy(this.camera.position)
       if (this.composer) this.composer.render()
       else this.renderer?.render(this.scene, this.camera)
