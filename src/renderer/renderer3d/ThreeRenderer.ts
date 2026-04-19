@@ -1003,7 +1003,9 @@ export class ThreeRenderer {
     // Volumetric pool cones under lampposts: invisible at noon, subtle at
     // golden hour, prominent at dusk/night. Additive blending means pools
     // overlap constructively so dense lamp clusters brighten each other.
-    const poolOpacity = windowGlow <= 0 ? 0 : Math.min(0.18, 0.05 + windowGlow * 0.1)
+    // Cap well under 0.1 — additive blending + bloom push bright quickly,
+    // and the cone geometry itself becomes visible as a shape above ~0.12.
+    const poolOpacity = windowGlow <= 0 ? 0 : Math.min(0.07, 0.02 + windowGlow * 0.05)
     setLampPoolOpacity(poolOpacity)
 
     // Smoke particles: bright grey at day reads fine, but at night they

@@ -38,7 +38,7 @@ const _lampPoolMat = new THREE.MeshBasicMaterial({
 export function setLampPoolOpacity(opacity: number): void {
   _lampPoolMat.opacity = opacity
 }
-const _lampPoolGeo = new THREE.ConeGeometry(1.6, 3.0, 12, 1, true)
+const _lampPoolGeo = new THREE.ConeGeometry(0.55, 1.6, 10, 1, true)
 
 // Shared geometries (created once)
 let _geo: {
@@ -387,7 +387,7 @@ export function buildPropMeshes(
       // lights all pools at once from updateLighting. Cone base (1.6 r)
       // sits on the ground, tip at y=3 near the lamp bulb.
       const pool = new THREE.Mesh(_lampPoolGeo, _lampPoolMat)
-      pool.position.y = 1.5
+      pool.position.y = 0.8
       pool.renderOrder = -0.5 // render before opaque geometry so fog blend is fine
       group.add(pool)
 
