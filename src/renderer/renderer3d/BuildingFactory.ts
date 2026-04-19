@@ -26,7 +26,12 @@ const VALID_DISTRICTS: Set<string> = new Set([
   'temple', 'slum', 'garden', 'harbor', 'fortress', 'cemetery',
 ])
 
-const FLOOR_HEIGHT = 1.05
+// World units per building floor. Previous 1.05 made a 2-story building
+// only 2.1m tall — roughly the player's eye height — which read as the
+// player towering over a toy town ("kaiju" scale). Bumped to 1.8 so a
+// 2-story is a comfortable 3.6m and a 3-story is 5.4m, letting the player
+// feel inside the architecture rather than above it.
+const FLOOR_HEIGHT = 1.8
 
 // Districts where buildings should read as urban — taller floor counts.
 const URBAN_DISTRICTS = new Set<string>([

@@ -47,18 +47,34 @@ function buildLampPoolTexture(): THREE.CanvasTexture {
 }
 
 const _lampPoolTex = buildLampPoolTexture()
-const _lampPoolMat = new THREE.SpriteMaterial({
+// A flat horizontal disc lit with the radial-gradient alpha map reads as
+// a proper ground light pool — elongated ellipse at oblique angles, circle
+// when looked straight down. Sprites (previous approach) always faced the
+// camera, so they rendered as a vertical circle suspended in the air; that
+// looked wrong from above. MeshBasicMaterial + PlaneGeometry rotated to
+// horizontal fixes this.
+const _lampPoolMat = new THREE.MeshBasicMaterial({
   color: 0xffb060,
   map: _lampPoolTex,
+  alphaMap: _lampPoolTex,
   transparent: true,
   opacity: 0,
   fog: false,
   blending: THREE.AdditiveBlending,
   depthWrite: false,
+  side: THREE.DoubleSide,
 })
 export function setLampPoolOpacity(opacity: number): void {
   _lampPoolMat.opacity = opacity
 }
+// Disc geometry — radius 1.6 world units, lying in the XZ plane (rotateX
+// by -90° at instantiation). The radial alpha map makes the edges fade;
+// center is brightest right under the lamp.
+const _lampPoolGeo = (() => {
+  const g = new THREE.PlaneGeometry(3.2, 3.2)
+  g.rotateX(-Math.PI / 2)
+  return g
+})()
 
 // Shared geometries (created once)
 let _geo: {
@@ -402,13 +418,13 @@ export function buildPropMeshes(
         }
       }
 
-      // Soft lamp pool: a billboard sprite with a radial-gradient alpha map.
-      // Always faces the camera so the silhouette is a circle (never a
-      // visible cone shape). Shared SpriteMaterial so setLampPoolOpacity()
-      // dims or lights every pool at once from updateLighting.
-      const pool = new THREE.Sprite(_lampPoolMat)
-      pool.scale.set(2.2, 2.2, 1)
-      pool.position.y = 0.6
+      // Soft lamp pool: horizontal disc on the ground with a radial-gradient
+      // alpha map. The disc lies flat so from an oblique angle it reads as
+      // an elongated ellipse of warm light on the cobblestones — the classic
+      // streetlamp ground pool. Shared material + geometry singletons so
+      // setLampPoolOpacity() dims every pool at once from updateLighting.
+      const pool = new THREE.Mesh(_lampPoolGeo, _lampPoolMat)
+      pool.position.y = 0.06  // tiny hover above ground so it doesn't z-fight
       pool.renderOrder = -0.5 // render before opaque geometry so fog blend is fine
       group.add(pool)
 

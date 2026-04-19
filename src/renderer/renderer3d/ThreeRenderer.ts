@@ -279,7 +279,9 @@ export class ThreeRenderer {
     this.sunLight = new THREE.DirectionalLight(0xfff4e0, 1.2)
     this.sunLight.position.set(30, 50, 20)
     this.sunLight.castShadow = true
-    this.sunLight.shadow.mapSize.set(1024, 1024)
+    // 512² shadow map (was 1024²) — 4× fewer pixels to rasterize, still
+    // plenty of detail for the softened alley silhouettes we want at dusk.
+    this.sunLight.shadow.mapSize.set(512, 512)
     this.sunLight.shadow.bias = -0.0008
     this.sunLight.shadow.normalBias = 0.04
     this.sunLight.shadow.camera.near = 1
@@ -361,7 +363,10 @@ export class ThreeRenderer {
     this.composer = new EffectComposer(this.renderer)
     this.composer.setSize(rw, rh)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(rw, rh), 0.2, 0.6, 0.95)
+    // Bloom at half resolution — UnrealBloomPass chains several gaussian
+    // blur passes; halving the input dimensions quarters the per-frame
+    // cost while the bloom halo still looks smooth (bloom is low-freq).
+    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(rw / 2, rh / 2), 0.2, 0.6, 0.95)
     this.composer.addPass(this.bloomPass)
     this.composer.addPass(new OutputPass())
 
@@ -535,8 +540,20 @@ export class ThreeRenderer {
     const chimneyPositions: THREE.Vector3[] = []
     if (structureLayer) {
       const result = buildBuildingMeshes(structureLayer.objects, defMap, palettes, hLookup)
-      for (const m of result.wallMeshes) this.buildingGroup.add(m)
-      for (const m of result.batched) this.buildingGroup.add(m)
+      for (const m of result.wallMeshes) {
+        m.castShadow = true
+        m.receiveShadow = true
+        this.buildingGroup.add(m)
+      }
+      for (const m of result.batched) {
+        // Batched roof/ornament/detail meshes: merged geometry with many
+        // triangles, but the visual shadow contribution above the wall
+        // already established is minimal. Skip shadow-casting for a big
+        // perf win on the shadow pass (halved caster triangle count).
+        m.castShadow = false
+        m.receiveShadow = true
+        this.buildingGroup.add(m)
+      }
 
       // Collect chimney positions for smoke particles. Must mirror the
       // jitter applied in BuildingFactory so smoke lines up with the
@@ -698,13 +715,11 @@ export class ThreeRenderer {
     this.verticalVel = 0
     this.flyMode = false
 
-    // Buildings cast shadows (dramatic alley silhouettes). Props/walkways
-    // only receive, to keep the shadow map's caster list small.
+    // Shadow-caster flags are now set at mesh-add time (wall meshes cast,
+    // batched roof/ornament meshes don't). This traverse is kept as a
+    // receive-only pass for anything that slipped through.
     this.buildingGroup.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-        child.castShadow = true
-        child.receiveShadow = true
-      }
+      if ((child as THREE.Mesh).isMesh) child.receiveShadow = true
     })
     this.terrainGroup.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) child.receiveShadow = true
