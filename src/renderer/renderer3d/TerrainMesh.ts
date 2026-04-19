@@ -125,6 +125,17 @@ function buildGroundWithHeight(
         g *= (1 - shadowMix * 0.25)
         b *= (1 - shadowMix * 0.2)
       }
+      // Per-tile color noise so the ground doesn't read as a
+      // checkerboard of perfectly uniform squares. Roads and cobble
+      // tiles get a much smaller jitter so the road hierarchy still
+      // reads. Deterministic from tile coordinate so regenerated
+      // seeds are stable.
+      const tileNoise = ((((tx * 73856093) ^ (ty * 19349663)) >>> 0) / 0xffffffff - 0.5)
+      const noiseAmt = isNatural ? 0.12 : 0.04
+      const jitter = tileNoise * noiseAmt
+      r = Math.max(0, Math.min(1, r * (1 + jitter)))
+      g = Math.max(0, Math.min(1, g * (1 + jitter)))
+      b = Math.max(0, Math.min(1, b * (1 + jitter)))
 
       const x0 = tx, x1 = tx + 1, z0 = ty, z1 = ty + 1
 

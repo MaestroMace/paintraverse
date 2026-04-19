@@ -225,17 +225,52 @@ export function createEmissiveTexture(config: FacadeConfig): THREE.CanvasTexture
   for (let floor = 0; floor < config.floors; floor++) {
     const floorY = h - (floor + 1) * TEXTURE_SCALE
     for (let col = 0; col < cols; col++) {
-      // 20% chance window is dark (unlit room)
-      if (nextRng() < 0.2) continue
+      // Per-window state with mood variety:
+      //   ~25% dark (room unlit / shutters drawn)
+      //   ~10% dim (a candle, low intensity)
+      //   ~10% cool blue-white (workshop / scribe / oil lamp with glass shade)
+      //   ~5%  bright sun-yellow (a hearth fire visible inside)
+      //   rest: warm amber (the standard glow)
+      const r1 = nextRng()
+      let kind: 'dark' | 'dim' | 'cool' | 'bright' | 'amber'
+      if (r1 < 0.25) kind = 'dark'
+      else if (r1 < 0.35) kind = 'dim'
+      else if (r1 < 0.45) kind = 'cool'
+      else if (r1 < 0.50) kind = 'bright'
+      else kind = 'amber'
+      if (kind === 'dark') continue
 
       const wx = spacing * (col + 1) - winW / 2
       const wy = floorY + TEXTURE_SCALE * 0.25
 
-      // Warm glow — slight color variation per window
       const warmth = nextRng()
-      const r = 255
-      const g = Math.floor(180 + warmth * 40)
-      const b = Math.floor(60 + warmth * 30)
+      let r: number, g: number, b: number
+      switch (kind) {
+        case 'dim': {
+          // Faint orange ember
+          const k = 0.45 + warmth * 0.15
+          r = Math.floor(180 * k); g = Math.floor(120 * k); b = Math.floor(50 * k)
+          break
+        }
+        case 'cool': {
+          // Soft blue-white workshop light
+          r = 200 + Math.floor(warmth * 30)
+          g = 220 + Math.floor(warmth * 25)
+          b = 255
+          break
+        }
+        case 'bright': {
+          // Bright fire-yellow, picks up bloom dramatically
+          r = 255; g = 255; b = Math.floor(160 + warmth * 50)
+          break
+        }
+        default: {
+          // Standard warm amber (existing palette)
+          r = 255
+          g = Math.floor(180 + warmth * 40)
+          b = Math.floor(60 + warmth * 30)
+        }
+      }
       ctx.fillStyle = `rgb(${r},${g},${b})`
       ctx.fillRect(wx, wy, winW, winH)
 

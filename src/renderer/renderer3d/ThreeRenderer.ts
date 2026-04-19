@@ -123,14 +123,35 @@ void main() {
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `
+// Sky shader: gradient horizon→zenith, plus three bands of soft cloud-ish
+// streaks driven by stacked sin/cos noise of the view direction. The cloud
+// uniform (uCloud) is a single 0..1 float — at noon we set it to ~0.05 so
+// clouds are barely there; at dusk/night we crank it to ~0.5 so the sunset
+// sky has visible warm-tinted streaks, which is half the appeal of dusk.
 const SKY_FRAG = `
 uniform vec3 uZenith;
 uniform vec3 uHorizon;
+uniform vec3 uCloudColor;
+uniform float uCloud;
 varying vec3 vLocalPos;
 void main() {
-  float h = normalize(vLocalPos).y;
+  vec3 dir = normalize(vLocalPos);
+  float h = dir.y;
   float t = clamp(h * 2.0 + 0.1, 0.0, 1.0);
-  gl_FragColor = vec4(mix(uHorizon, uZenith, t), 1.0);
+  vec3 base = mix(uHorizon, uZenith, t);
+
+  // Cloud noise: three bands of stretched sinusoidal streaks, weighted
+  // toward the lower half of the sky where real horizon clouds live.
+  // Uses azimuth angle + height so bands move continuously as you spin.
+  float az = atan(dir.z, dir.x);
+  float band1 = sin(az * 4.0 + h * 7.0) * 0.5 + 0.5;
+  float band2 = sin(az * 9.0 - h * 11.0 + 1.7) * 0.5 + 0.5;
+  float band3 = sin(az * 13.0 + h * 5.0 + 3.1) * 0.5 + 0.5;
+  float cloudMask = smoothstep(0.55, 0.95, band1 * 0.5 + band2 * 0.3 + band3 * 0.2);
+  // Concentrate clouds in lower half of the sky.
+  float horizonWeight = 1.0 - smoothstep(-0.05, 0.45, h);
+  float c = uCloud * cloudMask * horizonWeight;
+  gl_FragColor = vec4(mix(base, uCloudColor, c), 1.0);
 }
 `
 
@@ -173,7 +194,12 @@ export class ThreeRenderer {
 
   // Sky dome
   private skyMesh: THREE.Mesh | null = null
-  private skyUniforms: { uZenith: { value: THREE.Color }; uHorizon: { value: THREE.Color } } | null = null
+  private skyUniforms: {
+    uZenith: { value: THREE.Color };
+    uHorizon: { value: THREE.Color };
+    uCloudColor: { value: THREE.Color };
+    uCloud: { value: number };
+  } | null = null
   private sunDisc: THREE.Mesh | null = null
 
   // Particles
@@ -248,6 +274,8 @@ export class ThreeRenderer {
     const uniforms = {
       uZenith: { value: new THREE.Color(0x4488cc) },
       uHorizon: { value: new THREE.Color(0xd0e0f0) },
+      uCloudColor: { value: new THREE.Color(0xffd0a0) },
+      uCloud: { value: 0.05 },
     }
     this.skyUniforms = uniforms
 
@@ -697,14 +725,14 @@ export class ThreeRenderer {
       this.sunLight.intensity = 0.15
       this.sunLight.color.setHex(0x4466aa)
       this.sunLight.position.set(this.townCenterX, 40, sunZ) // moonlight from above
-      // Slightly brighter, slightly warmer ambient so silhouettes are readable
-      // instead of pitch-black. Warm-window emissive + bloom do the heavy mood lifting.
       this.ambientLight.intensity = 0.35
       this.ambientLight.color.setHex(0x2a3858)
       this.scene.fog = new THREE.FogExp2(0x101830, 0.008)
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x0a0e2a)
         this.skyUniforms.uHorizon.value.setHex(0x101830)
+        this.skyUniforms.uCloudColor.value.setHex(0x303a52)
+        this.skyUniforms.uCloud.value = 0.4
       }
       if (this.sunDisc) {
         (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xccccdd)
@@ -721,6 +749,9 @@ export class ThreeRenderer {
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0xcc6633)
         this.skyUniforms.uHorizon.value.setHex(0xffaa88)
+        // Warm sunset clouds — peach against the orange horizon.
+        this.skyUniforms.uCloudColor.value.setHex(0xffd0a0)
+        this.skyUniforms.uCloud.value = 0.55
       }
       if (this.sunDisc) {
         (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xff8844)
@@ -738,6 +769,8 @@ export class ThreeRenderer {
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x5588bb)
         this.skyUniforms.uHorizon.value.setHex(0xe8d8c8)
+        this.skyUniforms.uCloudColor.value.setHex(0xfff0d8)
+        this.skyUniforms.uCloud.value = 0.35
       }
       if (this.sunDisc) {
         (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xffdd88)
@@ -755,6 +788,9 @@ export class ThreeRenderer {
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x4488cc)
         this.skyUniforms.uHorizon.value.setHex(0xd0e0f0)
+        // Daytime puffy white-ish clouds, fairly subtle.
+        this.skyUniforms.uCloudColor.value.setHex(0xffffff)
+        this.skyUniforms.uCloud.value = 0.25
       }
       if (this.sunDisc) {
         (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xffee88)
