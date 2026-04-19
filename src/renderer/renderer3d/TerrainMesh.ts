@@ -10,6 +10,7 @@
 
 import * as THREE from 'three'
 import { SimplexNoise } from '../generation/noise'
+import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 
 // Tile palette — deliberately punchy so districts read as distinct zones.
 // Cobblestone (8) shifted to warm orange-grey so it visually differs from
@@ -95,6 +96,8 @@ export function buildTerrainMesh(
   group.add(buildGroundWithHeight(tiles, gridWidth, gridHeight, heightMap))
   group.add(buildRetainingWalls(tiles, gridWidth, gridHeight, heightMap))
   group.add(buildWaterMesh(tiles, gridWidth, gridHeight, heightMap))
+  const cobbles = buildCobblestones(tiles, gridWidth, gridHeight, heightMap)
+  if (cobbles) group.add(cobbles)
 
   // Store height map on group for other systems to use
   ;(group as any)._heightMap = heightMap
@@ -288,4 +291,54 @@ function buildWaterMesh(
   geo.computeVertexNormals()
 
   return new THREE.Mesh(geo, _waterMat)
+}
+
+/**
+ * Cobblestone pucks — low-profile hexagonal stones scattered on every road
+ * (id 8) and alley (id 9) tile. Three pucks per tile, hash-jittered in xz
+ * within the tile bounds, color jittered ±10% off the tile color so the
+ * ground reads as laid stones rather than painted texture. All pucks merge
+ * into a single batched mesh — one draw call for the whole map.
+ */
+function buildCobblestones(
+  tiles: number[][], gridWidth: number, gridHeight: number,
+  heightMap: number[][],
+): THREE.Mesh | null {
+  // Shared hex-prism template. Radius 0.14, height 0.05 — low enough that
+  // the player doesn't trip over them but visible when looking down.
+  const puckGeo = new THREE.CylinderGeometry(0.14, 0.14, 0.05, 6)
+  const batch = new BatchedMeshBuilder()
+
+  for (let ty = 0; ty < gridHeight; ty++) {
+    for (let tx = 0; tx < gridWidth; tx++) {
+      const tileId = tiles[ty]?.[tx] ?? 0
+      if (tileId !== 8 && tileId !== 9) continue
+      const baseColor = new THREE.Color(TERRAIN_COLORS[tileId])
+      // Alleys sit in-tile; road pucks match. Puck top sits just above the
+      // ground so they read as raised stones.
+      const groundY = getTerrainHeight(heightMap, tx, ty)
+      for (let p = 0; p < 3; p++) {
+        // Deterministic hash per (tile, puck-index) for stable regeneration.
+        const h1 = (((tx * 73856093) ^ (ty * 19349663) ^ (p * 83492791)) >>> 0) / 0xffffffff
+        const h2 = (((tx * 9754321) ^ (ty * 6563423) ^ (p * 4782179)) >>> 0) / 0xffffffff
+        const h3 = (((tx * 1234567) ^ (ty * 7654321) ^ (p * 2468135)) >>> 0) / 0xffffffff
+        // Pucks sit inside the tile with a 0.12 margin so they don't cross
+        // tile seams — keeps the tessellation clean.
+        const px = tx + 0.18 + h1 * 0.64
+        const pz = ty + 0.18 + h2 * 0.64
+        // Color jitter: ±10% for road, slightly darker range for alleys.
+        const jitter = (h3 - 0.5) * 0.2
+        const darken = tileId === 9 ? 0.85 : 1.0
+        const r = Math.max(0, Math.min(1, baseColor.r * (1 + jitter) * darken))
+        const g = Math.max(0, Math.min(1, baseColor.g * (1 + jitter) * darken))
+        const b = Math.max(0, Math.min(1, baseColor.b * (1 + jitter) * darken))
+        const colorHex = (Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255)
+        batch.add(puckGeo, colorHex, px, groundY + 0.025, pz)
+      }
+    }
+  }
+
+  const mesh = batch.build()
+  if (mesh) mesh.receiveShadow = true
+  return mesh
 }
