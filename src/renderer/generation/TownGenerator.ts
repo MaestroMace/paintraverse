@@ -953,9 +953,11 @@ export class TownGenerator implements IMapGenerator {
       const distFromCenter = Math.sqrt(edge.distSq)
       const distNorm = distFromCenter / maxDist
 
-      // Continuity bonus: much more likely to build next to existing buildings
-      // This creates organic street walls instead of isolated buildings
-      const continuityBonus = hasBuildingNeighbor(rx, ry) ? 0.35 : 0
+      // Continuity bonus: strongly biased to build next to existing
+      // buildings so street walls form as rows, not islands. Medieval
+      // / Traverse-Town / Kyoto / Paris towns read as rows sharing walls,
+      // not scattered plots.
+      const continuityBonus = hasBuildingNeighbor(rx, ry) ? 0.7 : 0
       const acceptChance = distDensity * (1.0 - distNorm * 0.5) * density + continuityBonus
       if (rng() > acceptChance) continue
 
@@ -1041,6 +1043,70 @@ export class TownGenerator implements IMapGenerator {
         }
       }
       placed++
+
+      // ROW STREAK — extend this placement along the road tangent so
+      // the block reads as a terraced row of houses sharing walls, not
+      // isolated plots. Sample 2–4 more buildings along each tangent
+      // side with varied floor counts (±1 from baseline) for organic
+      // height rhythm. This is the core of "500 years of ad-hoc growth".
+      const roadW = roadMap[ry]?.[rx - 1] ? true : false
+      const roadE = roadMap[ry]?.[rx + 1] ? true : false
+      const roadN = roadMap[ry - 1]?.[rx] ? true : false
+      const roadS = roadMap[ry + 1]?.[rx] ? true : false
+      // Tangent runs perpendicular to the road side. If road to W or E,
+      // tangent is along Y; if road to N or S, tangent is along X.
+      const tanX = (roadN || roadS) ? 1 : 0
+      const tanY = (roadW || roadE) ? 1 : 0
+      if (tanX !== 0 || tanY !== 0) {
+        for (const sign of [1, -1]) {
+          const maxStreak = 2 + Math.floor(rng() * 3)   // 2–4 more in this direction
+          let curX = rx + sign * tanX * bw
+          let curY = ry + sign * tanY * bh
+          for (let k = 0; k < maxStreak && placed < maxBuildings; k++) {
+            if (curX < 1 || curY < 1 || curX + bw > w - 1 || curY + bh > h - 1) break
+            // Footprint must be free and NOT on a road/water.
+            let clear = true
+            for (let ddy = 0; ddy < bh && clear; ddy++) {
+              for (let ddx = 0; ddx < bw && clear; ddx++) {
+                if (occupied[curY + ddy]?.[curX + ddx]) clear = false
+                if (roadMap[curY + ddy]?.[curX + ddx]) clear = false
+                if (waterMap[curY + ddy]?.[curX + ddx]) clear = false
+              }
+            }
+            if (!clear) break
+            // Varied floors: ±1 off the anchor so the row has height
+            // rhythm rather than matching uniformly.
+            const varyFloors = Math.max(1, Math.min(4,
+              floors + (Math.floor(rng() * 3) - 1)))
+            buildings.push({
+              id: uuid(),
+              definitionId: type.id,
+              x: curX, y: curY,
+              rotation: 0,
+              scaleX: 0.92 + rng() * 0.16,
+              scaleY: 0.94 + rng() * 0.12,
+              elevation,
+              properties: {
+                floors: varyFloors, district: dType,
+                style, growthRing: ringChar,
+                hasAwning: dType === 'market' || (dType === 'residential' && rng() > 0.6),
+                hasBalcony: type.id === 'balcony_house' || (dType === 'noble' && rng() > 0.5),
+                hasFlowerBox: dType === 'garden' || dType === 'noble' || (dType === 'residential' && rng() > 0.7),
+                hasShutters: dType !== 'slum' && rng() > 0.4,
+                chimneyPos: rng() > 0.5 ? 'left' : 'right',
+              }
+            })
+            for (let ddy = 0; ddy < bh; ddy++) {
+              for (let ddx = 0; ddx < bw; ddx++) {
+                if (curY + ddy < h && curX + ddx < w) occupied[curY + ddy][curX + ddx] = true
+              }
+            }
+            placed++
+            curX += sign * tanX * bw
+            curY += sign * tanY * bh
+          }
+        }
+      }
     }
 
     // Phase C: Gap-fill pass — random scatter for spots the walk missed

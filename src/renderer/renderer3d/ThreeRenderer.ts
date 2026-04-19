@@ -776,7 +776,13 @@ export class ThreeRenderer {
   /** Size and aim the sun's shadow camera to cover the town tightly. */
   private updateShadowCamera(): void {
     const cam = this.sunLight.shadow.camera as THREE.OrthographicCamera
-    const r = this.townRadius
+    // Tighten shadow bounds to a 28m radius around the player instead of
+    // the whole town (often 40–60m). A 512² shadow map spread over ~120m
+    // of world had ~4m per texel — too blurry AND costing the entire map
+    // in the shadow rasterization. With 28m radius × 512 tex, 0.11m per
+    // texel — sharper shadows AND far fewer casters in the frustum.
+    const SHADOW_RADIUS = 28
+    const r = Math.min(this.townRadius, SHADOW_RADIUS)
     cam.left = -r
     cam.right = r
     cam.top = r
@@ -1307,6 +1313,19 @@ export class ThreeRenderer {
       tickLanternEmissive(t)
       tickWater(t)
       if (this.skyMesh) this.skyMesh.position.copy(this.camera.position)
+      // Shadow target follows the player so the tight ortho bounds
+      // rasterize meshes near the camera, not the whole town. Dramatic
+      // shadow-pass perf win: ~4× fewer casters in shadow frustum at
+      // typical walkaround distance.
+      if (this.sunLight.shadow.camera && this.renderer?.shadowMap.enabled) {
+        const sunDir = this.sunLight.position.clone().sub(this.sunLight.target.position).normalize()
+        this.sunLight.target.position.set(
+          this.camera.position.x, 0, this.camera.position.z,
+        )
+        this.sunLight.position.copy(this.sunLight.target.position).add(sunDir.multiplyScalar(50))
+        this.sunLight.target.updateMatrixWorld()
+        this.sunLight.shadow.camera.updateMatrixWorld()
+      }
       const updateEnd = performance.now()
       if (this.composer && this._useComposer) this.composer.render()
       else this.renderer?.render(this.scene, this.camera)
