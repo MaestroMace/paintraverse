@@ -70,6 +70,18 @@ export function getTerrainHeight(heightMap: number[][], x: number, y: number): n
   return heightMap[y][x] * TERRAIN_WORLD_SCALE
 }
 
+/**
+ * Per-vertex (corner) Y micro-jitter so the ground isn't perfectly flat
+ * tile-quads. Deterministic from integer corner coordinates — 4 tiles
+ * sharing a corner all sample the same value, so no cracks. Amplitude is
+ * ±0.06 world units; below the threshold where building plinths / wall
+ * meshes sit visibly above the terrain.
+ */
+function cornerHeightNoise(cx: number, cy: number): number {
+  const n = ((cx * 374761393 + cy * 668265263) ^ 0x9e3779b1) >>> 0
+  return ((n / 0xffffffff) - 0.5) * 0.12
+}
+
 export function buildTerrainMesh(
   tiles: number[][], gridWidth: number, gridHeight: number, seed: number = 0
 ): THREE.Group {
@@ -138,21 +150,27 @@ function buildGroundWithHeight(
       b = Math.max(0, Math.min(1, b * (1 + jitter)))
 
       const x0 = tx, x1 = tx + 1, z0 = ty, z1 = ty + 1
+      // Per-corner Y micro-jitter — keyed off integer corner coords so
+      // adjacent tiles' shared corners get the same value (no cracks).
+      const y00 = tileH + cornerHeightNoise(x0, z0)
+      const y10 = tileH + cornerHeightNoise(x1, z0)
+      const y01 = tileH + cornerHeightNoise(x0, z1)
+      const y11 = tileH + cornerHeightNoise(x1, z1)
 
       // Triangle 1: CCW winding when viewed from above → normal points UP (+Y)
-      positions[vi] = x0; positions[vi+1] = tileH; positions[vi+2] = z0
+      positions[vi] = x0; positions[vi+1] = y00; positions[vi+2] = z0
       colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
-      positions[vi] = x1; positions[vi+1] = tileH; positions[vi+2] = z1
+      positions[vi] = x1; positions[vi+1] = y11; positions[vi+2] = z1
       colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
-      positions[vi] = x1; positions[vi+1] = tileH; positions[vi+2] = z0
+      positions[vi] = x1; positions[vi+1] = y10; positions[vi+2] = z0
       colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
 
-      // Triangle 2: CCW winding when viewed from above → normal points UP (+Y)
-      positions[vi] = x0; positions[vi+1] = tileH; positions[vi+2] = z0
+      // Triangle 2
+      positions[vi] = x0; positions[vi+1] = y00; positions[vi+2] = z0
       colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
-      positions[vi] = x0; positions[vi+1] = tileH; positions[vi+2] = z1
+      positions[vi] = x0; positions[vi+1] = y01; positions[vi+2] = z1
       colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
-      positions[vi] = x1; positions[vi+1] = tileH; positions[vi+2] = z1
+      positions[vi] = x1; positions[vi+1] = y11; positions[vi+2] = z1
       colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
     }
   }

@@ -123,35 +123,45 @@ void main() {
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `
-// Sky shader: gradient horizon→zenith, plus three bands of soft cloud-ish
-// streaks driven by stacked sin/cos noise of the view direction. The cloud
-// uniform (uCloud) is a single 0..1 float — at noon we set it to ~0.05 so
-// clouds are barely there; at dusk/night we crank it to ~0.5 so the sunset
-// sky has visible warm-tinted streaks, which is half the appeal of dusk.
+// Sky shader: gradient horizon→zenith, three bands of cloud-ish streaks,
+// plus a noisy distant-mountain silhouette right at the horizon line for
+// depth perception. uCloud / uCloudColor / uMountain control intensity
+// from updateLighting.
 const SKY_FRAG = `
 uniform vec3 uZenith;
 uniform vec3 uHorizon;
 uniform vec3 uCloudColor;
 uniform float uCloud;
+uniform vec3 uMountainColor;
+uniform float uMountain;
 varying vec3 vLocalPos;
 void main() {
   vec3 dir = normalize(vLocalPos);
   float h = dir.y;
   float t = clamp(h * 2.0 + 0.1, 0.0, 1.0);
   vec3 base = mix(uHorizon, uZenith, t);
+  float az = atan(dir.z, dir.x);
 
   // Cloud noise: three bands of stretched sinusoidal streaks, weighted
-  // toward the lower half of the sky where real horizon clouds live.
-  // Uses azimuth angle + height so bands move continuously as you spin.
-  float az = atan(dir.z, dir.x);
+  // toward the lower half of the sky.
   float band1 = sin(az * 4.0 + h * 7.0) * 0.5 + 0.5;
   float band2 = sin(az * 9.0 - h * 11.0 + 1.7) * 0.5 + 0.5;
   float band3 = sin(az * 13.0 + h * 5.0 + 3.1) * 0.5 + 0.5;
   float cloudMask = smoothstep(0.55, 0.95, band1 * 0.5 + band2 * 0.3 + band3 * 0.2);
-  // Concentrate clouds in lower half of the sky.
   float horizonWeight = 1.0 - smoothstep(-0.05, 0.45, h);
   float c = uCloud * cloudMask * horizonWeight;
-  gl_FragColor = vec4(mix(base, uCloudColor, c), 1.0);
+  vec3 col = mix(base, uCloudColor, c);
+
+  // Distant mountain silhouette: low-frequency azimuthal noise raises a
+  // "horizon line" that sits between h ~= 0.0 and ~0.12. Pixels below the
+  // line take uMountainColor (slightly darker than horizon), giving a
+  // distant-mountain feel without modeling any geometry.
+  float mtnNoise = sin(az * 2.3) * 0.5 + sin(az * 5.7 + 1.0) * 0.3 + sin(az * 11.1 + 2.5) * 0.2;
+  float horizonY = 0.04 + mtnNoise * 0.04 * uMountain;
+  float belowMtn = 1.0 - smoothstep(horizonY - 0.01, horizonY + 0.005, h);
+  col = mix(col, uMountainColor, belowMtn * uMountain);
+
+  gl_FragColor = vec4(col, 1.0);
 }
 `
 
@@ -199,6 +209,8 @@ export class ThreeRenderer {
     uHorizon: { value: THREE.Color };
     uCloudColor: { value: THREE.Color };
     uCloud: { value: number };
+    uMountainColor: { value: THREE.Color };
+    uMountain: { value: number };
   } | null = null
   private sunDisc: THREE.Mesh | null = null
 
@@ -276,6 +288,8 @@ export class ThreeRenderer {
       uHorizon: { value: new THREE.Color(0xd0e0f0) },
       uCloudColor: { value: new THREE.Color(0xffd0a0) },
       uCloud: { value: 0.05 },
+      uMountainColor: { value: new THREE.Color(0x707888) },
+      uMountain: { value: 1.0 },
     }
     this.skyUniforms = uniforms
 
@@ -733,6 +747,9 @@ export class ThreeRenderer {
         this.skyUniforms.uHorizon.value.setHex(0x101830)
         this.skyUniforms.uCloudColor.value.setHex(0x303a52)
         this.skyUniforms.uCloud.value = 0.4
+        // Distant mountains read as nearly black at night.
+        this.skyUniforms.uMountainColor.value.setHex(0x05080f)
+        this.skyUniforms.uMountain.value = 1.0
       }
       if (this.sunDisc) {
         (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xccccdd)
@@ -749,9 +766,11 @@ export class ThreeRenderer {
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0xcc6633)
         this.skyUniforms.uHorizon.value.setHex(0xffaa88)
-        // Warm sunset clouds — peach against the orange horizon.
         this.skyUniforms.uCloudColor.value.setHex(0xffd0a0)
         this.skyUniforms.uCloud.value = 0.55
+        // Mountains silhouette — warm-grey against the orange horizon.
+        this.skyUniforms.uMountainColor.value.setHex(0x4a3530)
+        this.skyUniforms.uMountain.value = 1.0
       }
       if (this.sunDisc) {
         (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xff8844)
@@ -771,6 +790,8 @@ export class ThreeRenderer {
         this.skyUniforms.uHorizon.value.setHex(0xe8d8c8)
         this.skyUniforms.uCloudColor.value.setHex(0xfff0d8)
         this.skyUniforms.uCloud.value = 0.35
+        this.skyUniforms.uMountainColor.value.setHex(0x6a6258)
+        this.skyUniforms.uMountain.value = 1.0
       }
       if (this.sunDisc) {
         (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xffdd88)
@@ -788,9 +809,11 @@ export class ThreeRenderer {
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x4488cc)
         this.skyUniforms.uHorizon.value.setHex(0xd0e0f0)
-        // Daytime puffy white-ish clouds, fairly subtle.
         this.skyUniforms.uCloudColor.value.setHex(0xffffff)
         this.skyUniforms.uCloud.value = 0.25
+        // Daylight distant mountains — slightly hazy bluish.
+        this.skyUniforms.uMountainColor.value.setHex(0x8090a0)
+        this.skyUniforms.uMountain.value = 1.0
       }
       if (this.sunDisc) {
         (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xffee88)
