@@ -155,11 +155,14 @@ void main() {
   vec3 col = mix(base, uCloudColor, c);
 
   // Distant mountain silhouette: low-frequency azimuthal noise raises a
-  // "horizon line" that sits between h ~= 0.0 and ~0.12. Pixels below the
-  // line take uMountainColor (slightly darker than horizon), giving a
-  // distant-mountain feel without modeling any geometry.
-  float mtnNoise = sin(az * 2.3) * 0.5 + sin(az * 5.7 + 1.0) * 0.3 + sin(az * 11.1 + 2.5) * 0.2;
-  float horizonY = 0.04 + mtnNoise * 0.04 * uMountain;
+  // "horizon line" between h ~= 0.01 and ~0.17 (~3x the previous range)
+  // so the range reads as proper distant peaks rather than a sliver.
+  // The extra high-freq sin adds sharp peak tips on top of rolling hills.
+  float mtnNoise = sin(az * 2.3) * 0.5
+                 + sin(az * 5.7 + 1.0) * 0.3
+                 + sin(az * 11.1 + 2.5) * 0.2
+                 + sin(az * 17.1 + 4.2) * 0.15;
+  float horizonY = 0.09 + mtnNoise * 0.08 * uMountain;
   float belowMtn = 1.0 - smoothstep(horizonY - 0.01, horizonY + 0.005, h);
   col = mix(col, uMountainColor, belowMtn * uMountain);
 
@@ -608,9 +611,13 @@ export class ThreeRenderer {
     // watchtower, lighthouse, clock_tower) and spawn a few dark circling
     // birds above each. Purely atmospheric — visible at dusk against the
     // warm sky.
+    // Only true landmarks — `tower` and `round_tower` were dropped because
+    // they're common small buildings (weights 2–5 across multiple districts),
+    // not rare spires, which caused birds to orbit lots of short roofs and
+    // read as stationary dots at mid-sky.
     const SPIRE_IDS = new Set([
       'cathedral', 'bell_tower', 'bell_tower_tall', 'watchtower',
-      'lighthouse', 'clock_tower', 'round_tower', 'tower',
+      'lighthouse', 'clock_tower',
     ])
     const spirePositions: THREE.Vector3[] = []
     if (structureLayer) {
@@ -638,6 +645,9 @@ export class ThreeRenderer {
         }
         const baseY = heightMap ? maxTH : (obj.elevation || 0)
         const topY = baseY + wallH + roofH + 0.8
+        // Only genuinely tall landmarks — skip any sub-6m "spire" so birds
+        // don't orbit low roofs and read as static dots.
+        if (topY < 6.0) continue
         spirePositions.push(new THREE.Vector3(
           obj.x + fp.w / 2, topY, obj.y + fp.h / 2,
         ))
@@ -1102,8 +1112,10 @@ export class ThreeRenderer {
    *  dusk/night lighting alongside fireflies. */
   private initBirds(spirePositions: THREE.Vector3[]): void {
     if (spirePositions.length === 0) return
-    const spires = spirePositions.slice(0, 8)
-    const perSpire = 4
+    // Cap total birds to ~16 so they feel like scattered dusk punctuation,
+    // not a flock. 5 spires × 3 birds = 15 max.
+    const spires = spirePositions.slice(0, 5)
+    const perSpire = 3
     const count = spires.length * perSpire
     const positions = new Float32Array(count * 3)
     const velocities = new Float32Array(count * 3)
@@ -1173,7 +1185,7 @@ export class ThreeRenderer {
         const isNight = this.currentTimeOfDay < 5 || this.currentTimeOfDay >= 20
         const isDusk = this.currentTimeOfDay >= 17 && this.currentTimeOfDay < 20
         ;(ps.points.material as THREE.PointsMaterial).opacity =
-          isNight ? 0.0 : isDusk ? 0.85 : 0.55
+          isNight ? 0.0 : isDusk ? 0.55 : 0.0
         continue
       }
 

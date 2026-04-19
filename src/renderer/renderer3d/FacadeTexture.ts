@@ -253,15 +253,19 @@ export function createEmissiveTexture(config: FacadeConfig): THREE.CanvasTexture
           break
         }
         case 'cool': {
-          // Soft blue-white workshop light
-          r = 200 + Math.floor(warmth * 30)
-          g = 220 + Math.floor(warmth * 25)
-          b = 255
+          // Soft blue-white workshop light — channels capped so the window
+          // can't saturate to pure white under bloom at dusk. Still reads
+          // as a cool interior against warm amber neighbors.
+          r = 150 + Math.floor(warmth * 20)
+          g = 170 + Math.floor(warmth * 20)
+          b = 220
           break
         }
         case 'bright': {
-          // Bright fire-yellow, picks up bloom dramatically
-          r = 255; g = 255; b = Math.floor(160 + warmth * 50)
+          // Rich amber hearth — brighter than default amber but clamped so
+          // it never clips to white under bloom. Replaces the previous
+          // pure-white-yellow which read as an overexposed lightbulb.
+          r = 240; g = 190 + Math.floor(warmth * 20); b = 90
           break
         }
         default: {

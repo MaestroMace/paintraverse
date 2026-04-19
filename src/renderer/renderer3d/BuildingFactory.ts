@@ -293,19 +293,17 @@ export function buildBuildingMeshes(
     // Skip entirely if massing already supplies a chimney volume.
     // Big/tall buildings (floors >= 3 or wealth archetype) get two chimneys.
     if (!massingHasChimney && hash % 5 < 2 && mainRoofH > 0) {
-      // Clamp chimney height to a fixed range (0.5–0.9 world units) so the
-      // scaling stopped producing 2-4 world unit black sticks once wallH
-      // doubled. Width bumped to 0.3 so they read as stacks, not sticks.
+      // Chimney stacks: stubby 1.1:1 aspect (0.5w × 0.4–0.65h) so they read
+      // as brick stacks against the dusk sky, not flagpoles. Wide cap above
+      // widens the silhouette further.
       const chimCount = (floors >= 3 || styleVector.wealth > 0.6) ? 2 : 1
-      const baseH = 0.55 + rand01(hash, 701) * 0.3  // 0.55–0.85
-      const chimW = 0.3
+      const baseH = 0.4 + rand01(hash, 701) * 0.25  // 0.4–0.65
+      const chimW = 0.5
       for (let c = 0; c < chimCount; c++) {
         const chimSide = c === 0
           ? ((obj.properties.chimneyPos === 'left') ? -1 : 1)
           : (((obj.properties.chimneyPos === 'left') ? 1 : -1))
         const chimH = baseH * (c === 0 ? 1.0 : 0.85)
-        // LOCAL position of chimney relative to building center; rotated
-        // with the building so the chimney sits on the rotated roof.
         const localX = chimSide * fp.w * 0.3
         const localZ = c === 0 ? 0 : (rand01(hash, 600 + c) - 0.5) * fp.h * 0.4
         const stack = new THREE.BoxGeometry(chimW, chimH, chimW)
@@ -313,10 +311,10 @@ export function buildBuildingMeshes(
         if (rotationY !== 0) stack.rotateY(rotationY)
         stack.translate(wx, mainTopY + mainRoofH * 0.3 + chimH / 2, wz)
         detailBatch.addPositioned(stack, 0x704030)
-        const cap = new THREE.BoxGeometry(chimW + 0.12, 0.08, chimW + 0.12)
+        const cap = new THREE.BoxGeometry(chimW + 0.1, 0.1, chimW + 0.1)
         cap.translate(localX, 0, localZ)
         if (rotationY !== 0) cap.rotateY(rotationY)
-        cap.translate(wx, mainTopY + mainRoofH * 0.3 + chimH + 0.04, wz)
+        cap.translate(wx, mainTopY + mainRoofH * 0.3 + chimH + 0.05, wz)
         detailBatch.addPositioned(cap, 0x5a3020)
       }
     }
