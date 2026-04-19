@@ -1321,6 +1321,87 @@ export function buildPropMeshes(
         }
       }
 
+    } else if (id === 'forge_brazier') {
+      // Artisan / forge district — cylindrical stone brazier with an
+      // ember-glow core. The glow material shares the lantern emissive
+      // driver (reused via a constant emissive that bloom picks up at
+      // dusk) so forges light up with the rest of the town.
+      const stone = 0x605850
+      const embers = 0xe04020
+      // Tripod legs
+      for (let li = 0; li < 3; li++) {
+        const ang = (li / 3) * Math.PI * 2
+        const leg = new THREE.BoxGeometry(0.06, 0.45, 0.06)
+        leg.rotateZ(ang > Math.PI ? -0.25 : 0.25)
+        emitRot(leg, Math.cos(ang) * 0.2, 0.22, Math.sin(ang) * 0.2, stone)
+      }
+      // Bowl
+      const bowl = new THREE.CylinderGeometry(0.3, 0.22, 0.22, 8)
+      emitRot(bowl, 0, 0.55, 0, stone)
+      // Rim ring (slightly wider)
+      const rim = new THREE.CylinderGeometry(0.34, 0.3, 0.05, 8)
+      emitRot(rim, 0, 0.67, 0, 0x4a4238)
+      // Ember core — small hot orange cylinder visible inside the bowl
+      const ember = new THREE.CylinderGeometry(0.18, 0.14, 0.08, 6)
+      emitRot(ember, 0, 0.64, 0, embers)
+      // A couple of glow dots on top for floaters/sparks frozen in stone
+      for (let i = 0; i < 3; i++) {
+        const ang = (i / 3) * Math.PI * 2 + hash
+        const glow = new THREE.SphereGeometry(0.05, 5, 4)
+        emitRot(glow, Math.cos(ang) * 0.1, 0.72 + i * 0.02, Math.sin(ang) * 0.1, 0xffb060)
+      }
+
+    } else if (id === 'rubble_pile') {
+      // Slum / cemetery / ruin prop — pile of 4–6 broken stone blocks at
+      // varied angles + a few small chip spheres nearby. Reads as decay.
+      const stones = [0x7a746a, 0x8a8478, 0x6a6458, 0x706860]
+      const count = 4 + (hash % 3)
+      for (let bi = 0; bi < count; bi++) {
+        const ang = (bi / count) * Math.PI * 2 + hash * 0.31
+        const r = 0.1 + (hash >> bi) % 10 / 40
+        const sz = 0.14 + ((hash >> (bi * 2)) & 3) * 0.04
+        const block = new THREE.BoxGeometry(sz, sz * 0.7, sz * 0.85)
+        block.rotateY(ang + 0.3 * bi)
+        block.rotateZ(0.2 * Math.sin(bi + hash))
+        emitRot(block, Math.cos(ang) * r, sz * 0.35 + ((hash >> bi) & 3) * 0.03, Math.sin(ang) * r, stones[bi % stones.length])
+      }
+      // A few small chip spheres
+      for (let ci = 0; ci < 3; ci++) {
+        const ang = (ci / 3) * Math.PI * 2 + 0.7
+        const chip = new THREE.SphereGeometry(0.05, 5, 4)
+        emitRot(chip, Math.cos(ang) * 0.28, 0.06, Math.sin(ang) * 0.28, stones[ci % stones.length])
+      }
+
+    } else if (id === 'prayer_flags') {
+      // Temple prop — two thin poles with a horizontal rope between and
+      // 7 small rectangular cloth flags dangling. Muted spiritual palette
+      // (earth red, saffron, ivory, deep teal, tan) — reads as sacred
+      // rather than festival even though the geometry rhymes with bunting.
+      const postColor = 0x4a3a20
+      for (const sx of [-0.5, 0.5]) {
+        emitRot(new THREE.BoxGeometry(0.05, 1.8, 0.05), sx, 0.9, 0, postColor)
+      }
+      emitRot(new THREE.BoxGeometry(1.0, 0.025, 0.025), 0, 1.75, 0, 0x3a2a18)
+      const flagColors = [0xa03028, 0xe0b030, 0xeae0cc, 0x306a80, 0x8c6438]
+      for (let fi = 0; fi < 7; fi++) {
+        const t = (fi + 0.5) / 7 - 0.5
+        const flag = new THREE.BoxGeometry(0.11, 0.22, 0.02)
+        emitRot(flag, t * 0.95, 1.65, 0, flagColors[(fi + hash) % flagColors.length])
+      }
+
+    } else if (id === 'cemetery_cross') {
+      // Cemetery centerpiece — ornate Celtic-style stone cross on a
+      // plinth, distinct from the flat gravestones. Adds verticality to
+      // cemeteries that otherwise look like rows of stubby slabs.
+      const stone = 0x6a6458
+      const stoneDark = 0x5a5448
+      emitRot(new THREE.BoxGeometry(0.5, 0.22, 0.5), 0, 0.11, 0, stoneDark)
+      emitRot(new THREE.BoxGeometry(0.18, 1.6, 0.18), 0, 1.02, 0, stone)
+      emitRot(new THREE.BoxGeometry(0.8, 0.2, 0.18), 0, 1.55, 0, stone)
+      const ring = new THREE.TorusGeometry(0.28, 0.055, 5, 12)
+      emitRot(ring, 0, 1.55, 0, stone)
+      emitRot(new THREE.SphereGeometry(0.09, 6, 5), 0, 1.88, 0, stone)
+
     } else if (id === 'bunting_pole') {
       // Market festival prop — tall pole with a droopy string of colored
       // triangle pennants trailing off one side toward an "implied" next

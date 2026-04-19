@@ -127,15 +127,15 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
 const DISTRICT_PROPS: Record<DistrictType, string[]> = {
   market: ['market_stall', 'crate', 'crate_stack', 'barrel', 'hanging_sign', 'wagon', 'sign', 'cafe_table', 'cart', 'hay_bale', 'bunting_pole', 'bunting_pole'],
   residential: ['potted_plant', 'bench', 'well', 'fence', 'planter_box', 'flower_box', 'cloth_line', 'rain_barrel', 'woodpile'],
-  artisan: ['barrel', 'crate', 'barrel_stack', 'sign', 'fence', 'crate_stack', 'woodpile', 'cart', 'rain_barrel'],
+  artisan: ['barrel', 'crate', 'barrel_stack', 'sign', 'fence', 'crate_stack', 'woodpile', 'cart', 'rain_barrel', 'forge_brazier', 'forge_brazier'],
   noble: ['potted_plant', 'planter_box', 'bench', 'statue', 'fountain', 'wall_lantern', 'column', 'monument', 'garden_arch', 'flower_box', 'heraldic_banner', 'heraldic_banner'],
   waterfront: ['barrel', 'crate', 'wagon', 'sign', 'bench', 'crate_stack', 'horse_post', 'rain_barrel', 'fish_rack', 'rope_coil'],
-  temple: ['statue', 'potted_plant', 'stone_wall', 'wall_lantern', 'column', 'monument', 'garden_arch'],
-  slum: ['barrel', 'crate', 'barrel_stack', 'woodpile', 'rain_barrel'],
+  temple: ['statue', 'potted_plant', 'stone_wall', 'wall_lantern', 'column', 'monument', 'garden_arch', 'prayer_flags', 'prayer_flags'],
+  slum: ['barrel', 'crate', 'barrel_stack', 'woodpile', 'rain_barrel', 'rubble_pile', 'rubble_pile', 'rubble_pile'],
   garden: ['potted_plant', 'planter_box', 'bench', 'fountain', 'bush', 'tree', 'flower_box', 'garden_arch', 'trellis_arch', 'flower_bed', 'flower_bed'],
   harbor: ['barrel', 'crate', 'crate_stack', 'wagon', 'horse_post', 'dock', 'crane', 'fishing_boat', 'rain_barrel', 'fish_rack', 'fish_rack', 'rope_coil', 'rope_coil'],
   fortress: ['stone_wall', 'barrel', 'crate', 'wall_lantern', 'iron_fence', 'heraldic_banner'],
-  cemetery: ['gravestone', 'iron_fence', 'potted_plant', 'tree', 'wall_lantern', 'bench'],
+  cemetery: ['gravestone', 'iron_fence', 'potted_plant', 'tree', 'wall_lantern', 'bench', 'cemetery_cross', 'cemetery_cross'],
 }
 
 // District density multipliers
@@ -3025,6 +3025,8 @@ export class TownGenerator implements IMapGenerator {
       fish_rack: { w: 2, h: 1 }, rope_coil: { w: 1, h: 1 },
       trellis_arch: { w: 1, h: 2 }, flower_bed: { w: 2, h: 1 },
       bunting_pole: { w: 1, h: 1 }, heraldic_banner: { w: 1, h: 1 },
+      prayer_flags: { w: 2, h: 1 }, cemetery_cross: { w: 1, h: 1 },
+      forge_brazier: { w: 1, h: 1 }, rubble_pile: { w: 1, h: 1 },
       gravestone: { w: 1, h: 1 }, iron_fence: { w: 2, h: 1 },
       windmill: { w: 3, h: 3 }, farm_field: { w: 4, h: 3 },
       road_marker: { w: 1, h: 1 },
