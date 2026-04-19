@@ -46,13 +46,19 @@ export function ThreeViewport() {
   }, [map.environment.timeOfDay])
 
   const [fpsText, setFpsText] = useState('')
+  const [locked, setLocked] = useState(false)
   useEffect(() => {
     const iv = setInterval(() => {
       if (rendererRef.current) {
         setFpsText(`${rendererRef.current.fps} FPS | ${rendererRef.current.drawCalls} draws`)
       }
     }, 1000)
-    return () => clearInterval(iv)
+    const onLockChange = () => setLocked(!!rendererRef.current?.isPointerLocked)
+    document.addEventListener('pointerlockchange', onLockChange)
+    return () => {
+      clearInterval(iv)
+      document.removeEventListener('pointerlockchange', onLockChange)
+    }
   }, [])
 
   const handleScreenshot = useCallback(() => {
@@ -76,20 +82,29 @@ export function ThreeViewport() {
         cursor: 'pointer',
       }}
     >
-      {/* Controls hint — bottom left */}
-      <div style={{
-        position: 'absolute', bottom: 8, left: 8,
-        background: 'rgba(0,0,0,0.6)', padding: '4px 10px',
-        borderRadius: 4, fontSize: 10, color: '#aaa',
-        pointerEvents: 'none', fontFamily: 'monospace',
-      }}>
-        <span style={{ color: '#4ade80' }}>Click</span> to lock &nbsp;
-        <span style={{ color: '#4ade80' }}>WASD</span> walk &nbsp;
-        <span style={{ color: '#4ade80' }}>Space</span> jump &nbsp;
-        <span style={{ color: '#4ade80' }}>2×Space</span> fly &nbsp;
-        <span style={{ color: '#4ade80' }}>Shift</span> descend &nbsp;
-        <span style={{ color: '#4ade80' }}>Esc</span> release
-      </div>
+      {/* "Click to enter" overlay — shown only when pointer is NOT locked.
+          Clear signal that the viewport needs to be clicked to start
+          walking around. pointerEvents:none so the click passes to canvas. */}
+      {!locked && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none', zIndex: 2,
+        }}>
+          <div style={{
+            background: 'rgba(0,0,0,0.55)', color: '#e8e8e8',
+            padding: '14px 22px', borderRadius: 8,
+            fontFamily: 'monospace', fontSize: 13, textAlign: 'center',
+            border: '1px solid rgba(255,255,255,0.15)',
+          }}>
+            <div style={{ fontSize: 16, marginBottom: 6, color: '#4ade80' }}>Click to walk</div>
+            <div style={{ opacity: 0.8 }}>
+              <b>WASD</b> move &nbsp;·&nbsp; <b>mouse</b> look &nbsp;·&nbsp; <b>space</b> jump<br />
+              <b>2×space</b> fly &nbsp;·&nbsp; <b>shift</b> descend &nbsp;·&nbsp; <b>esc</b> release
+            </div>
+          </div>
+        </div>
+      )}
       {/* FPS — top left */}
       <div style={{
         position: 'absolute', top: 4, left: 4,

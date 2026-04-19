@@ -228,6 +228,8 @@ export class ThreeRenderer {
   private _fpsFrames = 0
   private _fpsTime = 0
   private _fps = 0
+  /** Whether the browser currently has pointer lock on our canvas. */
+  get isPointerLocked(): boolean { return this.pointerLocked }
   get fps(): number { return this._fps }
   private _drawCalls = 0
   get drawCalls(): number { return this._drawCalls }
@@ -381,17 +383,40 @@ export class ThreeRenderer {
     window.addEventListener('keyup', this._onKeyUp)
 
     const canvas = this.renderer.domElement
-    // Click to enter pointer lock (standard FPS convention); ESC exits.
-    canvas.addEventListener('click', () => {
-      if (!this.pointerLocked) canvas.requestPointerLock()
-    })
+    // Click → request pointer lock. In newer browsers this returns a Promise
+    // (and Electron varies); handle both sync and Promise paths, and log
+    // explicit errors so silent-fail is visible during debugging.
+    const tryLock = () => {
+      if (this.pointerLocked) return
+      try {
+        const ret = (canvas.requestPointerLock as (opts?: { unadjustedMovement?: boolean }) => Promise<void> | void)({
+          unadjustedMovement: true,
+        })
+        if (ret && typeof (ret as Promise<void>).then === 'function') {
+          ;(ret as Promise<void>).catch((err) => {
+            // unadjustedMovement may not be supported — retry without.
+            try { canvas.requestPointerLock() } catch {}
+            console.warn('[ThreeRenderer] pointer lock (with unadjustedMovement) rejected:', err)
+          })
+        }
+      } catch (err) {
+        console.warn('[ThreeRenderer] pointer lock request failed:', err)
+        try { canvas.requestPointerLock() } catch {}
+      }
+    }
+    canvas.addEventListener('click', tryLock)
+    // Also engage on mousedown so even incomplete clicks trigger it.
+    canvas.addEventListener('mousedown', tryLock)
     this._onPointerLockChange = () => {
       this.pointerLocked = document.pointerLockElement === canvas
-      // Drop all held keys when unlocking so movement doesn't continue
-      // while user is interacting with UI behind the canvas.
       if (!this.pointerLocked) this.keysHeld.clear()
     }
     document.addEventListener('pointerlockchange', this._onPointerLockChange)
+    // Diagnostic: browsers sometimes deny the request silently. Logging
+    // makes this visible in DevTools.
+    document.addEventListener('pointerlockerror', () => {
+      console.warn('[ThreeRenderer] pointerlockerror: browser denied pointer lock')
+    })
     this._onMouseMove = (e: MouseEvent) => {
       if (!this.pointerLocked) return
       this.cameraYaw += e.movementX * MOUSE_YAW_SENS
