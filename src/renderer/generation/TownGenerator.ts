@@ -129,11 +129,11 @@ const DISTRICT_PROPS: Record<DistrictType, string[]> = {
   residential: ['potted_plant', 'bench', 'well', 'fence', 'planter_box', 'flower_box', 'cloth_line', 'rain_barrel', 'woodpile'],
   artisan: ['barrel', 'crate', 'barrel_stack', 'sign', 'fence', 'crate_stack', 'woodpile', 'cart', 'rain_barrel'],
   noble: ['potted_plant', 'planter_box', 'bench', 'statue', 'fountain', 'wall_lantern', 'column', 'monument', 'garden_arch', 'flower_box'],
-  waterfront: ['barrel', 'crate', 'wagon', 'sign', 'bench', 'crate_stack', 'horse_post', 'rain_barrel'],
+  waterfront: ['barrel', 'crate', 'wagon', 'sign', 'bench', 'crate_stack', 'horse_post', 'rain_barrel', 'fish_rack', 'rope_coil'],
   temple: ['statue', 'potted_plant', 'stone_wall', 'wall_lantern', 'column', 'monument', 'garden_arch'],
   slum: ['barrel', 'crate', 'barrel_stack', 'woodpile', 'rain_barrel'],
-  garden: ['potted_plant', 'planter_box', 'bench', 'fountain', 'bush', 'tree', 'flower_box', 'garden_arch'],
-  harbor: ['barrel', 'crate', 'crate_stack', 'wagon', 'horse_post', 'dock', 'crane', 'fishing_boat', 'rain_barrel'],
+  garden: ['potted_plant', 'planter_box', 'bench', 'fountain', 'bush', 'tree', 'flower_box', 'garden_arch', 'trellis_arch', 'flower_bed', 'flower_bed'],
+  harbor: ['barrel', 'crate', 'crate_stack', 'wagon', 'horse_post', 'dock', 'crane', 'fishing_boat', 'rain_barrel', 'fish_rack', 'fish_rack', 'rope_coil', 'rope_coil'],
   fortress: ['stone_wall', 'barrel', 'crate', 'wall_lantern', 'iron_fence'],
   cemetery: ['gravestone', 'iron_fence', 'potted_plant', 'tree', 'wall_lantern', 'bench'],
 }
@@ -3021,6 +3021,9 @@ export class TownGenerator implements IMapGenerator {
       // New world props
       dock: { w: 3, h: 1 }, crane: { w: 2, h: 2 },
       pier: { w: 4, h: 1 }, fishing_boat: { w: 2, h: 1 },
+      // District-signature decorations
+      fish_rack: { w: 2, h: 1 }, rope_coil: { w: 1, h: 1 },
+      trellis_arch: { w: 1, h: 2 }, flower_bed: { w: 2, h: 1 },
       gravestone: { w: 1, h: 1 }, iron_fence: { w: 2, h: 1 },
       windmill: { w: 3, h: 3 }, farm_field: { w: 4, h: 3 },
       road_marker: { w: 1, h: 1 },

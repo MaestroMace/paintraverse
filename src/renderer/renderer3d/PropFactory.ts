@@ -1321,6 +1321,104 @@ export function buildPropMeshes(
         }
       }
 
+    } else if (id === 'fish_rack') {
+      // Harbor prop — 3 vertical stakes + 2 crossbars + 5 hanging fish
+      // silhouettes. fp 2×1, oriented along the longer axis.
+      const longAxisX = fp.w >= fp.h
+      const L = longAxisX ? fp.w * 0.9 : fp.h * 0.9
+      const postColor = 0x5a3a20
+      const fishColor = 0x8a7060
+      for (let si = 0; si < 3; si++) {
+        const t = (si / 2) * L - L / 2
+        const dx = longAxisX ? t : 0
+        const dz = longAxisX ? 0 : t
+        emitRot(new THREE.BoxGeometry(0.08, 1.4, 0.08), dx, 0.7, dz, postColor)
+      }
+      for (const cy of [1.15, 0.75]) {
+        const crossW = longAxisX ? L : 0.06
+        const crossD = longAxisX ? 0.06 : L
+        emitRot(new THREE.BoxGeometry(crossW, 0.05, crossD), 0, cy, 0, postColor)
+      }
+      // Fish: small flat slabs hanging from crossbars
+      for (let fi = 0; fi < 5; fi++) {
+        const t = (fi + 0.5) / 5 - 0.5
+        const dx = longAxisX ? t * L : 0
+        const dz = longAxisX ? 0 : t * L
+        const fish = new THREE.BoxGeometry(0.18, 0.06, 0.04)
+        // Tilt each fish a tiny bit so they read as dangling not perfectly flat
+        fish.rotateZ((fi % 2 === 0 ? 0.15 : -0.15))
+        emitRot(fish, dx, 1.0, dz, fishColor)
+      }
+
+    } else if (id === 'rope_coil') {
+      // Coiled rope on the dock — stacked torii of decreasing radius.
+      const ropeColor = 0x8a6a40
+      for (let ri = 0; ri < 3; ri++) {
+        const r = 0.32 - ri * 0.08
+        const t = new THREE.TorusGeometry(r, 0.045, 4, 10)
+        t.rotateX(Math.PI / 2)
+        emitRot(t, 0, 0.04 + ri * 0.065, 0, ropeColor)
+      }
+
+    } else if (id === 'trellis_arch') {
+      // Garden prop — taller + more decorative than plain garden_arch.
+      // 2 stout posts, arching top with chevron crosspieces, climbing
+      // vine sphere hiding the peak.
+      const postColor = 0x5a4028
+      const vineColor = 0x3a7a2a
+      const flowerColor = [0xc04080, 0xe0b040, 0xe080a0][hash % 3]
+      for (const sx of [-0.45, 0.45]) {
+        emitRot(new THREE.BoxGeometry(0.1, 1.8, 0.1), sx, 0.9, 0, postColor)
+      }
+      // Arched crown: half-torus on its side
+      const arch = new THREE.TorusGeometry(0.45, 0.05, 4, 10, Math.PI)
+      arch.rotateZ(Math.PI)
+      emitRot(arch, 0, 1.8, 0, postColor)
+      // Chevron lattice: 3 diagonal crossbars left + right
+      for (let ci = 0; ci < 3; ci++) {
+        const y = 0.4 + ci * 0.35
+        const bar = new THREE.BoxGeometry(1.0, 0.03, 0.03)
+        bar.rotateZ(0.25 * (ci % 2 === 0 ? 1 : -1))
+        emitRot(bar, 0, y, 0, postColor)
+      }
+      // Vine canopy: flattened sphere over the arch
+      const vine = new THREE.SphereGeometry(0.5, 7, 5)
+      vine.scale(1.2, 0.55, 0.6)
+      emitRot(vine, 0, 1.95, 0, vineColor)
+      // Small flower dots on the vine
+      for (let fi = 0; fi < 5; fi++) {
+        const ang = (fi / 5) * Math.PI * 2
+        const flower = new THREE.SphereGeometry(0.07, 5, 4)
+        emitRot(flower, Math.cos(ang) * 0.45, 1.98 + Math.sin(fi * 1.3) * 0.08, Math.sin(ang) * 0.25, flowerColor)
+      }
+
+    } else if (id === 'flower_bed') {
+      // Garden prop — wide low planter filled with multi-colored flowers
+      // and small mounded foliage. fp 2×1 typical.
+      const boxW = fp.w * 0.9
+      const boxD = fp.h * 0.9
+      emitRot(new THREE.BoxGeometry(boxW, 0.22, boxD), 0, 0.11, 0, 0x6a4a28)
+      // Dirt top
+      emitRot(new THREE.BoxGeometry(boxW * 0.95, 0.03, boxD * 0.95), 0, 0.22, 0, 0x5a3828)
+      // Foliage mounds + flower dots in a grid
+      const flowerColors = [0xc03050, 0xe0a030, 0xe070b0, 0x8040b0, 0xe0e060]
+      const cols = Math.max(3, Math.floor(boxW * 2.5))
+      const rows = Math.max(1, Math.floor(boxD * 1.8))
+      for (let ri = 0; ri < rows; ri++) {
+        for (let ci = 0; ci < cols; ci++) {
+          const dx = ((ci + 0.5) / cols - 0.5) * boxW * 0.85
+          const dz = ((ri + 0.5) / rows - 0.5) * boxD * 0.85
+          const foliage = new THREE.SphereGeometry(0.11, 5, 4)
+          foliage.scale(1, 0.7, 1)
+          emitRot(foliage, dx, 0.28, dz, 0x3a7a2a)
+          // Alternating flower buds on top
+          if ((ri * cols + ci + hash) % 2 === 0) {
+            const bud = new THREE.SphereGeometry(0.06, 5, 4)
+            emitRot(bud, dx, 0.36, dz, flowerColors[(ri * cols + ci + hash) % flowerColors.length])
+          }
+        }
+      }
+
     } else {
       // Fallback — colored box
       const color = id === 'bridge' ? 0x8b7355 : 0x808080
