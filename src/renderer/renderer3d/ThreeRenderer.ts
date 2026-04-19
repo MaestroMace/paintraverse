@@ -248,6 +248,15 @@ export class ThreeRenderer {
   get fps(): number { return this._fps }
   private _drawCalls = 0
   get drawCalls(): number { return this._drawCalls }
+  // Accurate per-frame stats snapshotted mid-composer so the final
+  // OutputPass doesn't overwrite them. Updated each rAF loop.
+  private _frameStats = {
+    drawCalls: 0, triangles: 0, lines: 0, points: 0,
+    frameMs: 0, updateMs: 0, renderMs: 0,
+  }
+  // Turn off post-processing at noon to skip the gaussian blur passes
+  // when bloom would be nearly invisible anyway. Set by updateLighting.
+  private _useComposer = true
 
   // State
   private container: HTMLElement | null = null
@@ -348,8 +357,15 @@ export class ThreeRenderer {
     this.renderer.setPixelRatio(1)
     this.renderer.setSize(rw, rh, false)
     this.renderer.shadowMap.enabled = true
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    // Basic PCF (not Soft) — half the sample cost per shadow lookup with
+    // only slightly harder edges. PCFSoftShadowMap was the third most
+    // expensive thing in the frame after wall meshes and bloom.
+    this.renderer.shadowMap.type = THREE.PCFShadowMap
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
+    // Disable automatic reset of renderer.info so we can snapshot scene
+    // draw-call / triangle counts before the composer's OutputPass
+    // overwrites them. We reset at the start of each rAF loop.
+    this.renderer.info.autoReset = false
     container.appendChild(this.renderer.domElement)
     this.renderer.domElement.style.width = '100%'
     this.renderer.domElement.style.height = '100%'
@@ -894,6 +910,13 @@ export class ThreeRenderer {
     const isDusk = timeOfDay >= 17 && timeOfDay < 19
     const isDawn = timeOfDay >= 5 && timeOfDay < 7
     const isGolden = timeOfDay >= 15 && timeOfDay < 17
+    // Shadow gating: at deep night the sun is below horizon, shadows are
+    // invisible anyway, so skip the shadow pass entirely. Saves a full
+    // 512² render + sort per frame.
+    if (this.renderer) {
+      const sunBelowHorizon = timeOfDay < 5.5 || timeOfDay >= 19.5
+      this.renderer.shadowMap.enabled = !sunBelowHorizon
+    }
 
     // Sun angle based on time (0=midnight, 12=noon)
     const sunAngle = ((timeOfDay - 6) / 12) * Math.PI // 0 at 6am, PI at 6pm
@@ -1019,6 +1042,11 @@ export class ThreeRenderer {
         windowGlow = 0
       }
     }
+    // Composer gating: at true noon/midday (not golden, not dusk, not
+    // dawn), bloom is nearly invisible but the gaussian passes still run.
+    // Skip the whole composer chain and render direct — meaningful perf
+    // win on low-end machines where bloom is the frame-time hotspot.
+    this._useComposer = !(timeOfDay >= 8 && timeOfDay < 15)
     setWallEmissiveIntensity(windowGlow)
     // Hanging lanterns: always a bit brighter than windows (they're supposed
     // to be the primary overhead light source at dusk) but still ramp with
@@ -1266,6 +1294,11 @@ export class ThreeRenderer {
     const loop = () => {
       if (this.disposed) return
       this.animId = requestAnimationFrame(loop)
+      // Reset renderer stats at the start of each frame so accumulated
+      // counts reflect THIS frame only. autoReset was disabled at init so
+      // the composer's final OutputPass doesn't clobber what we read.
+      if (this.renderer) this.renderer.info.reset()
+      const frameStart = performance.now()
       const dt = Math.min(this.clock.getDelta(), 0.1)
       const t = this.clock.elapsedTime
       this.updateCamera(dt)
@@ -1274,8 +1307,23 @@ export class ThreeRenderer {
       tickLanternEmissive(t)
       tickWater(t)
       if (this.skyMesh) this.skyMesh.position.copy(this.camera.position)
-      if (this.composer) this.composer.render()
+      const updateEnd = performance.now()
+      if (this.composer && this._useComposer) this.composer.render()
       else this.renderer?.render(this.scene, this.camera)
+      const renderEnd = performance.now()
+      // Snapshot stats once per frame. These are correct because the
+      // composer has run everything by now; only the final OutputPass
+      // blanks the counts (which is a single draw call added on top).
+      if (this.renderer) {
+        const info = this.renderer.info
+        this._frameStats.drawCalls = info.render.calls
+        this._frameStats.triangles = info.render.triangles
+        this._frameStats.lines = info.render.lines
+        this._frameStats.points = info.render.points
+      }
+      this._frameStats.frameMs = renderEnd - frameStart
+      this._frameStats.updateMs = updateEnd - frameStart
+      this._frameStats.renderMs = renderEnd - updateEnd
       // FPS counter
       this._fpsFrames++
       this._fpsTime += dt
@@ -1283,7 +1331,7 @@ export class ThreeRenderer {
         this._fps = this._fpsFrames
         this._fpsFrames = 0
         this._fpsTime = 0
-        if (this.renderer) this._drawCalls = this.renderer.info.render.calls
+        this._drawCalls = this._frameStats.drawCalls
       }
     }
     this.animId = requestAnimationFrame(loop)
@@ -1391,7 +1439,7 @@ export class ThreeRenderer {
   /** Capture a screenshot of the current 3D view as a data URL */
   captureScreenshot(): string {
     if (!this.renderer) return ''
-    if (this.composer) this.composer.render()
+    if (this.composer && this._useComposer) this.composer.render()
     else this.renderer.render(this.scene, this.camera)
     return this.renderer.domElement.toDataURL('image/png')
   }
@@ -1418,12 +1466,28 @@ export class ThreeRenderer {
         fov: cam.fov,
       },
       render: {
-        drawCalls: info?.render.calls ?? -1,
-        triangles: info?.render.triangles ?? -1,
-        lines: info?.render.lines ?? -1,
-        points: info?.render.points ?? -1,
+        // Snapshotted in the rAF loop BEFORE the composer's final
+        // OutputPass overwrites renderer.info.render. The raw live
+        // counts (info.render.*) are unreliable for diagnosis.
+        drawCalls: this._frameStats.drawCalls,
+        triangles: this._frameStats.triangles,
+        lines: this._frameStats.lines,
+        points: this._frameStats.points,
         geometries: info?.memory.geometries ?? -1,
         textures: info?.memory.textures ?? -1,
+      },
+      frameMs: {
+        total: this._frameStats.frameMs.toFixed(2),
+        update: this._frameStats.updateMs.toFixed(2),
+        render: this._frameStats.renderMs.toFixed(2),
+      },
+      renderSettings: {
+        shadowMapSize: this.sunLight.shadow.mapSize.x,
+        shadowMapType: this.renderer?.shadowMap.type,
+        shadowsEnabled: this.renderer?.shadowMap.enabled ?? false,
+        bloomStrength: this.bloomPass?.strength ?? 0,
+        bloomThreshold: this.bloomPass?.threshold ?? 0,
+        composerEnabled: !!this.composer,
       },
       particles,
       scene: {

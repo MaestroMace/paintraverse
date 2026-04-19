@@ -10,6 +10,7 @@
  */
 
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 import { buildingStyleVector, pickArchetypes } from './architecture'
@@ -417,5 +418,65 @@ export function buildBuildingMeshes(
     batched.push(ornamentMesh)
   }
 
-  return { wallMeshes, batched }
+  // Coalesce walls sharing the same material array into merged meshes.
+  // Most walls land in a small number of material groups (because
+  // _wallMatCache returns the same instance for same-config buildings),
+  // so we can collapse 200+ individual wall meshes into ~30-50 merged
+  // meshes — one per unique material array. Huge draw-call win,
+  // especially in the shadow pass.
+  const mergedWalls = coalesceWalls(wallMeshes)
+  return { wallMeshes: mergedWalls, batched }
+}
+
+/**
+ * Merge wall meshes that share the same material array into single meshes
+ * with baked world transforms. BoxGeometry-based walls merge cleanly
+ * (same group layout: 6 groups, one per face). Cylinder-based (circular
+ * tower) walls stay separate since they use a different geometry topology.
+ */
+function coalesceWalls(wallMeshes: THREE.Mesh[]): THREE.Mesh[] {
+  type Key = THREE.Material | THREE.Material[] | null
+  const groups = new Map<string, { key: Key; meshes: THREE.Mesh[] }>()
+  const loose: THREE.Mesh[] = []
+  const keyOf = (m: THREE.Material | THREE.Material[]): string => {
+    if (Array.isArray(m)) return m.map(x => x.uuid).join('|')
+    return m.uuid
+  }
+  for (const mesh of wallMeshes) {
+    // Only merge BoxGeometry walls — cylinders use different topology.
+    if (!(mesh.geometry instanceof THREE.BoxGeometry)) { loose.push(mesh); continue }
+    const k = keyOf(mesh.material as THREE.Material | THREE.Material[])
+    let bucket = groups.get(k)
+    if (!bucket) {
+      bucket = { key: mesh.material as Key, meshes: [] }
+      groups.set(k, bucket)
+    }
+    bucket.meshes.push(mesh)
+  }
+  const result: THREE.Mesh[] = [...loose]
+  for (const { key, meshes } of groups.values()) {
+    if (meshes.length < 3) { result.push(...meshes); continue }
+    // Bake each mesh's world transform into its geometry, then merge.
+    // All geometries have the same group layout since they're all BoxGeometry
+    // so mergeGeometries can combine them preserving per-face material indices.
+    const geos: THREE.BufferGeometry[] = []
+    for (const m of meshes) {
+      m.updateMatrix()
+      const g = m.geometry.clone()
+      g.applyMatrix4(m.matrix)
+      geos.push(g)
+    }
+    const merged = mergeGeometries(geos, true)
+    if (!merged) { result.push(...meshes); continue }
+    const out = new THREE.Mesh(merged, key as THREE.Material | THREE.Material[])
+    out.matrixAutoUpdate = false
+    out.updateMatrix()
+    out.castShadow = true
+    out.receiveShadow = true
+    // Dispose the cloned geometries; the source meshes will be dropped.
+    for (const g of geos) g.dispose()
+    for (const m of meshes) m.geometry.dispose()
+    result.push(out)
+  }
+  return result
 }

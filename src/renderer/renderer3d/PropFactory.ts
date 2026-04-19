@@ -10,11 +10,15 @@ import * as THREE from 'three'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 
+// Heights tuned for FLOOR_HEIGHT=1.8. A 2-story building = 3.6m eaves,
+// so lampposts at 3.2m sit just under eaves (classic streetlamp height).
+// Trees bumped to 4.0m so they read as real trees next to buildings, not
+// shrubs. Market stalls bumped to 2.4m.
 const PROP_HEIGHTS: Record<string, number> = {
-  tree: 2.5, bush: 0.8, lamppost: 2.2, bench: 0.5, fountain: 1.5,
-  fence: 0.6, well: 1.0, barrel: 0.7, crate: 0.5, market_stall: 1.8,
-  statue: 2.0, potted_plant: 0.6, wagon: 1.0, stone_wall: 1.2,
-  gravestone: 0.7, windmill: 3.5, bridge: 0.8,
+  tree: 4.0, bush: 0.9, lamppost: 3.2, bench: 0.5, fountain: 1.6,
+  fence: 0.8, well: 1.2, barrel: 0.8, crate: 0.6, market_stall: 2.4,
+  statue: 2.4, potted_plant: 0.7, wagon: 1.2, stone_wall: 1.6,
+  gravestone: 0.8, windmill: 5.5, bridge: 0.8,
 }
 
 const MAX_POINT_LIGHTS = 16

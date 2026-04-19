@@ -88,14 +88,18 @@ function getPlainMat(wallColor: number): THREE.MeshLambertMaterial {
  *  tickWallEmissive. Stored at module level so the tick function doesn't
  *  need a second argument every frame. */
 let _wallEmissiveBase = 0
+/** Dirty flag: set when base changes; cleared when we've zeroed all
+ *  materials (i.e. no work left at noon). Saves the per-material loop
+ *  during steady-state noon frames. */
+let _wallEmissiveDirty = false
 
 /** Set the base emissive intensity (0..2-ish). Called from updateLighting
  *  on time-of-day change. The per-frame tick multiplies this by a small
  *  per-material flicker oscillation. */
 export function setWallEmissiveIntensity(intensity: number): void {
+  if (intensity === _wallEmissiveBase) return
   _wallEmissiveBase = intensity
-  // Apply immediately (in case tick isn't running) so a time-of-day change
-  // doesn't visually wait for the next frame.
+  _wallEmissiveDirty = true
   for (const mat of _wallMatCache.values()) {
     mat.emissiveIntensity = intensity
   }
@@ -104,18 +108,19 @@ export function setWallEmissiveIntensity(intensity: number): void {
 /** Per-frame driver — applies a subtle candle-flicker oscillation to each
  *  facade material's emissive intensity. Time argument is the frame's
  *  seconds-since-start so phases advance continuously. Amplitude is
- *  deliberately small (±8%) so it reads as "rooms lit by flame" not
- *  "light show". */
+ *  deliberately small (±4%) so it reads as firelight breathing, not strobe. */
 export function tickWallEmissive(time: number): void {
   if (_wallEmissiveBase <= 0) {
-    // Noon / no-glow — skip the sin loop; keep all materials at 0.
-    for (const mat of _wallMatCache.values()) mat.emissiveIntensity = 0
+    // Noon / no-glow — only zero materials if the base JUST became 0
+    // (i.e. the dirty flag is still set). Steady-state noon = zero work.
+    if (_wallEmissiveDirty) {
+      for (const mat of _wallMatCache.values()) mat.emissiveIntensity = 0
+      _wallEmissiveDirty = false
+    }
     return
   }
   for (const mat of _wallMatCache.values()) {
     const fs = ensureFlickerState(mat)
-    // ±4% amplitude (was 8%) + slow rate → reads as firelight breathing
-    // rather than an active strobe.
     const flicker = 1 + 0.04 * Math.sin(time * fs.flickerRate + fs.flickerPhase)
     mat.emissiveIntensity = _wallEmissiveBase * flicker
   }

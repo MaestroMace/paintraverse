@@ -11,6 +11,7 @@
 import * as THREE from 'three'
 import { SimplexNoise } from '../generation/noise'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
+import { createCobbleTexture } from './CobbleTexture'
 
 // Tile palette — deliberately punchy so districts read as distinct zones.
 // Cobblestone (8) shifted to warm orange-grey so it visually differs from
@@ -96,6 +97,13 @@ export function buildTerrainMesh(
   group.add(buildGroundWithHeight(tiles, gridWidth, gridHeight, heightMap))
   group.add(buildRetainingWalls(tiles, gridWidth, gridHeight, heightMap))
   group.add(buildWaterMesh(tiles, gridWidth, gridHeight, heightMap))
+  // Road surfaces: a separate textured mesh overlaid on the ground tiles,
+  // kills the tile-grid appearance by showing a continuous cobble pattern
+  // across adjacent road tiles.
+  const roads = buildRoadSurface(tiles, gridWidth, gridHeight, heightMap, false)
+  if (roads) group.add(roads)
+  const alleys = buildRoadSurface(tiles, gridWidth, gridHeight, heightMap, true)
+  if (alleys) group.add(alleys)
   const cobbles = buildCobblestones(tiles, gridWidth, gridHeight, heightMap)
   if (cobbles) group.add(cobbles)
 
@@ -308,49 +316,88 @@ function buildWaterMesh(
 }
 
 /**
- * Cobblestone pucks — a single off-center hex stone per road/alley tile
- * plus a smaller secondary stone with 50% chance. The bulk of the road
- * texture now comes from per-corner vertex-color noise baked directly
- * into the ground mesh (see TILE_ROAD_NOISE application in
- * buildGroundWithHeight). Pucks add subtle raised-stone detail; the
- * vertex noise gives the underfoot variation so roads don't read as a
- * flat checkerboard. Dropping from 3 to 1–2 pucks per tile ~halves the
- * triangle budget for terrain detail.
+ * Road surface mesh: a horizontal plane hugging each road/alley tile,
+ * textured with the procedural cobble pattern from CobbleTexture. Sits
+ * just above the ground mesh (+0.01) to avoid z-fighting. One mesh per
+ * road-type (road=8, alley=9) — two draw calls total for the entire road
+ * network, regardless of map size. UVs are laid out so the cobble pattern
+ * is continuous across adjacent tiles — no tile-grid seam visible.
+ */
+function buildRoadSurface(
+  tiles: number[][], gridWidth: number, gridHeight: number,
+  heightMap: number[][], alley: boolean,
+): THREE.Mesh | null {
+  const targetId = alley ? 9 : 8
+  const positions: number[] = []
+  const uvs: number[] = []
+  let anyFound = false
+
+  // Each tile contributes two triangles. UVs use the world (tx, ty)
+  // coordinates so cobbles are continuous: adjacent road tiles see
+  // adjacent UVs, pattern flows through.
+  const UV_SCALE = 0.35 // how many texture repeats per world unit; tweak for stone size
+  for (let ty = 0; ty < gridHeight; ty++) {
+    for (let tx = 0; tx < gridWidth; tx++) {
+      if (tiles[ty]?.[tx] !== targetId) continue
+      anyFound = true
+      const x0 = tx, x1 = tx + 1, z0 = ty, z1 = ty + 1
+      const tileH = getTerrainHeight(heightMap, tx, ty) + 0.01
+      const u0 = tx * UV_SCALE, u1 = (tx + 1) * UV_SCALE
+      const v0 = ty * UV_SCALE, v1 = (ty + 1) * UV_SCALE
+      // Triangle 1 (CCW from above → normal +Y)
+      positions.push(x0, tileH, z0, x1, tileH, z1, x1, tileH, z0)
+      uvs.push(u0, v0, u1, v1, u1, v0)
+      // Triangle 2
+      positions.push(x0, tileH, z0, x0, tileH, z1, x1, tileH, z1)
+      uvs.push(u0, v0, u0, v1, u1, v1)
+    }
+  }
+  if (!anyFound) return null
+
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3))
+  geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2))
+  geo.computeVertexNormals()
+
+  const baseColor = TERRAIN_COLORS[targetId]
+  const tex = createCobbleTexture(baseColor, alley ? 0.18 : 0.0)
+  const mat = new THREE.MeshLambertMaterial({ map: tex, flatShading: true })
+  return new THREE.Mesh(geo, mat)
+}
+
+/**
+ * Cobblestone accent pucks — now just 1 raised stone per ~3 road tiles
+ * (not every tile) to add occasional underfoot relief above the textured
+ * road surface. The main cobble read is now the CobbleTexture applied in
+ * buildRoadSurface; pucks are supplementary.
  */
 function buildCobblestones(
   tiles: number[][], gridWidth: number, gridHeight: number,
   heightMap: number[][],
 ): THREE.Mesh | null {
-  const puckBig = new THREE.CylinderGeometry(0.18, 0.18, 0.05, 6)
-  const puckSmall = new THREE.CylinderGeometry(0.1, 0.1, 0.04, 5)
+  const puckBig = new THREE.CylinderGeometry(0.2, 0.2, 0.06, 7)
   const batch = new BatchedMeshBuilder()
 
   for (let ty = 0; ty < gridHeight; ty++) {
     for (let tx = 0; tx < gridWidth; tx++) {
       const tileId = tiles[ty]?.[tx] ?? 0
       if (tileId !== 8 && tileId !== 9) continue
-      const baseColor = new THREE.Color(TERRAIN_COLORS[tileId])
-      const groundY = getTerrainHeight(heightMap, tx, ty)
       const h1 = (((tx * 73856093) ^ (ty * 19349663)) >>> 0) / 0xffffffff
       const h2 = (((tx * 9754321) ^ (ty * 6563423)) >>> 0) / 0xffffffff
       const h3 = (((tx * 1234567) ^ (ty * 7654321)) >>> 0) / 0xffffffff
+      // Only ~1 in 3 tiles gets an accent stone. The main cobble read
+      // comes from the CobbleTexture on buildRoadSurface; these are
+      // supplementary raised-stone detail.
+      if (h3 > 0.35) continue
+      const baseColor = new THREE.Color(TERRAIN_COLORS[tileId])
+      const groundY = getTerrainHeight(heightMap, tx, ty)
       const darken = tileId === 9 ? 0.82 : 0.95
-      // Primary puck — off-center so adjacent tiles don't line up.
-      const jitter = (h3 - 0.5) * 0.3
+      const jitter = (h3 - 0.25) * 0.35
       const r = Math.max(0, Math.min(1, baseColor.r * (1 + jitter) * darken))
       const g = Math.max(0, Math.min(1, baseColor.g * (1 + jitter) * darken))
       const b = Math.max(0, Math.min(1, baseColor.b * (1 + jitter) * darken))
       const colorHex = (Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255)
-      batch.add(puckBig, colorHex, tx + 0.25 + h1 * 0.5, groundY + 0.025, ty + 0.25 + h2 * 0.5)
-      // 50% of tiles get a small companion stone, hash-chosen position.
-      if (h3 > 0.5) {
-        const jitter2 = (h1 - 0.5) * 0.25
-        const r2 = Math.max(0, Math.min(1, baseColor.r * (1 - jitter2) * darken * 0.9))
-        const g2 = Math.max(0, Math.min(1, baseColor.g * (1 - jitter2) * darken * 0.9))
-        const b2 = Math.max(0, Math.min(1, baseColor.b * (1 - jitter2) * darken * 0.9))
-        const col2 = (Math.round(r2 * 255) << 16) | (Math.round(g2 * 255) << 8) | Math.round(b2 * 255)
-        batch.add(puckSmall, col2, tx + 0.55 + h2 * 0.3, groundY + 0.02, ty + 0.15 + h1 * 0.3)
-      }
+      batch.add(puckBig, colorHex, tx + 0.25 + h1 * 0.5, groundY + 0.03, ty + 0.25 + h2 * 0.5)
     }
   }
 
