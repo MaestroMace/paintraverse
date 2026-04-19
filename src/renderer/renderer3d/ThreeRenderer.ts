@@ -193,6 +193,11 @@ export class ThreeRenderer {
   private lastSpaceTap = 0   // ms timestamp for double-tap detection
   // Cached height map for ground sampling; populated in loadMap.
   private terrainHeightMap: number[][] | null = null
+  // Collision mask for walk-mode: 1 byte per tile, non-zero = blocked
+  // (building footprint, water, out-of-bounds). Populated in loadMap.
+  private collisionMask: Uint8Array | null = null
+  private gridW = 0
+  private gridH = 0
 
   // Scene objects
   private terrainGroup = new THREE.Group()
@@ -479,6 +484,37 @@ export class ThreeRenderer {
     // traverse the scene every frame.
     this.terrainHeightMap = heightMap
 
+    // Build walk-mode collision mask: 1 byte per tile, non-zero = blocked.
+    // Buildings (structure-layer footprints) + water tiles are blocked;
+    // props are deliberately NOT included so the player can walk through
+    // trees / barrels / statues without clipping. Out-of-bounds counts as
+    // blocked in isBlocked() so the player can't walk off the map.
+    this.gridW = map.gridWidth
+    this.gridH = map.gridHeight
+    const mask = new Uint8Array(this.gridW * this.gridH)
+    const structLayerForMask = map.layers.find(l => l.type === 'structure')
+    for (const obj of structLayerForMask?.objects ?? []) {
+      const def = defMap.get(obj.definitionId)
+      const fp = def?.footprint ?? { w: 1, h: 1 }
+      for (let dy = 0; dy < fp.h; dy++) {
+        for (let dx = 0; dx < fp.w; dx++) {
+          const bx = obj.x + dx, by = obj.y + dy
+          if (bx >= 0 && bx < this.gridW && by >= 0 && by < this.gridH) {
+            mask[by * this.gridW + bx] = 1
+          }
+        }
+      }
+    }
+    const terrainTiles = terrainLayer?.terrainTiles
+    if (terrainTiles) {
+      for (let y = 0; y < this.gridH; y++) {
+        for (let x = 0; x < this.gridW; x++) {
+          if (terrainTiles[y]?.[x] === 3) mask[y * this.gridW + x] = 1
+        }
+      }
+    }
+    this.collisionMask = mask
+
     // Height lookup function for factories (bakes terrain height into geometry)
     const hLookup = heightMap
       ? (x: number, z: number) => getTerrainHeight(heightMap!, x, z)
@@ -562,9 +598,30 @@ export class ThreeRenderer {
     }
 
     // Spawn the player at ground level just outside the town center,
-    // looking toward the main plaza. First-person eye-height.
+    // looking toward the main plaza. First-person eye-height. If the
+    // default spawn tile is blocked (rare — dense building cluster near
+    // the offset spot), spiral outward to find the nearest free tile so
+    // the player doesn't start wedged inside a wall.
     const cx = map.gridWidth / 2, cz = map.gridHeight / 2
-    const spawnX = cx - 10, spawnZ = cz - 10
+    let spawnX = cx - 10, spawnZ = cz - 10
+    if (this.collisionMask && this.isBlocked(spawnX, spawnZ)) {
+      spiral:
+      for (let r = 1; r <= 12; r++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue // ring only
+            const sx = cx - 10 + dx, sz = cz - 10 + dy
+            if (!this.isBlocked(sx, sz)) {
+              spawnX = sx + 0.5; spawnZ = sz + 0.5
+              break spiral
+            }
+          }
+        }
+      }
+    } else {
+      // Nudge to tile center so the player starts centered on a tile.
+      spawnX += 0.5; spawnZ += 0.5
+    }
     const spawnGround = heightMap ? getTerrainHeight(heightMap, spawnX, spawnZ) : 0
     this.camera.position.set(spawnX, spawnGround + EYE_HEIGHT, spawnZ)
     this.cameraYaw = Math.atan2(cz - spawnZ, cx - spawnX)
@@ -1051,6 +1108,19 @@ export class ThreeRenderer {
     return getTerrainHeight(this.terrainHeightMap, Math.floor(x), Math.floor(z))
   }
 
+  /**
+   * Returns true if the tile at world XZ is blocked for walking. Reads
+   * the collision mask built in loadMap. Out-of-bounds counts as blocked
+   * so the player can't walk off the map. When no mask exists (no map
+   * loaded yet) nothing is blocked — caller handles that case.
+   */
+  private isBlocked(x: number, z: number): boolean {
+    if (!this.collisionMask) return false
+    const ix = Math.floor(x), iz = Math.floor(z)
+    if (ix < 0 || ix >= this.gridW || iz < 0 || iz >= this.gridH) return true
+    return this.collisionMask[iz * this.gridW + ix] !== 0
+  }
+
   private updateCamera(dt: number): void {
     // Horizontal movement uses yaw only — Minecraft/FPS convention,
     // looking up while walking doesn't launch you into the sky.
@@ -1068,8 +1138,31 @@ export class ThreeRenderer {
     // Normalize diagonal movement so strafing isn't faster.
     const mag = Math.hypot(dx, dz)
     if (mag > 0) {
-      this.camera.position.x += (dx / mag) * moveSpeed
-      this.camera.position.z += (dz / mag) * moveSpeed
+      const stepX = (dx / mag) * moveSpeed
+      const stepZ = (dz / mag) * moveSpeed
+      // Fly mode and "no map loaded" bypass collision — walk-mode does
+      // a 3-try axis-slide: full move → X-only → Z-only → stay put.
+      // Probe ~0.3 units ahead along each axis so we stop just before the
+      // wall instead of clipping into it before the slide kicks in.
+      if (this.flyMode || !this.collisionMask) {
+        this.camera.position.x += stepX
+        this.camera.position.z += stepZ
+      } else {
+        const EPS = 0.3
+        const px = this.camera.position.x
+        const pz = this.camera.position.z
+        const lookX = px + stepX + Math.sign(stepX) * EPS
+        const lookZ = pz + stepZ + Math.sign(stepZ) * EPS
+        if (!this.isBlocked(lookX, lookZ)) {
+          this.camera.position.x = px + stepX
+          this.camera.position.z = pz + stepZ
+        } else if (!this.isBlocked(lookX, pz)) {
+          this.camera.position.x = px + stepX
+        } else if (!this.isBlocked(px, lookZ)) {
+          this.camera.position.z = pz + stepZ
+        }
+        // else: fully blocked, stay in place
+      }
     }
 
     if (this.flyMode) {
@@ -1142,6 +1235,8 @@ export class ThreeRenderer {
     })
 
     this.particleSystems = []
+    this.collisionMask = null
+    this.terrainHeightMap = null
     this.composer?.dispose()
     this.bloomPass?.dispose()
     this.composer = null
