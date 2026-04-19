@@ -1020,7 +1020,10 @@ export class ThreeRenderer {
 
   private sampleGroundY(x: number, z: number): number {
     if (!this.terrainHeightMap) return 0
-    return getTerrainHeight(this.terrainHeightMap, x, z)
+    // getTerrainHeight now floors internally, but doing it here too makes
+    // the contract explicit and saves a redundant bounds check in the
+    // common case where the camera is far inside the map.
+    return getTerrainHeight(this.terrainHeightMap, Math.floor(x), Math.floor(z))
   }
 
   private updateCamera(dt: number): void {
@@ -1052,10 +1055,18 @@ export class ThreeRenderer {
     } else {
       // Gravity + ground collision.
       this.verticalVel -= GRAVITY * dt
+      // Terminal velocity clamp — stops runaway fall if ground sampling
+      // ever returns NaN.
+      if (this.verticalVel < -50) this.verticalVel = -50
       this.camera.position.y += this.verticalVel * dt
       const groundY = this.sampleGroundY(this.camera.position.x, this.camera.position.z) + EYE_HEIGHT
-      if (this.camera.position.y <= groundY) {
+      if (isFinite(groundY) && this.camera.position.y <= groundY) {
         this.camera.position.y = groundY
+        this.verticalVel = 0
+      } else if (!isFinite(this.camera.position.y) || this.camera.position.y < -200) {
+        // Safety net: if position ever diverges (NaN or deep fall), snap
+        // back to the spawn plane so the player isn't stranded in the void.
+        this.camera.position.y = EYE_HEIGHT
         this.verticalVel = 0
       }
     }

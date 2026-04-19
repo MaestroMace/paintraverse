@@ -64,10 +64,14 @@ function generateHeightMap(w: number, h: number, seed: number): number[][] {
 /** World height scale: one raw height unit equals this many world units. */
 const TERRAIN_WORLD_SCALE = 1.8
 
-/** Get the height at a tile position (with bounds checking) in world units. */
+/** Get the height at a tile position (with bounds checking) in world units.
+ *  Floors x/y internally so callers can safely pass fractional world coords
+ *  (e.g. the FPS camera's x/z) without crashing into `heightMap[14.3]` →
+ *  undefined → NaN, which is what bricked the walkaround. */
 export function getTerrainHeight(heightMap: number[][], x: number, y: number): number {
-  if (y < 0 || y >= heightMap.length || x < 0 || x >= (heightMap[0]?.length ?? 0)) return 0
-  return heightMap[y][x] * TERRAIN_WORLD_SCALE
+  const ix = Math.floor(x), iy = Math.floor(y)
+  if (iy < 0 || iy >= heightMap.length || ix < 0 || ix >= (heightMap[0]?.length ?? 0)) return 0
+  return heightMap[iy][ix] * TERRAIN_WORLD_SCALE
 }
 
 /**

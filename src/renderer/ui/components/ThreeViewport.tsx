@@ -73,7 +73,7 @@ export function ThreeViewport() {
         position: 'relative',
         overflow: 'hidden',
         background: '#000',
-        cursor: 'grab',
+        cursor: 'pointer',
       }}
     >
       {/* Controls hint — bottom left */}
@@ -83,9 +83,12 @@ export function ThreeViewport() {
         borderRadius: 4, fontSize: 10, color: '#aaa',
         pointerEvents: 'none', fontFamily: 'monospace',
       }}>
-        <span style={{ color: '#4ade80' }}>WASD</span> move &nbsp;
-        <span style={{ color: '#4ade80' }}>Q/E</span> up/down &nbsp;
-        <span style={{ color: '#4ade80' }}>Drag</span> look
+        <span style={{ color: '#4ade80' }}>Click</span> to lock &nbsp;
+        <span style={{ color: '#4ade80' }}>WASD</span> walk &nbsp;
+        <span style={{ color: '#4ade80' }}>Space</span> jump &nbsp;
+        <span style={{ color: '#4ade80' }}>2×Space</span> fly &nbsp;
+        <span style={{ color: '#4ade80' }}>Shift</span> descend &nbsp;
+        <span style={{ color: '#4ade80' }}>Esc</span> release
       </div>
       {/* FPS — top left */}
       <div style={{
