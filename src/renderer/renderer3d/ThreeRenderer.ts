@@ -167,7 +167,12 @@ void main() {
 }
 `
 
-// Particle data for smoke / fireflies
+// Particle data for smoke / fireflies / birds.
+// For 'bird' particles the velocities array repurposes its 3 slots:
+//   [i3]   = orbit radius
+//   [i3+1] = angular speed (rad/s)
+//   [i3+2] = phase offset (rad)
+// origins[i3..i3+2] stores the spire top xyz the bird circles around.
 interface ParticleSystem {
   points: THREE.Points
   positions: Float32Array
@@ -175,7 +180,7 @@ interface ParticleSystem {
   lifetimes: Float32Array
   origins: Float32Array
   count: number
-  type: 'smoke' | 'firefly'
+  type: 'smoke' | 'firefly' | 'bird'
 }
 
 export class ThreeRenderer {
@@ -597,6 +602,48 @@ export class ThreeRenderer {
 
     // Spawn particles
     this.initParticles(chimneyPositions, map.gridWidth, map.gridHeight)
+
+    // === BIRDS AT SPIRES ===
+    // Collect the top-centers of the tallest landmarks (cathedral, bell tower,
+    // watchtower, lighthouse, clock_tower) and spawn a few dark circling
+    // birds above each. Purely atmospheric — visible at dusk against the
+    // warm sky.
+    const SPIRE_IDS = new Set([
+      'cathedral', 'bell_tower', 'bell_tower_tall', 'watchtower',
+      'lighthouse', 'clock_tower', 'round_tower', 'tower',
+    ])
+    const spirePositions: THREE.Vector3[] = []
+    if (structureLayer) {
+      for (const obj of structureLayer.objects) {
+        if (!SPIRE_IDS.has(obj.definitionId)) continue
+        const def = defMap.get(obj.definitionId)
+        if (!def) continue
+        const fp = { w: def.footprint.w, h: def.footprint.h }
+        const hash = simpleHash(obj.id)
+        const floors = typeof obj.properties.floors === 'number'
+          ? (obj.properties.floors as number) : 2 + (hash % 2)
+        const heightMult = HEIGHT_MULT_MAP[obj.definitionId] ?? 1.0
+        const hScale = 0.85 + rand01(hash, 1) * 0.3
+        const wallH = floors * 1.05 * heightMult * hScale
+        const roofFrac = ROOF_FRAC_MAP[obj.definitionId] ?? 0.3
+        const roofH = wallH * roofFrac
+        let maxTH = 0
+        if (heightMap) {
+          for (let fy = 0; fy < fp.h; fy++) {
+            for (let fx = 0; fx < fp.w; fx++) {
+              const th = getTerrainHeight(heightMap, obj.x + fx, obj.y + fy)
+              if (th > maxTH) maxTH = th
+            }
+          }
+        }
+        const baseY = heightMap ? maxTH : (obj.elevation || 0)
+        const topY = baseY + wallH + roofH + 0.8
+        spirePositions.push(new THREE.Vector3(
+          obj.x + fp.w / 2, topY, obj.y + fp.h / 2,
+        ))
+      }
+    }
+    this.initBirds(spirePositions)
 
     // === ELEVATED WALKWAYS ===
     // Bridges between buildings that span across streets at upper floors
@@ -1046,6 +1093,52 @@ export class ThreeRenderer {
     })
   }
 
+  /** Birds circling tall spires — 4 per spire, capped at 8 spires (32 birds
+   *  max). Each bird carries its orbit parameters in the velocities slot
+   *  (see ParticleSystem comment). Position is derived from orbit params +
+   *  time each frame; no forces accumulate, no respawning. Fades with the
+   *  dusk/night lighting alongside fireflies. */
+  private initBirds(spirePositions: THREE.Vector3[]): void {
+    if (spirePositions.length === 0) return
+    const spires = spirePositions.slice(0, 8)
+    const perSpire = 4
+    const count = spires.length * perSpire
+    const positions = new Float32Array(count * 3)
+    const velocities = new Float32Array(count * 3)
+    const lifetimes = new Float32Array(count)
+    const origins = new Float32Array(count * 3)
+
+    for (let s = 0; s < spires.length; s++) {
+      const sp = spires[s]
+      for (let k = 0; k < perSpire; k++) {
+        const i = s * perSpire + k
+        const i3 = i * 3
+        origins[i3] = sp.x
+        origins[i3 + 1] = sp.y + (k - 1.5) * 0.6  // stagger bird altitude
+        origins[i3 + 2] = sp.z
+        // Radius 1.5..3.0, speed 0.35..0.7 rad/s, phase 0..2π.
+        velocities[i3] = 1.5 + Math.random() * 1.5
+        velocities[i3 + 1] = 0.35 + Math.random() * 0.35
+        velocities[i3 + 2] = Math.random() * Math.PI * 2
+        positions[i3] = sp.x + velocities[i3]
+        positions[i3 + 1] = origins[i3 + 1]
+        positions[i3 + 2] = sp.z
+      }
+    }
+
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    const mat = new THREE.PointsMaterial({
+      color: 0x202020, size: 0.22, transparent: true, opacity: 0.75,
+      sizeAttenuation: true, depthWrite: false,
+    })
+    const points = new THREE.Points(geo, mat)
+    this.particleGroup.add(points)
+    this.particleSystems.push({
+      points, positions, velocities, lifetimes, origins, count, type: 'bird',
+    })
+  }
+
   /** Animate all particle systems */
   private updateParticles(dt: number, time = 0): void {
     // Global low-frequency wind vector — same for all smoke particles this
@@ -1060,6 +1153,27 @@ export class ThreeRenderer {
       const vel = ps.velocities
       const life = ps.lifetimes
       const orig = ps.origins
+
+      // Birds: orbit a fixed spire center. velocities = (radius, speed, phase).
+      // Position is recomputed from scratch each frame, no force accumulation.
+      if (ps.type === 'bird') {
+        for (let i = 0; i < ps.count; i++) {
+          const i3 = i * 3
+          const r = vel[i3], w = vel[i3 + 1], phase = vel[i3 + 2]
+          const a = time * w + phase
+          pos[i3] = orig[i3] + Math.cos(a) * r
+          pos[i3 + 2] = orig[i3 + 2] + Math.sin(a) * r
+          pos[i3 + 1] = orig[i3 + 1] + Math.sin(a * 1.7 + phase) * 0.3
+        }
+        const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
+        attr.needsUpdate = true
+        // Birds fade at deep night — they roost. Fully visible at dusk.
+        const isNight = this.currentTimeOfDay < 5 || this.currentTimeOfDay >= 20
+        const isDusk = this.currentTimeOfDay >= 17 && this.currentTimeOfDay < 20
+        ;(ps.points.material as THREE.PointsMaterial).opacity =
+          isNight ? 0.0 : isDusk ? 0.85 : 0.55
+        continue
+      }
 
       for (let i = 0; i < ps.count; i++) {
         const i3 = i * 3
