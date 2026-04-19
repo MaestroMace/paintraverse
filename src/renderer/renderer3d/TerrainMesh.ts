@@ -50,12 +50,14 @@ function generateHeightMap(w: number, h: number, seed: number): number[][] {
       const n1 = noise.fbm(x * 0.022, y * 0.022, 3, 2, 0.5)
       const n2 = noise.fbm(x * 0.055 + 50, y * 0.055 + 50, 2, 2, 0.5)
       const n3 = noise.fbm(x * 0.11 + 120, y * 0.11 + 120, 1, 2, 0.5) * 0.4
-      // Raw range expanded to 0..5.5 (was 0..4).
       const raw = (n1 * 0.6 + n2 * 0.3 + n3 * 0.1 + 0.5) * 4.4
-      // Terrace at 0.5-unit steps, then 60/40 blend with raw so there are
-      // clear plateaus but slopes between them are smooth.
-      const terraced = Math.round(raw * 2) / 2
-      const blend = terraced * 0.6 + raw * 0.4
+      // Mostly smooth terrain (90% raw) with a light terrace pull (10%)
+      // so plateaus still hint in the data but don't dominate. Traverse
+      // Town / Kyoto / Paris-style streets gently slope; discrete 1-tile
+      // steps read as a staircase map bug rather than topography. Any
+      // real stairs are emitted by the staircase prop generator.
+      const terraced = Math.round(raw * 1.2) / 1.2
+      const blend = terraced * 0.1 + raw * 0.9
       row.push(Math.max(0, Math.min(blend, 5.5)))
     }
     map.push(row)
@@ -99,13 +101,12 @@ export function buildTerrainMesh(
   group.add(buildWaterMesh(tiles, gridWidth, gridHeight, heightMap))
   // Road surfaces: a separate textured mesh overlaid on the ground tiles,
   // kills the tile-grid appearance by showing a continuous cobble pattern
-  // across adjacent road tiles.
+  // across adjacent road tiles. Pucks are gone — the texture alone sells
+  // the cobble look; geometric pucks read as alien disks on top.
   const roads = buildRoadSurface(tiles, gridWidth, gridHeight, heightMap, false)
   if (roads) group.add(roads)
   const alleys = buildRoadSurface(tiles, gridWidth, gridHeight, heightMap, true)
   if (alleys) group.add(alleys)
-  const cobbles = buildCobblestones(tiles, gridWidth, gridHeight, heightMap)
-  if (cobbles) group.add(cobbles)
 
   // Store height map on group for other systems to use
   ;(group as any)._heightMap = heightMap
@@ -163,12 +164,20 @@ function buildGroundWithHeight(
       b = Math.max(0, Math.min(1, b * (1 + jitter)))
 
       const x0 = tx, x1 = tx + 1, z0 = ty, z1 = ty + 1
-      // Per-corner Y micro-jitter — keyed off integer corner coords so
-      // adjacent tiles' shared corners get the same value (no cracks).
-      const y00 = tileH + cornerHeightNoise(x0, z0)
-      const y10 = tileH + cornerHeightNoise(x1, z0)
-      const y01 = tileH + cornerHeightNoise(x0, z1)
-      const y11 = tileH + cornerHeightNoise(x1, z1)
+      // Corner-shared heights: each vertex uses the heightmap value AT the
+      // corner cell, not the tile-center's height. Because adjacent tiles
+      // now share the same Y at shared corners, slopes flow continuously
+      // across tile boundaries instead of stair-stepping. Out-of-bounds
+      // falls back to the current tile's height for graceful edges.
+      const cornerH = (cx: number, cz: number): number => {
+        const ix = Math.max(0, Math.min(gridWidth - 1, cx))
+        const iz = Math.max(0, Math.min(gridHeight - 1, cz))
+        return (heightMap[iz]?.[ix] ?? 0) * TERRAIN_WORLD_SCALE
+      }
+      const y00 = cornerH(x0, z0) + cornerHeightNoise(x0, z0)
+      const y10 = cornerH(x1, z0) + cornerHeightNoise(x1, z0)
+      const y01 = cornerH(x0, z1) + cornerHeightNoise(x0, z1)
+      const y11 = cornerH(x1, z1) + cornerHeightNoise(x1, z1)
 
       // Per-corner COLOR jitter for road tiles — breaks the flat-tile
       // checkerboard by giving each corner its own tint. Shared across
@@ -238,7 +247,12 @@ function buildRetainingWalls(
 
       for (const [dx, dz, wx0, wz0, wx1, wz1] of neighbors) {
         const nh = getTerrainHeight(heightMap, tx + dx, ty + dz)
-        if (nh >= h) continue // neighbor is same or higher — no wall needed
+        if (nh >= h) continue
+        // Only emit a retaining wall for a significant drop (≥ 0.6 world
+        // units). Below that we accept the slope as a gentle grade —
+        // Traverse Town / Kyoto / Paris streets flow between buildings
+        // without a small retaining wall under every tile-to-tile step.
+        if (h - nh < 0.6) continue
 
         const wallTop = h
         const wallBot = nh

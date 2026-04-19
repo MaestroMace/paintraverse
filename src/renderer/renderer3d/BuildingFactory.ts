@@ -455,7 +455,9 @@ function coalesceWalls(wallMeshes: THREE.Mesh[]): THREE.Mesh[] {
   }
   const result: THREE.Mesh[] = [...loose]
   for (const { key, meshes } of groups.values()) {
-    if (meshes.length < 3) { result.push(...meshes); continue }
+    // Even 2-mesh groups are worth merging — one less draw call each,
+    // and the shadow pass benefits too. Only singletons stay loose.
+    if (meshes.length < 2) { result.push(...meshes); continue }
     // Bake each mesh's world transform into its geometry, then merge.
     // All geometries have the same group layout since they're all BoxGeometry
     // so mergeGeometries can combine them preserving per-face material indices.

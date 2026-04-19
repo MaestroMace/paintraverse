@@ -239,9 +239,9 @@ export class ThreeRenderer {
   private _up = new THREE.Vector3(0, 1, 0)
   private _target = new THREE.Vector3()
 
-  // FPS tracking
+  // FPS tracking — wall-clock based so slow frames count correctly.
   private _fpsFrames = 0
-  private _fpsTime = 0
+  private _fpsWallStart = 0
   private _fps = 0
   /** Whether the browser currently has pointer lock on our canvas. */
   get isPointerLocked(): boolean { return this.pointerLocked }
@@ -1324,13 +1324,16 @@ export class ThreeRenderer {
       this._frameStats.frameMs = renderEnd - frameStart
       this._frameStats.updateMs = updateEnd - frameStart
       this._frameStats.renderMs = renderEnd - updateEnd
-      // FPS counter
+      // FPS counter — use real wall-clock time, not the clamped dt. The
+      // previous impl accumulated dt (capped at 0.1s per frame), so at
+      // 2 actual FPS it still reported ~10 FPS because each frame only
+      // credited 0.1s of elapsed time. performance.now() tells the truth.
       this._fpsFrames++
-      this._fpsTime += dt
-      if (this._fpsTime >= 1.0) {
-        this._fps = this._fpsFrames
+      if (this._fpsWallStart === 0) this._fpsWallStart = frameStart
+      if (frameStart - this._fpsWallStart >= 1000) {
+        this._fps = Math.round((this._fpsFrames * 1000) / (frameStart - this._fpsWallStart))
         this._fpsFrames = 0
-        this._fpsTime = 0
+        this._fpsWallStart = frameStart
         this._drawCalls = this._frameStats.drawCalls
       }
     }
