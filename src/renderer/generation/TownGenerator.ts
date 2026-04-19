@@ -1529,19 +1529,36 @@ export class TownGenerator implements IMapGenerator {
       // Building-type-specific mandatory props first
       const buildingSpecificProps = this.getBuildingSpecificProps(b.definitionId, rng)
 
+      // Building center (used to compute "facing away from wall").
+      const bcx = b.x + fp.w / 2, bcy = b.y + fp.h / 2
+
       for (let i = 0; i < numProps; i++) {
         const idx = Math.floor(rng() * validSpots.length)
         const spot = validSpots.splice(idx, 1)[0]
         if (spot) {
-          // Use building-specific prop if available, otherwise district palette
           const propId = i < buildingSpecificProps.length
             ? buildingSpecificProps[i]
             : propPalette[Math.floor(rng() * propPalette.length)]
           const propFp = this.getFootprint(propId)
+          // Face away from the building wall — the prop sits on the
+          // building's perimeter, so the vector (spot - buildingCenter)
+          // points outward from the wall. We add π so the prop's local
+          // +Z (its "front") points back into the courtyard, not into
+          // the wall.
+          const dx = (spot.x + 0.5) - bcx
+          const dy = (spot.y + 0.5) - bcy
+          const facingY = Math.atan2(dy, dx) + Math.PI
           if (propFp.w === 1 && propFp.h === 1) {
-            place(propId, spot.x, spot.y)
+            if (spot.x >= 0 && spot.x < w && spot.y >= 0 && spot.y < h && !occupied[spot.y][spot.x]) {
+              const obj = this.createObj(propId, spot.x, spot.y)
+              obj.properties.facingY = facingY
+              props.push(obj)
+              occupied[spot.y][spot.x] = true
+            }
           } else if (this.areaFree(occupied, spot.x, spot.y, propFp.w, propFp.h, w, h)) {
-            props.push(this.createObj(propId, spot.x, spot.y))
+            const obj = this.createObj(propId, spot.x, spot.y)
+            obj.properties.facingY = facingY
+            props.push(obj)
             this.markArea(occupied, spot.x, spot.y, propFp.w, propFp.h, w, h)
           }
         }
@@ -1570,10 +1587,26 @@ export class TownGenerator implements IMapGenerator {
           item = streetItems[Math.floor(rng() * streetItems.length)]
         }
         const fp = this.getFootprint(item)
+        // Sample the road tangent at this tile so the prop faces the
+        // street consistently. Benches turn their backs to the road
+        // (seat into the sidewalk); other furniture lines up parallel
+        // to the road tangent.
+        const tangent = this.roadTangentAt(x, y, roadMap, w, h)
+        let facingY: number | undefined
+        if (tangent !== null) {
+          facingY = item === 'bench' ? tangent + Math.PI : tangent
+        }
         if (fp.w === 1 && fp.h === 1) {
-          place(item, x, y)
+          if (x >= 0 && x < w && y >= 0 && y < h && !occupied[y][x]) {
+            const obj = this.createObj(item, x, y)
+            if (typeof facingY === 'number') obj.properties.facingY = facingY
+            props.push(obj)
+            occupied[y][x] = true
+          }
         } else if (this.areaFree(occupied, x, y, fp.w, fp.h, w, h)) {
-          props.push(this.createObj(item, x, y))
+          const obj = this.createObj(item, x, y)
+          if (typeof facingY === 'number') obj.properties.facingY = facingY
+          props.push(obj)
           this.markArea(occupied, x, y, fp.w, fp.h, w, h)
         }
       }
@@ -1635,17 +1668,20 @@ export class TownGenerator implements IMapGenerator {
     for (let y = 1; y < h - 1; y += spacing) {
       for (let x = 1; x < w - 1; x += spacing) {
         if (!roadMap[y]?.[x]) continue
-        // Place light on adjacent non-road tile
+        // Place light on adjacent non-road tile.
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
           const lx = x + dx, ly = y + dy
           if (lx >= 0 && lx < w && ly >= 0 && ly < h &&
               !roadMap[ly][lx] && !occupied[ly][lx]) {
-            // wall_lantern was in this rotation but it's a bracket-style
-            // fixture that needs a wall behind it — free-standing on
-            // open ground it rendered floating. Street lights stay to
-            // freestanding lamppost forms.
             const lightType = count % 6 === 0 ? 'street_lamp_double' : 'lamppost'
-            lights.push(this.createObj(lightType, lx, ly))
+            const obj = this.createObj(lightType, lx, ly)
+            // Face perpendicular to the adjacent road tangent so the
+            // double-arm crossbar / wall lantern arm projects toward the
+            // street rather than randomly. Single-sphere lamps are
+            // Y-symmetric so this is a no-op for them.
+            const tangent = this.roadTangentAt(lx, ly, roadMap, w, h)
+            if (tangent !== null) obj.properties.facingY = tangent + Math.PI / 2
+            lights.push(obj)
             occupied[ly][lx] = true
             count++
             break
@@ -1681,42 +1717,48 @@ export class TownGenerator implements IMapGenerator {
 
     // Two concentric rings around the fountain instead of a random
     // scatter. Inner ring: 8 cafe tables at cardinal/diagonal angles.
-    // Outer ring: market stalls alternating with benches. The radial
-    // composition reads as a deliberate town square from any angle.
+    // Outer ring: market stalls alternating with benches. Each prop's
+    // facingY is set so the prop turns INWARD toward the fountain —
+    // the whole plaza visually composes as a circle around the center.
     const innerR = Math.max(2, plazaRadius * 0.45)
     const outerR = Math.max(3, plazaRadius * 0.85)
-    const placePlaza = (defId: string, cx: number, cy: number, fpW = 1, fpH = 1) => {
+    const placePlaza = (defId: string, cx: number, cy: number, fpW = 1, fpH = 1, facingY?: number) => {
       if (cx < 0 || cy < 0 || cx + fpW > w || cy + fpH > h) return false
       if (!this.areaFree(occupied, cx, cy, fpW, fpH, w, h)) return false
-      props.push(this.createObj(defId, cx, cy))
+      const obj = this.createObj(defId, cx, cy)
+      if (typeof facingY === 'number') obj.properties.facingY = facingY
+      props.push(obj)
       this.markArea(occupied, cx, cy, fpW, fpH, w, h)
       return true
     }
 
-    // Inner ring — cafe tables + potted plants
+    // Inner ring — cafe tables + potted plants. facingY = ang + π so
+    // the prop's local +Z (its "front") points back toward the fountain.
     for (let i = 0; i < 8; i++) {
       const ang = (i / 8) * Math.PI * 2
       const tx = Math.round(center.x + Math.cos(ang) * innerR)
       const ty = Math.round(center.y + Math.sin(ang) * innerR)
       const item = i % 3 === 0 ? 'potted_plant' : 'cafe_table'
-      placePlaza(item, tx, ty)
+      placePlaza(item, tx, ty, 1, 1, ang + Math.PI)
     }
 
-    // Outer ring — market stalls (2x2) alternating with benches.
+    // Outer ring — market stalls (2x2) alternating with benches; same
+    // inward facing so the canopies and bench backs all turn toward
+    // the plaza center.
     const outerCount = Math.max(8, Math.floor(8 + density * 6))
     for (let i = 0; i < outerCount; i++) {
       const ang = (i / outerCount) * Math.PI * 2
       const rx = Math.round(center.x + Math.cos(ang) * outerR)
       const ry = Math.round(center.y + Math.sin(ang) * outerR)
-      if (i % 2 === 0) placePlaza('market_stall', rx, ry, 2, 2)
-      else placePlaza('bench', rx, ry, 2, 1)
+      if (i % 2 === 0) placePlaza('market_stall', rx, ry, 2, 2, ang + Math.PI)
+      else placePlaza('bench', rx, ry, 2, 1, ang + Math.PI)
     }
 
-    // One statue asymmetrically near the fountain (just off-center)
+    // One statue asymmetrically near the fountain — also faces the center.
     const statueAng = rng() * Math.PI * 2
     const sx = Math.round(center.x + Math.cos(statueAng) * (innerR * 0.55))
     const sy = Math.round(center.y + Math.sin(statueAng) * (innerR * 0.55))
-    placePlaza('statue', sx, sy)
+    placePlaza('statue', sx, sy, 1, 1, statueAng + Math.PI)
 
     // District plaza features — richer per-district
     for (const d of districts) {
@@ -2889,6 +2931,26 @@ export class TownGenerator implements IMapGenerator {
       }
     }
     return false
+  }
+
+  /**
+   * Estimate the road tangent direction at (x, y) by summing unit vectors
+   * to road tiles in the 4 cardinal neighborhood. Returns the angle in
+   * radians (atan2 convention, +X = 0, rotating toward +Z), or null if no
+   * road tiles are adjacent. Used to face street furniture along the road.
+   */
+  private roadTangentAt(x: number, y: number, roadMap: boolean[][], w: number, h: number): number | null {
+    const dxs = [+1, -1, 0, 0]
+    const dys = [0, 0, +1, -1]
+    let tx = 0, ty = 0, found = false
+    for (let i = 0; i < 4; i++) {
+      const nx = x + dxs[i], ny = y + dys[i]
+      if (nx >= 0 && nx < w && ny >= 0 && ny < h && roadMap[ny]?.[nx]) {
+        tx += dxs[i]; ty += dys[i]; found = true
+      }
+    }
+    if (!found) return null
+    return Math.atan2(ty, tx)
   }
 
   private getFootprint(defId: string): { w: number; h: number } {

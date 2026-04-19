@@ -92,15 +92,20 @@ export function buildPropMeshes(
     const elev = getHeight ? terrainH : (obj.elevation || 0)
     const hash = simpleHash(obj.id)
 
-    // Per-prop Y rotation so benches/signs/carts/lamps don't all point at
-    // world +Z. 1×1 props can rotate any angle; multi-tile props rotate
-    // less so they don't overflow their occupied grid cell too badly.
-    // Fountains + wells stay 0 (Y-symmetric — rotation has no visual effect).
+    // Per-prop Y rotation. The generator can set obj.properties.facingY
+    // (radians) to give the prop a *meaningful* orientation — face the
+    // plaza fountain, run perpendicular to the adjacent road, turn its
+    // back to the building behind it. When that hint is missing we
+    // fall back to a hash-random angle so unfacing-aware prop streams
+    // (countryside scatter, etc.) still don't all point at world +Z.
+    // Y-symmetric props (fountains, wells) always pin to 0.
     const isSingleTile = fp.w === 1 && fp.h === 1
-    const maxPropRot = isSingleTile ? Math.PI : Math.PI * 0.2  // 180° vs ~36°
+    const maxPropRot = isSingleTile ? Math.PI : Math.PI * 0.2
     const propRot = (id === 'fountain' || id === 'fountain_grand' || id === 'well' || id === 'well_grand')
       ? 0
-      : (rand01(hash, 17) - 0.5) * 2 * maxPropRot
+      : (typeof obj.properties.facingY === 'number'
+          ? obj.properties.facingY as number
+          : (rand01(hash, 17) - 0.5) * 2 * maxPropRot)
 
     // Emit a geometry at local offset (dx, dy, dz) from the prop center,
     // rotated by propRot around that center, then translated to world.
