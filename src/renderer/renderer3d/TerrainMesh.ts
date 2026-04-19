@@ -144,13 +144,11 @@ function buildGroundWithHeight(
         g *= (1 - shadowMix * 0.25)
         b *= (1 - shadowMix * 0.2)
       }
-      // Per-tile color noise so the ground doesn't read as a
-      // checkerboard of perfectly uniform squares. Roads and cobble
-      // tiles get a much smaller jitter so the road hierarchy still
-      // reads. Deterministic from tile coordinate so regenerated
-      // seeds are stable.
+      // Per-tile color noise so the ground doesn't read as a checkerboard
+      // of uniform squares. Deterministic from tile coordinate.
       const tileNoise = ((((tx * 73856093) ^ (ty * 19349663)) >>> 0) / 0xffffffff - 0.5)
-      const noiseAmt = isNatural ? 0.12 : 0.04
+      const isRoad = tileId === 8 || tileId === 9
+      const noiseAmt = isNatural ? 0.12 : isRoad ? 0.16 : 0.04
       const jitter = tileNoise * noiseAmt
       r = Math.max(0, Math.min(1, r * (1 + jitter)))
       g = Math.max(0, Math.min(1, g * (1 + jitter)))
@@ -164,21 +162,37 @@ function buildGroundWithHeight(
       const y01 = tileH + cornerHeightNoise(x0, z1)
       const y11 = tileH + cornerHeightNoise(x1, z1)
 
+      // Per-corner COLOR jitter for road tiles — breaks the flat-tile
+      // checkerboard by giving each corner its own tint. Shared across
+      // adjacent tiles via the hashed corner coord so seams are clean.
+      const cornerColor = (cx: number, cz: number): [number, number, number] => {
+        if (!isRoad) return [r, g, b]
+        const cn = ((cx * 374761393 + cz * 668265263) ^ 0x9e3779b1) >>> 0
+        const k = 1 + ((cn / 0xffffffff) - 0.5) * 0.22
+        return [Math.max(0, Math.min(1, r * k)),
+                Math.max(0, Math.min(1, g * k)),
+                Math.max(0, Math.min(1, b * k))]
+      }
+      const c00 = cornerColor(x0, z0)
+      const c10 = cornerColor(x1, z0)
+      const c01 = cornerColor(x0, z1)
+      const c11 = cornerColor(x1, z1)
+
       // Triangle 1: CCW winding when viewed from above → normal points UP (+Y)
       positions[vi] = x0; positions[vi+1] = y00; positions[vi+2] = z0
-      colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
+      colors[vi] = c00[0]; colors[vi+1] = c00[1]; colors[vi+2] = c00[2]; vi += 3
       positions[vi] = x1; positions[vi+1] = y11; positions[vi+2] = z1
-      colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
+      colors[vi] = c11[0]; colors[vi+1] = c11[1]; colors[vi+2] = c11[2]; vi += 3
       positions[vi] = x1; positions[vi+1] = y10; positions[vi+2] = z0
-      colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
+      colors[vi] = c10[0]; colors[vi+1] = c10[1]; colors[vi+2] = c10[2]; vi += 3
 
       // Triangle 2
       positions[vi] = x0; positions[vi+1] = y00; positions[vi+2] = z0
-      colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
+      colors[vi] = c00[0]; colors[vi+1] = c00[1]; colors[vi+2] = c00[2]; vi += 3
       positions[vi] = x0; positions[vi+1] = y01; positions[vi+2] = z1
-      colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
+      colors[vi] = c01[0]; colors[vi+1] = c01[1]; colors[vi+2] = c01[2]; vi += 3
       positions[vi] = x1; positions[vi+1] = y11; positions[vi+2] = z1
-      colors[vi] = r; colors[vi+1] = g; colors[vi+2] = b; vi += 3
+      colors[vi] = c11[0]; colors[vi+1] = c11[1]; colors[vi+2] = c11[2]; vi += 3
     }
   }
 
@@ -294,19 +308,21 @@ function buildWaterMesh(
 }
 
 /**
- * Cobblestone pucks — low-profile hexagonal stones scattered on every road
- * (id 8) and alley (id 9) tile. Three pucks per tile, hash-jittered in xz
- * within the tile bounds, color jittered ±10% off the tile color so the
- * ground reads as laid stones rather than painted texture. All pucks merge
- * into a single batched mesh — one draw call for the whole map.
+ * Cobblestone pucks — a single off-center hex stone per road/alley tile
+ * plus a smaller secondary stone with 50% chance. The bulk of the road
+ * texture now comes from per-corner vertex-color noise baked directly
+ * into the ground mesh (see TILE_ROAD_NOISE application in
+ * buildGroundWithHeight). Pucks add subtle raised-stone detail; the
+ * vertex noise gives the underfoot variation so roads don't read as a
+ * flat checkerboard. Dropping from 3 to 1–2 pucks per tile ~halves the
+ * triangle budget for terrain detail.
  */
 function buildCobblestones(
   tiles: number[][], gridWidth: number, gridHeight: number,
   heightMap: number[][],
 ): THREE.Mesh | null {
-  // Shared hex-prism template. Radius 0.14, height 0.05 — low enough that
-  // the player doesn't trip over them but visible when looking down.
-  const puckGeo = new THREE.CylinderGeometry(0.14, 0.14, 0.05, 6)
+  const puckBig = new THREE.CylinderGeometry(0.18, 0.18, 0.05, 6)
+  const puckSmall = new THREE.CylinderGeometry(0.1, 0.1, 0.04, 5)
   const batch = new BatchedMeshBuilder()
 
   for (let ty = 0; ty < gridHeight; ty++) {
@@ -314,26 +330,26 @@ function buildCobblestones(
       const tileId = tiles[ty]?.[tx] ?? 0
       if (tileId !== 8 && tileId !== 9) continue
       const baseColor = new THREE.Color(TERRAIN_COLORS[tileId])
-      // Alleys sit in-tile; road pucks match. Puck top sits just above the
-      // ground so they read as raised stones.
       const groundY = getTerrainHeight(heightMap, tx, ty)
-      for (let p = 0; p < 3; p++) {
-        // Deterministic hash per (tile, puck-index) for stable regeneration.
-        const h1 = (((tx * 73856093) ^ (ty * 19349663) ^ (p * 83492791)) >>> 0) / 0xffffffff
-        const h2 = (((tx * 9754321) ^ (ty * 6563423) ^ (p * 4782179)) >>> 0) / 0xffffffff
-        const h3 = (((tx * 1234567) ^ (ty * 7654321) ^ (p * 2468135)) >>> 0) / 0xffffffff
-        // Pucks sit inside the tile with a 0.12 margin so they don't cross
-        // tile seams — keeps the tessellation clean.
-        const px = tx + 0.18 + h1 * 0.64
-        const pz = ty + 0.18 + h2 * 0.64
-        // Color jitter: ±10% for road, slightly darker range for alleys.
-        const jitter = (h3 - 0.5) * 0.2
-        const darken = tileId === 9 ? 0.85 : 1.0
-        const r = Math.max(0, Math.min(1, baseColor.r * (1 + jitter) * darken))
-        const g = Math.max(0, Math.min(1, baseColor.g * (1 + jitter) * darken))
-        const b = Math.max(0, Math.min(1, baseColor.b * (1 + jitter) * darken))
-        const colorHex = (Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255)
-        batch.add(puckGeo, colorHex, px, groundY + 0.025, pz)
+      const h1 = (((tx * 73856093) ^ (ty * 19349663)) >>> 0) / 0xffffffff
+      const h2 = (((tx * 9754321) ^ (ty * 6563423)) >>> 0) / 0xffffffff
+      const h3 = (((tx * 1234567) ^ (ty * 7654321)) >>> 0) / 0xffffffff
+      const darken = tileId === 9 ? 0.82 : 0.95
+      // Primary puck — off-center so adjacent tiles don't line up.
+      const jitter = (h3 - 0.5) * 0.3
+      const r = Math.max(0, Math.min(1, baseColor.r * (1 + jitter) * darken))
+      const g = Math.max(0, Math.min(1, baseColor.g * (1 + jitter) * darken))
+      const b = Math.max(0, Math.min(1, baseColor.b * (1 + jitter) * darken))
+      const colorHex = (Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255)
+      batch.add(puckBig, colorHex, tx + 0.25 + h1 * 0.5, groundY + 0.025, ty + 0.25 + h2 * 0.5)
+      // 50% of tiles get a small companion stone, hash-chosen position.
+      if (h3 > 0.5) {
+        const jitter2 = (h1 - 0.5) * 0.25
+        const r2 = Math.max(0, Math.min(1, baseColor.r * (1 - jitter2) * darken * 0.9))
+        const g2 = Math.max(0, Math.min(1, baseColor.g * (1 - jitter2) * darken * 0.9))
+        const b2 = Math.max(0, Math.min(1, baseColor.b * (1 - jitter2) * darken * 0.9))
+        const col2 = (Math.round(r2 * 255) << 16) | (Math.round(g2 * 255) << 8) | Math.round(b2 * 255)
+        batch.add(puckSmall, col2, tx + 0.55 + h2 * 0.3, groundY + 0.02, ty + 0.15 + h1 * 0.3)
       }
     }
   }

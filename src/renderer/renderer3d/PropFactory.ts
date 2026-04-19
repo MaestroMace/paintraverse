@@ -27,8 +27,29 @@ const MAX_POINT_LIGHTS = 16
  * off so it doesn't punch through geometry behind it. Opacity is driven
  * by ThreeRenderer.updateLighting via setLampPoolOpacity().
  */
-const _lampPoolMat = new THREE.MeshBasicMaterial({
+// A small radial-gradient canvas texture — warm center fading to black
+// at the edge. Used as an alphaMap so the lamp-pool sprite has soft
+// edges instead of a hard silhouette.
+function buildLampPoolTexture(): THREE.CanvasTexture {
+  const size = 64
+  const canvas = document.createElement('canvas')
+  canvas.width = size; canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+  g.addColorStop(0.0, 'rgba(255,255,255,1)')
+  g.addColorStop(0.4, 'rgba(255,255,255,0.5)')
+  g.addColorStop(1.0, 'rgba(0,0,0,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, size, size)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.needsUpdate = true
+  return tex
+}
+
+const _lampPoolTex = buildLampPoolTexture()
+const _lampPoolMat = new THREE.SpriteMaterial({
   color: 0xffb060,
+  map: _lampPoolTex,
   transparent: true,
   opacity: 0,
   fog: false,
@@ -38,7 +59,6 @@ const _lampPoolMat = new THREE.MeshBasicMaterial({
 export function setLampPoolOpacity(opacity: number): void {
   _lampPoolMat.opacity = opacity
 }
-const _lampPoolGeo = new THREE.ConeGeometry(0.55, 1.6, 10, 1, true)
 
 // Shared geometries (created once)
 let _geo: {
@@ -382,12 +402,13 @@ export function buildPropMeshes(
         }
       }
 
-      // Add a volumetric light cone under every lamppost variant. Shares
-      // a single material singleton so setLampPoolOpacity() dims or
-      // lights all pools at once from updateLighting. Cone base (1.6 r)
-      // sits on the ground, tip at y=3 near the lamp bulb.
-      const pool = new THREE.Mesh(_lampPoolGeo, _lampPoolMat)
-      pool.position.y = 0.8
+      // Soft lamp pool: a billboard sprite with a radial-gradient alpha map.
+      // Always faces the camera so the silhouette is a circle (never a
+      // visible cone shape). Shared SpriteMaterial so setLampPoolOpacity()
+      // dims or lights every pool at once from updateLighting.
+      const pool = new THREE.Sprite(_lampPoolMat)
+      pool.scale.set(2.2, 2.2, 1)
+      pool.position.y = 0.6
       pool.renderOrder = -0.5 // render before opaque geometry so fog blend is fine
       group.add(pool)
 

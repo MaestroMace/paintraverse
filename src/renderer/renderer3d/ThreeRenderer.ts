@@ -1013,9 +1013,11 @@ export class ThreeRenderer {
     // Volumetric pool cones under lampposts: invisible at noon, subtle at
     // golden hour, prominent at dusk/night. Additive blending means pools
     // overlap constructively so dense lamp clusters brighten each other.
-    // Cap well under 0.1 — additive blending + bloom push bright quickly,
-    // and the cone geometry itself becomes visible as a shape above ~0.12.
-    const poolOpacity = windowGlow <= 0 ? 0 : Math.min(0.07, 0.02 + windowGlow * 0.05)
+    // Sprite-based soft pool: can push brighter without silhouette showing
+    // because the radial alpha fades to zero at the edge. Cap at 0.55 so
+    // overlapping pools in dense districts still read as discrete glows,
+    // not a flood-light wash.
+    const poolOpacity = windowGlow <= 0 ? 0 : Math.min(0.55, 0.15 + windowGlow * 0.4)
     setLampPoolOpacity(poolOpacity)
 
     // Smoke particles: bright grey at day reads fine, but at night they
@@ -1377,6 +1379,46 @@ export class ThreeRenderer {
     if (this.composer) this.composer.render()
     else this.renderer.render(this.scene, this.camera)
     return this.renderer.domElement.toDataURL('image/png')
+  }
+
+  /** Runtime diagnostics for the debug dump. Records the FPS camera's
+   *  current state, the renderer's draw-call / triangle counts, the
+   *  particle system sizes, and the current time-of-day.
+   *  Lightweight — all reads, no allocations in tight loops. */
+  getDebugInfo(): Record<string, unknown> {
+    const info = this.renderer?.info
+    const cam = this.camera
+    const particles: Record<string, number> = {}
+    for (const ps of this.particleSystems) {
+      particles[ps.type] = (particles[ps.type] ?? 0) + ps.count
+    }
+    return {
+      fps: this._fps,
+      timeOfDay: this.currentTimeOfDay,
+      camera: {
+        position: { x: cam.position.x, y: cam.position.y, z: cam.position.z },
+        yaw: this.cameraYaw,
+        pitch: this.cameraPitch,
+        flyMode: this.flyMode,
+        fov: cam.fov,
+      },
+      render: {
+        drawCalls: info?.render.calls ?? -1,
+        triangles: info?.render.triangles ?? -1,
+        lines: info?.render.lines ?? -1,
+        points: info?.render.points ?? -1,
+        geometries: info?.memory.geometries ?? -1,
+        textures: info?.memory.textures ?? -1,
+      },
+      particles,
+      scene: {
+        buildingCount: this.buildingGroup.children.length,
+        propCount: this.propGroup.children.length,
+        terrainCount: this.terrainGroup.children.length,
+      },
+      pointerLocked: this.pointerLocked,
+      collisionMaskSize: this.collisionMask?.length ?? 0,
+    }
   }
 
   dispose(): void {

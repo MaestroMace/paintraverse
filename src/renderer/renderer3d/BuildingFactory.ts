@@ -283,7 +283,10 @@ export function buildBuildingMeshes(
     }
 
     // Approximate mainBody roof top for chimney + ornament placement.
-    const mainVol = massing.volumes[0]
+    // Prefer the first 'mainBody' volume so chimneys don't float above
+    // a tiny corner-tower sub-volume when the massing template puts
+    // the body second.
+    const mainVol = massing.volumes.find(v => v.role === 'mainBody') ?? massing.volumes[0]
     const mainTopY = wy + (mainVol.bottomY ?? 0) + mainVol.height
     const mainRoofH = mainVol.roofHeight
     // Does massing already include a chimney volume? (cottageSmall does.)
@@ -293,29 +296,49 @@ export function buildBuildingMeshes(
     // Skip entirely if massing already supplies a chimney volume.
     // Big/tall buildings (floors >= 3 or wealth archetype) get two chimneys.
     if (!massingHasChimney && hash % 5 < 2 && mainRoofH > 0) {
-      // Chimney stacks: stubby 1.1:1 aspect (0.5w × 0.4–0.65h) so they read
-      // as brick stacks against the dusk sky, not flagpoles. Wide cap above
-      // widens the silhouette further.
-      const chimCount = (floors >= 3 || styleVector.wealth > 0.6) ? 2 : 1
-      const baseH = 0.4 + rand01(hash, 701) * 0.25  // 0.4–0.65
-      const chimW = 0.5
+      // Chimney stacks with deliberate whimsical variety — brick stacks on
+      // small houses, the occasional tall crooked flue, the rare copper-top
+      // or double-stack. Hash picks the variant so regenerating the seed
+      // gives the same silhouette.
+      const variant = hash % 7
+      // Variant 0,1,2 — stocky single; 3 — double stack; 4 — tall whimsy;
+      // 5 — copper-top; 6 — wide short.
+      const chimCount = (floors >= 3 || styleVector.wealth > 0.6) ? 2
+                      : variant === 3 ? 2
+                      : 1
+      // Height/width picked per variant so silhouettes read distinctly.
+      const baseH = variant === 4 ? 1.2 + rand01(hash, 701) * 0.8     // 1.2–2.0 (tall whimsy)
+                  : variant === 6 ? 0.35 + rand01(hash, 701) * 0.1    // short chubby
+                  : 0.5 + rand01(hash, 701) * 0.35                    // default 0.5–0.85
+      const chimW = variant === 6 ? 0.7 : variant === 4 ? 0.42 : 0.5
+      const capColor = variant === 5 ? 0x4a7870 /* verdigris copper */ : 0x5a3020
       for (let c = 0; c < chimCount; c++) {
         const chimSide = c === 0
           ? ((obj.properties.chimneyPos === 'left') ? -1 : 1)
           : (((obj.properties.chimneyPos === 'left') ? 1 : -1))
-        const chimH = baseH * (c === 0 ? 1.0 : 0.85)
-        const localX = chimSide * fp.w * 0.3
-        const localZ = c === 0 ? 0 : (rand01(hash, 600 + c) - 0.5) * fp.h * 0.4
+        const chimH = baseH * (c === 0 ? 1.0 : 0.75 + rand01(hash, 711 + c) * 0.15)
+        // Local offset from building center; random Z so double stacks
+        // aren't perfectly in line.
+        const localX = chimSide * fp.w * 0.32
+        const localZ = c === 0
+          ? (rand01(hash, 703) - 0.5) * fp.h * 0.25
+          : (rand01(hash, 600 + c) - 0.5) * fp.h * 0.4
+        // Small lean on the tall whimsy variant — reads as a crooked flue.
+        const leanZ = variant === 4 ? (rand01(hash, 719) - 0.5) * 0.25 : 0
         const stack = new THREE.BoxGeometry(chimW, chimH, chimW)
+        if (leanZ !== 0) stack.rotateZ(leanZ)
         stack.translate(localX, 0, localZ)
         if (rotationY !== 0) stack.rotateY(rotationY)
-        stack.translate(wx, mainTopY + mainRoofH * 0.3 + chimH / 2, wz)
+        // Anchor to the mainBody roof peak (mainTopY) — not the wider roof
+        // height — so chimneys don't float above tiny sub-volumes.
+        stack.translate(wx, mainTopY + mainRoofH * 0.4 + chimH / 2, wz)
         detailBatch.addPositioned(stack, 0x704030)
-        const cap = new THREE.BoxGeometry(chimW + 0.1, 0.1, chimW + 0.1)
+        const capW = variant === 6 ? 0.85 : chimW + 0.12
+        const cap = new THREE.BoxGeometry(capW, 0.12, capW)
         cap.translate(localX, 0, localZ)
         if (rotationY !== 0) cap.rotateY(rotationY)
-        cap.translate(wx, mainTopY + mainRoofH * 0.3 + chimH + 0.05, wz)
-        detailBatch.addPositioned(cap, 0x5a3020)
+        cap.translate(wx, mainTopY + mainRoofH * 0.4 + chimH + 0.06, wz)
+        detailBatch.addPositioned(cap, capColor)
       }
     }
 

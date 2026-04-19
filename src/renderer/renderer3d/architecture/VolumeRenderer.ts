@@ -50,7 +50,9 @@ function ensureFlickerState(mat: THREE.Material): FlickerState {
   const d = (mat.userData as Partial<FlickerState>)
   if (typeof d.flickerPhase !== 'number') {
     d.flickerPhase = Math.random() * Math.PI * 2
-    d.flickerRate = 2.2 + Math.random() * 2.2  // 2.2–4.4 Hz
+    // Slow flame-breath rate (0.25–0.7 Hz). The previous 2.2–4.4 Hz was
+    // strobing visibly rather than reading as firelight.
+    d.flickerRate = 0.25 + Math.random() * 0.45
   }
   return d as FlickerState
 }
@@ -112,7 +114,9 @@ export function tickWallEmissive(time: number): void {
   }
   for (const mat of _wallMatCache.values()) {
     const fs = ensureFlickerState(mat)
-    const flicker = 1 + 0.08 * Math.sin(time * fs.flickerRate + fs.flickerPhase)
+    // ±4% amplitude (was 8%) + slow rate → reads as firelight breathing
+    // rather than an active strobe.
+    const flicker = 1 + 0.04 * Math.sin(time * fs.flickerRate + fs.flickerPhase)
     mat.emissiveIntensity = _wallEmissiveBase * flicker
   }
 }

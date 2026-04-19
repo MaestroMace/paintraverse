@@ -205,6 +205,11 @@ export function RenderPanel() {
     const threeURL = threeRenderer ? threeRenderer.captureScreenshot() : null
     const editorCanvas = document.querySelector('canvas') as HTMLCanvasElement | null
     const overheadURL = (!threeURL && editorCanvas) ? editorCanvas.toDataURL('image/png') : null
+    // Runtime diagnostics from the live 3D renderer — FPS camera state,
+    // draw call / triangle counts, particle totals, memory. Essential
+    // for diagnosing performance regressions alongside the rendered image.
+    const threeDiag = threeRenderer?.getDebugInfo?.() ?? null
+    if (threeDiag) debugData.threeRenderer = threeDiag
 
     // Build a single HTML file with everything embedded
     const html = `<!DOCTYPE html>
