@@ -1895,9 +1895,25 @@ export class TownGenerator implements IMapGenerator {
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
     this.markObjects(occupied, existingObjs, w, h)
 
-    // Poisson disk for natural tree distribution — tighter spacing for lush vegetation
-    const minDist = Math.max(1.5, Math.floor(3 - density * 2))
+    // Tighter Poisson so forest cores can actually get dense; the forest-
+    // mask below decides whether each sampled point GETS a tree, so we
+    // don't end up with uniform spacing across the whole map.
+    const minDist = Math.max(1.2, 3 - density * 2)
     const points = poissonDiskSampling(w, h, minDist, rng)
+
+    // Forest-mask parameters — low-frequency noise carves large regions of
+    // "forest" vs "clearing" across the map. Frequency 0.042 → ~1 cycle
+    // per 25 tiles, so a 48-tile map gets 1–2 big forests and matching
+    // clearings. Per-district thresholds scale how much of that mask
+    // actually produces trees: gardens are dense everywhere, slums only
+    // in the tallest peaks of the mask.
+    const forestFreq = 0.042
+    const forestOffset = 123
+    // Smoothstep helper for density gradient at the forest edge.
+    const smoothstep = (edge0: number, edge1: number, x: number): number => {
+      const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)))
+      return t * t * (3 - 2 * t)
+    }
 
     for (const p of points) {
       const tx = Math.floor(p.x), ty = Math.floor(p.y)
@@ -1905,17 +1921,22 @@ export class TownGenerator implements IMapGenerator {
 
       const dId = districtMap[ty]?.[tx] ?? -1
       const district = districts.find(d => d.id === dId)
-      const vegNoise = noise.fbm(tx * 0.08, ty * 0.08, 2)
+      // Old near-neighbor noise used for species selection stays; the new
+      // forest mask drives placement probability.
+      const forestNoise = noise.fbm(tx * forestFreq + forestOffset, ty * forestFreq + forestOffset, 3, 2, 0.5)
 
-      let shouldPlace = false
-      let isTree = rng() > 0.35
-
+      // Per-district forest-mask tuning:
+      //   threshold: forestNoise value below which no trees grow
+      //   feather:   how far above threshold before density hits max
+      //   densityMult: ceiling on placement probability (0..1)
+      //   treeProb:   P(tree | placed) — complement are bushes
+      let threshold = 0.1, feather = 0.35, densityMult = 0.85, treeProb = 0.65
       if (district) {
         switch (district.type) {
           case 'garden':
-            shouldPlace = vegNoise > -0.5 // Very dense lush gardens
-            // Mix in potted plants and planter boxes
-            if (shouldPlace && rng() > 0.8) {
+            threshold = -0.4; feather = 0.6; densityMult = 1.0; treeProb = 0.45
+            // Garden-specific planter / potted plant interleave, unchanged
+            if (forestNoise > -0.3 && rng() > 0.8) {
               const gardenProp = rng() > 0.5 ? 'potted_plant' : 'planter_box'
               const fp = this.getFootprint(gardenProp)
               if (fp.w === 1 || this.areaFree(occupied, tx, ty, fp.w, fp.h, w, h)) {
@@ -1927,26 +1948,45 @@ export class TownGenerator implements IMapGenerator {
             }
             break
           case 'noble':
-            shouldPlace = vegNoise > 0.0 // Denser noble greenery
-            isTree = rng() > 0.55
+            threshold = 0.0; feather = 0.4; densityMult = 0.9; treeProb = 0.55
             break
           case 'residential':
-            shouldPlace = vegNoise > 0.05 // More residential gardens
+            threshold = 0.05; feather = 0.4; densityMult = 0.8
             break
           case 'slum':
-            shouldPlace = vegNoise > 0.35 // Slightly more vegetation even in slums
-            isTree = rng() > 0.7
+            threshold = 0.3; feather = 0.3; densityMult = 0.6; treeProb = 0.3
             break
           case 'waterfront':
-            shouldPlace = vegNoise > 0.15 // Lush along water
+            threshold = 0.1; feather = 0.4; densityMult = 0.85
+            break
+          case 'cemetery':
+            // Scattered leaning trees — sparse but present
+            threshold = 0.15; feather = 0.3; densityMult = 0.6
+            break
+          case 'harbor':
+            threshold = 0.25; feather = 0.3; densityMult = 0.5
+            break
+          case 'fortress':
+            threshold = 0.3; feather = 0.3; densityMult = 0.4
+            break
+          case 'temple':
+            threshold = 0.1; feather = 0.4; densityMult = 0.8
             break
           default:
-            shouldPlace = vegNoise > 0.1 - density * 0.15
+            threshold = 0.1 - density * 0.15
             break
         }
       } else {
-        shouldPlace = vegNoise > 0.05 // More vegetation in unassigned areas
+        // Countryside (unassigned tiles) — the loosest mask, this is
+        // where forests and meadows really get to breathe.
+        threshold = -0.1; feather = 0.5; densityMult = 1.0
       }
+
+      // Soft-edge forest mask: density 0 at threshold → densityMult at
+      // threshold+feather. Reject by random roll so edges naturally thin.
+      const placeChance = smoothstep(threshold, threshold + feather, forestNoise) * densityMult
+      const shouldPlace = rng() < placeChance
+      const isTree = rng() < treeProb
 
       if (shouldPlace) {
         if (isTree) {
