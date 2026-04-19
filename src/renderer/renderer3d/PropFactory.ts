@@ -19,6 +19,27 @@ const PROP_HEIGHTS: Record<string, number> = {
 
 const MAX_POINT_LIGHTS = 16
 
+/**
+ * Shared translucent-cone material for the volumetric "pool of light"
+ * rendered under each lamppost at dusk/night. Additive so overlapping
+ * pools brighten each other the way real light bleeds overlap, fog
+ * disabled so the pool doesn't get eaten by the scene fog, depthWrite
+ * off so it doesn't punch through geometry behind it. Opacity is driven
+ * by ThreeRenderer.updateLighting via setLampPoolOpacity().
+ */
+const _lampPoolMat = new THREE.MeshBasicMaterial({
+  color: 0xffb060,
+  transparent: true,
+  opacity: 0,
+  fog: false,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+})
+export function setLampPoolOpacity(opacity: number): void {
+  _lampPoolMat.opacity = opacity
+}
+const _lampPoolGeo = new THREE.ConeGeometry(1.6, 3.0, 12, 1, true)
+
 // Shared geometries (created once)
 let _geo: {
   treeTrunk: THREE.CylinderGeometry
@@ -360,6 +381,15 @@ export function buildPropMeshes(
           pointLightCount++
         }
       }
+
+      // Add a volumetric light cone under every lamppost variant. Shares
+      // a single material singleton so setLampPoolOpacity() dims or
+      // lights all pools at once from updateLighting. Cone base (1.6 r)
+      // sits on the ground, tip at y=3 near the lamp bulb.
+      const pool = new THREE.Mesh(_lampPoolGeo, _lampPoolMat)
+      pool.position.y = 1.5
+      pool.renderOrder = -0.5 // render before opaque geometry so fog blend is fine
+      group.add(pool)
 
       // Rotate the lamppost group so ornate / double-arm / wall-lantern
       // variants face non-axial directions. Simple single-sphere lamps

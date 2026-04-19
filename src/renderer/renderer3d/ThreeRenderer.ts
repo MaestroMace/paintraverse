@@ -25,7 +25,7 @@ const MOUSE_PITCH_SENS = 0.002
 import { buildBuildingMeshes, setWallEmissiveIntensity, type BuildingBatchResult } from './BuildingFactory'
 import { tickWallEmissive } from './architecture/VolumeRenderer'
 import { buildLanternStrings, setLanternEmissiveIntensity, tickLanternEmissive } from './LanternStrings'
-import { buildPropMeshes, type PropBatchResult } from './PropFactory'
+import { buildPropMeshes, setLampPoolOpacity, type PropBatchResult } from './PropFactory'
 
 /**
  * Patch a material's fog to fade in more strongly near ground level, so
@@ -953,6 +953,11 @@ export class ThreeRenderer {
     // time of day. Multiplier picked so the lantern-bulb color clips into
     // the bloom threshold at night → warm halos over the street.
     setLanternEmissiveIntensity(windowGlow * 1.4 + (windowGlow > 0 ? 0.2 : 0))
+    // Volumetric pool cones under lampposts: invisible at noon, subtle at
+    // golden hour, prominent at dusk/night. Additive blending means pools
+    // overlap constructively so dense lamp clusters brighten each other.
+    const poolOpacity = windowGlow <= 0 ? 0 : Math.min(0.18, 0.05 + windowGlow * 0.1)
+    setLampPoolOpacity(poolOpacity)
 
     // Smoke particles: bright grey at day reads fine, but at night they
     // glow unnaturally white. Tint toward a dim ember color after dusk.
