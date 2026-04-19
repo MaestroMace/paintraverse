@@ -1321,6 +1321,46 @@ export function buildPropMeshes(
         }
       }
 
+    } else if (id === 'bunting_pole') {
+      // Market festival prop — tall pole with a droopy string of colored
+      // triangle pennants trailing off one side toward an "implied" next
+      // pole. Reads as festival day from any angle.
+      emitRot(new THREE.BoxGeometry(0.08, 2.0, 0.08), 0, 1.0, 0, 0x5a3a20)
+      emitRot(new THREE.SphereGeometry(0.09, 6, 4), 0, 2.05, 0, 0x3a2818)
+      const pennantColors = [0xc02040, 0xe0a030, 0x30a050, 0x3060c0, 0xa040c0, 0xe0e040]
+      // 6 pennants along a shallow catenary-ish line going sideways
+      for (let fi = 0; fi < 6; fi++) {
+        const t = fi / 5
+        const lateral = 0.15 + t * 0.9
+        const drop = 1.85 - Math.sin(Math.PI * t) * 0.25
+        const pennant = new THREE.BoxGeometry(0.14, 0.18, 0.02)
+        pennant.rotateZ((fi % 2 === 0 ? 0.15 : -0.15))
+        emitRot(pennant, lateral, drop - 0.1, 0, pennantColors[(fi + hash) % pennantColors.length])
+      }
+
+    } else if (id === 'heraldic_banner') {
+      // Noble / gate ceremonial — tall pole, horizontal crossbar, vertical
+      // cloth banner with a contrasting inset square motif. Hash chooses
+      // per-instance banner color + motif color so rival houses look
+      // distinct.
+      const poleColor = 0x3a2818
+      emitRot(new THREE.BoxGeometry(0.08, 2.2, 0.08), 0, 1.1, 0, poleColor)
+      // Horizontal top piece supporting the banner
+      emitRot(new THREE.BoxGeometry(0.5, 0.06, 0.04), 0.22, 2.0, 0, poleColor)
+      // Small finial at pole top
+      emitRot(new THREE.ConeGeometry(0.08, 0.16, 4), 0, 2.28, 0, 0xd4b060)
+      const palette = [0xa02030, 0x304080, 0x306040, 0x804020, 0x604080, 0xa07030, 0xcc9030]
+      const bannerColor = palette[hash % palette.length]
+      const motifColor = palette[(hash + 3) % palette.length]
+      // Main banner cloth hanging from the crossbar
+      emitRot(new THREE.BoxGeometry(0.45, 1.1, 0.02), 0.22, 1.45, 0, bannerColor)
+      // Heraldic motif — contrast-color square inset
+      emitRot(new THREE.BoxGeometry(0.22, 0.22, 0.025), 0.22, 1.6, 0, motifColor)
+      // Small decorative ball at each of three hanging slots bottom
+      for (const sx of [-0.15, 0, 0.15]) {
+        emitRot(new THREE.SphereGeometry(0.035, 5, 4), 0.22 + sx, 0.87, 0, 0xd4b060)
+      }
+
     } else if (id === 'fish_rack') {
       // Harbor prop — 3 vertical stakes + 2 crossbars + 5 hanging fish
       // silhouettes. fp 2×1, oriented along the longer axis.
