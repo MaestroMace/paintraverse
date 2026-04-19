@@ -176,16 +176,35 @@ export function buildBuildingMeshes(
       if (rand01(hash, 7) < 0.25) rotationY = 0                // 25% stay aligned
     }
 
-    // Foundation plinth — fills the space between the lowest footprint tile
-    // and the building's base so multi-tile buildings on uneven ground look
-    // planted on a stone ledge, not floating above empty air. Rotates with
-    // the building so it stays under the walls.
-    const plinthH = maxTH - minTH
-    if (plinthH > 0.08) {
-      const plinth = new THREE.BoxGeometry(fp.w + 0.12, plinthH, fp.h + 0.12)
-      if (rotationY !== 0) plinth.rotateY(rotationY)
-      plinth.translate(centerTileX, minTH + plinthH / 2, centerTileZ)
-      detailBatch.addPositioned(plinth, 0x6a5a48) // stone foundation
+    // Foundation plinth — emitted as per-tile stone columns so the foundation
+    // STEPS with the terrain rather than sitting as one flat block. Each
+    // footprint tile gets its own column from that tile's ground up to the
+    // building's base (maxTH). Tiles already at maxTH get no column.
+    // Columns overlap slightly (1.08 vs 1.0) so interior seams don't z-fight
+    // and outer edges extend past the wall face, matching the old plinth's
+    // +0.06 overhang on each side.
+    if (getHeight && maxTH - minTH > 0.08) {
+      const cos = Math.cos(rotationY), sin = Math.sin(rotationY)
+      for (let fy = 0; fy < fp.h; fy++) {
+        for (let fx = 0; fx < fp.w; fx++) {
+          const tileGround = getHeight(obj.x + fx, obj.y + fy)
+          const colH = maxTH - tileGround
+          if (colH < 0.08) continue
+          // Tile-local offset from building center, then rotate by rotationY.
+          const lx = fx - fp.w / 2 + 0.5
+          const lz = fy - fp.h / 2 + 0.5
+          const rx = lx * cos - lz * sin
+          const rz = lx * sin + lz * cos
+          const col = new THREE.BoxGeometry(1.08, colH, 1.08)
+          if (rotationY !== 0) col.rotateY(rotationY)
+          col.translate(
+            centerTileX + rx,
+            tileGround + colH / 2,
+            centerTileZ + rz,
+          )
+          detailBatch.addPositioned(col, 0x6a5a48) // stone foundation
+        }
+      }
     }
 
     // === PARAMETRIC MASSING ===
