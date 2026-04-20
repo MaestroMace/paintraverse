@@ -997,16 +997,22 @@ export class TownGenerator implements IMapGenerator {
       const heightVal = heightMap[ry]?.[rx] ?? 0
       let baseFloors: number
       switch (dType) {
-        case 'noble': baseFloors = 2 + Math.floor(rng() * 2); break
-        case 'temple': baseFloors = 1 + Math.floor(rng() * 3); break
-        case 'market': baseFloors = 1 + Math.floor(rng() * 2); break
-        case 'slum': baseFloors = 1 + Math.floor(rng() * (rng() > 0.7 ? 2 : 1)); break
-        case 'garden': baseFloors = 1 + Math.floor(rng() * 2); break
-        default: baseFloors = 1 + Math.floor(rng() * 2); break
+        case 'noble':   baseFloors = 2 + Math.floor(rng() * 3); break  // 2–4
+        case 'temple':  baseFloors = 1 + Math.floor(rng() * 3); break
+        case 'market':  baseFloors = 1 + Math.floor(rng() * 3); break  // 1–3 (was 1–2)
+        case 'slum':    baseFloors = 1 + Math.floor(rng() * (rng() > 0.7 ? 2 : 1)); break
+        case 'garden':  baseFloors = 1 + Math.floor(rng() * 2); break
+        default:        baseFloors = 1 + Math.floor(rng() * 3); break  // 1–3 (was 1–2)
       }
       const coreBonus = ringChar === 'core' ? 1 : 0
       const hillBonus = heightVal > 1.0 ? 1 : 0
-      const floors = Math.min(baseFloors + coreBonus + hillBonus, 4)
+      // Rare "tower house" whimsy: 4% of buildings get +2 floors to stand
+      // out in the silhouette like the tall-thin leaning houses of Lisbon
+      // or Porto. Not confined to noble — adds the 500-year-growth feel
+      // where one ambitious family built up.
+      const towerHouse = rng() < 0.04
+      const towerBonus = towerHouse ? 2 : 0
+      const floors = Math.min(baseFloors + coreBonus + hillBonus + towerBonus, 5)
 
       const elevBias = DISTRICT_ELEVATION_BIAS[dType] || 0
       const rawElev = heightVal + elevBias

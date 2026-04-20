@@ -63,6 +63,84 @@ export function tickLanternEmissive(time: number): void {
 export interface LanternStringsResult {
   ropeMesh: THREE.Mesh | null
   lanternMesh: THREE.Mesh | null
+  wallLanternMesh: THREE.Mesh | null
+}
+
+/**
+ * Wall-mounted lanterns — a single small emissive sphere + iron bracket
+ * jutting from the front wall of ~18% of eligible buildings at ~2.4m
+ * height. Adds eye-level warm points along streets that complement the
+ * overhead rope lanterns. Shares the _lanternMat so one
+ * setLanternEmissiveIntensity() call drives both systems.
+ */
+export function buildWallLanterns(
+  map: MapDocument,
+  defMap: Map<string, ObjectDefinition>,
+  heightMap: number[][] | null,
+): THREE.Mesh | null {
+  const structureLayer = map.layers.find(l => l.type === 'structure')
+  if (!structureLayer) return null
+  const EXCLUDE = new Set([
+    'stone_wall', 'stone_wall_v', 'crenellated_wall',
+    'archway', 'town_gate', 'gatehouse', 'staircase', 'aqueduct',
+    'watchtower', 'cathedral', 'bell_tower', 'bell_tower_tall',
+    'lighthouse', 'windmill',
+  ])
+  const lanternGeos: THREE.BufferGeometry[] = []
+  for (const obj of structureLayer.objects) {
+    if (EXCLUDE.has(obj.definitionId)) continue
+    // Hash-based 18% pick so same seed → same lantern placements.
+    const h = simpleHash(obj.id)
+    if (h % 100 >= 18) continue
+    const def = defMap.get(obj.definitionId)
+    const fp = def?.footprint ?? { w: 1, h: 1 }
+    const cx = obj.x + fp.w / 2
+    const cz = obj.y + fp.h / 2
+    const groundY = heightMap ? getTerrainHeight(heightMap, cx, cz) : 0
+    const mountY = groundY + 2.4
+    // Pick a wall side deterministically; project out from wall by
+    // footprint-half + a small offset so the lantern hangs in free air.
+    const side = h % 4
+    let px = cx, pz = cz
+    const offset = 0.35
+    if (side === 0) { pz = obj.y - offset }               // north wall
+    else if (side === 1) { pz = obj.y + fp.h + offset }   // south wall
+    else if (side === 2) { px = obj.x - offset }          // west wall
+    else { px = obj.x + fp.w + offset }                   // east wall
+
+    // Bracket — a dark thin box from the wall to the lantern.
+    const bracketDx = side === 2 ? 0.2 : side === 3 ? -0.2 : 0
+    const bracketDz = side === 0 ? 0.2 : side === 1 ? -0.2 : 0
+    const bracketLen = 0.3
+    const bracket = new THREE.BoxGeometry(
+      (side === 0 || side === 1) ? 0.03 : bracketLen,
+      0.03,
+      (side === 2 || side === 3) ? 0.03 : bracketLen,
+    )
+    bracket.translate(px + bracketDx, mountY, pz + bracketDz)
+    lanternGeos.push(bracket)
+    // Lantern bulb — small warm sphere (uses the shared _lanternMat so
+    // emissive flickers/dims together with the rope lanterns).
+    const bulb = new THREE.SphereGeometry(0.12, 6, 5)
+    bulb.translate(px, mountY - 0.06, pz)
+    lanternGeos.push(bulb)
+  }
+  if (lanternGeos.length === 0) return null
+  const merged = mergeBufferGeos(lanternGeos)
+  merged.computeVertexNormals()
+  const mesh = new THREE.Mesh(merged, _lanternMat)
+  mesh.castShadow = false
+  mesh.receiveShadow = false
+  mesh.matrixAutoUpdate = false
+  mesh.updateMatrix()
+  return mesh
+}
+
+/** Simple string hash for obj.id → integer. */
+function simpleHash(s: string): number {
+  let n = 0
+  for (let i = 0; i < s.length; i++) n = ((n << 5) - n + s.charCodeAt(i)) | 0
+  return Math.abs(n)
 }
 
 export function buildLanternStrings(
@@ -187,7 +265,7 @@ export function buildLanternStrings(
     lanternMesh.updateMatrix()
   }
 
-  return { ropeMesh, lanternMesh }
+  return { ropeMesh, lanternMesh, wallLanternMesh: null }
 }
 
 /** Minimal position-only merge — we don't need UVs or normals going in,

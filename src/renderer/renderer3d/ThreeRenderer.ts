@@ -24,7 +24,7 @@ const MOUSE_YAW_SENS = 0.0025
 const MOUSE_PITCH_SENS = 0.002
 import { buildBuildingMeshes, setWallEmissiveIntensity, type BuildingBatchResult } from './BuildingFactory'
 import { tickWallEmissive } from './architecture/VolumeRenderer'
-import { buildLanternStrings, setLanternEmissiveIntensity, tickLanternEmissive } from './LanternStrings'
+import { buildLanternStrings, buildWallLanterns, setLanternEmissiveIntensity, tickLanternEmissive } from './LanternStrings'
 import { buildPropMeshes, setLampPoolOpacity, type PropBatchResult } from './PropFactory'
 
 /**
@@ -634,6 +634,10 @@ export class ThreeRenderer {
       const ls = buildLanternStrings(map, defMap, heightMap)
       if (ls.ropeMesh) this.propGroup.add(ls.ropeMesh)
       if (ls.lanternMesh) this.propGroup.add(ls.lanternMesh)
+      // Wall-mounted eye-level lanterns — small warm points on ~18% of
+      // buildings, complements the overhead rope strings.
+      const wall = buildWallLanterns(map, defMap, heightMap)
+      if (wall) this.propGroup.add(wall)
     }
 
     // Spawn particles
@@ -1082,10 +1086,12 @@ export class ThreeRenderer {
 
   /** Initialize particle systems for smoke and fireflies */
   private initParticles(chimneyPositions: THREE.Vector3[], gridW: number, gridH: number): void {
-    // Chimney smoke particles (8 per chimney, max 20 chimneys)
-    const maxChimneys = Math.min(chimneyPositions.length, 20)
+    // Chimney smoke: 4 particles per chimney × max 16 chimneys = 64.
+    // Previously 8 × 20 = 160 — overkill for atmospheric dots; you
+    // can't distinguish them visually past half that.
+    const maxChimneys = Math.min(chimneyPositions.length, 16)
     if (maxChimneys > 0) {
-      const perChimney = 8
+      const perChimney = 4
       const count = maxChimneys * perChimney
       const positions = new Float32Array(count * 3)
       const velocities = new Float32Array(count * 3)
