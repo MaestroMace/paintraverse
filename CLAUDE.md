@@ -24,14 +24,16 @@ north star, read `DESIGN.md` next.
 
 ## Git workflow
 
-- **Working branch**: `claude/explore-repo-w4X5k` (for this repo). Stay
-  on this branch. If it doesn't exist yet, create it.
+- **Work directly on `main`.** The user wants changes shipped to main every
+  commit — this is their durable preference, overriding the default
+  safety of "never push to main". Do NOT create side branches or open
+  PRs unless explicitly asked.
 - **Commits**: Frequent, small-to-medium. Clear messages focused on WHY.
   End commit body with the full context of what changed.
-- **Push**: Always `git push -u origin claude/explore-repo-w4X5k`. Retry
-  on network error with exponential backoff.
-- **Never push to main/master.** Never force-push. Never use `--no-verify`.
-- **No PRs** unless the user explicitly asks.
+- **Push**: Always `git push origin main`. Retry on network error with
+  exponential backoff (2s, 4s, 8s, 16s).
+- **Never force-push.** Never use `--no-verify`. If hooks fail, fix the
+  underlying issue and create a new commit.
 
 ## Debug-dump workflow
 
