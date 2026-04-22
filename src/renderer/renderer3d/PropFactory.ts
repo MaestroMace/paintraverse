@@ -7,6 +7,7 @@
  */
 
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 
@@ -71,6 +72,16 @@ const _lampPoolMat = new THREE.MeshBasicMaterial({
 export function setLampPoolOpacity(opacity: number): void {
   _lampPoolMat.opacity = opacity
 }
+
+// Shared lamppost materials. Previously each lamppost allocated its own
+// MeshLambertMaterial, which blocked batching and made the pole/bulb render
+// as a separate draw call per part. With shared instances, we can merge all
+// non-emissive parts into the existing tree/bush batch and all emissive
+// bulbs into one mesh.
+const _lampPoleMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
+const _lampEmissiveMat = new THREE.MeshLambertMaterial({
+  color: 0xffcc44, emissive: 0xffaa22, emissiveIntensity: 0.8,
+})
 // Disc geometry — radius 1.6 world units, lying in the XZ plane (rotateX
 // by -90° at instantiation). The radial alpha map makes the edges fade;
 // center is brightest right under the lamp.
@@ -129,6 +140,9 @@ export function buildPropMeshes(
   const geo = getGeo()
   const batch = new BatchedMeshBuilder()
   const lampposts: THREE.Object3D[] = []
+  // Geometry for emissive lamp bulbs, accumulated per-lamppost with lamppost
+  // position+rotation baked in. Merged into one mesh at the end.
+  const lampEmissiveGeos: THREE.BufferGeometry[] = []
   let pointLightCount = 0
 
   for (const obj of objects) {
@@ -315,7 +329,6 @@ export function buildPropMeshes(
       batch.addPositioned(b, 0x3a7a33)
 
     } else if (id === 'lamppost' || id === 'wall_lantern' || id === 'street_lamp_double' || id === 'double_lamp') {
-      // Lampposts stay individual — emissive material + point lights.
       // Four silhouette variants by id + hash:
       //   - 'street_lamp_double'/'double_lamp': ornate tall post with
       //     two side arms, each carrying a lamp
@@ -323,101 +336,78 @@ export function buildPropMeshes(
       //   - 'lamppost' with hash%3===0: ornate ceremonial pillar with
       //     wider stepped base + faceted lamp housing on top
       //   - 'lamppost' default: classic tall thin pole with round lamp
-      const group = new THREE.Group()
-      group.position.set(px, elev, pz)
-      const poleMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
-      const lampMat = new THREE.MeshLambertMaterial({
-        color: 0xffcc44, emissive: 0xffaa22, emissiveIntensity: 0.8,
-      })
+      //
+      // Non-emissive parts (pole, crossbar, bracket, cap, base, hangs)
+      // go into the shared `batch` so they render with every other
+      // dark prop in one draw call. Emissive bulbs accumulate into
+      // `lampEmissiveGeos` and merge once at the end — a single mesh
+      // for every lamp bulb in the town. The ground light pool and the
+      // point light stay per-lamppost: the pool is transparent (separate
+      // render stream) and point lights aren't meshes.
+
+      // Bake a local-frame (lampPost-relative) geometry into world space
+      // using this lamppost's propRot + (px, elev, pz) origin.
+      const poleEmit = (g: THREE.BufferGeometry, lx: number, ly: number, lz: number) => {
+        g.translate(lx, ly, lz)
+        if (propRot !== 0) g.rotateY(propRot)
+        g.translate(px, elev, pz)
+        batch.addPositioned(g, 0x222222)
+      }
+      const emissiveEmit = (g: THREE.BufferGeometry, lx: number, ly: number, lz: number) => {
+        g.translate(lx, ly, lz)
+        if (propRot !== 0) g.rotateY(propRot)
+        g.translate(px, elev, pz)
+        lampEmissiveGeos.push(g)
+      }
+
+      const lampGroup = new THREE.Group()
+      lampGroup.position.set(px, elev, pz)
+      lampGroup.rotation.y = propRot
 
       if (id === 'street_lamp_double' || id === 'double_lamp') {
-        // Central tall pole + crossbar + two hanging lamps
-        const pole = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.055, 0.08, h + 0.25, 5), poleMat,
-        )
-        pole.position.y = (h + 0.25) / 2
-        group.add(pole)
-        const crossbar = new THREE.Mesh(
-          new THREE.BoxGeometry(0.65, 0.05, 0.05), poleMat,
-        )
-        crossbar.position.y = h + 0.15
-        group.add(crossbar)
+        poleEmit(new THREE.CylinderGeometry(0.055, 0.08, h + 0.25, 5), 0, (h + 0.25) / 2, 0)
+        poleEmit(new THREE.BoxGeometry(0.65, 0.05, 0.05), 0, h + 0.15, 0)
         for (const side of [-1, 1]) {
-          const hang = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.02, 0.02, 0.12, 4), poleMat,
-          )
-          hang.position.set(side * 0.3, h + 0.04, 0)
-          group.add(hang)
-          const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.22, 0.18), lampMat)
-          lamp.position.set(side * 0.3, h - 0.1, 0)
-          group.add(lamp)
+          poleEmit(new THREE.CylinderGeometry(0.02, 0.02, 0.12, 4), side * 0.3, h + 0.04, 0)
+          emissiveEmit(new THREE.BoxGeometry(0.18, 0.22, 0.18), side * 0.3, h - 0.1, 0)
           if (pointLightCount < MAX_POINT_LIGHTS) {
             const light = new THREE.PointLight(0xffcc66, 0.6, 7, 1.5)
             light.position.set(side * 0.3, h - 0.1, 0)
-            group.add(light)
+            lampGroup.add(light)
             pointLightCount++
           }
         }
       } else if (id === 'wall_lantern') {
-        // Bracket from wall + small boxy lantern with peaked top
-        const bracket = new THREE.Mesh(
-          new THREE.BoxGeometry(0.35, 0.04, 0.05), poleMat,
-        )
-        bracket.position.set(0.17, h * 0.9, 0)
-        group.add(bracket)
-        const lantern = new THREE.Mesh(
-          new THREE.BoxGeometry(0.16, 0.22, 0.16), lampMat,
-        )
-        lantern.position.set(0.32, h * 0.9 - 0.1, 0)
-        group.add(lantern)
-        const cap = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.1, 4), poleMat)
-        cap.position.set(0.32, h * 0.9 + 0.06, 0)
-        group.add(cap)
+        poleEmit(new THREE.BoxGeometry(0.35, 0.04, 0.05), 0.17, h * 0.9, 0)
+        emissiveEmit(new THREE.BoxGeometry(0.16, 0.22, 0.16), 0.32, h * 0.9 - 0.1, 0)
+        poleEmit(new THREE.ConeGeometry(0.12, 0.1, 4), 0.32, h * 0.9 + 0.06, 0)
         if (pointLightCount < MAX_POINT_LIGHTS) {
           const light = new THREE.PointLight(0xffcc66, 0.7, 6, 1.5)
           light.position.set(0.32, h * 0.9 - 0.1, 0)
-          group.add(light)
+          lampGroup.add(light)
           pointLightCount++
         }
       } else if (hash % 3 === 0) {
         // Ornate ceremonial — stepped stone base + pole + faceted lamp housing
-        const baseLo = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.15, 0.35), poleMat)
-        baseLo.position.y = 0.075
-        group.add(baseLo)
-        const baseHi = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.1, 0.25), poleMat)
-        baseHi.position.y = 0.2
-        group.add(baseHi)
-        const pole = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.06, 0.08, h - 0.25, 6), poleMat,
-        )
-        pole.position.y = 0.25 + (h - 0.25) / 2
-        group.add(pole)
-        const housing = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.13, 0.15, 0.28, 6), lampMat,
-        )
-        housing.position.y = h + 0.05
-        group.add(housing)
-        const cap = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.18, 6), poleMat)
-        cap.position.y = h + 0.28
-        group.add(cap)
+        poleEmit(new THREE.BoxGeometry(0.35, 0.15, 0.35), 0, 0.075, 0)
+        poleEmit(new THREE.BoxGeometry(0.25, 0.1, 0.25), 0, 0.2, 0)
+        poleEmit(new THREE.CylinderGeometry(0.06, 0.08, h - 0.25, 6), 0, 0.25 + (h - 0.25) / 2, 0)
+        emissiveEmit(new THREE.CylinderGeometry(0.13, 0.15, 0.28, 6), 0, h + 0.05, 0)
+        poleEmit(new THREE.ConeGeometry(0.14, 0.18, 6), 0, h + 0.28, 0)
         if (pointLightCount < MAX_POINT_LIGHTS) {
           const light = new THREE.PointLight(0xffcc66, 0.9, 9, 1.5)
           light.position.y = h + 0.05
-          group.add(light)
+          lampGroup.add(light)
           pointLightCount++
         }
       } else {
         // Classic simple lamppost
-        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, h, 4), poleMat)
-        pole.position.y = h / 2
-        group.add(pole)
-        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.15, 6, 4), lampMat)
-        lamp.position.y = h
-        group.add(lamp)
+        poleEmit(new THREE.CylinderGeometry(0.05, 0.06, h, 4), 0, h / 2, 0)
+        emissiveEmit(new THREE.SphereGeometry(0.15, 6, 4), 0, h, 0)
         if (pointLightCount < MAX_POINT_LIGHTS) {
           const light = new THREE.PointLight(0xffcc66, 0.8, 8, 1.5)
           light.position.y = h
-          group.add(light)
+          lampGroup.add(light)
           pointLightCount++
         }
       }
@@ -430,14 +420,10 @@ export function buildPropMeshes(
       const pool = new THREE.Mesh(_lampPoolGeo, _lampPoolMat)
       pool.position.y = 0.06  // tiny hover above ground so it doesn't z-fight
       pool.renderOrder = -0.5 // render before opaque geometry so fog blend is fine
-      group.add(pool)
+      lampGroup.add(pool)
 
-      // Rotate the lamppost group so ornate / double-arm / wall-lantern
-      // variants face non-axial directions. Simple single-sphere lamps
-      // are rotationally symmetric so this is a no-op for them visually.
-      group.rotation.y = propRot
-      group.traverse(c => { c.matrixAutoUpdate = false; c.updateMatrix() })
-      lampposts.push(group)
+      lampGroup.traverse(c => { c.matrixAutoUpdate = false; c.updateMatrix() })
+      lampposts.push(lampGroup)
 
     } else if (id === 'fountain' || id === 'fountain_grand') {
       const grand = id === 'fountain_grand'
@@ -1625,6 +1611,30 @@ export function buildPropMeshes(
   const batched: THREE.Mesh[] = []
   const merged = batch.build()
   if (merged) batched.push(merged)
+
+  // Merge all emissive lamp-bulb geometries into a single mesh sharing
+  // _lampEmissiveMat — one draw call for every bulb in the town instead
+  // of one per bulb. Receives/casts no shadows (emissive, thin, and tiny).
+  if (lampEmissiveGeos.length > 0) {
+    let mergedEm: THREE.BufferGeometry | null
+    if (lampEmissiveGeos.length === 1) {
+      mergedEm = lampEmissiveGeos[0]
+    } else {
+      mergedEm = mergeGeometries(lampEmissiveGeos, false)
+      // mergeGeometries copies attribute data; the inputs are no longer
+      // referenced by anything, so free their GPU buffers.
+      for (const g of lampEmissiveGeos) g.dispose()
+    }
+    if (mergedEm) {
+      mergedEm.computeVertexNormals()
+      const bulbs = new THREE.Mesh(mergedEm, _lampEmissiveMat)
+      bulbs.matrixAutoUpdate = false
+      bulbs.updateMatrix()
+      bulbs.castShadow = false
+      bulbs.receiveShadow = false
+      batched.push(bulbs)
+    }
+  }
 
   return { batched, lampposts }
 }
