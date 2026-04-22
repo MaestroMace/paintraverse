@@ -149,6 +149,10 @@ export interface EmitVolumeContext {
   weather: number
   /** If true, suppress fancy roof ornaments (dormer/finial) for this volume. */
   skipRoofOrnaments?: boolean
+  /** Should this volume's wall meshes cast sun shadows. Defaults true if
+   *  omitted. Short buildings opt out so they don't bloat the shadow pass
+   *  with barely-visible contributions. */
+  castsShadow?: boolean
 }
 
 /**
@@ -230,7 +234,7 @@ export function emitVolume(
     const geo = new THREE.CylinderGeometry(r, r * 1.02, v.height, 10)
     const mesh = new THREE.Mesh(geo, getPlainMat(wallColor))
     mesh.position.set(worldX, cy + ly, worldZ)
-    mesh.castShadow = true
+    mesh.castShadow = ctx.castsShadow !== false
     mesh.receiveShadow = true
     wallMeshes.push(mesh)
   } else {
@@ -258,7 +262,7 @@ export function emitVolume(
     }
     mesh.position.set(worldX, cy + ly, worldZ)
     mesh.rotation.y = rot
-    mesh.castShadow = true
+    mesh.castShadow = ctx.castsShadow !== false
     mesh.receiveShadow = true
     wallMeshes.push(mesh)
   }

@@ -271,6 +271,12 @@ export function buildBuildingMeshes(
       }))
     }
 
+    // Short 1-story buildings don't contribute meaningfully to the dusk
+    // silhouette shadows — their 1.8m shadow is quickly lost under
+    // neighboring props and ground shading. Exclude them from shadow
+    // casting to halve the caster count in the shadow frustum (biggest
+    // single draw-call sink was the shadow pass iterating every wall).
+    const castsShadow = floors >= 2
     const emitCtx = {
       centerX: wx,
       centerZ: wz,
@@ -283,6 +289,7 @@ export function buildBuildingMeshes(
       rotationY,
       hash,
       weather: styleVector.weather,
+      castsShadow,
     }
     for (const vol of massing.volumes) {
       emitVolume(vol, emitCtx, wallMeshes, roofBatch, ornamentBatch)
@@ -436,25 +443,31 @@ export function buildBuildingMeshes(
  */
 function coalesceWalls(wallMeshes: THREE.Mesh[]): THREE.Mesh[] {
   type Key = THREE.Material | THREE.Material[] | null
-  const groups = new Map<string, { key: Key; meshes: THREE.Mesh[] }>()
+  // Bucket by (material, castShadow): walls that differ on castShadow must
+  // stay separate because castShadow is a per-mesh flag. If we merged them
+  // the combined mesh would inherit only one setting and either bloat the
+  // shadow pass (merge downcast to "true") or lose wanted silhouettes
+  // (merge downcast to "false").
+  const groups = new Map<string, { key: Key; casts: boolean; meshes: THREE.Mesh[] }>()
   const loose: THREE.Mesh[] = []
-  const keyOf = (m: THREE.Material | THREE.Material[]): string => {
-    if (Array.isArray(m)) return m.map(x => x.uuid).join('|')
-    return m.uuid
+  const keyOf = (m: THREE.Material | THREE.Material[], casts: boolean): string => {
+    const mat = Array.isArray(m) ? m.map(x => x.uuid).join('|') : m.uuid
+    return `${mat}#${casts ? 1 : 0}`
   }
   for (const mesh of wallMeshes) {
     // Only merge BoxGeometry walls — cylinders use different topology.
     if (!(mesh.geometry instanceof THREE.BoxGeometry)) { loose.push(mesh); continue }
-    const k = keyOf(mesh.material as THREE.Material | THREE.Material[])
+    const casts = mesh.castShadow
+    const k = keyOf(mesh.material as THREE.Material | THREE.Material[], casts)
     let bucket = groups.get(k)
     if (!bucket) {
-      bucket = { key: mesh.material as Key, meshes: [] }
+      bucket = { key: mesh.material as Key, casts, meshes: [] }
       groups.set(k, bucket)
     }
     bucket.meshes.push(mesh)
   }
   const result: THREE.Mesh[] = [...loose]
-  for (const { key, meshes } of groups.values()) {
+  for (const { key, casts, meshes } of groups.values()) {
     // Even 2-mesh groups are worth merging — one less draw call each,
     // and the shadow pass benefits too. Only singletons stay loose.
     if (meshes.length < 2) { result.push(...meshes); continue }
@@ -473,7 +486,7 @@ function coalesceWalls(wallMeshes: THREE.Mesh[]): THREE.Mesh[] {
     const out = new THREE.Mesh(merged, key as THREE.Material | THREE.Material[])
     out.matrixAutoUpdate = false
     out.updateMatrix()
-    out.castShadow = true
+    out.castShadow = casts
     out.receiveShadow = true
     // Dispose the cloned geometries; the source meshes will be dropped.
     for (const g of geos) g.dispose()

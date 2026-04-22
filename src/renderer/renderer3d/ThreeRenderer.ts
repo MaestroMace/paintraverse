@@ -566,7 +566,9 @@ export class ThreeRenderer {
     if (structureLayer) {
       const result = buildBuildingMeshes(structureLayer.objects, defMap, palettes, hLookup)
       for (const m of result.wallMeshes) {
-        m.castShadow = true
+        // castShadow was decided per-volume (short buildings opt out to
+        // trim the shadow pass); don't clobber it here. receiveShadow is
+        // safe to set universally — receiving is cheap per-fragment.
         m.receiveShadow = true
         this.buildingGroup.add(m)
       }
@@ -789,12 +791,12 @@ export class ThreeRenderer {
   /** Size and aim the sun's shadow camera to cover the town tightly. */
   private updateShadowCamera(): void {
     const cam = this.sunLight.shadow.camera as THREE.OrthographicCamera
-    // Tighten shadow bounds to a 28m radius around the player instead of
-    // the whole town (often 40–60m). A 512² shadow map spread over ~120m
-    // of world had ~4m per texel — too blurry AND costing the entire map
-    // in the shadow rasterization. With 28m radius × 512 tex, 0.11m per
-    // texel — sharper shadows AND far fewer casters in the frustum.
-    const SHADOW_RADIUS = 28
+    // Tight walkaround radius — only casters within ~18m of the player
+    // rasterize into the shadow map. At 512² that's 0.07m/texel: crisp
+    // shadow edges at eye level, and the shadow pass only iterates the
+    // handful of buildings inside the frustum. Previous 28m covered most
+    // of a 48-tile town so practically every wall was a caster.
+    const SHADOW_RADIUS = 18
     const r = Math.min(this.townRadius, SHADOW_RADIUS)
     cam.left = -r
     cam.right = r
