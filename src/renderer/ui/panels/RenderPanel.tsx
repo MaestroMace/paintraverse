@@ -31,6 +31,16 @@ export function RenderPanel() {
   const threeRef = useRef<ThreeRenderer | null>(null)
   const threeContainerRef = useRef<HTMLDivElement>(null)
   const [threeActive, setThreeActive] = useState(false)
+  // Tracks the structural inputs we last uploaded to the in-panel ThreeRenderer
+  // so environment-only changes don't trigger a full scene rebuild.
+  const threeLoadedRef = useRef<{
+    layers: unknown
+    gridWidth: number
+    gridHeight: number
+    tileSize: number
+    objectDefs: unknown
+    palettes: unknown
+  } | null>(null)
 
   const map = useAppStore((s) => s.map)
   const objectDefs = useAppStore((s) => s.objectDefinitions)
@@ -133,6 +143,7 @@ export function RenderPanel() {
       if (threeRef.current) {
         threeRef.current.dispose()
         threeRef.current = null
+        threeLoadedRef.current = null
       }
       return
     }
@@ -143,17 +154,49 @@ export function RenderPanel() {
     renderer.init(container)
     renderer.loadMap(map, objectDefs, buildingPalettes)
     threeRef.current = renderer
+    threeLoadedRef.current = {
+      layers: map.layers,
+      gridWidth: map.gridWidth,
+      gridHeight: map.gridHeight,
+      tileSize: map.tileSize,
+      objectDefs,
+      palettes: buildingPalettes,
+    }
 
     return () => {
       renderer.dispose()
       threeRef.current = null
+      threeLoadedRef.current = null
     }
   }, [threeActive]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reload map when it changes while 3D view is active
+  // Reload the map only when its structural shape changes. updateEnvironment
+  // spreads a new map object for every slider tick; rebuilding the entire
+  // scene on each of those is a UI catastrophe.
   useEffect(() => {
-    if (threeRef.current && threeActive) {
-      threeRef.current.loadMap(map, objectDefs, buildingPalettes)
+    const r = threeRef.current
+    const prev = threeLoadedRef.current
+    if (!r || !threeActive || !prev) return
+    if (
+      prev.layers === map.layers &&
+      prev.gridWidth === map.gridWidth &&
+      prev.gridHeight === map.gridHeight &&
+      prev.tileSize === map.tileSize &&
+      prev.objectDefs === objectDefs &&
+      prev.palettes === buildingPalettes
+    ) {
+      // Env-only change: nudge lighting only.
+      r.updateLighting(map.environment.timeOfDay)
+      return
+    }
+    r.loadMap(map, objectDefs, buildingPalettes)
+    threeLoadedRef.current = {
+      layers: map.layers,
+      gridWidth: map.gridWidth,
+      gridHeight: map.gridHeight,
+      tileSize: map.tileSize,
+      objectDefs,
+      palettes: buildingPalettes,
     }
   }, [map, objectDefs, buildingPalettes, threeActive])
 

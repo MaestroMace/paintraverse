@@ -16,7 +16,18 @@ export function ThreeViewport() {
   const map = useAppStore((s) => s.map)
   const objectDefs = useAppStore((s) => s.objectDefinitions)
   const buildingPalettes = useAppStore((s) => s.buildingPalettes)
-  const loadedMapRef = useRef<unknown>(null)
+  // Track the structural shape we last uploaded to the renderer so we can
+  // skip rebuilds when only an unrelated field (e.g. environment.timeOfDay)
+  // mutated. updateEnvironment creates a new `map` reference via spread,
+  // but layers/grid dims stay referentially stable.
+  const loadedStructRef = useRef<{
+    layers: unknown
+    gridWidth: number
+    gridHeight: number
+    tileSize: number
+    objectDefs: unknown
+    palettes: unknown
+  } | null>(null)
 
   useEffect(() => {
     const container = containerRef.current
@@ -24,34 +35,66 @@ export function ThreeViewport() {
     const renderer = new ThreeRenderer()
     renderer.init(container)
     renderer.loadMap(map, objectDefs, buildingPalettes)
-    loadedMapRef.current = map
+    loadedStructRef.current = {
+      layers: map.layers,
+      gridWidth: map.gridWidth,
+      gridHeight: map.gridHeight,
+      tileSize: map.tileSize,
+      objectDefs,
+      palettes: buildingPalettes,
+    }
     rendererRef.current = renderer
     _activeRenderer = renderer
     return () => {
       renderer.dispose()
       rendererRef.current = null
       _activeRenderer = null
-      loadedMapRef.current = null
+      loadedStructRef.current = null
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!rendererRef.current || map === loadedMapRef.current) return
-    rendererRef.current.loadMap(map, objectDefs, buildingPalettes)
-    loadedMapRef.current = map
+    const r = rendererRef.current
+    const prev = loadedStructRef.current
+    if (!r || !prev) return
+    // Only rebuild when the scene's actual structural inputs changed. Env
+    // tweaks (time of day, weather) spread a new map object but leave these
+    // references intact — rebuilding would toss the whole Three scene on
+    // every slider tick.
+    if (
+      prev.layers === map.layers &&
+      prev.gridWidth === map.gridWidth &&
+      prev.gridHeight === map.gridHeight &&
+      prev.tileSize === map.tileSize &&
+      prev.objectDefs === objectDefs &&
+      prev.palettes === buildingPalettes
+    ) return
+    r.loadMap(map, objectDefs, buildingPalettes)
+    loadedStructRef.current = {
+      layers: map.layers,
+      gridWidth: map.gridWidth,
+      gridHeight: map.gridHeight,
+      tileSize: map.tileSize,
+      objectDefs,
+      palettes: buildingPalettes,
+    }
   }, [map, objectDefs, buildingPalettes])
 
   useEffect(() => {
     if (rendererRef.current) rendererRef.current.updateLighting(map.environment.timeOfDay)
   }, [map.environment.timeOfDay])
 
-  const [fpsText, setFpsText] = useState('')
+  // FPS/draws telemetry: updates once per second. Writing to a ref'd DOM
+  // node avoids a React state update → full component re-render every tick,
+  // which would reconcile the entire viewport subtree just to redraw one
+  // short string.
+  const fpsTextRef = useRef<HTMLDivElement>(null)
   const [locked, setLocked] = useState(false)
   useEffect(() => {
     const iv = setInterval(() => {
-      if (rendererRef.current) {
-        setFpsText(`${rendererRef.current.fps} FPS | ${rendererRef.current.drawCalls} draws`)
-      }
+      const el = fpsTextRef.current
+      const r = rendererRef.current
+      if (el && r) el.textContent = `${r.fps} FPS | ${r.drawCalls} draws`
     }, 1000)
     const onLockChange = () => setLocked(!!rendererRef.current?.isPointerLocked)
     document.addEventListener('pointerlockchange', onLockChange)
@@ -105,15 +148,17 @@ export function ThreeViewport() {
           </div>
         </div>
       )}
-      {/* FPS — top left */}
-      <div style={{
-        position: 'absolute', top: 4, left: 4,
-        background: 'rgba(0,0,0,0.5)', padding: '2px 6px',
-        borderRadius: 3, fontSize: 10, fontFamily: 'monospace',
-        color: '#4ade80', pointerEvents: 'none',
-      }}>
-        {fpsText || '...'}
-      </div>
+      {/* FPS — top left. Content written imperatively via fpsTextRef to
+          avoid re-rendering the viewport each tick. */}
+      <div
+        ref={fpsTextRef}
+        style={{
+          position: 'absolute', top: 4, left: 4,
+          background: 'rgba(0,0,0,0.5)', padding: '2px 6px',
+          borderRadius: 3, fontSize: 10, fontFamily: 'monospace',
+          color: '#4ade80', pointerEvents: 'none',
+        }}
+      >...</div>
       {/* Screenshot — bottom right */}
       <button
         onClick={handleScreenshot}
