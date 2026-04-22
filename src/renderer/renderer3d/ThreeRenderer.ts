@@ -1090,14 +1090,26 @@ export class ThreeRenderer {
     const poolOpacity = windowGlow <= 0 ? 0 : Math.min(0.55, 0.15 + windowGlow * 0.4)
     setLampPoolOpacity(poolOpacity)
 
-    // Smoke particles: bright grey at day reads fine, but at night they
-    // glow unnaturally white. Tint toward a dim ember color after dusk.
+    // Particle materials: all TOD-driven updates happen here, in the slow
+    // path, instead of being re-applied every animate-loop frame. Saves
+    // ~3 material attribute writes × N particle systems × 60 Hz.
+    const birdOpacity = isNight ? 0.0 : isDusk ? 0.55 : 0.0
+    // `isNight` here uses the updateLighting cutoff (19); bird roost window
+    // extends a bit later (20) to match the hand-authored dusk feel.
+    const birdsRoosted = timeOfDay < 5 || timeOfDay >= 20
     for (const ps of this.particleSystems) {
-      if (ps.type !== 'smoke') continue
       const mat = ps.points.material as THREE.PointsMaterial
-      if (isNight) { mat.color.setHex(0x504a52); mat.opacity = 0.22 }
-      else if (isDusk || isDawn) { mat.color.setHex(0x9a8878); mat.opacity = 0.3 }
-      else { mat.color.setHex(0xbbbbbb); mat.opacity = 0.35 }
+      if (ps.type === 'smoke') {
+        if (isNight) { mat.color.setHex(0x504a52); mat.opacity = 0.22 }
+        else if (isDusk || isDawn) { mat.color.setHex(0x9a8878); mat.opacity = 0.3 }
+        else { mat.color.setHex(0xbbbbbb); mat.opacity = 0.35 }
+      } else if (ps.type === 'firefly') {
+        mat.opacity = isNight ? 0.7 : isDusk ? 0.3 : 0.05
+        mat.color.setHex(isNight ? 0xffdd44 : 0xffffff)
+        mat.size = isNight ? 0.12 : 0.04
+      } else if (ps.type === 'bird') {
+        mat.opacity = birdsRoosted ? 0.0 : birdOpacity
+      }
     }
   }
 
@@ -1245,6 +1257,12 @@ export class ThreeRenderer {
       // Birds: orbit a fixed spire center. velocities = (radius, speed, phase).
       // Position is recomputed from scratch each frame, no force accumulation.
       if (ps.type === 'bird') {
+        // Birds are only visible during the dusk window; skip the orbit
+        // integration and buffer upload entirely outside that window. The
+        // opacity assignment itself moved to updateLighting() — no point
+        // recomputing it 60 Hz from a value that changes at sub-Hz rates.
+        const mat = ps.points.material as THREE.PointsMaterial
+        if (mat.opacity <= 0) continue
         for (let i = 0; i < ps.count; i++) {
           const i3 = i * 3
           const r = vel[i3], w = vel[i3 + 1], phase = vel[i3 + 2]
@@ -1255,12 +1273,16 @@ export class ThreeRenderer {
         }
         const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
         attr.needsUpdate = true
-        // Birds fade at deep night — they roost. Fully visible at dusk.
-        const isNight = this.currentTimeOfDay < 5 || this.currentTimeOfDay >= 20
-        const isDusk = this.currentTimeOfDay >= 17 && this.currentTimeOfDay < 20
-        ;(ps.points.material as THREE.PointsMaterial).opacity =
-          isNight ? 0.0 : isDusk ? 0.55 : 0.0
         continue
+      }
+
+      // Fireflies: effectively invisible during the day (opacity 0.05). Skip
+      // the jitter integration AND the buffer re-upload — nobody can see
+      // them and they respawn from orig on each cycle anyway. Opacity and
+      // material attributes are set once per TOD change in updateLighting.
+      if (ps.type === 'firefly') {
+        const mat = ps.points.material as THREE.PointsMaterial
+        if (mat.opacity < 0.1) continue
       }
 
       for (let i = 0; i < ps.count; i++) {
@@ -1307,15 +1329,6 @@ export class ThreeRenderer {
 
       const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
       attr.needsUpdate = true
-
-      // Fireflies: visible at night, faded during day
-      if (ps.type === 'firefly') {
-        const isNight = this.currentTimeOfDay < 5 || this.currentTimeOfDay >= 19
-        const isDusk = this.currentTimeOfDay >= 17 && this.currentTimeOfDay < 19
-        ;(ps.points.material as THREE.PointsMaterial).opacity = isNight ? 0.7 : isDusk ? 0.3 : 0.05
-        ;(ps.points.material as THREE.PointsMaterial).color.setHex(isNight ? 0xffdd44 : 0xffffff)
-        ;(ps.points.material as THREE.PointsMaterial).size = isNight ? 0.12 : 0.04
-      }
     }
   }
 
