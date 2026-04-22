@@ -238,6 +238,14 @@ export class ThreeRenderer {
   private _right = new THREE.Vector3()
   private _up = new THREE.Vector3(0, 1, 0)
   private _target = new THREE.Vector3()
+  // Scratch vectors reused every frame by the animate loop and updateLighting
+  // so we don't allocate-and-GC a Vector3 60× per second in the hot path.
+  private _scratchSunDir = new THREE.Vector3()
+  private _scratchSunDir2 = new THREE.Vector3()
+  // Fog is mutated in place across time-of-day bands rather than replaced;
+  // Three.js is happy to pick up color/density changes on the existing
+  // instance, and we stop allocating a FogExp2 per slider tick.
+  private _fog = new THREE.FogExp2(0xd0e0f0, 0.004)
 
   // FPS tracking — wall-clock based so slow frames count correctly.
   private _fpsFrames = 0
@@ -278,7 +286,8 @@ export class ThreeRenderer {
   constructor() {
     this.scene = new THREE.Scene()
     this.scene.background = null // sky dome replaces this
-    this.scene.fog = new THREE.FogExp2(0xd0e0f0, 0.004) // light fog, see most of town
+    // Shared FogExp2 instance; updateLighting mutates color/density per TOD.
+    this.scene.fog = this._fog
 
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.5, 500)
     this.camera.position.set(20, 8, 20)
@@ -940,7 +949,7 @@ export class ThreeRenderer {
       this.sunLight.position.set(this.townCenterX, 40, sunZ) // moonlight from above
       this.ambientLight.intensity = 0.35
       this.ambientLight.color.setHex(0x2a3858)
-      this.scene.fog = new THREE.FogExp2(0x101830, 0.008)
+      this._fog.color.setHex(0x101830); this._fog.density = 0.008
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x0a0e2a)
         this.skyUniforms.uHorizon.value.setHex(0x101830)
@@ -961,7 +970,7 @@ export class ThreeRenderer {
       this.sunLight.position.set(sunX, Math.max(5, sunY), sunZ)
       this.ambientLight.intensity = 0.4
       this.ambientLight.color.setHex(0x604838)
-      this.scene.fog = new THREE.FogExp2(0xffaa88, 0.004)
+      this._fog.color.setHex(0xffaa88); this._fog.density = 0.004
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0xcc6633)
         this.skyUniforms.uHorizon.value.setHex(0xffaa88)
@@ -973,8 +982,10 @@ export class ThreeRenderer {
       }
       if (this.sunDisc) {
         (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xff8844)
-        const dir = new THREE.Vector3(sunX - this.townCenterX, Math.max(5, sunY), sunZ - this.townCenterZ).normalize()
-        this.sunDisc.position.copy(dir).multiplyScalar(200)
+        this._scratchSunDir2
+          .set(sunX - this.townCenterX, Math.max(5, sunY), sunZ - this.townCenterZ)
+          .normalize()
+        this.sunDisc.position.copy(this._scratchSunDir2).multiplyScalar(200)
         this.sunDisc.scale.setScalar(1.2) // larger at horizon
       }
     } else if (isGolden) {
@@ -983,7 +994,7 @@ export class ThreeRenderer {
       this.sunLight.position.set(sunX, sunY, sunZ)
       this.ambientLight.intensity = 0.5
       this.ambientLight.color.setHex(0x706050)
-      this.scene.fog = new THREE.FogExp2(0xe8d8c8, 0.004)
+      this._fog.color.setHex(0xe8d8c8); this._fog.density = 0.004
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x5588bb)
         this.skyUniforms.uHorizon.value.setHex(0xe8d8c8)
@@ -994,8 +1005,10 @@ export class ThreeRenderer {
       }
       if (this.sunDisc) {
         (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xffdd88)
-        const dir = new THREE.Vector3(sunX - this.townCenterX, sunY, sunZ - this.townCenterZ).normalize()
-        this.sunDisc.position.copy(dir).multiplyScalar(200)
+        this._scratchSunDir2
+          .set(sunX - this.townCenterX, sunY, sunZ - this.townCenterZ)
+          .normalize()
+        this.sunDisc.position.copy(this._scratchSunDir2).multiplyScalar(200)
         this.sunDisc.scale.setScalar(1.0)
       }
     } else {
@@ -1004,7 +1017,7 @@ export class ThreeRenderer {
       this.sunLight.position.set(sunX, sunY, sunZ)
       this.ambientLight.intensity = 0.6
       this.ambientLight.color.setHex(0x606880)
-      this.scene.fog = new THREE.FogExp2(0xd0e0f0, 0.004)
+      this._fog.color.setHex(0xd0e0f0); this._fog.density = 0.004
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x4488cc)
         this.skyUniforms.uHorizon.value.setHex(0xd0e0f0)
@@ -1016,8 +1029,10 @@ export class ThreeRenderer {
       }
       if (this.sunDisc) {
         (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xffee88)
-        const dir = new THREE.Vector3(sunX - this.townCenterX, sunY, sunZ - this.townCenterZ).normalize()
-        this.sunDisc.position.copy(dir).multiplyScalar(200)
+        this._scratchSunDir2
+          .set(sunX - this.townCenterX, sunY, sunZ - this.townCenterZ)
+          .normalize()
+        this.sunDisc.position.copy(this._scratchSunDir2).multiplyScalar(200)
         this.sunDisc.scale.setScalar(0.8)
       }
     }
@@ -1324,7 +1339,10 @@ export class ThreeRenderer {
       // shadow-pass perf win: ~4× fewer casters in shadow frustum at
       // typical walkaround distance.
       if (this.sunLight.shadow.camera && this.renderer?.shadowMap.enabled) {
-        const sunDir = this.sunLight.position.clone().sub(this.sunLight.target.position).normalize()
+        const sunDir = this._scratchSunDir
+          .copy(this.sunLight.position)
+          .sub(this.sunLight.target.position)
+          .normalize()
         this.sunLight.target.position.set(
           this.camera.position.x, 0, this.camera.position.z,
         )
