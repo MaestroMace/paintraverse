@@ -651,11 +651,175 @@ export function buildBuildingMeshes(
     // === DOORSTEP → batched ===
     // Front-face doorstep — also a ground feature, no lean (a building tips
     // but its threshold stays flat) but does follow yaw so the step lands on
-    // the rotated +Z face.
+    // the rotated +Z face. Noble/temple/wealthy buildings get a 2- or
+    // 3-step approach instead of a single threshold; everyone else gets
+    // the simple single step. Multi-step entries narrow as they go up
+    // (the bottom step is widest) so the silhouette reads as a stone
+    // approach rather than a stack.
     if (fp.w >= 2) {
-      const geo = new THREE.BoxGeometry(0.5, 0.05, 0.15)
-      localToWorld(geo, 0, 0.025, fp.h / 2 + 0.08, 0, 0, rotationY, wx, wy, wz)
-      detailBatch.addPositioned(geo, 0x808080)
+      const wantsStepUp = (district === 'noble' || district === 'temple' ||
+        styleVector.wealth > 0.65 || obj.definitionId === 'mansion' ||
+        obj.definitionId === 'cathedral' || obj.definitionId === 'guild_hall')
+      if (wantsStepUp) {
+        const stepCount = (district === 'temple' || obj.definitionId === 'cathedral') ? 3 : 2
+        const stepH = 0.07
+        for (let s = 0; s < stepCount; s++) {
+          const stepW = 0.85 - s * 0.10                  // narrower as we go up
+          const stepD = 0.18 - s * 0.02
+          const stepZ = fp.h / 2 + (stepCount - s) * 0.13
+          const geo = new THREE.BoxGeometry(stepW, stepH, stepD)
+          localToWorld(geo, 0, stepH / 2 + s * stepH, stepZ, 0, 0, rotationY, wx, wy, wz)
+          detailBatch.addPositioned(geo, 0x9c9890)        // limestone steps
+        }
+      } else {
+        const geo = new THREE.BoxGeometry(0.5, 0.05, 0.15)
+        localToWorld(geo, 0, 0.025, fp.h / 2 + 0.08, 0, 0, rotationY, wx, wy, wz)
+        detailBatch.addPositioned(geo, 0x808080)
+      }
+    }
+
+    // === STOOP BENCH → batched ===
+    // Stone bench beside the front door, on residential/market streets.
+    // The "neighbours sit out at dusk" reading. Side picked by hash so
+    // benches don't all align on one side of every door. Skip on
+    // landmarks (their architecture doesn't want sidewalks of stone) and
+    // tiny buildings where it'd push past the wall edge.
+    const wantsStoop = !isLandmark && !mainVol.circular && fp.w >= 3 &&
+      !NO_JITTER.has(obj.definitionId) &&
+      (district === 'residential' || district === 'market' || district === 'artisan' ||
+       district === 'garden') &&
+      rand01(hash, 1101) < 0.30
+    if (wantsStoop) {
+      const benchW = 0.85, benchH = 0.40, benchD = 0.32
+      const benchSide = rand01(hash, 1103) < 0.5 ? -1 : 1
+      const benchX = benchSide * (0.45 + benchW / 2)        // beside the door area
+      const benchZ = fp.h / 2 + benchD / 2 - 0.04
+      const bench = new THREE.BoxGeometry(benchW, benchH, benchD)
+      localToWorld(bench, benchX, benchH / 2, benchZ, 0, 0, rotationY, wx, wy, wz)
+      detailBatch.addPositioned(bench, 0x7a7068)             // weathered stone
+      // Two small support legs at the ends, slightly inset, so the bench
+      // reads as a slab on legs rather than a block. Tiny ornaments.
+      for (const off of [-benchW * 0.35, benchW * 0.35]) {
+        const leg = new THREE.BoxGeometry(0.10, benchH - 0.06, 0.10)
+        localToWorld(leg, benchX + off, (benchH - 0.06) / 2, benchZ, 0, 0, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(leg, 0x5a544a)
+      }
+    }
+
+    // === HITCHING POST → batched ===
+    // Wooden post with a horizontal crossbar at the top — for tying horses.
+    // Only at tavern/inn fronts; medieval signature for "the alehouse on
+    // the corner". Two posts spaced apart, just past the front face.
+    // Skip on market-district taverns — they get an awning, whose front
+    // posts land near the same XZ as the hitching posts and the two would
+    // read as a confusing double-post.
+    const wantsHitching = (obj.definitionId === 'tavern' || obj.definitionId === 'inn' ||
+      obj.definitionId === 'stable') &&
+      district !== 'market' &&
+      rand01(hash, 1201) < 0.7 && fp.w >= 3
+    if (wantsHitching) {
+      const postH = 0.88, postT = 0.09
+      const postZ = fp.h / 2 + 0.55
+      for (const xOff of [-0.6, 0.6]) {
+        const post = new THREE.BoxGeometry(postT, postH, postT)
+        localToWorld(post, xOff, postH / 2, postZ, 0, 0, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(post, 0x4a3422)         // dark oak
+        // Small ball cap on each post.
+        const cap = new THREE.SphereGeometry(0.08, 5, 4)
+        localToWorld(cap, xOff, postH + 0.04, postZ, 0, 0, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(cap, 0x4a3422)
+      }
+      // Crossbar tying the two posts.
+      const cross = new THREE.BoxGeometry(1.2 + postT, 0.08, 0.06)
+      localToWorld(cross, 0, postH - 0.10, postZ, 0, 0, rotationY, wx, wy, wz)
+      ornamentBatch.addPositioned(cross, 0x4a3422)
+    }
+
+    // === CELLAR DOOR → ornament-batched ===
+    // Slanted wood double-door at ground level, set against a SIDE face
+    // (±X) of larger commercial / residential buildings. The 35° tilt is
+    // the giveaway silhouette — flat doors read as "wall" but tilted ones
+    // read as "cellar entrance" instantly. Door splits visually into two
+    // leaves with a thin gap line down the middle.
+    const wantsCellar = !isLandmark && !mainVol.circular &&
+      mainVol.width >= 2.4 && mainVol.depth >= 1.6 &&
+      !NO_JITTER.has(obj.definitionId) &&
+      (district === 'market' || district === 'artisan' || district === 'residential' ||
+       obj.definitionId === 'tavern' || obj.definitionId === 'inn') &&
+      rand01(hash, 1301) < 0.18
+    if (wantsCellar) {
+      const cellarSide = rand01(hash, 1303) < 0.5 ? -1 : 1
+      const halfW = mainVol.width / 2
+      const wallLocalX = mainVol.offsetX + cellarSide * halfW
+      // Place toward the back-half of the side wall so it doesn't compete
+      // with the front-door area visually.
+      const cellarLocalZ = mainVol.offsetZ + (rand01(hash, 1305) - 0.5) * mainVol.depth * 0.5
+      const doorLen = 1.10        // along-the-wall dimension (Z in local)
+      const doorReach = 0.85      // along-the-slope dimension
+      const slope = 35 * Math.PI / 180
+      const cosS = Math.cos(slope), sinS = Math.sin(slope)
+      // The door slants from a low OUTER edge (at ground, away from wall)
+      // up to a higher INNER edge (against the wall, raised by reach*sin).
+      // Geometry origin sits at the OUTER edge so we can rotate around it.
+      // For cellarSide=+1 the door extends toward +X (its +X end goes to the
+      // wall). For -1 it extends toward -X. Translate accordingly so the
+      // outer edge lands at the geometry origin in either case.
+      const innerEdgeXOffset = cellarSide * doorReach * cosS
+      // cellarOuterX = world X of the door's outer edge. Door covers
+      // [cellarOuterX, cellarOuterX + innerEdgeXOffset] in world X. Set so
+      // the inner edge ends at the wall.
+      const cellarOuterX = wallLocalX - innerEdgeXOffset
+      const cellarColor = 0x5a3a22                    // weathered red-brown wood
+      const door = new THREE.BoxGeometry(doorReach, 0.05, doorLen)
+      // Translate so origin sits at the outer-edge end of the slope.
+      door.translate(cellarSide * doorReach / 2, 0, 0)
+      // Rotate around the outer edge so the inner edge tilts UP toward the wall.
+      door.rotateZ(cellarSide * slope)
+      localToWorld(door, cellarOuterX, 0.04, cellarLocalZ, 0, 0, rotationY, wx, wy, wz)
+      ornamentBatch.addPositioned(door, cellarColor)
+      // Two iron straps across the door at 25%/70% along its length.
+      for (const tFrac of [0.25, 0.7]) {
+        const strap = new THREE.BoxGeometry(doorReach * 0.95, 0.06, 0.05)
+        strap.translate(cellarSide * doorReach / 2, 0.025, 0)
+        strap.rotateZ(cellarSide * slope)
+        const strapZ = cellarLocalZ - doorLen / 2 + tFrac * doorLen
+        localToWorld(strap, cellarOuterX, 0.04, strapZ, 0, 0, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(strap, 0x2a201a)   // black iron
+      }
+    }
+
+    // === CORNER WHEEL GUARDS → batched ===
+    // Stone bumpers at the building's street-facing corners — protected
+    // the corner masonry from cart wheels in tight medieval streets.
+    // Reads as "the locals know to swing wide here." Only on sides facing
+    // a road (per roadSide) and only when there isn't already a corner
+    // post / quoin emitted at that corner (those would clash visually).
+    const wantsWheelGuard = !isLandmark && !wantsTimberPosts && !wantsQuoins &&
+      !mainVol.circular && fp.w >= 2 &&
+      !NO_JITTER.has(obj.definitionId) &&
+      (styleVector.wealth > 0.4 || district === 'market' || district === 'noble') &&
+      rand01(hash, 1401) < 0.40
+    if (wantsWheelGuard) {
+      const guardR = 0.13
+      const guardH = 0.42
+      const halfW = mainVol.width / 2
+      const halfD = mainVol.depth / 2
+      // Pick the two FRONT corners (toward the street, in the building's
+      // local +Z direction since the building has been rotated to face the
+      // road via roadSide).
+      const corners: Array<[number, number]> = [
+        [mainVol.offsetX + halfW + guardR * 0.6, mainVol.offsetZ + halfD + guardR * 0.6],
+        [mainVol.offsetX - halfW - guardR * 0.6, mainVol.offsetZ + halfD + guardR * 0.6],
+      ]
+      for (const [gx, gz] of corners) {
+        // Cylindrical bumper with a small dome cap on top.
+        const guard = new THREE.CylinderGeometry(guardR, guardR * 1.05, guardH, 8)
+        localToWorld(guard, gx, guardH / 2, gz, 0, 0, rotationY, wx, wy, wz)
+        detailBatch.addPositioned(guard, 0x6e645a)        // weathered limestone
+        const dome = new THREE.SphereGeometry(guardR, 6, 4, 0, Math.PI * 2, 0, Math.PI / 2)
+        localToWorld(dome, gx, guardH, gz, 0, 0, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(dome, 0x6e645a)
+      }
     }
 
     // === DOORWAY SURROUND → ornament-batched ===
