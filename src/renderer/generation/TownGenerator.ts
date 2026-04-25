@@ -993,6 +993,29 @@ export class TownGenerator implements IMapGenerator {
       }
       if (!free) continue
 
+      // Detect which side of the placed footprint faces a road. Counts road
+      // tiles along each side; the side with the most wins. Ties resolve
+      // N > S > W > E. This becomes the building's "primary face" in the
+      // renderer so painted doors, doorsteps, awnings, signs all land on
+      // the wall facing the street rather than randomly pointed away.
+      let roadSide: 'N' | 'S' | 'E' | 'W' | null = null
+      let nN = 0, nS = 0, nE = 0, nW = 0
+      for (let dx = 0; dx < bw; dx++) {
+        if (roadMap[ry - 1]?.[rx + dx]) nN++
+        if (roadMap[ry + bh]?.[rx + dx]) nS++
+      }
+      for (let dy = 0; dy < bh; dy++) {
+        if (roadMap[ry + dy]?.[rx - 1]) nW++
+        if (roadMap[ry + dy]?.[rx + bw]) nE++
+      }
+      const best = Math.max(nN, nS, nE, nW)
+      if (best > 0) {
+        if (nN === best) roadSide = 'N'
+        else if (nS === best) roadSide = 'S'
+        else if (nW === best) roadSide = 'W'
+        else roadSide = 'E'
+      }
+
       // Growth-ring-aware floor count
       const heightVal = heightMap[ry]?.[rx] ?? 0
       let baseFloors: number
@@ -1035,6 +1058,7 @@ export class TownGenerator implements IMapGenerator {
         properties: {
           floors, district: dType,
           style, growthRing: ringChar,
+          roadSide,
           hasAwning: dType === 'market' || (dType === 'residential' && rng() > 0.6),
           hasBalcony: type.id === 'balcony_house' || (dType === 'noble' && rng() > 0.5),
           hasFlowerBox: dType === 'garden' || dType === 'noble' || (dType === 'residential' && rng() > 0.7),

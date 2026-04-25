@@ -172,14 +172,43 @@ export function buildBuildingMeshes(
 
     // Continuous Y rotation per building — computed once and applied to
     // the plinth, chimneys, and all volumes so they rotate as a unit.
-    // Amplitude scales with footprint aspect so long narrow buildings
-    // don't diagonal-overflow their grid slot catastrophically.
+    //
+    // BASE rotation: align the building's painted-door front face to the road.
+    // Massing's primaryFace is 'z+' (door painted on the +Z wall). If the
+    // generator marked a roadSide, we rotate so +Z points toward that side:
+    //   roadSide 'S' (road south of building, world +Z): rot = 0
+    //   roadSide 'N' (world -Z): rot = π
+    //   roadSide 'E' (world +X): rot = π/2
+    //   roadSide 'W' (world -X): rot = -π/2
+    //
+    // JITTER: small ±15° wobble around the base rotation so rows aren't
+    // grid-locked. Capped tighter than before since we now have meaningful
+    // base alignment to preserve.
     let rotationY = 0
     if (!NO_JITTER.has(obj.definitionId)) {
+      const roadSide = obj.properties.roadSide as 'N' | 'S' | 'E' | 'W' | undefined
+      // Apply E/W base rotation ONLY for square-ish footprints. Rotating a
+      // 1×3 building by ±π/2 would swap its world-axis dimensions and the
+      // rotated bounding box would overflow the tile rectangle the generator
+      // reserved, colliding with neighboring buildings or punching into roads.
+      // N/S rotation (π) is safe for any footprint — the rotated bounding box
+      // is unchanged.
+      const isSquareish = Math.abs(fp.w - fp.h) <= 1
+      let baseRot = 0
+      if (roadSide === 'N') baseRot = Math.PI
+      else if (roadSide === 'E' && isSquareish) baseRot = Math.PI / 2
+      else if (roadSide === 'W' && isSquareish) baseRot = -Math.PI / 2
+      // 'S', unspecified, or non-square E/W → 0
       const aspect = Math.min(fp.w, fp.h) / Math.max(fp.w, fp.h)
-      const maxRot = aspect * 0.5                              // ~28° for square
-      rotationY = (rand01(hash, 6) - 0.5) * 2 * maxRot
-      if (rand01(hash, 7) < 0.25) rotationY = 0                // 25% stay aligned
+      // Wobble amplitude: smaller when we have a known road alignment to
+      // preserve, larger when we don't (preserves the old behaviour for
+      // buildings the generator didn't tag).
+      const hasAlignment = roadSide && (roadSide === 'N' || roadSide === 'S' ||
+        ((roadSide === 'E' || roadSide === 'W') && isSquareish))
+      const maxWobble = hasAlignment ? 0.26 * aspect : 0.5 * aspect  // ~15° vs ~28° for square
+      const wobble = (rand01(hash, 6) - 0.5) * 2 * maxWobble
+      rotationY = baseRot + wobble
+      if (rand01(hash, 7) < 0.25) rotationY = baseRot           // 25% stay perfectly aligned
     }
 
     // Organic lean — small tilts that pivot around the building base, so
@@ -309,6 +338,9 @@ export function buildBuildingMeshes(
     // casting to halve the caster count in the shadow frustum (biggest
     // single draw-call sink was the shadow pass iterating every wall).
     const castsShadow = floors >= 2
+    const stoneBased = styleVector.stone > 0.55 ||
+      dominantArchetype === 'nobleStone' || dominantArchetype === 'gothicStone' ||
+      district === 'noble' || district === 'temple'
     const emitCtx = {
       centerX: wx,
       centerZ: wz,
@@ -323,6 +355,7 @@ export function buildBuildingMeshes(
       leanZ,
       hash,
       weather: styleVector.weather,
+      stoneBased,
       castsShadow,
     }
     for (const vol of massing.volumes) {

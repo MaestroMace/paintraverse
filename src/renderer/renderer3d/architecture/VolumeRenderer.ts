@@ -155,6 +155,9 @@ export interface EmitVolumeContext {
   hash: number
   /** Style-vector weather in [0,1] — drives color darkening / mossy tint. */
   weather: number
+  /** If true, this is a stone-dominated building (noble/gothic/high stone
+   *  axis). Drives the heavier two-tier base course at the wall foot. */
+  stoneBased?: boolean
   /** If true, suppress fancy roof ornaments (dormer/finial) for this volume. */
   skipRoofOrnaments?: boolean
   /** Should this volume's wall meshes cast sun shadows. Defaults true if
@@ -279,9 +282,19 @@ export function emitVolume(
   }
 
   // --- Stone base course --- wraps the volume perimeter (lean+yaw applied).
+  // Stone-dominated buildings get a heavier TWO-TIER base: a thicker, more
+  // projecting plinth band at the bottom, then a slightly less-projecting
+  // band on top — the classic "step-out" reading you see on noble town
+  // halls and any building meant to read as monumental. Other buildings
+  // keep the simple single band.
   if (!v.circular && v.role !== 'chimneyVol' && v.height > 0.9) {
-    const baseH = Math.min(0.28, v.height * 0.18)
-    const baseProj = 0.08
+    const wantsHeavyBase = !!ctx.stoneBased &&
+      (v.role === 'mainBody' || v.role === 'tower' || v.role === 'transept') &&
+      v.height > 1.6
+    const baseH = wantsHeavyBase
+      ? Math.min(0.36, v.height * 0.15)
+      : Math.min(0.28, v.height * 0.18)
+    const baseProj = wantsHeavyBase ? 0.16 : 0.08
     const baseColor = shiftColor(wallColor, -0.12, -0.1, -0.08)
     const volLocalY = v.bottomY + baseH / 2
 
@@ -297,10 +310,43 @@ export function emitVolume(
     const bRight = new THREE.BoxGeometry(baseProj, baseH, v.depth)
     localToWorld(bRight, lx + v.width / 2 + baseProj / 2, volLocalY, lz, leanX, leanZ, rot, cx, cy, cz)
     ornamentBatch.addPositioned(bRight, baseColor)
+
+    // Second tier on stone buildings — sits ON the lower band, projects less,
+    // creates the step-out silhouette.
+    if (wantsHeavyBase) {
+      const upperH = Math.min(0.22, v.height * 0.10)
+      const upperProj = 0.09       // less than baseProj so we step IN
+      const upperY = v.bottomY + baseH + upperH / 2
+      const upperColor = shiftColor(wallColor, -0.07, -0.06, -0.05)
+      const uFront = new THREE.BoxGeometry(v.width + upperProj * 2, upperH, upperProj)
+      localToWorld(uFront, lx, upperY, lz + v.depth / 2 + upperProj / 2, leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(uFront, upperColor)
+      const uBack = new THREE.BoxGeometry(v.width + upperProj * 2, upperH, upperProj)
+      localToWorld(uBack, lx, upperY, lz - v.depth / 2 - upperProj / 2, leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(uBack, upperColor)
+      const uLeft = new THREE.BoxGeometry(upperProj, upperH, v.depth)
+      localToWorld(uLeft, lx - v.width / 2 - upperProj / 2, upperY, lz, leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(uLeft, upperColor)
+      const uRight = new THREE.BoxGeometry(upperProj, upperH, v.depth)
+      localToWorld(uRight, lx + v.width / 2 + upperProj / 2, upperY, lz, leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(uRight, upperColor)
+    }
   }
 
   // --- Roof ---
-  const roofGeo = buildRoof(v.width, v.depth, v.roofHeight, v.roofStyle, v.roofAxis)
+  // Ridge sag on weathered gabled/steep roofs — the centuries-old beam that
+  // settled in the middle. Only kicks in past weather=0.4; at weather=1.0
+  // the ridge midpoint drops 8% of the roof height. Hipped/mansard/cone
+  // styles ignore sag (different topology). Skipped on tall narrow towers
+  // and tiny volumes where the sag would read as a manufacturing defect
+  // rather than character.
+  let roofSag = 0
+  if ((v.roofStyle === 'gabled' || v.roofStyle === 'steep') &&
+      ctx.weather > 0.4 && v.role !== 'spire' && v.role !== 'tower' &&
+      Math.min(v.width, v.depth) >= 1.6 && v.roofHeight > 0.4) {
+    roofSag = (ctx.weather - 0.4) * 0.13      // 0..0.078 of h
+  }
+  const roofGeo = buildRoof(v.width, v.depth, v.roofHeight, v.roofStyle, v.roofAxis, roofSag)
   if (roofGeo) {
     localToWorld(roofGeo, lx, v.bottomY + v.height, lz, leanX, leanZ, rot, cx, cy, cz)
     roofBatch.addPositioned(roofGeo, roofColor)
@@ -336,6 +382,67 @@ export function emitVolume(
       })(),
     ]
     for (const g of cBands) ornamentBatch.addPositioned(g, wallColor)
+  }
+
+  // --- Window trim --- lintels + sills as actual geometry around the painted
+  // windows on the FacadeTexture. The window grid here MIRRORS the layout in
+  // FacadeTexture.createFacadeTexture: cols = max(1, floor(textureWidth*1.5)),
+  // floor rows at 64px-pitch on a (floors*64+32)px-tall canvas. We compute
+  // each window's local-frame position from those same parameters and project
+  // a small lintel/sill from the wall.
+  //
+  // Gated to ground floor + front (+Z) face only. Every window trimmed on
+  // every floor of every textured volume on both faces would be hundreds of
+  // boxes per building — the merge build cost dominates. Ground-floor +Z is
+  // the band the player sees walking past, where trim payoff is highest.
+  if (
+    v.textured && !v.circular &&
+    v.role !== 'chimneyVol' &&
+    v.width >= 1.4 && v.height >= 1.4 &&
+    floors >= 1
+  ) {
+    const textureWidth = Math.max(1, Math.round(v.width))
+    const cols = Math.max(1, Math.floor(textureWidth * 1.5))
+    const canvasH = floors * 64 + 32
+    // Window dimensions in canvas px → world:
+    const winWworld = (v.width / textureWidth) * 0.22  // ≈ 0.22m for unit width
+    const winHworld = (22.4 / canvasH) * v.height
+    // Trim sizing
+    const trimExtra = 0.10
+    const lintelH = 0.06
+    const sillH = 0.05
+    const lintelProj = 0.05
+    const sillProj = 0.08
+    // Color: shifted lighter than wall (limestone trim over warmer wall).
+    const trimColor = shiftColor(wallColor, 0.07, 0.06, 0.04)
+
+    // Ground-floor window centers in canvas px:
+    const floor = 0
+    const floorYpx = canvasH - (floor + 1) * 64
+    const winCenterCanvasY = floorYpx + 16 + 22.4 / 2  // 27.2 px below floor top
+    const winLocalY = v.bottomY + v.height * (1 - winCenterCanvasY / canvasH)
+
+    for (let col = 0; col < cols; col++) {
+      const winLocalX = lx + ((col + 1) / (cols + 1) - 0.5) * v.width
+      // Front (+Z) face only.
+      const faceLocalZ = lz + v.depth / 2
+      // Lintel (above window)
+      const lintelGeo = new THREE.BoxGeometry(winWworld + trimExtra, lintelH, lintelProj)
+      localToWorld(lintelGeo,
+        winLocalX,
+        winLocalY + winHworld / 2 + lintelH / 2,
+        faceLocalZ + lintelProj / 2,
+        leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(lintelGeo, trimColor)
+      // Sill (below window) — projects more than the lintel.
+      const sillGeo = new THREE.BoxGeometry(winWworld + trimExtra * 1.2, sillH, sillProj)
+      localToWorld(sillGeo,
+        winLocalX,
+        winLocalY - winHworld / 2 - sillH / 2,
+        faceLocalZ + sillProj / 2,
+        leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(sillGeo, trimColor)
+    }
   }
 
   // --- Roof ornaments (dormers, finials, ridge knobs) ---

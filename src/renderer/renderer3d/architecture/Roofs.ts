@@ -26,6 +26,10 @@ export function buildRoof(
   w: number, d: number, h: number,
   style: RoofStyle,
   axis: RoofAxis = 'x',
+  /** Ridge sag (0..0.12 of h). Drops the ridge midpoint by sag*h. Only
+   *  applied to gabled/steep prism roofs — hipped, mansard, cone, dome are
+   *  unaffected. Pass via the optional roofSag context from Massing. */
+  sag: number = 0,
 ): THREE.BufferGeometry | null {
   if (style === 'flat' || style === 'none' || h <= 0) return null
 
@@ -48,15 +52,18 @@ export function buildRoof(
     return buildMansard(w, d, h, axis)
   }
 
-  // gabled / hipped / steep all use the prism
-  return buildGablePrism(w, d, h, axis, style === 'hipped')
+  // gabled / hipped / steep all use the prism. Hipped never sags (different
+  // topology — both X and Z slopes meet a short ridge). Steep & gabled get
+  // the optional ridge sag.
+  const hipped = style === 'hipped'
+  return buildGablePrism(w, d, h, axis, hipped, hipped ? 0 : sag)
 }
 
 /* ------------------------------------------------------------------ */
 /* Gable / hip prism                                                  */
 /* ------------------------------------------------------------------ */
 
-function buildGablePrism(w: number, d: number, h: number, axis: RoofAxis, hipped: boolean): THREE.BufferGeometry {
+function buildGablePrism(w: number, d: number, h: number, axis: RoofAxis, hipped: boolean, sag: number = 0): THREE.BufferGeometry {
   const hw = w / 2, hd = d / 2
   // Eave overhang. Hipped roofs project less because all four edges slope —
   // a heavy overhang on a hipped roof reads as a flat shelf rather than an
@@ -90,8 +97,58 @@ function buildGablePrism(w: number, d: number, h: number, axis: RoofAxis, hipped
       -inset, h, -inset,   inset, h, -inset,   inset, h,  inset,
       -inset, h, -inset,   inset, h,  inset,  -inset, h,  inset,
     ]
+  } else if (sag > 0.001) {
+    // Subdivided gabled prism with a sagged ridge. Each slope splits into
+    // two quads sharing a midpoint vertex on the ridge that has been
+    // dropped by sag*h — the geometric signature of a beam that's settled
+    // over centuries. Gable end triangles are unchanged because the ridge
+    // peaks are at the gable corners, not in the middle.
+    const my = h - sag * h     // sagged ridge midpoint Y
+    if (axis === 'x') {
+      // Ridge along X with midpoint M=(0, my, 0). Eave midpoints F=(0,0,od)
+      // and B=(0,0,-od) split the slopes lengthwise.
+      verts = [
+        // +Z slope, left half quad: (-ow,0,od) → F → M → (-ow,h,0)
+        -ow, 0,  od,   0, 0,  od,   0, my, 0,
+        -ow, 0,  od,   0, my, 0,   -ow, h, 0,
+        // +Z slope, right half quad: F → (ow,0,od) → (ow,h,0) → M
+         0, 0,  od,    ow, 0,  od,   ow, h, 0,
+         0, 0,  od,    ow, h, 0,    0, my, 0,
+        // -Z slope, left half (from -Z view, x flipped): (ow,0,-od) → B → M → (ow,h,0)
+         ow, 0, -od,   0, 0, -od,   0, my, 0,
+         ow, 0, -od,   0, my, 0,    ow, h, 0,
+        // -Z slope, right half: B → (-ow,0,-od) → (-ow,h,0) → M
+         0, 0, -od,   -ow, 0, -od,  -ow, h, 0,
+         0, 0, -od,   -ow, h, 0,    0, my, 0,
+        // +X gable (peak unchanged, sits at full h)
+         ow, 0, -od,   ow, 0,  od,   ow, h, 0,
+        // -X gable
+        -ow, 0,  od,  -ow, 0, -od,  -ow, h, 0,
+      ]
+    } else {
+      // Ridge along Z with midpoint M=(0, my, 0). Eave midpoints F=(ow,0,0)
+      // and B=(-ow,0,0) split the slopes.
+      verts = [
+        // +X slope, front half: (ow,0,-od) → F → M → (0,h,-od)
+         ow, 0, -od,    ow, 0,  0,    0, my, 0,
+         ow, 0, -od,    0, my, 0,    0, h, -od,
+        // +X slope, back half: F → (ow,0,od) → (0,h,od) → M
+         ow, 0,  0,     ow, 0,  od,   0, h,  od,
+         ow, 0,  0,     0, h,  od,    0, my, 0,
+        // -X slope, front half: (-ow,0,od) → B → M → (0,h,od)
+        -ow, 0,  od,   -ow, 0,  0,    0, my, 0,
+        -ow, 0,  od,    0, my, 0,    0, h,  od,
+        // -X slope, back half: B → (-ow,0,-od) → (0,h,-od) → M
+        -ow, 0,  0,    -ow, 0, -od,   0, h, -od,
+        -ow, 0,  0,    0, h, -od,    0, my, 0,
+        // +Z gable
+        -ow, 0,  od,   ow, 0,  od,   0, h,  od,
+        // -Z gable
+         ow, 0, -od,  -ow, 0, -od,   0, h, -od,
+      ]
+    }
   } else {
-    // Gabled: ridge runs full length along chosen axis, gable triangles on the other.
+    // Gabled (no sag): ridge runs full length along chosen axis, gable triangles on the other.
     if (axis === 'x') {
       // Ridge along X, gables face ±Z
       verts = [
