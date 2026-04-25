@@ -397,6 +397,115 @@ export function emitVolume(
         : new THREE.BoxGeometry(capW, capH, ridgeLen)
       localToWorld(cap, lx, ridgeY, lz, leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(cap, capColor)
+
+      // --- Roof cresting --- thin iron pickets running along the ridge.
+      // The Victorian-Gothic roofline crown — only emitted on stone-based
+      // (noble/temple/gothic) buildings since it'd clash on a humble
+      // cottage. Picket count scales with ridge length; capped so very
+      // long ridges don't get cluttered.
+      if (ctx.stoneBased && (v.roofStyle === 'gabled' || v.roofStyle === 'steep') &&
+          ridgeLen >= 1.6) {
+        const pickPitch = 0.55
+        const pickCount = Math.max(3, Math.min(10, Math.floor(ridgeLen / pickPitch)))
+        const pickH = 0.22, pickT = 0.04
+        const pickColor = 0x2a201a    // dark iron
+        const pickY = ridgeY + capH / 2 + pickH / 2
+        for (let i = 0; i < pickCount; i++) {
+          const t = (i + 0.5) / pickCount - 0.5    // -0.5..+0.5
+          const px = ridgeOnX ? lx + t * ridgeLen : lx
+          const pz = ridgeOnX ? lz : lz + t * ridgeLen
+          const pick = new THREE.BoxGeometry(pickT, pickH, pickT)
+          localToWorld(pick, px, pickY, pz, leanX, leanZ, rot, cx, cy, cz)
+          ornamentBatch.addPositioned(pick, pickColor)
+        }
+      }
+    }
+  }
+
+  // --- Gable attic windows + peak finials --- small dark windows on each
+  // gable end's triangle face, plus a small carved finial at each gable
+  // peak. Both are gable-style-only (gabled or steep prism roofs); hipped
+  // has no proper gable triangle; cone/dome/mansard skip.
+  if ((v.roofStyle === 'gabled' || v.roofStyle === 'steep') &&
+      !v.circular && v.role !== 'chimneyVol' &&
+      Math.min(v.width, v.depth) >= 1.4 && v.roofHeight > 0.5) {
+    const ridgeOnX = v.roofAxis === 'x'
+    // Gable extent matches the roof prism's gable face (wall + eave).
+    const eaveProj = 0.26
+    const gableExtent = (ridgeOnX ? v.width : v.depth) / 2 + eaveProj
+    const wallTopY = v.bottomY + v.height
+    const peakY = wallTopY + v.roofHeight
+    // Attic window: small dark glass plate on the gable triangle. Placed
+    // at ~50% of the way up the gable from the eave to the peak.
+    const attH = 0.32, attW = 0.36, attT = 0.04
+    const attY = wallTopY + v.roofHeight * 0.45
+    // Window glow color — slightly warmer/dimmer than ground-floor windows
+    // so attic reads as "lower priority living space" when the lights come on.
+    const atticColor = 0x2a2530       // dark slate (no glow during day)
+    for (const gableSign of [-1, 1] as const) {
+      // Gable face is at x = gableSign * gableExtent (ridgeOnX) or
+      // z = gableSign * gableExtent (ridgeOnZ). Project the window 4cm
+      // outward from the face.
+      if (ridgeOnX) {
+        const att = new THREE.BoxGeometry(attT, attH, attW)
+        localToWorld(att,
+          lx + gableSign * (gableExtent + attT / 2),
+          attY,
+          lz,
+          leanX, leanZ, rot, cx, cy, cz)
+        ornamentBatch.addPositioned(att, atticColor)
+      } else {
+        const att = new THREE.BoxGeometry(attW, attH, attT)
+        localToWorld(att,
+          lx,
+          attY,
+          lz + gableSign * (gableExtent + attT / 2),
+          leanX, leanZ, rot, cx, cy, cz)
+        ornamentBatch.addPositioned(att, atticColor)
+      }
+      // Small attic window TRIM around it — same pale-stone color as
+      // ground-floor window trim so the attic window reads as "framed".
+      const trimColor = shiftColor(wallColor, 0.07, 0.06, 0.04)
+      const trimT = 0.05
+      const trimExtra = 0.06
+      // Top + bottom trim (lintel + sill). The two long edges of the
+      // window get a small projecting frame in pale stone. Side trims
+      // omitted — the gable triangle slopes away from those edges so a
+      // straight side trim would clip into the slope.
+      if (ridgeOnX) {
+        const top = new THREE.BoxGeometry(attT, 0.05, attW + trimExtra * 2)
+        localToWorld(top, lx + gableSign * (gableExtent + attT / 2), attY + attH / 2 + 0.025, lz,
+          leanX, leanZ, rot, cx, cy, cz)
+        ornamentBatch.addPositioned(top, trimColor)
+        const bot = new THREE.BoxGeometry(attT, 0.05, attW + trimExtra * 2)
+        localToWorld(bot, lx + gableSign * (gableExtent + attT / 2), attY - attH / 2 - 0.025, lz,
+          leanX, leanZ, rot, cx, cy, cz)
+        ornamentBatch.addPositioned(bot, trimColor)
+      } else {
+        const top = new THREE.BoxGeometry(attW + trimExtra * 2, 0.05, attT)
+        localToWorld(top, lx, attY + attH / 2 + 0.025, lz + gableSign * (gableExtent + attT / 2),
+          leanX, leanZ, rot, cx, cy, cz)
+        ornamentBatch.addPositioned(top, trimColor)
+        const bot = new THREE.BoxGeometry(attW + trimExtra * 2, 0.05, attT)
+        localToWorld(bot, lx, attY - attH / 2 - 0.025, lz + gableSign * (gableExtent + attT / 2),
+          leanX, leanZ, rot, cx, cy, cz)
+        ornamentBatch.addPositioned(bot, trimColor)
+      }
+    }
+
+    // Peak finial — small carved decorative element at the very top of
+    // each gable peak. Visual: short cylindrical stub + tapered cone tip.
+    // Stone-tinted for stone buildings, dark-wood for timber.
+    const finialColor = ctx.stoneBased ? shiftColor(wallColor, -0.05, -0.05, -0.04) : 0x4a3422
+    for (const gableSign of [-1, 1] as const) {
+      const peakX = ridgeOnX ? lx + gableSign * gableExtent : lx
+      const peakZ = ridgeOnX ? lz : lz + gableSign * gableExtent
+      const base = new THREE.CylinderGeometry(0.07, 0.09, 0.10, 6)
+      localToWorld(base, peakX, peakY + 0.05, peakZ, leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(base, finialColor)
+      const tip = new THREE.ConeGeometry(0.07, 0.20, 6)
+      localToWorld(tip, peakX, peakY + 0.20, peakZ, leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(tip, finialColor)
     }
   }
 
@@ -410,12 +519,16 @@ export function emitVolume(
       !v.circular && v.role !== 'chimneyVol' &&
       Math.min(v.width, v.depth) >= 1.4 && v.roofHeight > 0.4) {
     const ridgeOnX = v.roofAxis === 'x'
-    // Gable ends sit at ±gableExtent along the ridge axis. The slope drops
-    // from the ridge peak (height = h, mid of perp axis) down to the eave
-    // corner (height = 0, perp = ±perpExtent + eave overhang).
-    const gableExtent = (ridgeOnX ? v.width : v.depth) / 2
-    const perpExtent = (ridgeOnX ? v.depth : v.width) / 2
+    // Gable ends sit at ±gableExtent along the ridge axis. Crucially,
+    // gableExtent INCLUDES the eave overhang — the gable triangle of the
+    // roof prism is at x=±(width/2 + eave), not at the wall plane. Earlier
+    // versions of this code used wall-plane only and the bargeboards
+    // ended up buried inside the eave overhang volume, invisible to the
+    // viewer. Same fix applies to attic-window/peak-finial placement
+    // below — keep the gable extent consistent across all gable trim.
     const eaveProj = 0.26
+    const gableExtent = (ridgeOnX ? v.width : v.depth) / 2 + eaveProj
+    const perpExtent = (ridgeOnX ? v.depth : v.width) / 2
     const slopeRunPerp = perpExtent + eaveProj
     const slopeRiseY = v.roofHeight
     const slopeLen = Math.sqrt(slopeRunPerp * slopeRunPerp + slopeRiseY * slopeRiseY)

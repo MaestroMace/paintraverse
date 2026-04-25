@@ -877,6 +877,35 @@ export function buildBuildingMeshes(
           leanX, leanZ, rotationY, wx, wy, wz)
         ornamentBatch.addPositioned(keystone, surroundColor)
       }
+      // Date plaque — small carved-stone block above the lintel with
+      // subtle relief lines suggesting carved numerals. The "1487"
+      // date stone you see above old doorways. Only emitted on a
+      // subset of surround buildings so not every door has one.
+      if (rand01(hash, 1551) < 0.35) {
+        const plaqueW = 0.42, plaqueH = 0.22
+        const plaqueProj = proj + 0.015
+        const plaqueY = baseLocalY + doorH + lintelH + plaqueH / 2 + 0.08
+        const plaqueColor = shiftColor(surroundColor, 0.04, 0.04, 0.03)
+        const plaque = new THREE.BoxGeometry(plaqueW, plaqueH, plaqueProj)
+        localToWorld(plaque, mainVol.offsetX, plaqueY,
+          frontLocalZ + plaqueProj / 2,
+          leanX, leanZ, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(plaque, plaqueColor)
+        // Faux-carved relief: 4 thin recessed lines (numerals) spanning
+        // the plaque's center band. Drawn DARKER (opposite of "carved
+        // out and shadow-filled") — at distance reads as date carving.
+        const reliefColor = shiftColor(surroundColor, -0.10, -0.10, -0.08)
+        const numW = 0.06, numH = 0.10, numProj = 0.012
+        const numSpacing = plaqueW / 5
+        for (let n = 0; n < 4; n++) {
+          const numX = mainVol.offsetX - plaqueW / 2 + numSpacing * (n + 1)
+          const num = new THREE.BoxGeometry(numW, numH, numProj)
+          localToWorld(num, numX, plaqueY,
+            frontLocalZ + plaqueProj + numProj / 2,
+            leanX, leanZ, rotationY, wx, wy, wz)
+          ornamentBatch.addPositioned(num, reliefColor)
+        }
+      }
     }
 
     // === SHOP SIGN → ornament-batched ===
