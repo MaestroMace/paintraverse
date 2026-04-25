@@ -16,7 +16,7 @@ import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
 import { pickMassing } from './architecture/Massing'
-import { emitVolume, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
+import { emitVolume, localToWorld, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
 import { pickPaletteForStyle } from './architecture/PaletteBias'
 
 /** Re-export so ThreeRenderer can keep importing from BuildingFactory. */
@@ -182,6 +182,38 @@ export function buildBuildingMeshes(
       if (rand01(hash, 7) < 0.25) rotationY = 0                // 25% stay aligned
     }
 
+    // Organic lean — small tilts that pivot around the building base, so
+    // a 4-story house leans forward up to ~12cm at the cornice. Pisa-style
+    // is a bug; medieval-settled is the goal. Amplitude scales with weather
+    // and is gated to ~22% of buildings so the average street isn't tilted
+    // — just enough that the eye finds a few lopsided neighbors per block.
+    // Towers/walls/gates stay vertical (NO_JITTER) — they'd read as broken
+    // landmarks rather than charming-old. Cathedrals & towers also opt out
+    // because the silhouette is meant to read as authoritative.
+    let leanX = 0, leanZ = 0
+    const isLandmark =
+      obj.definitionId === 'cathedral' || obj.definitionId === 'temple' ||
+      obj.definitionId === 'bell_tower' || obj.definitionId === 'bell_tower_tall' ||
+      obj.definitionId === 'clock_tower' || obj.definitionId === 'lighthouse' ||
+      obj.definitionId === 'tower' || obj.definitionId === 'watchtower' ||
+      obj.definitionId === 'round_tower' || obj.definitionId === 'windmill'
+    if (!NO_JITTER.has(obj.definitionId) && !isLandmark && rand01(hash, 401) < 0.22) {
+      // Bias forward (toward the street, +Z in local frame) — that's the
+      // silhouette reading. Sideways component is smaller. Max ~3.4° forward,
+      // ~2° sideways. Weather scales it up; pristine wealthy buildings stay
+      // upright more often.
+      const weather = styleVector.weather
+      const ageScale = 0.35 + weather * 0.65                   // 0.35..1.0
+      // leanX rotates around X — so a positive leanX tips the building's TOP
+      // forward toward +Z. That's the "bowed toward the street" look.
+      leanX = (rand01(hash, 403) * 0.4 + 0.2) * 0.06 * ageScale  // 0.012..0.036 rad
+      // Sideways tilt smaller and either direction.
+      leanZ = (rand01(hash, 405) - 0.5) * 0.07 * ageScale        // ±0.024 rad
+      // Half the leaners tip *away* from the street instead, so the row
+      // doesn't all bow forward in unison.
+      if (rand01(hash, 407) < 0.5) leanX = -leanX
+    }
+
     // Foundation plinth — emitted as per-tile stone columns so the foundation
     // STEPS with the terrain rather than sitting as one flat block. Each
     // footprint tile gets its own column from that tile's ground up to the
@@ -287,6 +319,8 @@ export function buildBuildingMeshes(
       style,
       palette,
       rotationY,
+      leanX,
+      leanZ,
       hash,
       weather: styleVector.weather,
       castsShadow,
@@ -300,7 +334,7 @@ export function buildBuildingMeshes(
     // a tiny corner-tower sub-volume when the massing template puts
     // the body second.
     const mainVol = massing.volumes.find(v => v.role === 'mainBody') ?? massing.volumes[0]
-    const mainTopY = wy + (mainVol.bottomY ?? 0) + mainVol.height
+    const mainLocalTopY = (mainVol.bottomY ?? 0) + mainVol.height
     const mainRoofH = mainVol.roofHeight
     // Does massing already include a chimney volume? (cottageSmall does.)
     const massingHasChimney = massing.volumes.some(v => v.role === 'chimneyVol')
@@ -325,32 +359,29 @@ export function buildBuildingMeshes(
                   : 0.5 + rand01(hash, 701) * 0.35                    // default 0.5–0.85
       const chimW = variant === 6 ? 0.7 : variant === 4 ? 0.42 : 0.5
       const capColor = variant === 5 ? 0x4a7870 /* verdigris copper */ : 0x5a3020
+      // Local Y of chimney base (above the mainBody roof base). Building lean
+      // pivots around (wx, wy, wz), so anchoring at this local Y means the
+      // chimney follows the leaning building correctly.
+      const chimBaseLocalY = mainLocalTopY + mainRoofH * 0.4
       for (let c = 0; c < chimCount; c++) {
         const chimSide = c === 0
           ? ((obj.properties.chimneyPos === 'left') ? -1 : 1)
           : (((obj.properties.chimneyPos === 'left') ? 1 : -1))
         const chimH = baseH * (c === 0 ? 1.0 : 0.75 + rand01(hash, 711 + c) * 0.15)
-        // Local offset from building center; random Z so double stacks
-        // aren't perfectly in line.
         const localX = chimSide * fp.w * 0.32
         const localZ = c === 0
           ? (rand01(hash, 703) - 0.5) * fp.h * 0.25
           : (rand01(hash, 600 + c) - 0.5) * fp.h * 0.4
-        // Small lean on the tall whimsy variant — reads as a crooked flue.
-        const leanZ = variant === 4 ? (rand01(hash, 719) - 0.5) * 0.25 : 0
+        // Small Z-tilt on the tall whimsy variant — crooked flue look.
+        const flueLeanZ = variant === 4 ? (rand01(hash, 719) - 0.5) * 0.25 : 0
         const stack = new THREE.BoxGeometry(chimW, chimH, chimW)
-        if (leanZ !== 0) stack.rotateZ(leanZ)
-        stack.translate(localX, 0, localZ)
-        if (rotationY !== 0) stack.rotateY(rotationY)
-        // Anchor to the mainBody roof peak (mainTopY) — not the wider roof
-        // height — so chimneys don't float above tiny sub-volumes.
-        stack.translate(wx, mainTopY + mainRoofH * 0.4 + chimH / 2, wz)
+        if (flueLeanZ !== 0) stack.rotateZ(flueLeanZ)
+        stack.translate(0, chimH / 2, 0)
+        localToWorld(stack, localX, chimBaseLocalY, localZ, leanX, leanZ, rotationY, wx, wy, wz)
         detailBatch.addPositioned(stack, 0x704030)
         const capW = variant === 6 ? 0.85 : chimW + 0.12
         const cap = new THREE.BoxGeometry(capW, 0.12, capW)
-        cap.translate(localX, 0, localZ)
-        if (rotationY !== 0) cap.rotateY(rotationY)
-        cap.translate(wx, mainTopY + mainRoofH * 0.4 + chimH + 0.06, wz)
+        localToWorld(cap, localX, chimBaseLocalY + chimH + 0.06, localZ, leanX, leanZ, rotationY, wx, wy, wz)
         detailBatch.addPositioned(cap, capColor)
       }
     }
@@ -367,6 +398,101 @@ export function buildBuildingMeshes(
       const geo = new THREE.BoxGeometry(0.5, 0.05, 0.15)
       geo.translate(wx, wy + 0.025, wz + fp.h / 2 + 0.08)
       detailBatch.addPositioned(geo, 0x808080)
+    }
+
+    // === SHOP SIGN → ornament-batched ===
+    // Perpendicular wood sign hanging from a bracket on the front (+Z) face.
+    // The medieval-Diagon-Alley signature: a row of mid-height projecting
+    // signs reads as "this street has shops" the moment you turn into it.
+    // Gated on commercial district + commercial building + hash. Follows the
+    // building's lean+yaw via localToWorld so it stays attached visually.
+    const isCommercialDistrict = district === 'market' || district === 'artisan'
+    const isCommercialBldg = (
+      obj.definitionId === 'shop' || obj.definitionId === 'tavern' ||
+      obj.definitionId === 'inn' || obj.definitionId === 'bakery' ||
+      obj.definitionId === 'apothecary' || obj.definitionId === 'guild_hall' ||
+      obj.definitionId === 'covered_market' || obj.definitionId === 'building_small' ||
+      obj.definitionId === 'building_medium' || obj.definitionId === 'half_timber'
+    )
+    if (
+      isCommercialDistrict && isCommercialBldg && fp.w >= 2 &&
+      !NO_JITTER.has(obj.definitionId) &&
+      wallH > 2.4 && rand01(hash, 811) < 0.6
+    ) {
+      // Sign at ground-floor top, ~2.3m above base — eye level for a
+      // 1.6m-tall player so it reads as "shop sign" not "high banner".
+      const signY = Math.min(2.3, FLOOR_HEIGHT * 1.05)
+      const signW = 0.5 + rand01(hash, 813) * 0.25      // 0.5..0.75
+      const signH = 0.32 + rand01(hash, 815) * 0.16     // 0.32..0.48
+      const signProj = 0.55                              // distance from wall to sign center
+      const signSide = rand01(hash, 817) < 0.5 ? -1 : 1  // along front face
+      const signLocalX = signSide * fp.w * 0.18
+      const signLocalZ = fp.h / 2 + signProj
+      // Bracket: thin bar along Z from wall (lz=fp.h/2) to sign center (signLocalZ).
+      const bracketLen = signProj - 0.05
+      const bracket = new THREE.BoxGeometry(0.05, 0.06, bracketLen)
+      // Bracket centered between wall (fp.h/2 + 0.025) and sign (signLocalZ - 0.025)
+      const bracketLocalZ = fp.h / 2 + bracketLen / 2 + 0.025
+      localToWorld(bracket, signLocalX, signY + signH * 0.4, bracketLocalZ,
+        leanX, leanZ, rotationY, wx, wy, wz)
+      ornamentBatch.addPositioned(bracket, 0x3a2418)  // dark wood
+      // Sign plank itself — vertical, perpendicular to the wall (long axis = X
+      // in local frame, so the BROAD face is visible from passers-by walking
+      // along the building's front).
+      const sign = new THREE.BoxGeometry(0.04, signH, signW)
+      localToWorld(sign, signLocalX, signY, signLocalZ,
+        leanX, leanZ, rotationY, wx, wy, wz)
+      // Pick from a small palette so signs feel painted / individual.
+      const signColors = [0x6b3a1f, 0x5a2818, 0x7a4830, 0x3a4a2a, 0x4a3a55, 0x6a5028]
+      const signColor = signColors[hash % signColors.length]
+      ornamentBatch.addPositioned(sign, signColor)
+      // Two short chains rendered as thin vertical bars (we don't have line
+      // primitives in the ornament batch). They connect the bracket bottom to
+      // the sign top, suggesting the sign hangs rather than rigidly attaches.
+      const chainH = signH * 0.18
+      const chainY = signY + signH / 2 + chainH / 2
+      for (const chOff of [-signW * 0.35, signW * 0.35]) {
+        const chain = new THREE.BoxGeometry(0.025, chainH, 0.025)
+        localToWorld(chain, signLocalX, chainY, signLocalZ + chOff,
+          leanX, leanZ, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(chain, 0x2a2018)
+      }
+    }
+
+    // === AWNING → ornament-batched ===
+    // Canvas slab over the front door of market-district buildings.
+    // Sits at the top of the ground-floor band, projecting 0.55m forward.
+    // Slightly thinner at the front than back so it reads as a sloped awning,
+    // not a flat shelf.
+    if (
+      district === 'market' && fp.w >= 2 &&
+      !NO_JITTER.has(obj.definitionId) &&
+      wallH > 1.8 && rand01(hash, 821) < 0.45
+    ) {
+      const awningY = Math.min(2.0, FLOOR_HEIGHT * 0.95)
+      const awningW = Math.min(1.4, fp.w * 0.55)
+      const awningD = 0.55
+      // Front-edge dip so the awning slopes downward away from the wall.
+      const slopeRot = -0.12  // ~7° down at front edge
+      const awning = new THREE.BoxGeometry(awningW, 0.04, awningD)
+      // Pivot the slope around the wall edge: translate so the wall edge is
+      // at z=0 in geometry space, rotate, restore.
+      awning.translate(0, 0, awningD / 2)
+      awning.rotateX(slopeRot)
+      // Awning canvas palette — warm striped market awning colors.
+      const awnColors = [0xc25a3a, 0xc8924a, 0xa84030, 0xb86a4a, 0x8b7038]
+      const awnColor = awnColors[(hash >> 4) % awnColors.length]
+      localToWorld(awning, 0, awningY, fp.h / 2,
+        leanX, leanZ, rotationY, wx, wy, wz)
+      ornamentBatch.addPositioned(awning, awnColor)
+      // Two simple vertical posts at the front corners — implies tied-down canvas.
+      const postH = awningY - 0.05
+      for (const px of [-awningW * 0.42, awningW * 0.42]) {
+        const post = new THREE.BoxGeometry(0.04, postH, 0.04)
+        localToWorld(post, px, postH / 2, fp.h / 2 + awningD - 0.04,
+          leanX, leanZ, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(post, 0x3a2418)
+      }
     }
 
     // Circular tower, bay window, and archway specialty blocks moved to

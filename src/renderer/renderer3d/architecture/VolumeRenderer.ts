@@ -143,6 +143,14 @@ export interface EmitVolumeContext {
    *  in the building's local frame (offsetX/Z are the volume's position relative
    *  to building center before rotation). */
   rotationY: number
+  /** Lean angles (radians) — small (±0.06 max) tilts that pivot the entire
+   *  building around its base. leanX rotates around the X axis (tipping the
+   *  roofline forward/back along Z); leanZ rotates around the Z axis (tipping
+   *  along X). Together they read as a building that has settled with age
+   *  rather than the perfect-vertical "developer cube" silhouette. Applied
+   *  BEFORE yaw so a leaning building still rotates cleanly. */
+  leanX: number
+  leanZ: number
   /** Stable hash of the building id (for randomized ornament placement). */
   hash: number
   /** Style-vector weather in [0,1] — drives color darkening / mossy tint. */
@@ -156,22 +164,28 @@ export interface EmitVolumeContext {
 }
 
 /**
- * Position a geometry built at local origin into world space, applying
- * the building's Y rotation around its center:
- *   1. translate by (lx, ly, lz) — local offset from building center
- *   2. rotate around local origin (= building center) by rot radians
- *   3. translate by (wx, wy, wz) — building center in world
- * This is the standard transform for rotating the whole building as a unit
- * while each volume is still authored in the building's local frame.
+ * Position a geometry built at local origin into world space:
+ *   1. translate by (lx, ly, lz) — local position from building base center
+ *   2. rotate around local origin (= building base center) by leanX, leanZ —
+ *      organic-age tilt; pivot is at ground level so the base stays planted
+ *   3. rotate by rotY around local origin (yaw)
+ *   4. translate by (wx, wy, wz) — building base center in world
+ *
+ * Leans pivot around the BASE not the volume center, so upper floors tip
+ * more than lower floors — the geometric signature of a settled building.
+ * Yaw is applied after lean; for the small leans we use (≤ ~3.4°) the
+ * non-commutativity is invisible.
  */
-function localToWorld(
+export function localToWorld(
   geo: THREE.BufferGeometry,
   lx: number, ly: number, lz: number,
-  rot: number,
+  leanX: number, leanZ: number, rotY: number,
   wx: number, wy: number, wz: number,
 ): void {
   geo.translate(lx, ly, lz)
-  if (rot !== 0) geo.rotateY(rot)
+  if (leanX !== 0) geo.rotateX(leanX)
+  if (leanZ !== 0) geo.rotateZ(leanZ)
+  if (rotY !== 0) geo.rotateY(rotY)
   geo.translate(wx, wy, wz)
 }
 
@@ -208,11 +222,12 @@ export function emitVolume(
   ornamentBatch: BatchedMeshBuilder,
 ): void {
   const rot = ctx.rotationY ?? 0
-  // Volume position in BUILDING LOCAL frame (offsets from building center):
+  const leanX = ctx.leanX ?? 0
+  const leanZ = ctx.leanZ ?? 0
+  // Volume position in BUILDING LOCAL frame (offsets from building base center):
   const lx = v.offsetX
   const lz = v.offsetZ
-  const ly = v.bottomY + v.height / 2
-  // World center for this building (all local coords get rotated then translated here):
+  // World center for this building's BASE (lean pivots around (cx, cy, cz)):
   const cx = ctx.centerX, cy = ctx.baseY, cz = ctx.centerZ
   const floors = Math.max(1, v.floors ?? Math.max(1, Math.round(v.height / 0.9)))
 
@@ -220,25 +235,23 @@ export function emitVolume(
   const wallColor = applyWeather ? weatheredColor(v.wallColor, ctx.weather) : v.wallColor
   const roofColor = applyWeather ? weatheredColor(v.roofColor, ctx.weather) : v.roofColor
 
-  // Rotate an (lx, lz) pair into world XZ (used for world-positioned
-  // individual meshes like walls, where the mesh transform itself holds the
-  // rotation rather than baking it into geometry).
-  const cR = Math.cos(rot), sR = Math.sin(rot)
-  const worldX = cx + lx * cR - lz * sR
-  const worldZ = cz + lx * sR + lz * cR
-
-  // --- Walls --- (individual meshes; use mesh.position + mesh.rotation.y)
+  // --- Walls --- All transforms (lean, yaw, world position) baked into
+  // geometry so coalesceWalls can merge cleanly and lean pivots around the
+  // building base. Geometry is built at origin, then lifted so its base is at
+  // local Y=0, then translated to (lx, bottomY, lz) before lean+yaw apply.
   if (v.circular) {
-    // Cylinders are rotationally symmetric around Y — no rotation needed.
     const r = v.width / 2
     const geo = new THREE.CylinderGeometry(r, r * 1.02, v.height, 10)
+    geo.translate(0, v.height / 2, 0)
+    localToWorld(geo, lx, v.bottomY, lz, leanX, leanZ, rot, cx, cy, cz)
     const mesh = new THREE.Mesh(geo, getPlainMat(wallColor))
-    mesh.position.set(worldX, cy + ly, worldZ)
     mesh.castShadow = ctx.castsShadow !== false
     mesh.receiveShadow = true
     wallMeshes.push(mesh)
   } else {
     const geo = new THREE.BoxGeometry(v.width, v.height, v.depth)
+    geo.translate(0, v.height / 2, 0)
+    localToWorld(geo, lx, v.bottomY, lz, leanX, leanZ, rot, cx, cy, cz)
     let mesh: THREE.Mesh
     if (v.textured) {
       const cfg: FacadeConfig = {
@@ -260,45 +273,40 @@ export function emitVolume(
     } else {
       mesh = new THREE.Mesh(geo, getPlainMat(wallColor))
     }
-    mesh.position.set(worldX, cy + ly, worldZ)
-    mesh.rotation.y = rot
     mesh.castShadow = ctx.castsShadow !== false
     mesh.receiveShadow = true
     wallMeshes.push(mesh)
   }
 
-  // --- Stone base course --- wraps the (rotated) volume perimeter.
+  // --- Stone base course --- wraps the volume perimeter (lean+yaw applied).
   if (!v.circular && v.role !== 'chimneyVol' && v.height > 0.9) {
     const baseH = Math.min(0.28, v.height * 0.18)
     const baseProj = 0.08
     const baseColor = shiftColor(wallColor, -0.12, -0.1, -0.08)
-    // Each band is positioned in LOCAL space (relative to this volume's
-    // center in the building's local frame), then rotated + translated
-    // to world using localToWorld().
-    const volLocalY = v.bottomY + baseH / 2  // Y in local frame
+    const volLocalY = v.bottomY + baseH / 2
 
     const bFront = new THREE.BoxGeometry(v.width + baseProj * 2, baseH, baseProj)
-    localToWorld(bFront, lx, volLocalY, lz + v.depth / 2 + baseProj / 2, rot, cx, cy, cz)
+    localToWorld(bFront, lx, volLocalY, lz + v.depth / 2 + baseProj / 2, leanX, leanZ, rot, cx, cy, cz)
     ornamentBatch.addPositioned(bFront, baseColor)
     const bBack = new THREE.BoxGeometry(v.width + baseProj * 2, baseH, baseProj)
-    localToWorld(bBack, lx, volLocalY, lz - v.depth / 2 - baseProj / 2, rot, cx, cy, cz)
+    localToWorld(bBack, lx, volLocalY, lz - v.depth / 2 - baseProj / 2, leanX, leanZ, rot, cx, cy, cz)
     ornamentBatch.addPositioned(bBack, baseColor)
     const bLeft = new THREE.BoxGeometry(baseProj, baseH, v.depth)
-    localToWorld(bLeft, lx - v.width / 2 - baseProj / 2, volLocalY, lz, rot, cx, cy, cz)
+    localToWorld(bLeft, lx - v.width / 2 - baseProj / 2, volLocalY, lz, leanX, leanZ, rot, cx, cy, cz)
     ornamentBatch.addPositioned(bLeft, baseColor)
     const bRight = new THREE.BoxGeometry(baseProj, baseH, v.depth)
-    localToWorld(bRight, lx + v.width / 2 + baseProj / 2, volLocalY, lz, rot, cx, cy, cz)
+    localToWorld(bRight, lx + v.width / 2 + baseProj / 2, volLocalY, lz, leanX, leanZ, rot, cx, cy, cz)
     ornamentBatch.addPositioned(bRight, baseColor)
   }
 
   // --- Roof ---
   const roofGeo = buildRoof(v.width, v.depth, v.roofHeight, v.roofStyle, v.roofAxis)
   if (roofGeo) {
-    localToWorld(roofGeo, lx, v.bottomY + v.height, lz, rot, cx, cy, cz)
+    localToWorld(roofGeo, lx, v.bottomY + v.height, lz, leanX, leanZ, rot, cx, cy, cz)
     roofBatch.addPositioned(roofGeo, roofColor)
   }
 
-  // --- Cornice --- wraps the volume's top perimeter (rotated).
+  // --- Cornice --- wraps the volume's top perimeter (lean+yaw applied).
   if (v.cornice && !v.circular) {
     const heavy = v.role === 'tower' || v.role === 'spire'
     const projection = heavy ? 0.14 : 0.08
@@ -308,22 +316,22 @@ export function emitVolume(
     const cBands: THREE.BufferGeometry[] = [
       (() => {
         const g = new THREE.BoxGeometry(v.width + projection * 2, bandH, projection)
-        localToWorld(g, lx, corniceY, lz + v.depth / 2 + projection / 2, rot, cx, cy, cz)
+        localToWorld(g, lx, corniceY, lz + v.depth / 2 + projection / 2, leanX, leanZ, rot, cx, cy, cz)
         return g
       })(),
       (() => {
         const g = new THREE.BoxGeometry(v.width + projection * 2, bandH, projection)
-        localToWorld(g, lx, corniceY, lz - v.depth / 2 - projection / 2, rot, cx, cy, cz)
+        localToWorld(g, lx, corniceY, lz - v.depth / 2 - projection / 2, leanX, leanZ, rot, cx, cy, cz)
         return g
       })(),
       (() => {
         const g = new THREE.BoxGeometry(projection, bandH, v.depth)
-        localToWorld(g, lx - v.width / 2 - projection / 2, corniceY, lz, rot, cx, cy, cz)
+        localToWorld(g, lx - v.width / 2 - projection / 2, corniceY, lz, leanX, leanZ, rot, cx, cy, cz)
         return g
       })(),
       (() => {
         const g = new THREE.BoxGeometry(projection, bandH, v.depth)
-        localToWorld(g, lx + v.width / 2 + projection / 2, corniceY, lz, rot, cx, cy, cz)
+        localToWorld(g, lx + v.width / 2 + projection / 2, corniceY, lz, leanX, leanZ, rot, cx, cy, cz)
         return g
       })(),
     ]
@@ -332,27 +340,27 @@ export function emitVolume(
 
   // --- Roof ornaments (dormers, finials, ridge knobs) ---
   // Dormers/trim depend on axis-aligned face normals ('x+'/'z+'). When the
-  // building is rotated, those face helpers would place ornaments in the
-  // wrong world orientation. For Phase 1 of continuous rotation, skip the
-  // non-trivial roof ornaments on rotated buildings. Finial ball/cross
-  // centered on the volume works regardless — emitted here directly.
-  if (!ctx.skipRoofOrnaments && rot === 0) {
-    emitRoofOrnaments(v, worldX, worldZ, cy, ctx, wallColor, roofColor, roofBatch, ornamentBatch)
+  // building is rotated/leaned, those face helpers would place ornaments in
+  // the wrong world orientation. Skip the non-trivial roof ornaments on
+  // rotated/leaned buildings. Finial ball/cross at the peak still works.
+  const isAxisAligned = rot === 0 && leanX === 0 && leanZ === 0
+  if (!ctx.skipRoofOrnaments && isAxisAligned) {
+    emitRoofOrnaments(v, cx + lx, cz + lz, cy, ctx, wallColor, roofColor, roofBatch, ornamentBatch)
   } else if (v.roofStyle === 'spire' || v.roofStyle === 'pointed') {
-    // Rotation-safe finial: just a ball (+ optional cross for spires) at
-    // the volume's roof peak. Axis-symmetric, so rotation doesn't affect it.
+    // Rotation+lean-safe finial: ball (+ optional cross) at the volume's
+    // roof peak. Axis-symmetric, so transforms don't affect its appearance.
     const peakLocalY = v.bottomY + v.height + v.roofHeight
     const ball = new THREE.SphereGeometry(v.roofStyle === 'spire' ? 0.18 : 0.14, 6, 4)
     const extra = v.roofStyle === 'spire' ? 0.16 : 0.12
-    localToWorld(ball, lx, peakLocalY + extra, lz, rot, cx, cy, cz)
+    localToWorld(ball, lx, peakLocalY + extra, lz, leanX, leanZ, rot, cx, cy, cz)
     ornamentBatch.addPositioned(ball, 0xd4c070)
     if (v.roofStyle === 'spire') {
       const armH = 0.3, armW = 0.25, armT = 0.05
       const v1 = new THREE.BoxGeometry(armT, armH, armT)
-      localToWorld(v1, lx, peakLocalY + 0.28 + armH / 2, lz, rot, cx, cy, cz)
+      localToWorld(v1, lx, peakLocalY + 0.28 + armH / 2, lz, leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(v1, 0xd4c070)
       const h1 = new THREE.BoxGeometry(armW, armT, armT)
-      localToWorld(h1, lx, peakLocalY + 0.28 + armH * 0.7, lz, rot, cx, cy, cz)
+      localToWorld(h1, lx, peakLocalY + 0.28 + armH * 0.7, lz, leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(h1, 0xd4c070)
     }
   }
