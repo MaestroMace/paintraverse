@@ -341,6 +341,29 @@ export function buildBuildingMeshes(
     const stoneBased = styleVector.stone > 0.55 ||
       dominantArchetype === 'nobleStone' || dominantArchetype === 'gothicStone' ||
       district === 'noble' || district === 'temple'
+
+    // Ground-floor material contrast — half-timber / commercial / Tudor
+    // buildings often had a stone or stucco shop floor under a timber/
+    // plaster upper structure. Triggers on ~40% of textured buildings,
+    // skewed toward Tudor (always), commercial (often), and stone (rare —
+    // stone buildings already use stone walls all the way up). Picks from
+    // a small palette of contrasting tones so the cache stays bounded.
+    let groundFloorColor: number | undefined
+    const wantsGfBand =
+      dominantArchetype === 'halfTimberTudor' ||
+      ((district === 'market' || district === 'artisan') && rand01(hash, 1051) < 0.55) ||
+      (!stoneBased && rand01(hash, 1051) < 0.30)
+    if (wantsGfBand) {
+      // Pick a complementary stone tone. Light walls get darker stone;
+      // dark walls get lighter limestone. Variant chosen by hash.
+      const wallR = (palette.wall >> 16) & 0xff
+      const lightWall = wallR > 165
+      const lightStones = [0xb8a888, 0xa89878, 0xc8b89a, 0x9c8a72]   // dark stones
+      const darkStones  = [0xd0c2a4, 0xc0b094, 0xb8aa90, 0xa89880]   // light stones
+      const palette_ = lightWall ? lightStones : darkStones
+      groundFloorColor = palette_[hash % palette_.length]
+    }
+
     const emitCtx = {
       centerX: wx,
       centerZ: wz,
@@ -356,6 +379,7 @@ export function buildBuildingMeshes(
       hash,
       weather: styleVector.weather,
       stoneBased,
+      groundFloorColor,
       castsShadow,
     }
     for (const vol of massing.volumes) {
@@ -416,6 +440,37 @@ export function buildBuildingMeshes(
         const cap = new THREE.BoxGeometry(capW, 0.12, capW)
         localToWorld(cap, localX, chimBaseLocalY + chimH + 0.06, localZ, leanX, leanZ, rotationY, wx, wy, wz)
         detailBatch.addPositioned(cap, capColor)
+        // Chimney pot — a small clay cylinder rising above the cap. Iconic
+        // medieval-rooftop silhouette piece. Variant 5 keeps its copper cap
+        // bare (no pot would clash). Variant 6 gets two narrow pots flanking
+        // (the wide-short stack reads as a multi-flue chimney). Otherwise a
+        // single centered pot.
+        if (variant !== 5) {
+          const potH = 0.22, potR = 0.07
+          const potColor = 0xa0532a       // terracotta
+          if (variant === 6) {
+            for (const off of [-0.18, 0.18]) {
+              const pot = new THREE.CylinderGeometry(potR, potR * 0.95, potH, 7)
+              localToWorld(pot, localX + off, chimBaseLocalY + chimH + 0.12 + potH / 2, localZ,
+                leanX, leanZ, rotationY, wx, wy, wz)
+              detailBatch.addPositioned(pot, potColor)
+            }
+          } else {
+            const pot = new THREE.CylinderGeometry(potR, potR * 0.95, potH, 7)
+            localToWorld(pot, localX, chimBaseLocalY + chimH + 0.12 + potH / 2, localZ,
+              leanX, leanZ, rotationY, wx, wy, wz)
+            detailBatch.addPositioned(pot, potColor)
+            // Tall whimsy variant gets an EXTRA tier — a thinner second pot
+            // stacked on top, the "I added a flue, then another, then a third"
+            // look. Tudor-cottage signature.
+            if (variant === 4) {
+              const pot2 = new THREE.CylinderGeometry(potR * 0.85, potR * 0.85, potH * 0.7, 7)
+              localToWorld(pot2, localX, chimBaseLocalY + chimH + 0.12 + potH + (potH * 0.7) / 2, localZ,
+                leanX, leanZ, rotationY, wx, wy, wz)
+              detailBatch.addPositioned(pot2, potColor)
+            }
+          }
+        }
       }
     }
 

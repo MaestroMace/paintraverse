@@ -18,6 +18,11 @@ interface FacadeConfig {
   hasShutters: boolean
   hasFlowerBox: boolean
   style: string // 'ornate' | 'standard' | 'rustic' | 'weathered'
+  /** Optional override color for the ground-floor band — paints the lower
+   *  TEXTURE_SCALE pixels of the canvas in this color, simulating the
+   *  classic "stone shop on the ground floor, timber/plaster upstairs"
+   *  pattern. Undefined = uniform wallColor. */
+  groundFloorColor?: number
 }
 export type { FacadeConfig }
 
@@ -25,7 +30,8 @@ const TEXTURE_SCALE = 64 // pixels per tile unit
 const _textureCache = new Map<string, THREE.CanvasTexture>()
 
 function facadeKey(config: FacadeConfig, face: 'front' | 'side'): string {
-  return `${config.floors}_${config.width}_${config.wallColor.toString(16)}_${config.doorColor.toString(16)}_${config.hasTimber}_${config.hasAwning}_${config.hasShutters}_${config.hasFlowerBox}_${config.style}_${face}`
+  const gfc = config.groundFloorColor !== undefined ? config.groundFloorColor.toString(16) : 'none'
+  return `${config.floors}_${config.width}_${config.wallColor.toString(16)}_${config.doorColor.toString(16)}_${config.hasTimber}_${config.hasAwning}_${config.hasShutters}_${config.hasFlowerBox}_${config.style}_${gfc}_${face}`
 }
 
 function hexToRGB(color: number): [number, number, number] {
@@ -60,10 +66,38 @@ export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'
   ctx.fillStyle = colorStr(config.wallColor)
   ctx.fillRect(0, 0, w, h)
 
-  // Ground floor darker band
-  const groundH = TEXTURE_SCALE * 0.4
-  ctx.fillStyle = colorStr(darkenColor(config.wallColor, 0.1))
-  ctx.fillRect(0, h - groundH, w, groundH)
+  // Ground-floor band — when groundFloorColor is set, paint the entire
+  // lower TEXTURE_SCALE pixels in that contrasting color. Implies a stone
+  // shop foundation under timber/plaster upper floors. Otherwise just a
+  // subtle darker stripe matches the original look.
+  if (config.groundFloorColor !== undefined) {
+    const gh = TEXTURE_SCALE
+    ctx.fillStyle = colorStr(config.groundFloorColor)
+    ctx.fillRect(0, h - gh, w, gh)
+    // Suggest stone courses with a few horizontal banding lines in a
+    // slightly darker shade — adds masonry texture without spending verts.
+    ctx.strokeStyle = colorStr(darkenColor(config.groundFloorColor, 0.18))
+    ctx.lineWidth = 1
+    for (let row = 1; row < 4; row++) {
+      const y = h - gh + row * (gh / 4)
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke()
+    }
+    // Vertical "block edge" lines, offset per row for staggered courses.
+    ctx.strokeStyle = colorStr(darkenColor(config.groundFloorColor, 0.22))
+    for (let row = 0; row < 4; row++) {
+      const yTop = h - gh + row * (gh / 4)
+      const yBot = yTop + gh / 4
+      const colSpacing = TEXTURE_SCALE * 0.45
+      const offset = (row % 2) * colSpacing * 0.5
+      for (let x = offset; x < w; x += colSpacing) {
+        ctx.beginPath(); ctx.moveTo(x, yTop); ctx.lineTo(x, yBot); ctx.stroke()
+      }
+    }
+  } else {
+    const groundH = TEXTURE_SCALE * 0.4
+    ctx.fillStyle = colorStr(darkenColor(config.wallColor, 0.1))
+    ctx.fillRect(0, h - groundH, w, groundH)
+  }
 
   // Timber framing
   if (config.hasTimber) {

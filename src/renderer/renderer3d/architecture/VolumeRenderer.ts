@@ -158,6 +158,11 @@ export interface EmitVolumeContext {
   /** If true, this is a stone-dominated building (noble/gothic/high stone
    *  axis). Drives the heavier two-tier base course at the wall foot. */
   stoneBased?: boolean
+  /** If set, paint the ground floor band of textured walls in this color
+   *  (instead of wallColor) — simulates a stone shop / foundation level
+   *  under a timber/plaster upper structure. Only affects mainBody-class
+   *  volumes that touch the ground (bottomY === 0). */
+  groundFloorColor?: number
   /** If true, suppress fancy roof ornaments (dormer/finial) for this volume. */
   skipRoofOrnaments?: boolean
   /** Should this volume's wall meshes cast sun shadows. Defaults true if
@@ -257,6 +262,14 @@ export function emitVolume(
     localToWorld(geo, lx, v.bottomY, lz, leanX, leanZ, rot, cx, cy, cz)
     let mesh: THREE.Mesh
     if (v.textured) {
+      // Apply the contrasting ground-floor band only on volumes whose base
+      // sits on the ground (bottomY ≈ 0). For stacked massing pieces (like
+      // a step-back penthouse or a jettied upper floor), the volume's base
+      // is mid-air — painting a "ground floor" band there would float
+      // visually wrong.
+      const groundFloorColor = ctx.groundFloorColor !== undefined && Math.abs(v.bottomY) < 0.1
+        ? ctx.groundFloorColor
+        : undefined
       const cfg: FacadeConfig = {
         floors,
         width: Math.max(1, Math.round(v.width)),
@@ -268,6 +281,7 @@ export function emitVolume(
         hasShutters: ctx.hasShutters,
         hasFlowerBox: ctx.hasFlowerBox,
         style: ctx.style,
+        groundFloorColor,
       }
       const facadeMat = getFacadeMat(cfg)
       const plainMat = getPlainMat(wallColor)
@@ -350,6 +364,114 @@ export function emitVolume(
   if (roofGeo) {
     localToWorld(roofGeo, lx, v.bottomY + v.height, lz, leanX, leanZ, rot, cx, cy, cz)
     roofBatch.addPositioned(roofGeo, roofColor)
+  }
+
+  // --- Bargeboards --- decorative wood/stone trim along the gable edges
+  // (the sloped edges where the gable wall meets the roof slope on a
+  // gabled or steep roof). Reads as the painted edge-board on Tudor and
+  // Traverse-Town gables. Two boards per gable end: one along each slope
+  // edge from the eave corner up to the ridge peak. Placed slightly past
+  // the gable face so they cap the roof's overhang at the gable end.
+  if ((v.roofStyle === 'gabled' || v.roofStyle === 'steep') &&
+      !v.circular && v.role !== 'chimneyVol' &&
+      Math.min(v.width, v.depth) >= 1.4 && v.roofHeight > 0.4) {
+    const ridgeOnX = v.roofAxis === 'x'
+    // Gable ends sit at ±gableExtent along the ridge axis. The slope drops
+    // from the ridge peak (height = h, mid of perp axis) down to the eave
+    // corner (height = 0, perp = ±perpExtent + eave overhang).
+    const gableExtent = (ridgeOnX ? v.width : v.depth) / 2
+    const perpExtent = (ridgeOnX ? v.depth : v.width) / 2
+    const eaveProj = 0.26
+    const slopeRunPerp = perpExtent + eaveProj
+    const slopeRiseY = v.roofHeight
+    const slopeLen = Math.sqrt(slopeRunPerp * slopeRunPerp + slopeRiseY * slopeRiseY)
+    const slopeAngle = Math.atan2(slopeRiseY, slopeRunPerp)  // angle from horizontal
+    const boardThk = 0.05
+    const boardW = 0.14
+    const boardColor = 0x3a2818           // dark oak / weathered wood
+    const wallTopY = v.bottomY + v.height
+    // Place each gable end's two slope boards (one per slope side: +perp, -perp)
+    for (const gableSign of [-1, 1] as const) {
+      // Board sits just past the gable face — gableSign * (gableExtent + small).
+      const gableLocalAxisVal = gableSign * (gableExtent + boardThk * 0.5)
+      for (const slopeSign of [-1, 1] as const) {
+        // Endpoints of this slope edge in local frame:
+        //   eave corner: (gableLocalAxisVal, wallTopY, slopeSign * (perpExtent + eaveProj))   [if ridgeOnX]
+        //   ridge peak:  (gableLocalAxisVal, wallTopY + slopeRiseY, 0)
+        // Mid of slope:
+        const midPerp = slopeSign * slopeRunPerp / 2
+        const midY = wallTopY + slopeRiseY / 2
+        // Build a thin board: Y axis is the board's "long" axis. We'll make
+        // a box of (thickness, slopeLen, width) and rotate it around X (when
+        // ridgeOnX) so it lies along the slope.
+        // For ridgeOnX (slope is in YZ plane, varying perp=Z):
+        //   Rotation about X by angle so that the box's local Y points along
+        //   the slope direction. slope direction at slopeSign=+1: from
+        //   (0, 0, perpExtent+eaveProj) to (0, slopeRiseY, 0). That's the
+        //   vector (0, slopeRiseY, -(perpExtent+eaveProj)) after centering.
+        //   The angle from +Y axis is +slopeAngle going toward -Z when
+        //   slopeSign=+1, and toward +Z when slopeSign=-1.
+        //   So rotateX by -slopeAngle * slopeSign.
+        const board = new THREE.BoxGeometry(boardThk, slopeLen, boardW)
+        if (ridgeOnX) {
+          board.rotateX(-slopeAngle * slopeSign)
+          // After rotation, the box's center sits at origin and its long
+          // axis is tilted in YZ. Translate to the slope midpoint.
+          localToWorld(board, lx + gableLocalAxisVal, midY, lz + midPerp,
+            leanX, leanZ, rot, cx, cy, cz)
+        } else {
+          // ridgeOnZ: slope varies with X. Rotate around Z so the board's
+          // long axis (Y) tilts in XY plane. slopeSign=+1 means slope goes
+          // from (perpExtent+eaveProj, 0, 0) to (0, slopeRiseY, 0); angle
+          // from +Y goes toward -X. rotateZ(+slopeAngle * slopeSign).
+          board.rotateZ(slopeAngle * slopeSign)
+          localToWorld(board, lx + midPerp, midY, lz + gableLocalAxisVal,
+            leanX, leanZ, rot, cx, cy, cz)
+        }
+        ornamentBatch.addPositioned(board, boardColor)
+      }
+    }
+  }
+
+  // --- Eave brackets --- small wood pieces tucked under the eave overhang
+  // along the LONG sides of gabled/steep prism roofs (the slope-eaves, not
+  // the gable ends). Sells the 0.26m overhang as a structurally-supported
+  // feature rather than a floating shelf. Hipped is excluded — its eaves
+  // run on all four sides and our axis-pair emission would cover only two,
+  // reading as an asymmetric defect. Mansard, pointed, dome, and spire
+  // roofs skip — they have no straight eave run.
+  const isBracketed = v.roofStyle === 'gabled' || v.roofStyle === 'steep'
+  if (isBracketed && !v.circular && v.role !== 'chimneyVol' && v.height > 1.2) {
+    const eaveProj = 0.26
+    // Brackets along the eave-facing edges (perpendicular to the ridge).
+    // For axis='x' gable, ridge runs along X — the eaves are at z=±depth/2.
+    // For axis='z' gable, eaves are at x=±width/2.
+    const ridgeOnX = v.roofAxis === 'x'
+    const eaveLen = ridgeOnX ? v.width : v.depth
+    if (eaveLen >= 1.6) {
+      const brackPitch = 1.05                          // ~1m between brackets
+      const brackCount = Math.max(2, Math.min(6, Math.floor(eaveLen / brackPitch)))
+      const eaveTopY = v.bottomY + v.height           // brackets attach just below
+      const brackH = 0.18, brackW = 0.06, brackD = eaveProj * 0.85
+      // Color: dark wood for timber-ish styles, weathered stone for stone.
+      const brackColor = ctx.stoneBased ? shiftColor(wallColor, -0.12, -0.10, -0.08) : 0x3a2418
+      for (let i = 0; i < brackCount; i++) {
+        const t = (i + 0.5) / brackCount - 0.5        // -0.5 .. +0.5
+        for (const sideSign of [-1, 1] as const) {
+          // Box dims: thin along the wall (brackW), tall (brackH), deep
+          // perpendicular to wall (brackD). When ridge runs along Z the
+          // long axis flips so brackD lands along X instead.
+          const boxW = ridgeOnX ? brackW : brackD
+          const boxD = ridgeOnX ? brackD : brackW
+          const localX = ridgeOnX ? lx + t * eaveLen : lx + sideSign * (v.width / 2 + brackD / 2)
+          const localZ = ridgeOnX ? lz + sideSign * (v.depth / 2 + brackD / 2) : lz + t * eaveLen
+          const brackGeo = new THREE.BoxGeometry(boxW, brackH, boxD)
+          localToWorld(brackGeo, localX, eaveTopY - brackH / 2 - 0.02, localZ,
+            leanX, leanZ, rot, cx, cy, cz)
+          ornamentBatch.addPositioned(brackGeo, brackColor)
+        }
+      }
+    }
   }
 
   // --- Cornice --- wraps the volume's top perimeter (lean+yaw applied).
@@ -470,6 +592,56 @@ export function emitVolume(
       localToWorld(h1, lx, peakLocalY + 0.28 + armH * 0.7, lz, leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(h1, 0xd4c070)
     }
+    // Weather vane — silhouette punch at the very top of the skyline.
+    // Always on spires; sometimes on tall pointed towers.
+    const vaneRoll = ((ctx.hash * 2654435761 + 1313 * 1597334677) >>> 0) / 0xffffffff
+    const wantsVane = v.roofStyle === 'spire' ||
+      (v.role === 'tower' && v.roofHeight > 1.0 && vaneRoll < 0.5)
+    if (wantsVane) {
+      // Vane sits above the cross/ball. Pole + arrow body + compass cross-arms.
+      const vaneBaseY = peakLocalY + (v.roofStyle === 'spire' ? 0.65 : 0.30)
+      const poleH = 0.42, poleT = 0.035
+      const pole = new THREE.BoxGeometry(poleT, poleH, poleT)
+      localToWorld(pole, lx, vaneBaseY + poleH / 2, lz, leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(pole, 0xb89858)         // brass
+      // Compass cross-arms: four thin horizontal boxes at the lower-mid of the
+      // pole, pointing N/S (x) and E/W (z). Tiny balls at the ends.
+      const armY = vaneBaseY + poleH * 0.45
+      const armLen = 0.34, armT2 = 0.025
+      // North-South arm
+      const armNS = new THREE.BoxGeometry(armT2, armT2, armLen)
+      localToWorld(armNS, lx, armY, lz, leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(armNS, 0xb89858)
+      // East-West arm
+      const armEW = new THREE.BoxGeometry(armLen, armT2, armT2)
+      localToWorld(armEW, lx, armY, lz, leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(armEW, 0xb89858)
+      // Cardinal point balls — tiny spheres at the four ends.
+      for (const [dx, dz] of [[armLen / 2, 0], [-armLen / 2, 0], [0, armLen / 2], [0, -armLen / 2]] as const) {
+        const ballMark = new THREE.SphereGeometry(0.045, 4, 3)
+        localToWorld(ballMark, lx + dx, armY, lz + dz, leanX, leanZ, rot, cx, cy, cz)
+        ornamentBatch.addPositioned(ballMark, 0xb89858)
+      }
+      // Arrow body — long horizontal box at the TOP of the pole, oriented
+      // by the hash so each spire's arrow points at a different "wind."
+      const arrowAngle = vaneRoll * Math.PI * 2
+      const arrowLen = 0.55, arrowH = 0.06, arrowT = 0.04
+      const arrow = new THREE.BoxGeometry(arrowLen, arrowH, arrowT)
+      arrow.rotateY(arrowAngle)
+      localToWorld(arrow, lx, vaneBaseY + poleH + arrowH / 2, lz,
+        leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(arrow, 0x4a3a2a)        // dark iron
+      // Arrowhead — a small flat triangle / plate at one end of the arrow.
+      // Simulate with a slightly wider thin box at the +X end of the arrow
+      // (post-rotation it's wherever the arrow points).
+      const headW = 0.10, headH = 0.16
+      const head = new THREE.BoxGeometry(headW, headH, arrowT * 1.2)
+      head.translate(arrowLen / 2 - headW / 2, 0, 0)
+      head.rotateY(arrowAngle)
+      localToWorld(head, lx, vaneBaseY + poleH + arrowH / 2, lz,
+        leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(head, 0x4a3a2a)
+    }
   }
 }
 
@@ -546,6 +718,43 @@ function emitRoofOrnaments(
       const horiz = new THREE.BoxGeometry(armW, armT, armT)
       horiz.translate(wx, peakY + 0.28 + armH * 0.7, wz)
       ornamentBatch.addPositioned(horiz, 0xd4c070)
+    }
+
+    // Weather vane atop the cross/ball — silhouette punch at the skyline.
+    const vaneRoll = rand01(h, 1313)
+    const wantsVane = v.roofStyle === 'spire' ||
+      (v.role === 'tower' && v.roofHeight > 1.0 && vaneRoll < 0.5)
+    if (wantsVane) {
+      const vaneBaseY = peakY + (v.roofStyle === 'spire' ? 0.65 : 0.30)
+      const poleH = 0.42, poleT = 0.035
+      const pole = new THREE.BoxGeometry(poleT, poleH, poleT)
+      pole.translate(wx, vaneBaseY + poleH / 2, wz)
+      ornamentBatch.addPositioned(pole, 0xb89858)
+      const armY = vaneBaseY + poleH * 0.45
+      const armLen = 0.34, armT2 = 0.025
+      const armNS = new THREE.BoxGeometry(armT2, armT2, armLen)
+      armNS.translate(wx, armY, wz)
+      ornamentBatch.addPositioned(armNS, 0xb89858)
+      const armEW = new THREE.BoxGeometry(armLen, armT2, armT2)
+      armEW.translate(wx, armY, wz)
+      ornamentBatch.addPositioned(armEW, 0xb89858)
+      for (const [dx, dz] of [[armLen / 2, 0], [-armLen / 2, 0], [0, armLen / 2], [0, -armLen / 2]] as const) {
+        const ballMark = new THREE.SphereGeometry(0.045, 4, 3)
+        ballMark.translate(wx + dx, armY, wz + dz)
+        ornamentBatch.addPositioned(ballMark, 0xb89858)
+      }
+      const arrowAngle = vaneRoll * Math.PI * 2
+      const arrowLen = 0.55, arrowH = 0.06, arrowT = 0.04
+      const arrow = new THREE.BoxGeometry(arrowLen, arrowH, arrowT)
+      arrow.rotateY(arrowAngle)
+      arrow.translate(wx, vaneBaseY + poleH + arrowH / 2, wz)
+      ornamentBatch.addPositioned(arrow, 0x4a3a2a)
+      const headW = 0.10, headH = 0.16
+      const head = new THREE.BoxGeometry(headW, headH, arrowT * 1.2)
+      head.translate(arrowLen / 2 - headW / 2, 0, 0)
+      head.rotateY(arrowAngle)
+      head.translate(wx, vaneBaseY + poleH + arrowH / 2, wz)
+      ornamentBatch.addPositioned(head, 0x4a3a2a)
     }
   }
 
