@@ -366,6 +366,40 @@ export function emitVolume(
     roofBatch.addPositioned(roofGeo, roofColor)
   }
 
+  // --- Ridge cap --- thin clay band capping the roof ridge on prism-class
+  // roofs. A subtle but UNIVERSAL silhouette tightener — every gabled or
+  // hipped roof in a Traverse-Town reference shot has this. Color picks a
+  // warm terracotta tinted by the roof color so each town has a coherent
+  // ridge-cap palette without clashing.
+  const isRidged = v.roofStyle === 'gabled' || v.roofStyle === 'steep' || v.roofStyle === 'hipped'
+  if (isRidged && v.roofHeight > 0.3 && Math.min(v.width, v.depth) >= 1.2) {
+    const ridgeOnX = v.roofAxis === 'x'
+    let ridgeLen: number
+    if (v.roofStyle === 'hipped') {
+      // Hipped roof's ridge runs only between the two interior apex points.
+      // Inset is min(hw, hd) * 0.25 (matches Roofs.ts buildGablePrism).
+      const inset = Math.min(v.width, v.depth) / 2 * 0.25
+      ridgeLen = (ridgeOnX ? v.width : v.depth) - 2 * inset
+    } else {
+      // Gabled/steep ridge spans the full eave-aligned length plus the eave
+      // overhang on both ends.
+      ridgeLen = (ridgeOnX ? v.width : v.depth) + 0.26 * 2
+    }
+    if (ridgeLen > 0.2) {
+      const capH = 0.10, capW = 0.18
+      // Tint: shift roof color toward warm terracotta. Picks up the local
+      // palette so a slate-roofed temple gets a slate ridge cap and a
+      // warm-tile cottage gets a warmer cap.
+      const capColor = shiftColor(roofColor, 0.06, 0.02, -0.04)
+      const ridgeY = v.bottomY + v.height + v.roofHeight + capH / 2 - 0.02
+      const cap = ridgeOnX
+        ? new THREE.BoxGeometry(ridgeLen, capH, capW)
+        : new THREE.BoxGeometry(capW, capH, ridgeLen)
+      localToWorld(cap, lx, ridgeY, lz, leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(cap, capColor)
+    }
+  }
+
   // --- Bargeboards --- decorative wood/stone trim along the gable edges
   // (the sloped edges where the gable wall meets the roof slope on a
   // gabled or steep roof). Reads as the painted edge-board on Tudor and
@@ -544,6 +578,16 @@ export function emitVolume(
     const winCenterCanvasY = floorYpx + 16 + 22.4 / 2  // 27.2 px below floor top
     const winLocalY = v.bottomY + v.height * (1 - winCenterCanvasY / canvasH)
 
+    // Flowerbox dimensions (used per-window when hasFlowerBox + col is even).
+    // These match the FacadeTexture's painted flowerbox at the bottom-edge of
+    // ground-floor windows: a wood trough wider than the window with painted
+    // flowers above. Geometry version projects forward and reads as a real
+    // box from any angle.
+    const fbW = winWworld + 0.16
+    const fbH = 0.08
+    const fbProj = 0.13
+    const fbColor = 0x6a4a2a   // weathered wood
+
     for (let col = 0; col < cols; col++) {
       const winLocalX = lx + ((col + 1) / (cols + 1) - 0.5) * v.width
       // Front (+Z) face only.
@@ -564,6 +608,32 @@ export function emitVolume(
         faceLocalZ + sillProj / 2,
         leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(sillGeo, trimColor)
+
+      // Flowerbox below the window when the building's painted-flowerbox
+      // flag is set. Same gating as FacadeTexture: every other column.
+      // Sits just under the sill so they read as one unit.
+      if (ctx.hasFlowerBox && col % 2 === 0) {
+        const fbCenterY = winLocalY - winHworld / 2 - sillH - fbH / 2
+        const fb = new THREE.BoxGeometry(fbW, fbH, fbProj)
+        localToWorld(fb,
+          winLocalX,
+          fbCenterY,
+          faceLocalZ + fbProj / 2,
+          leanX, leanZ, rot, cx, cy, cz)
+        ornamentBatch.addPositioned(fb, fbColor)
+        // Three small flower clusters as tiny spheres along the front edge.
+        // Picks deterministically from a warm flower palette via hash + col.
+        const flowerColors = [0xc25a78, 0xd99744, 0xa074bc, 0xd44848, 0xb8c454]
+        for (let fi = 0; fi < 3; fi++) {
+          const fx = winLocalX + (fi - 1) * (fbW * 0.28)
+          const fy = fbCenterY + fbH / 2 + 0.04
+          const fz = faceLocalZ + fbProj * 0.85
+          const flower = new THREE.SphereGeometry(0.05, 4, 3)
+          localToWorld(flower, fx, fy, fz, leanX, leanZ, rot, cx, cy, cz)
+          const fc = flowerColors[(ctx.hash + col * 7 + fi * 3) % flowerColors.length]
+          ornamentBatch.addPositioned(flower, fc)
+        }
+      }
     }
   }
 

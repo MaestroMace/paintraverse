@@ -543,6 +543,30 @@ export function buildBuildingMeshes(
               leanX, leanZ, rotationY, wx, wy, wz)
             ornamentBatch.addPositioned(beamBack, 0x3a2418)
           }
+          // Mid-floor floor-line beams. For multi-floor Tudor buildings we
+          // emit a thinner horizontal band at each interior floor line — the
+          // post-and-beam frame's floor-joist headers. With corner posts +
+          // head plate + floor lines, the visible structure now reads as
+          // an actual timber frame rather than just decorative trim.
+          const volFloors = Math.max(1, v.floors ?? Math.max(1, Math.round(v.height / 0.9)))
+          if (volFloors >= 2) {
+            const flBeamH = 0.08
+            const flBeamProj = postT * 0.30
+            const floorH = v.height / volFloors
+            for (let f = 1; f < volFloors; f++) {
+              const flBeamY = baseLocalY + f * floorH
+              const flFront = new THREE.BoxGeometry(v.width + postT * 2, flBeamH, flBeamProj)
+              localToWorld(flFront, v.offsetX, flBeamY,
+                v.offsetZ + halfD + flBeamProj / 2 + projOut,
+                leanX, leanZ, rotationY, wx, wy, wz)
+              ornamentBatch.addPositioned(flFront, 0x3a2418)
+              const flBack = new THREE.BoxGeometry(v.width + postT * 2, flBeamH, flBeamProj)
+              localToWorld(flBack, v.offsetX, flBeamY,
+                v.offsetZ - halfD - flBeamProj / 2 - projOut,
+                leanX, leanZ, rotationY, wx, wy, wz)
+              ornamentBatch.addPositioned(flBack, 0x3a2418)
+            }
+          }
         } else {
           // Quoins
           const wallR = (v.wallColor >> 16) & 0xff
@@ -765,17 +789,28 @@ export function buildBuildingMeshes(
       const awningD = 0.55
       // Front-edge dip so the awning slopes downward away from the wall.
       const slopeRot = -0.12  // ~7° down at front edge
-      const awning = new THREE.BoxGeometry(awningW, 0.04, awningD)
-      // Pivot the slope around the wall edge: translate so the wall edge is
-      // at z=0 in geometry space, rotate, restore.
-      awning.translate(0, 0, awningD / 2)
-      awning.rotateX(slopeRot)
-      // Awning canvas palette — warm striped market awning colors.
-      const awnColors = [0xc25a3a, 0xc8924a, 0xa84030, 0xb86a4a, 0x8b7038]
-      const awnColor = awnColors[(hash >> 4) % awnColors.length]
-      localToWorld(awning, 0, awningY, fp.h / 2,
-        leanX, leanZ, rotationY, wx, wy, wz)
-      ornamentBatch.addPositioned(awning, awnColor)
+      // Striped canvas — emit the awning as 5 vertical strips alternating
+      // between two colors. Reads unambiguously as a market awning at any
+      // distance, where a solid block reads as a shelf. Two-color picks
+      // (a primary + a contrasting accent) selected from the warm palette
+      // by hash so each shop's canvas has its own colorway.
+      const awnPrimaries = [0xc25a3a, 0xc8924a, 0xa84030, 0xb86a4a, 0x8b7038]
+      const awnAccents   = [0xf2d8a8, 0xece2cc, 0xd6c7a3, 0xefe1c0, 0xeacb99]
+      const awnPrimary = awnPrimaries[(hash >> 4) % awnPrimaries.length]
+      const awnAccent  = awnAccents[(hash >> 6) % awnAccents.length]
+      const stripCount = 5
+      const stripW = awningW / stripCount
+      for (let s = 0; s < stripCount; s++) {
+        const stripGeo = new THREE.BoxGeometry(stripW * 0.98, 0.04, awningD)
+        // Pivot slope around the wall edge: same as before, but per-strip.
+        stripGeo.translate(0, 0, awningD / 2)
+        stripGeo.rotateX(slopeRot)
+        const stripX = -awningW / 2 + (s + 0.5) * stripW
+        const stripColor = s % 2 === 0 ? awnPrimary : awnAccent
+        localToWorld(stripGeo, stripX, awningY, fp.h / 2,
+          leanX, leanZ, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(stripGeo, stripColor)
+      }
       // Two simple vertical posts at the front corners — implies tied-down canvas.
       // Post top must clear the awning's sloped underside at the post's Z. The
       // awning's local Z (relative to its translate) at the post is awningD-0.04
