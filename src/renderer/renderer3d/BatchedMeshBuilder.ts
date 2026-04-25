@@ -12,6 +12,28 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v
+}
+
+/**
+ * Hash-derived [-strength, +strength] per-channel jitter. Same seed +
+ * idx pair always returns the same triple, so re-rolling the same town
+ * produces identical roof patches. Two channels biased darker than
+ * brighter (skewed +0.4) so the noise reads as "weathered patches"
+ * rather than "speckled paint."
+ */
+function perChannelJitter(seed: number, idx: number, strength: number): [number, number, number] {
+  const a = ((seed * 2654435761) ^ (idx * 1597334677)) >>> 0
+  const b = ((seed * 1597334677) ^ (idx * 2246822519)) >>> 0
+  const c = ((seed * 374761393)  ^ (idx * 3266489917)) >>> 0
+  // Map [0, 0xffffffff] → [-1, +1] then bias slightly darker.
+  const j0 = (a / 0xffffffff) * 2 - 1.4
+  const j1 = (b / 0xffffffff) * 2 - 1.4
+  const j2 = (c / 0xffffffff) * 2 - 1.4
+  return [j0 * strength * 0.5, j1 * strength * 0.5, j2 * strength * 0.5]
+}
+
 /** Bake a solid color into a geometry's vertex color attribute (modifies in place) */
 function bakeVertexColor(geo: THREE.BufferGeometry, color: THREE.Color): void {
   const count = geo.getAttribute('position').count
@@ -49,6 +71,65 @@ export class BatchedMeshBuilder {
   addPositioned(geo: THREE.BufferGeometry, colorHex: number): void {
     const clone = geo.clone()
     bakeVertexColor(clone, new THREE.Color(colorHex))
+    this.geos.push(clone)
+  }
+
+  /**
+   * Like addPositioned, but with hash-deterministic per-TRIANGLE color jitter.
+   * Used for roof tile patches: the triangulated roof surface gets every
+   * three consecutive vertices treated as one triangle and assigned the
+   * SAME color, with that color shifted by a small per-triangle offset
+   * derived from `seed + triangleIdx`. The result reads as patches of
+   * slightly darker / lighter tiles across the roof — the "old roof
+   * with mossy / repaired sections" silhouette texture.
+   *
+   * Operates on NON-INDEXED geometry (every 3 vertices = one triangle,
+   * which matches our roof prism / cone / dome / mansard outputs). For
+   * indexed input it falls back to per-vertex (no per-triangle stamping).
+   *
+   * `strength` is the maximum +/- shift per channel in [0, 1] units —
+   * 0.05 is barely perceptible, 0.10 reads clearly at distance, 0.18
+   * starts to look painterly. Default chosen to read at distance without
+   * looking like a quilt.
+   */
+  addPositionedNoised(
+    geo: THREE.BufferGeometry,
+    colorHex: number,
+    seed: number,
+    strength: number = 0.10,
+  ): void {
+    const clone = geo.clone()
+    const base = new THREE.Color(colorHex)
+    const posCount = clone.getAttribute('position').count
+    const colors = new Float32Array(posCount * 3)
+    const indexed = clone.index !== null
+    if (indexed) {
+      // Per-vertex jitter (no triangle grouping known here).
+      for (let i = 0; i < posCount; i++) {
+        const j = perChannelJitter(seed, i, strength)
+        colors[i * 3 + 0] = clamp01(base.r + j[0])
+        colors[i * 3 + 1] = clamp01(base.g + j[1])
+        colors[i * 3 + 2] = clamp01(base.b + j[2])
+      }
+    } else {
+      // Per-triangle: group every 3 consecutive vertices and stamp them
+      // with the same jittered color so each triangle reads as a uniform
+      // tile patch.
+      const triCount = Math.floor(posCount / 3)
+      for (let t = 0; t < triCount; t++) {
+        const j = perChannelJitter(seed, t, strength)
+        const r = clamp01(base.r + j[0])
+        const g = clamp01(base.g + j[1])
+        const b = clamp01(base.b + j[2])
+        for (let v = 0; v < 3; v++) {
+          const idx = (t * 3 + v) * 3
+          colors[idx + 0] = r
+          colors[idx + 1] = g
+          colors[idx + 2] = b
+        }
+      }
+    }
+    clone.setAttribute('color', new THREE.BufferAttribute(colors, 3))
     this.geos.push(clone)
   }
 

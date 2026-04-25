@@ -648,6 +648,113 @@ export function buildBuildingMeshes(
       detailBatch.addPositioned(geo, 0x606060)
     }
 
+    // === FLAG POLE + BANNER → ornament-batched ===
+    // Noble / temple / wealthy buildings get a flag pole rising from the
+    // mainBody roof peak, with a small triangular banner attached at the
+    // upper portion. Reads as "this is the count's house" / "the temple"
+    // from the skyline. Banner color picks from a small heraldic palette
+    // by hash so each noble household has its own livery.
+    const wantsFlagPole = !mainVol.circular &&
+      (district === 'noble' || district === 'temple' ||
+       obj.definitionId === 'mansion' || obj.definitionId === 'guild_hall' ||
+       styleVector.wealth > 0.7) &&
+      !NO_JITTER.has(obj.definitionId) &&
+      mainRoofH > 0.3 &&
+      rand01(hash, 1601) < 0.55
+    if (wantsFlagPole) {
+      // Pole anchors near the front edge of the ridge so the banner is
+      // visible from the street rather than tucked behind chimneys at the
+      // back. For prism roofs the ridge runs along an axis; offset the pole
+      // 30% toward the front face along the perpendicular axis.
+      const ridgeOnX = mainVol.roofAxis === 'x'
+      const poleH = 1.6
+      const poleR = 0.04
+      const poleLocalX = mainVol.offsetX + (ridgeOnX ? 0 : mainVol.depth * 0.25)
+      const poleLocalZ = mainVol.offsetZ + (ridgeOnX ? mainVol.depth * 0.25 : 0)
+      const poleBaseY = mainLocalTopY + mainRoofH + 0.05
+      const pole = new THREE.CylinderGeometry(poleR, poleR, poleH, 6)
+      localToWorld(pole, poleLocalX, poleBaseY + poleH / 2, poleLocalZ,
+        leanX, leanZ, rotationY, wx, wy, wz)
+      ornamentBatch.addPositioned(pole, 0x4a3a2a)
+      // Pole finial cap (small ball).
+      const cap = new THREE.SphereGeometry(0.07, 5, 4)
+      localToWorld(cap, poleLocalX, poleBaseY + poleH + 0.04, poleLocalZ,
+        leanX, leanZ, rotationY, wx, wy, wz)
+      ornamentBatch.addPositioned(cap, 0xb89858)         // brass
+      // Banner: a thin rectangle attached to the pole's upper portion,
+      // angled out from the pole as if blowing in the wind. Build at
+      // origin, translate so its inner edge is at the pole, rotate by a
+      // hash-determined yaw so banners on different buildings flap in
+      // different directions.
+      const bannerW = 0.65, bannerH = 0.45, bannerT = 0.025
+      const bannerYaw = rand01(hash, 1607) * Math.PI * 2
+      const banner = new THREE.BoxGeometry(bannerW, bannerH, bannerT)
+      banner.translate(bannerW / 2, 0, 0)              // inner edge at origin
+      banner.rotateY(bannerYaw)
+      // Banner color from a small heraldic palette: deep red, midnight blue,
+      // forest green, royal purple, gold ochre.
+      const bannerColors = [0x8e2424, 0x2a3a72, 0x2e5a32, 0x4a2a5e, 0xa07020]
+      const bannerColor = bannerColors[hash % bannerColors.length]
+      localToWorld(banner, poleLocalX, poleBaseY + poleH * 0.78, poleLocalZ,
+        leanX, leanZ, rotationY, wx, wy, wz)
+      ornamentBatch.addPositioned(banner, bannerColor)
+      // A small triangular tail at the banner's free edge — adds the
+      // "split-tail" pennant silhouette. Approximated as a thin sliver.
+      const tailW = 0.12
+      const tail = new THREE.BoxGeometry(tailW, bannerH * 0.6, bannerT)
+      tail.translate(bannerW + tailW / 2 - 0.02, 0, 0)
+      tail.rotateY(bannerYaw)
+      localToWorld(tail, poleLocalX, poleBaseY + poleH * 0.78, poleLocalZ,
+        leanX, leanZ, rotationY, wx, wy, wz)
+      ornamentBatch.addPositioned(tail, bannerColor)
+    }
+
+    // === IVY PATCHES → ornament-batched ===
+    // Small dark-green geometric patches climbing the front-facing wall
+    // on weathered residential / garden / cottage buildings. Reads as
+    // ivy / climbing roses from any distance. Skipped on landmarks
+    // (their architecture is meant to read clean) and on stoneBased
+    // buildings (those tend to have caretakers who keep walls clear).
+    const wantsIvy = !isLandmark && !mainVol.circular && !stoneBased &&
+      (district === 'residential' || district === 'garden' ||
+       district === 'slum' || district === 'artisan') &&
+      styleVector.weather > 0.45 &&
+      mainVol.height > 1.6 &&
+      !NO_JITTER.has(obj.definitionId) &&
+      rand01(hash, 1701) < 0.32
+    if (wantsIvy) {
+      // Pick the front face (+Z) since that's the player-visible wall.
+      // Emit 3-5 patches scattered along the wall, biased toward the
+      // lower 60% of the wall (ivy climbs from the ground up).
+      const halfW = mainVol.width / 2
+      const patchCount = 3 + (hash % 3)               // 3..5
+      const frontLocalZ = mainVol.offsetZ + mainVol.depth / 2
+      for (let p = 0; p < patchCount; p++) {
+        // Patch dimensions vary per patch.
+        const pW = 0.28 + rand01(hash, 1711 + p) * 0.34   // 0.28..0.62
+        const pH = 0.4 + rand01(hash, 1721 + p) * 0.65    // 0.40..1.05
+        const pT = 0.04
+        // X position: spread across the wall, avoiding the door area.
+        const xRange = halfW * 0.9
+        const localX = mainVol.offsetX + (rand01(hash, 1731 + p) - 0.5) * 2 * xRange
+        // Avoid the door zone (center ±0.4) on the lower 1.4m of the wall.
+        if (Math.abs(localX - mainVol.offsetX) < 0.4 && pH < 1.5) continue
+        // Y position: bias toward the lower 60%. Patch center range
+        // [pH/2, mainVol.height * 0.6 - pH/2].
+        const yMin = (mainVol.bottomY ?? 0) + pH / 2 + 0.05
+        const yMax = (mainVol.bottomY ?? 0) + mainVol.height * 0.6 + pH / 2
+        const localY = yMin + rand01(hash, 1741 + p) * Math.max(0.1, yMax - yMin)
+        const ivyGeo = new THREE.BoxGeometry(pW, pH, pT)
+        localToWorld(ivyGeo, localX, localY, frontLocalZ + pT / 2,
+          leanX, leanZ, rotationY, wx, wy, wz)
+        // Ivy palette: a few dark mossy greens. Pick by hash + p so each
+        // patch on a building can be slightly different.
+        const ivyColors = [0x2a3818, 0x344524, 0x2c3a1e, 0x405038, 0x3a4a26]
+        const ivyColor = ivyColors[(hash + p) % ivyColors.length]
+        ornamentBatch.addPositioned(ivyGeo, ivyColor)
+      }
+    }
+
     // === DOORSTEP → batched ===
     // Front-face doorstep — also a ground feature, no lean (a building tips
     // but its threshold stays flat) but does follow yaw so the step lands on

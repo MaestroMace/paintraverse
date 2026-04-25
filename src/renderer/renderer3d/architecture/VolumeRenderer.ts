@@ -363,7 +363,15 @@ export function emitVolume(
   const roofGeo = buildRoof(v.width, v.depth, v.roofHeight, v.roofStyle, v.roofAxis, roofSag)
   if (roofGeo) {
     localToWorld(roofGeo, lx, v.bottomY + v.height, lz, leanX, leanZ, rot, cx, cy, cz)
-    roofBatch.addPositioned(roofGeo, roofColor)
+    // Per-triangle color noise on the roof so each tile patch reads slightly
+    // differently — the "this roof has been there a while; some tiles got
+    // replaced" reading. Strength scales with weather: pristine roofs get a
+    // tiny variation (still breaks up flat shading), well-weathered roofs
+    // get more visible patches. Seed combines hash + role hash so each
+    // volume gets a unique pattern but regenerates deterministically.
+    const noiseSeed = (ctx.hash ^ (v.role.charCodeAt(0) * 1597334677)) >>> 0
+    const noiseStrength = 0.05 + ctx.weather * 0.10
+    roofBatch.addPositionedNoised(roofGeo, roofColor, noiseSeed, noiseStrength)
   }
 
   // --- Ridge cap --- thin clay band capping the roof ridge on prism-class
