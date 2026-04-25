@@ -58,7 +58,15 @@ export function buildRoof(
 
 function buildGablePrism(w: number, d: number, h: number, axis: RoofAxis, hipped: boolean): THREE.BufferGeometry {
   const hw = w / 2, hd = d / 2
-  const ow = hw + 0.1, od = hd + 0.1
+  // Eave overhang. Hipped roofs project less because all four edges slope —
+  // a heavy overhang on a hipped roof reads as a flat shelf rather than an
+  // eave. Gabled/steep roofs only project on two sides (the slopes), so
+  // they can carry a bigger overhang without losing the gable read. The
+  // shadow band this casts at the top of the wall is one of the strongest
+  // silhouette cues for "old building" — small geometric change, large
+  // perceptual one.
+  const eaveProj = hipped ? 0.18 : 0.26
+  const ow = hw + eaveProj, od = hd + eaveProj
 
   let verts: number[]
 
@@ -126,7 +134,10 @@ function buildGablePrism(w: number, d: number, h: number, axis: RoofAxis, hipped
 
 function buildMansard(w: number, d: number, h: number, axis: RoofAxis): THREE.BufferGeometry {
   const hw = w / 2, hd = d / 2
-  const ow = hw + 0.1, od = hd + 0.1
+  // Mansard eaves project more visibly than other roofs in real buildings
+  // — the steep lower pitch lands well past the wall face. ~0.20m gives
+  // the bottom-of-roof shadow band without sliding into "shelf" territory.
+  const ow = hw + 0.20, od = hd + 0.20
   // Lower: 60% of h, steep 70° pitch ends at inset0
   // Upper: remaining 40% of h, shallow slope from inset0 to small flat top
   const h0 = h * 0.6
