@@ -386,123 +386,221 @@ export function buildBuildingMeshes(
       }
     }
 
-    // === CORNER TIMBER POSTS → ornament-batched ===
-    // Vertical wood posts at the four corners of the mainBody volume, on
-    // tudor/half-timber buildings. These are the structural posts that the
-    // FacadeTexture's painted timber lines IMPLY but never actually project
-    // — adding them as real geometry gives the silhouette the X-bracing /
-    // post-and-beam read at distance, which the texture alone can't sell.
-    // Lean+yaw transformed via localToWorld so they stay glued to the wall.
+    // === CORNER TIMBER POSTS / QUOINS → ornament-batched ===
+    // Vertical wood posts at corners on tudor/half-timber buildings, OR
+    // alternating corner stones on stone-dominated noble/gothic buildings.
+    // Mutually exclusive (a building reads as either timber-framed OR stone,
+    // not both). Both detail types iterate over EVERY body volume — so an
+    // L-shape gets posts on the wing, a jettied upper floor gets posts at
+    // its corners floating above the lower wall (iconic Tudor), and a
+    // step-back penthouse gets quoins on its smaller upper block.
+    //
+    // Roles to detail: mainBody, wing, upperFloor, transept, penthouse, tower
+    //   — not spire (too narrow), porch (3-walled), chimneyVol.
     const wantsTimberPosts = (
       dominantArchetype === 'halfTimberTudor' ||
       styleVector.timber > 0.55
-    ) && !NO_JITTER.has(obj.definitionId) && !mainVol.circular
-    if (wantsTimberPosts && mainVol.height > 1.4) {
-      const postT = 0.13
-      const postH = mainVol.height
-      const postLocalY = mainVol.bottomY ?? 0
-      const halfW = mainVol.width / 2
-      const halfD = mainVol.depth / 2
-      // Lift the post outward by half-thickness so it rests on the wall face,
-      // not buried inside it.
-      const projOut = postT * 0.45
-      const corners: Array<[number, number]> = [
-        [(mainVol.offsetX) + halfW + projOut, (mainVol.offsetZ) + halfD + projOut],
-        [(mainVol.offsetX) + halfW + projOut, (mainVol.offsetZ) - halfD - projOut],
-        [(mainVol.offsetX) - halfW - projOut, (mainVol.offsetZ) + halfD + projOut],
-        [(mainVol.offsetX) - halfW - projOut, (mainVol.offsetZ) - halfD - projOut],
-      ]
-      for (const [px, pz] of corners) {
-        const post = new THREE.BoxGeometry(postT, postH, postT)
-        post.translate(0, postH / 2, 0)
-        localToWorld(post, px, postLocalY, pz, leanX, leanZ, rotationY, wx, wy, wz)
-        ornamentBatch.addPositioned(post, 0x3a2418) // dark oak
-      }
-      // Top horizontal beam (head plate) — single thin band wrapping the
-      // wall under the cornice. Cornice already wraps the top so we sit
-      // BELOW it, just visible.
-      const beamY = postLocalY + postH - 0.08 - postT / 2
-      // Skip the beam entirely if the cornice will paint over it (heavy
-      // cornice volumes have a 0.20m band — beam disappears under it).
-      const beamCovered = mainVol.cornice && (mainVol.role === 'tower' || mainVol.role === 'spire')
-      if (!beamCovered) {
-        const beamProj = postT * 0.35
-        const beamFront = new THREE.BoxGeometry(mainVol.width + postT * 2, 0.10, beamProj)
-        localToWorld(beamFront, mainVol.offsetX, beamY,
-          mainVol.offsetZ + halfD + beamProj / 2 + projOut,
-          leanX, leanZ, rotationY, wx, wy, wz)
-        ornamentBatch.addPositioned(beamFront, 0x3a2418)
-        const beamBack = new THREE.BoxGeometry(mainVol.width + postT * 2, 0.10, beamProj)
-        localToWorld(beamBack, mainVol.offsetX, beamY,
-          mainVol.offsetZ - halfD - beamProj / 2 - projOut,
-          leanX, leanZ, rotationY, wx, wy, wz)
-        ornamentBatch.addPositioned(beamBack, 0x3a2418)
-      }
-    }
-
-    // === QUOINS → ornament-batched ===
-    // Alternating corner stones on stone-dominated buildings — the noble /
-    // temple / fortress signature. Stacks of small offset stones up each
-    // corner, projecting just enough to catch a shadow. Skip if we already
-    // emitted timber posts (mutually exclusive aesthetics).
+    ) && !NO_JITTER.has(obj.definitionId)
     const wantsQuoins = !wantsTimberPosts &&
       (styleVector.stone > 0.6 || dominantArchetype === 'nobleStone' || dominantArchetype === 'gothicStone') &&
-      !NO_JITTER.has(obj.definitionId) && !mainVol.circular
-    if (wantsQuoins && mainVol.height > 1.6) {
-      const quoinW = 0.22
-      const quoinH = 0.34
-      const quoinProj = 0.05
-      const halfW = mainVol.width / 2
-      const halfD = mainVol.depth / 2
-      const baseLocalY = mainVol.bottomY ?? 0
-      // Lighter color = limestone over warmer brick/stucco; darker over light.
-      const wallR = (mainVol.wallColor >> 16) & 0xff
-      const lighten = wallR < 180
-      const quoinColor = lighten
-        ? 0xc8b89a   // warm limestone over darker walls
-        : 0x6a5a48   // dark stone over pale plaster
-      const corners: Array<[number, number]> = [
-        [mainVol.offsetX + halfW, mainVol.offsetZ + halfD],
-        [mainVol.offsetX + halfW, mainVol.offsetZ - halfD],
-        [mainVol.offsetX - halfW, mainVol.offsetZ + halfD],
-        [mainVol.offsetX - halfW, mainVol.offsetZ - halfD],
-      ]
-      // Stack quoins from base up to ~85% of wall height. Alternate which
-      // face direction the stone projects from (X then Z then X) for the
-      // classic interlocking-corner read.
-      const stackCount = Math.min(7, Math.max(3, Math.floor(mainVol.height / 0.55)))
-      const stackPitch = (mainVol.height * 0.86) / stackCount
-      for (const [cornerX, cornerZ] of corners) {
-        const xSign = Math.sign(cornerX - mainVol.offsetX) || 1
-        const zSign = Math.sign(cornerZ - mainVol.offsetZ) || 1
-        for (let s = 0; s < stackCount; s++) {
-          const centerLy = baseLocalY + 0.05 + s * stackPitch + quoinH / 2
-          // Alternate between an X-face and Z-face quoin per stack step
-          // — gives the interlocking-corner bond pattern.
-          const onX = s % 2 === 0
-          const q = onX
-            ? new THREE.BoxGeometry(quoinW + quoinProj, quoinH, quoinW)
-            : new THREE.BoxGeometry(quoinW, quoinH, quoinW + quoinProj)
-          const lx = onX ? cornerX + xSign * quoinProj / 2 : cornerX
-          const lz = onX ? cornerZ : cornerZ + zSign * quoinProj / 2
-          localToWorld(q, lx, centerLy, lz, leanX, leanZ, rotationY, wx, wy, wz)
-          ornamentBatch.addPositioned(q, quoinColor)
+      !NO_JITTER.has(obj.definitionId)
+    const cornerableRoles = new Set(['mainBody', 'wing', 'upperFloor', 'transept', 'penthouse', 'tower'])
+
+    if (wantsTimberPosts || wantsQuoins) {
+      const postT = 0.13
+      const projOut = postT * 0.45  // post outward shift so it rests ON the wall face
+      const quoinW = 0.22, quoinH = 0.34, quoinProj = 0.05
+
+      for (const v of massing.volumes) {
+        if (v.circular) continue
+        if (!cornerableRoles.has(v.role)) continue
+        // Tower-role can be very tall; quoins still look right on stone towers.
+        // But timber posts on a 6m tower would read as a giant pole, so skip.
+        if (wantsTimberPosts && v.role === 'tower') continue
+        if (wantsTimberPosts && v.height < 1.4) continue
+        if (wantsQuoins && v.height < 1.6) continue
+
+        const halfW = v.width / 2
+        const halfD = v.depth / 2
+        const baseLocalY = v.bottomY ?? 0
+
+        if (wantsTimberPosts) {
+          const postH = v.height
+          const corners: Array<[number, number]> = [
+            [v.offsetX + halfW + projOut, v.offsetZ + halfD + projOut],
+            [v.offsetX + halfW + projOut, v.offsetZ - halfD - projOut],
+            [v.offsetX - halfW - projOut, v.offsetZ + halfD + projOut],
+            [v.offsetX - halfW - projOut, v.offsetZ - halfD - projOut],
+          ]
+          for (const [px, pz] of corners) {
+            const post = new THREE.BoxGeometry(postT, postH, postT)
+            post.translate(0, postH / 2, 0)
+            localToWorld(post, px, baseLocalY, pz, leanX, leanZ, rotationY, wx, wy, wz)
+            ornamentBatch.addPositioned(post, 0x3a2418) // dark oak
+          }
+          // Head-plate beam wrapping the front+back of this volume just below
+          // the cornice. Skip if a heavy cornice will paint over it.
+          const beamY = baseLocalY + postH - 0.08 - postT / 2
+          const beamCovered = v.cornice && (v.role === 'tower' || v.role === 'spire')
+          if (!beamCovered) {
+            const beamProj = postT * 0.35
+            const beamFront = new THREE.BoxGeometry(v.width + postT * 2, 0.10, beamProj)
+            localToWorld(beamFront, v.offsetX, beamY,
+              v.offsetZ + halfD + beamProj / 2 + projOut,
+              leanX, leanZ, rotationY, wx, wy, wz)
+            ornamentBatch.addPositioned(beamFront, 0x3a2418)
+            const beamBack = new THREE.BoxGeometry(v.width + postT * 2, 0.10, beamProj)
+            localToWorld(beamBack, v.offsetX, beamY,
+              v.offsetZ - halfD - beamProj / 2 - projOut,
+              leanX, leanZ, rotationY, wx, wy, wz)
+            ornamentBatch.addPositioned(beamBack, 0x3a2418)
+          }
+        } else {
+          // Quoins
+          const wallR = (v.wallColor >> 16) & 0xff
+          const lighten = wallR < 180
+          const quoinColor = lighten ? 0xc8b89a : 0x6a5a48
+          const corners: Array<[number, number]> = [
+            [v.offsetX + halfW, v.offsetZ + halfD],
+            [v.offsetX + halfW, v.offsetZ - halfD],
+            [v.offsetX - halfW, v.offsetZ + halfD],
+            [v.offsetX - halfW, v.offsetZ - halfD],
+          ]
+          const stackCount = Math.min(7, Math.max(3, Math.floor(v.height / 0.55)))
+          const stackPitch = (v.height * 0.86) / stackCount
+          for (const [cornerX, cornerZ] of corners) {
+            const xSign = Math.sign(cornerX - v.offsetX) || 1
+            const zSign = Math.sign(cornerZ - v.offsetZ) || 1
+            for (let s = 0; s < stackCount; s++) {
+              const centerLy = baseLocalY + 0.05 + s * stackPitch + quoinH / 2
+              const onX = s % 2 === 0
+              const q = onX
+                ? new THREE.BoxGeometry(quoinW + quoinProj, quoinH, quoinW)
+                : new THREE.BoxGeometry(quoinW, quoinH, quoinW + quoinProj)
+              const lx = onX ? cornerX + xSign * quoinProj / 2 : cornerX
+              const lz = onX ? cornerZ : cornerZ + zSign * quoinProj / 2
+              localToWorld(q, lx, centerLy, lz, leanX, leanZ, rotationY, wx, wy, wz)
+              ornamentBatch.addPositioned(q, quoinColor)
+            }
+          }
         }
       }
     }
 
+    // === DRAINPIPE → batched ===
+    // Thin vertical cylinder running from near the eave down to the ground
+    // at one corner of the mainBody. Major "lived-in" cue at distance —
+    // every old town has these dark iron/copper streaks against pale walls.
+    // Skip on landmarks (cathedrals, towers) and on timber-post buildings
+    // (the post would clash with the pipe).
+    const wantsDrainpipe = !isLandmark && !wantsTimberPosts &&
+      !mainVol.circular && !NO_JITTER.has(obj.definitionId) &&
+      mainVol.height > 1.8 && rand01(hash, 901) < 0.32
+    if (wantsDrainpipe) {
+      const pipeR = 0.04
+      const baseLocalY = mainVol.bottomY ?? 0
+      // Run from ~12cm below cornice to the ground.
+      const pipeTop = baseLocalY + mainVol.height - 0.12
+      const pipeBottom = 0  // building base
+      const pipeH = pipeTop - pipeBottom
+      if (pipeH > 1.0) {
+        // Pick one corner — biased toward the FRONT (+Z) face since that's
+        // where the player most often sees the building.
+        const xSide = rand01(hash, 903) < 0.5 ? -1 : 1
+        const zSide = rand01(hash, 905) < 0.65 ? 1 : -1   // 65% front
+        const cornerX = mainVol.offsetX + xSide * (mainVol.width / 2 + pipeR * 0.6)
+        const cornerZ = mainVol.offsetZ + zSide * (mainVol.depth / 2 + pipeR * 0.6)
+        const pipe = new THREE.CylinderGeometry(pipeR, pipeR, pipeH, 6)
+        pipe.translate(0, pipeH / 2, 0)
+        localToWorld(pipe, cornerX, pipeBottom, cornerZ,
+          leanX, leanZ, rotationY, wx, wy, wz)
+        // Verdigris copper or dark iron — pick from style.
+        const pipeColor = styleVector.wealth > 0.5 ? 0x4a6a5a : 0x2a241e
+        detailBatch.addPositioned(pipe, pipeColor)
+        // Small horizontal collar near the top — implies a gutter elbow.
+        const collar = new THREE.BoxGeometry(pipeR * 3.2, 0.06, pipeR * 1.5)
+        // Project the collar slightly toward the wall edge (against zSide).
+        localToWorld(collar, cornerX - xSide * pipeR * 0.6, pipeTop - 0.04, cornerZ - zSide * pipeR * 0.4,
+          leanX, leanZ, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(collar, pipeColor)
+      }
+    }
+
     // === FOUNDATION → batched ===
+    // Goes through localToWorld so it follows yaw (lean intentionally not
+    // applied — the foundation slab is a ground feature; if the building
+    // tips, the slab stays planted on the terrain). leanX/leanZ = 0 here.
     if (district === 'noble' || district === 'temple' || style === 'ornate') {
       const geo = new THREE.BoxGeometry(fp.w + 0.1, 0.08, fp.h + 0.1)
-      geo.translate(wx, wy + 0.04, wz)
+      localToWorld(geo, 0, 0.04, 0, 0, 0, rotationY, wx, wy, wz)
       detailBatch.addPositioned(geo, 0x606060)
     }
 
     // === DOORSTEP → batched ===
+    // Front-face doorstep — also a ground feature, no lean (a building tips
+    // but its threshold stays flat) but does follow yaw so the step lands on
+    // the rotated +Z face.
     if (fp.w >= 2) {
       const geo = new THREE.BoxGeometry(0.5, 0.05, 0.15)
-      geo.translate(wx, wy + 0.025, wz + fp.h / 2 + 0.08)
+      localToWorld(geo, 0, 0.025, fp.h / 2 + 0.08, 0, 0, rotationY, wx, wy, wz)
       detailBatch.addPositioned(geo, 0x808080)
+    }
+
+    // === DOORWAY SURROUND → ornament-batched ===
+    // Stone frame (lintel + two jambs) projecting from the front (+Z) face
+    // around the painted door on the FacadeTexture. The door rectangle on
+    // the texture is 0.25 world units wide and ~0.22*wallH tall, centered
+    // horizontally and anchored at the wall base. Wrapping it with a stone
+    // surround gives the door real depth at human walking distance —
+    // without it, doors read flat against the wall texture even at
+    // close range. Skip on landmarks (their architecture is grand) and
+    // narrow buildings where the door would dominate the front face.
+    // Only emit when the mainBody volume actually carries the building's
+    // front face — for L-shapes/porch templates, mainVol's front face is
+    // inset and a surround there would land on an interior surface.
+    const mainFrontZ = mainVol.offsetZ + mainVol.depth / 2
+    const buildingFrontZ = fp.h / 2
+    const frontMatches = Math.abs(mainFrontZ - buildingFrontZ) < 0.4
+    const wantsSurround = !isLandmark && !mainVol.circular && frontMatches &&
+      !NO_JITTER.has(obj.definitionId) && fp.w >= 2 && mainVol.width >= 1.4 &&
+      (styleVector.stone > 0.5 || styleVector.cornice > 0.4 ||
+       district === 'noble' || district === 'temple' ||
+       rand01(hash, 951) < 0.4)
+    if (wantsSurround && mainVol.height > 1.5) {
+      const doorW = 0.32
+      const doorH = Math.min(mainVol.height * 0.55, 1.4)
+      const baseLocalY = mainVol.bottomY ?? 0
+      const frontLocalZ = mainVol.offsetZ + mainVol.depth / 2
+      const proj = 0.06          // how far the frame stands proud of the wall
+      const jambW = 0.10
+      const lintelH = 0.14
+      // Color: warm limestone for darker walls, dark stone for pale walls.
+      const wallR = (mainVol.wallColor >> 16) & 0xff
+      const surroundColor = wallR < 180 ? 0xb8a888 : 0x6a5a48
+      // Lintel
+      const lintel = new THREE.BoxGeometry(doorW + jambW * 2 + 0.08, lintelH, proj)
+      localToWorld(lintel, mainVol.offsetX, baseLocalY + doorH + lintelH / 2,
+        frontLocalZ + proj / 2,
+        leanX, leanZ, rotationY, wx, wy, wz)
+      ornamentBatch.addPositioned(lintel, surroundColor)
+      // Jambs (sides)
+      for (const xSide of [-1, 1]) {
+        const jamb = new THREE.BoxGeometry(jambW, doorH, proj)
+        localToWorld(jamb,
+          mainVol.offsetX + xSide * (doorW / 2 + jambW / 2),
+          baseLocalY + doorH / 2,
+          frontLocalZ + proj / 2,
+          leanX, leanZ, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(jamb, surroundColor)
+      }
+      // Keystone — small bump at top center of lintel for noble/temple/wealth.
+      if (styleVector.wealth > 0.55 || district === 'noble' || district === 'temple') {
+        const keystone = new THREE.BoxGeometry(0.18, lintelH + 0.06, proj + 0.02)
+        localToWorld(keystone, mainVol.offsetX, baseLocalY + doorH + (lintelH + 0.06) / 2,
+          frontLocalZ + (proj + 0.02) / 2,
+          leanX, leanZ, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(keystone, surroundColor)
+      }
     }
 
     // === SHOP SIGN → ornament-batched ===
@@ -591,10 +689,20 @@ export function buildBuildingMeshes(
         leanX, leanZ, rotationY, wx, wy, wz)
       ornamentBatch.addPositioned(awning, awnColor)
       // Two simple vertical posts at the front corners — implies tied-down canvas.
-      const postH = awningY - 0.05
+      // Post top must clear the awning's sloped underside at the post's Z. The
+      // awning's local Z (relative to its translate) at the post is awningD-0.04
+      // ≈ 0.51. After rotateX(slopeRot), that point's Y is z' * sin(-slopeRot)
+      // below the awning's reference plane (slopeRot is negative so sin gives
+      // a small positive drop). Subtract another half-thickness for the
+      // bottom face, then ~3cm of headroom.
+      const postZRel = awningD - 0.04
+      const postZ = fp.h / 2 + postZRel
+      const awningBottomDrop = postZRel * Math.sin(-slopeRot) + 0.02
+      const postH = Math.max(0.5, awningY - awningBottomDrop - 0.03)
       for (const px of [-awningW * 0.42, awningW * 0.42]) {
         const post = new THREE.BoxGeometry(0.04, postH, 0.04)
-        localToWorld(post, px, postH / 2, fp.h / 2 + awningD - 0.04,
+        post.translate(0, postH / 2, 0)
+        localToWorld(post, px, 0, postZ,
           leanX, leanZ, rotationY, wx, wy, wz)
         ornamentBatch.addPositioned(post, 0x3a2418)
       }
@@ -620,18 +728,23 @@ export function buildBuildingMeshes(
     }
 
     // === BALCONY → batched ===
+    // Lean+yaw transformed via localToWorld so the balcony stays attached to
+    // the (possibly leaning) wall.
     if ((obj.definitionId === 'balcony_house' || obj.definitionId === 'inn') && floors >= 2) {
       const balcW = fp.w * 0.5, balcD = 0.4
       const balcY = FLOOR_HEIGHT * 1.1 * heightMult
       const pg = new THREE.BoxGeometry(balcW, 0.06, balcD)
-      pg.translate(wx, wy + balcY, wz + fp.h / 2 + balcD / 2)
+      localToWorld(pg, 0, balcY, fp.h / 2 + balcD / 2,
+        leanX, leanZ, rotationY, wx, wy, wz)
       detailBatch.addPositioned(pg, 0x705a40)
       const rg = new THREE.BoxGeometry(balcW, 0.25, 0.04)
-      rg.translate(wx, wy + balcY + 0.15, wz + fp.h / 2 + balcD)
+      localToWorld(rg, 0, balcY + 0.15, fp.h / 2 + balcD,
+        leanX, leanZ, rotationY, wx, wy, wz)
       detailBatch.addPositioned(rg, 0x705a40)
       for (const side of [-balcW * 0.35, balcW * 0.35]) {
         const bg = new THREE.BoxGeometry(0.06, 0.2, balcD * 0.7)
-        bg.translate(wx + side, wy + balcY - 0.1, wz + fp.h / 2 + balcD * 0.4)
+        localToWorld(bg, side, balcY - 0.1, fp.h / 2 + balcD * 0.4,
+          leanX, leanZ, rotationY, wx, wy, wz)
         detailBatch.addPositioned(bg, 0x705a40)
       }
     }
