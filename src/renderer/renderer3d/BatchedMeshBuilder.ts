@@ -34,6 +34,36 @@ function perChannelJitter(seed: number, idx: number, strength: number): [number,
   return [j0 * strength * 0.5, j1 * strength * 0.5, j2 * strength * 0.5]
 }
 
+/**
+ * Normalize a geometry to a uniform attribute set so it can merge with
+ * any other normalized geometry. Three.js's mergeGeometries refuses to
+ * merge inputs with mismatched attribute keys or different indexed-vs-
+ * non-indexed states. Built-in primitives (Box/Cone/Sphere/Cylinder)
+ * come with position+normal+uv plus an index; our hand-rolled prism
+ * roofs only carry position. We unify by:
+ *   1. Calling toNonIndexed() on indexed geometries so all inputs are
+ *      non-indexed (the cleaner direction since our prism builders
+ *      already produce non-indexed output).
+ *   2. Stripping every attribute except position so the merged geom
+ *      has exactly { position, color } — color is added by the caller
+ *      with bakeVertexColor afterward, computeVertexNormals reruns on
+ *      the merged result so we don't need per-input normals.
+ *
+ * This fixes the silent "merged mesh is null" bug that's been around
+ * since prism roofs were introduced — hand-rolled prisms could never
+ * merge with cone-roof spires in the same batch, and roofBatch.build()
+ * would return null on any town that mixed both styles.
+ */
+function normalizeForMerge(geo: THREE.BufferGeometry): THREE.BufferGeometry {
+  const out = geo.index !== null ? geo.toNonIndexed() : geo
+  // Drop everything except position. computeVertexNormals() runs
+  // post-merge so we don't need normals per-input.
+  for (const name of Object.keys(out.attributes)) {
+    if (name !== 'position') out.deleteAttribute(name)
+  }
+  return out
+}
+
 /** Bake a solid color into a geometry's vertex color attribute (modifies in place) */
 function bakeVertexColor(geo: THREE.BufferGeometry, color: THREE.Color): void {
   const count = geo.getAttribute('position').count
@@ -61,7 +91,7 @@ export class BatchedMeshBuilder {
 
   /** Add a geometry fragment at a world position with a solid color */
   add(geo: THREE.BufferGeometry, colorHex: number, x: number, y: number, z: number): void {
-    const clone = geo.clone()
+    const clone = normalizeForMerge(geo.clone())
     clone.translate(x, y, z)
     bakeVertexColor(clone, new THREE.Color(colorHex))
     this.geos.push(clone)
@@ -69,7 +99,7 @@ export class BatchedMeshBuilder {
 
   /** Add a geometry that's already positioned (e.g. from translate() calls) with a color */
   addPositioned(geo: THREE.BufferGeometry, colorHex: number): void {
-    const clone = geo.clone()
+    const clone = normalizeForMerge(geo.clone())
     bakeVertexColor(clone, new THREE.Color(colorHex))
     this.geos.push(clone)
   }
@@ -98,35 +128,24 @@ export class BatchedMeshBuilder {
     seed: number,
     strength: number = 0.10,
   ): void {
-    const clone = geo.clone()
+    // normalizeForMerge converts indexed → non-indexed and strips
+    // normal/uv, so after this call every 3 consecutive vertices form
+    // exactly one triangle in the geometry.
+    const clone = normalizeForMerge(geo.clone())
     const base = new THREE.Color(colorHex)
     const posCount = clone.getAttribute('position').count
     const colors = new Float32Array(posCount * 3)
-    const indexed = clone.index !== null
-    if (indexed) {
-      // Per-vertex jitter (no triangle grouping known here).
-      for (let i = 0; i < posCount; i++) {
-        const j = perChannelJitter(seed, i, strength)
-        colors[i * 3 + 0] = clamp01(base.r + j[0])
-        colors[i * 3 + 1] = clamp01(base.g + j[1])
-        colors[i * 3 + 2] = clamp01(base.b + j[2])
-      }
-    } else {
-      // Per-triangle: group every 3 consecutive vertices and stamp them
-      // with the same jittered color so each triangle reads as a uniform
-      // tile patch.
-      const triCount = Math.floor(posCount / 3)
-      for (let t = 0; t < triCount; t++) {
-        const j = perChannelJitter(seed, t, strength)
-        const r = clamp01(base.r + j[0])
-        const g = clamp01(base.g + j[1])
-        const b = clamp01(base.b + j[2])
-        for (let v = 0; v < 3; v++) {
-          const idx = (t * 3 + v) * 3
-          colors[idx + 0] = r
-          colors[idx + 1] = g
-          colors[idx + 2] = b
-        }
+    const triCount = Math.floor(posCount / 3)
+    for (let t = 0; t < triCount; t++) {
+      const j = perChannelJitter(seed, t, strength)
+      const r = clamp01(base.r + j[0])
+      const g = clamp01(base.g + j[1])
+      const b = clamp01(base.b + j[2])
+      for (let v = 0; v < 3; v++) {
+        const idx = (t * 3 + v) * 3
+        colors[idx + 0] = r
+        colors[idx + 1] = g
+        colors[idx + 2] = b
       }
     }
     clone.setAttribute('color', new THREE.BufferAttribute(colors, 3))

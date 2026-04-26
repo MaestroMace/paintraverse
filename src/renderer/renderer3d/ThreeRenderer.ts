@@ -22,7 +22,7 @@ const FLY_SPEED = 10.0
 const DOUBLE_TAP_MS = 300
 const MOUSE_YAW_SENS = 0.0025
 const MOUSE_PITCH_SENS = 0.002
-import { buildBuildingMeshes, setWallEmissiveIntensity, type BuildingBatchResult } from './BuildingFactory'
+import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, type BuildingBatchResult } from './BuildingFactory'
 import { tickWallEmissive } from './architecture/VolumeRenderer'
 import { buildLanternStrings, buildWallLanterns, setLanternEmissiveIntensity, tickLanternEmissive } from './LanternStrings'
 import { buildPropMeshes, setLampPoolOpacity, type PropBatchResult } from './PropFactory'
@@ -560,11 +560,24 @@ export class ThreeRenderer {
       ? (x: number, z: number) => getTerrainHeight(heightMap!, x, z)
       : undefined
 
-    // Buildings — batched: walls individual, roofs/details merged
+    // Buildings — batched: walls individual, roofs/details merged.
+    // Wrap in try/catch so a thrown exception during building emission
+    // (e.g. a malformed geometry, a math error, etc.) doesn't take the
+    // whole 3D scene init down with it. The per-building loop inside
+    // buildBuildingMeshes already swallows per-building errors; this
+    // catches anything that happens BEFORE/AFTER the loop or anything
+    // in the merge / coalesce step.
     const structureLayer = map.layers.find(l => l.type === 'structure')
     const chimneyPositions: THREE.Vector3[] = []
     if (structureLayer) {
-      const result = buildBuildingMeshes(structureLayer.objects, defMap, palettes, hLookup)
+      let result: BuildingBatchResult
+      try {
+        result = buildBuildingMeshes(structureLayer.objects, defMap, palettes, hLookup)
+      } catch (err) {
+        const e = err as { message?: string; stack?: string }
+        console.error(`[ThreeRenderer] buildBuildingMeshes threw: ${e?.message || err}`, e?.stack)
+        result = { wallMeshes: [], batched: [] }
+      }
       for (const m of result.wallMeshes) {
         // castShadow was decided per-volume (short buildings opt out to
         // trim the shadow pass); don't clobber it here. receiveShadow is
@@ -1558,6 +1571,10 @@ export class ThreeRenderer {
       },
       pointerLocked: this.pointerLocked,
       collisionMaskSize: this.collisionMask?.length ?? 0,
+      // Building factory diagnostics from the most recent rebuild — failures
+      // are captured per-building and surfaced here so debug-dumps include
+      // any per-building runtime errors.
+      buildingFactory: getBuildingDiagnostics(),
     }
   }
 

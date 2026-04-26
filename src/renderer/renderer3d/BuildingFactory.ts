@@ -95,20 +95,73 @@ export interface BuildingBatchResult {
   batched: THREE.Mesh[]          // merged roof/detail/feature meshes
 }
 
+/**
+ * Diagnostics captured during the most recent buildBuildingMeshes() call.
+ * Surfaced via ThreeRenderer.getDebugInfo() so debug-dump exports include
+ * any per-building errors, plus stats on what got built vs. skipped.
+ */
+export interface BuildingDiagnostics {
+  attempted: number
+  succeeded: number
+  failed: number
+  /** Up to FAILURE_LOG_CAP per-building error records. */
+  failures: Array<{
+    objectId: string
+    definitionId: string
+    district: string
+    hash: number
+    message: string
+    stack?: string
+  }>
+  /** Build counts of each batched mesh after merge — null means merge
+   *  returned null (typically a mismatch in the input geometries). */
+  batchedMeshCounts: { roof: number | null; detail: number | null; ornament: number | null }
+  /** Number of wall meshes BEFORE coalesceWalls. */
+  wallMeshesBeforeCoalesce: number
+  /** Number of wall meshes AFTER coalesceWalls. */
+  wallMeshesAfterCoalesce: number
+  /** Wall-clock ms spent in buildBuildingMeshes. */
+  totalMs: number
+  /** Total ornament emit count (sum of batch.count just before build()). */
+  ornamentFragments: number
+}
+
+const FAILURE_LOG_CAP = 30
+
+let _lastDiagnostics: BuildingDiagnostics = {
+  attempted: 0, succeeded: 0, failed: 0, failures: [],
+  batchedMeshCounts: { roof: null, detail: null, ornament: null },
+  wallMeshesBeforeCoalesce: 0,
+  wallMeshesAfterCoalesce: 0,
+  totalMs: 0,
+  ornamentFragments: 0,
+}
+
+export function getBuildingDiagnostics(): BuildingDiagnostics {
+  return _lastDiagnostics
+}
+
 export function buildBuildingMeshes(
   objects: PlacedObject[],
   defMap: Map<string, ObjectDefinition>,
   palettes: { wall: number; roof: number; door: number }[],
   getHeight?: (x: number, z: number) => number
 ): BuildingBatchResult {
+  const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
   const wallMeshes: THREE.Mesh[] = []
   const roofBatch = new BatchedMeshBuilder()
   const detailBatch = new BatchedMeshBuilder()
   const ornamentBatch = new BatchedMeshBuilder()
 
+  // Reset diagnostics for this run.
+  const failures: BuildingDiagnostics['failures'] = []
+  let attempted = 0, succeeded = 0, failed = 0
+
   for (const obj of objects) {
     const def = defMap.get(obj.definitionId)
     if (!def) continue
+    attempted++
+    try {
 
     const fp = FOOTPRINTS[obj.definitionId] || { w: def.footprint.w, h: def.footprint.h }
     const hash = simpleHash(obj.id)
@@ -1175,9 +1228,41 @@ export function buildBuildingMeshes(
     // (Per-volume cornice is emitted inside emitVolume; nothing further
     // needed here. Style-driven roof dormers and window trim are deferred
     // until camera angle / render scale let them read visibly.)
+      succeeded++
+    } catch (err) {
+      // Capture per-building errors so a single bad building doesn't
+      // prevent the rest of the town from rendering. Surface them via
+      // diagnostics so debug-dump exports include them.
+      failed++
+      if (failures.length < FAILURE_LOG_CAP) {
+        const e = err as { message?: string; stack?: string }
+        const dist = (obj.properties.district as string) || 'unknown'
+        failures.push({
+          objectId: obj.id,
+          definitionId: obj.definitionId,
+          district: dist,
+          hash: simpleHash(obj.id),
+          message: e?.message || String(err),
+          stack: e?.stack,
+        })
+        // eslint-disable-next-line no-console
+        console.error(`[BuildingFactory] Skipped building ${obj.id} (${obj.definitionId}, ${dist}): ${e?.message || err}`)
+      } else if (failures.length === FAILURE_LOG_CAP) {
+        // Marker entry once we hit the cap so the dump shows we stopped collecting.
+        failures.push({
+          objectId: '<truncated>',
+          definitionId: '<truncated>',
+          district: '<truncated>',
+          hash: 0,
+          message: `Reached cap of ${FAILURE_LOG_CAP}; further per-building errors suppressed.`,
+        })
+      }
+    }
   }
 
-  // Build batched meshes
+  // Build batched meshes — track which merges returned null (typically
+  // means input geometries had inconsistent indexed/non-indexed status).
+  const ornamentFragments = roofBatch.count + detailBatch.count + ornamentBatch.count
   const batched: THREE.Mesh[] = []
   const roofMesh = roofBatch.build()
   if (roofMesh) batched.push(roofMesh)
@@ -1191,7 +1276,17 @@ export function buildBuildingMeshes(
     ornamentMesh.receiveShadow = true
     batched.push(ornamentMesh)
   }
+  if (!roofMesh && roofBatch.count > 0) {
+    console.error(`[BuildingFactory] roofBatch.build() returned null with ${roofBatch.count} fragments — likely mixed indexed/non-indexed geometries.`)
+  }
+  if (!ornamentMesh && ornamentBatch.count > 0) {
+    console.error(`[BuildingFactory] ornamentBatch.build() returned null with ${ornamentBatch.count} fragments.`)
+  }
+  if (!detailMesh && detailBatch.count > 0) {
+    console.error(`[BuildingFactory] detailBatch.build() returned null with ${detailBatch.count} fragments.`)
+  }
 
+  const wallsBefore = wallMeshes.length
   // Coalesce walls sharing the same material array into merged meshes.
   // Most walls land in a small number of material groups (because
   // _wallMatCache returns the same instance for same-config buildings),
@@ -1199,6 +1294,24 @@ export function buildBuildingMeshes(
   // meshes — one per unique material array. Huge draw-call win,
   // especially in the shadow pass.
   const mergedWalls = coalesceWalls(wallMeshes)
+  const t1 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+
+  _lastDiagnostics = {
+    attempted, succeeded, failed, failures,
+    batchedMeshCounts: {
+      roof: roofMesh ? 1 : (roofBatch.count > 0 ? null : 0),
+      detail: detailMesh ? 1 : (detailBatch.count > 0 ? null : 0),
+      ornament: ornamentMesh ? 1 : (ornamentBatch.count > 0 ? null : 0),
+    },
+    wallMeshesBeforeCoalesce: wallsBefore,
+    wallMeshesAfterCoalesce: mergedWalls.length,
+    totalMs: t1 - t0,
+    ornamentFragments,
+  }
+  if (failed > 0) {
+    console.error(`[BuildingFactory] ${failed} of ${attempted} buildings failed to emit (succeeded=${succeeded}). See getBuildingDiagnostics() for details.`)
+  }
+
   return { wallMeshes: mergedWalls, batched }
 }
 
