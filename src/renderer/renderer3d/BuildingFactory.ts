@@ -948,6 +948,119 @@ export function buildBuildingMeshes(
       }
     }
 
+    // === BUILDING NAME PLACARD → ornament-batched ===
+    // Horizontal painted wood sign across the front face above the door,
+    // for inns / taverns / guild halls / specialized shops. The "Crossed
+    // Swords Inn" / "The Apothecary" reading. Mounted high on the front
+    // face so it's visible from across the plaza, not down at door height.
+    // Skipped if a frontage shop sign already projects from this wall
+    // (those are perpendicular signs at eye level and the placard would
+    // visually compete).
+    const wantsPlacard = (
+      obj.definitionId === 'inn' || obj.definitionId === 'tavern' ||
+      obj.definitionId === 'guild_hall' || obj.definitionId === 'apothecary' ||
+      obj.definitionId === 'bakery' || obj.definitionId === 'shop'
+    ) && !mainVol.circular && fp.w >= 3 &&
+      !NO_JITTER.has(obj.definitionId) &&
+      mainVol.height > 2.4
+    if (wantsPlacard) {
+      const placardW = Math.min(2.0, fp.w * 0.55)
+      const placardH = 0.32
+      const placardT = 0.06
+      // Mount it above the door zone. Ground floor is roughly the lower
+      // FLOOR_HEIGHT of the wall; place placard just above that with a
+      // cap so it never hits the cornice on short buildings.
+      const targetY = Math.min(mainVol.height - 0.40, FLOOR_HEIGHT + 0.30)
+      const placardY = (mainVol.bottomY ?? 0) + targetY
+      const frontLocalZ = mainVol.offsetZ + mainVol.depth / 2
+      // Backing board (dark wood)
+      const back = new THREE.BoxGeometry(placardW + 0.12, placardH + 0.08, placardT * 0.6)
+      localToWorld(back, mainVol.offsetX, placardY, frontLocalZ + (placardT * 0.6) / 2,
+        leanX, leanZ, rotationY, wx, wy, wz)
+      ornamentBatch.addPositioned(back, 0x3a2418)        // dark oak backing
+      // Painted face (a brighter colored panel mounted on the backing)
+      // Color picked from a small painted-sign palette by hash so each
+      // shop/inn has its own livery. Same palette as shop signs to keep
+      // a coherent commercial-color scheme across town.
+      const placardColors = [0x6b3a1f, 0x5a2818, 0x7a4830, 0x3a4a2a, 0x4a3a55, 0x6a5028]
+      const placardColor = placardColors[hash % placardColors.length]
+      const face = new THREE.BoxGeometry(placardW, placardH, placardT)
+      localToWorld(face, mainVol.offsetX, placardY,
+        frontLocalZ + placardT * 0.6 + placardT / 2,
+        leanX, leanZ, rotationY, wx, wy, wz)
+      ornamentBatch.addPositioned(face, placardColor)
+      // Two small iron mounting brackets at the placard's left/right edges,
+      // implying the placard is bolted to the wall.
+      for (const xSide of [-1, 1] as const) {
+        const bracket = new THREE.BoxGeometry(0.06, placardH * 0.7, placardT * 0.5)
+        localToWorld(bracket,
+          mainVol.offsetX + xSide * (placardW / 2 - 0.04),
+          placardY,
+          frontLocalZ + placardT * 0.3,
+          leanX, leanZ, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(bracket, 0x2a201a)   // black iron
+      }
+    }
+
+    // === ROOF MOSS PATCHES → ornament-batched ===
+    // Small green tile patches scattered on the slopes of weathered
+    // gabled/steep prism roofs, projecting just above the roof surface.
+    // Complements the per-triangle color noise on the roof itself: noise
+    // gives flat-shaded variation, these add actual geometric clusters
+    // that read as MOSS / lichen growing in the seams. Skipped on
+    // pristine roofs and on cathedral / temple landmarks (mossy temples
+    // would read as "abandoned" rather than "old").
+    const wantsRoofMoss = !isLandmark && !mainVol.circular &&
+      (mainVol.roofStyle === 'gabled' || mainVol.roofStyle === 'steep') &&
+      mainVol.roofHeight > 0.4 &&
+      Math.min(mainVol.width, mainVol.depth) >= 1.6 &&
+      styleVector.weather > 0.55 &&
+      rand01(hash, 1801) < 0.55
+    if (wantsRoofMoss) {
+      const patchCount = 2 + (hash % 3)               // 2..4
+      const ridgeOnX = mainVol.roofAxis === 'x'
+      const eaveProj = 0.26
+      const perpExt = (ridgeOnX ? mainVol.depth : mainVol.width) / 2 + eaveProj
+      const wallTopY = (mainVol.bottomY ?? 0) + mainVol.height
+      // Slope angle from horizontal — used to rotate patches so they
+      // lie FLAT on the slope (otherwise a horizontal patch's far edge
+      // would clip into the slope or float visibly above it).
+      const slopeAngle = Math.atan2(mainVol.roofHeight, perpExt)
+      const mossColors = [0x405028, 0x506838, 0x344518, 0x3a4a26, 0x2c3818]
+      for (let p = 0; p < patchCount; p++) {
+        const patchW = 0.20 + rand01(hash, 1811 + p) * 0.22   // along the ridge
+        const patchD = 0.18 + rand01(hash, 1821 + p) * 0.20   // along the slope
+        const patchT = 0.04
+        const slopeSign = rand01(hash, 1831 + p) < 0.5 ? -1 : 1
+        const tAlong = (rand01(hash, 1841 + p) - 0.5) * 0.85   // -0.425..+0.425
+        const tPerp = 0.4 + rand01(hash, 1851 + p) * 0.55      // 0.4..0.95 (toward eave)
+        const slopeY = wallTopY + (1 - tPerp) * mainVol.roofHeight + 0.02
+        const localX = ridgeOnX ? mainVol.offsetX + tAlong * mainVol.width
+                                : mainVol.offsetX + slopeSign * tPerp * perpExt
+        const localZ = ridgeOnX ? mainVol.offsetZ + slopeSign * tPerp * perpExt
+                                : mainVol.offsetZ + tAlong * mainVol.depth
+        // Box: long-along-ridge × thin × across-slope. The thin axis
+        // becomes the slope normal after rotation.
+        const patchGeo = ridgeOnX
+          ? new THREE.BoxGeometry(patchW, patchT, patchD)
+          : new THREE.BoxGeometry(patchD, patchT, patchW)
+        // Rotate so the patch lies flat on the slope surface. For axis='x'
+        // gabled: outward normal of the +Z slope is (0, cos θ, +sin θ),
+        // achieved by rotateX(+slopeAngle); -Z slope by rotateX(-slopeAngle).
+        // For axis='z': +X slope outward (sin θ, cos θ, 0) → rotateZ(-θ),
+        // -X slope rotateZ(+θ).
+        if (ridgeOnX) {
+          patchGeo.rotateX(slopeSign * slopeAngle)
+        } else {
+          patchGeo.rotateZ(-slopeSign * slopeAngle)
+        }
+        const patchColor = mossColors[(hash + p) % mossColors.length]
+        localToWorld(patchGeo, localX, slopeY, localZ,
+          leanX, leanZ, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(patchGeo, patchColor)
+      }
+    }
+
     // === CORNER WHEEL GUARDS → batched ===
     // Stone bumpers at the building's street-facing corners — protected
     // the corner masonry from cart wheels in tight medieval streets.
