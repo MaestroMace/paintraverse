@@ -13,9 +13,9 @@
 
 import * as THREE from 'three'
 import type { Volume } from './Massing'
-import { buildRoof } from './Roofs'
+import { volumeFloors } from './Massing'
+import { buildRoof, eaveProjFor, gableMath } from './Roofs'
 import type { BatchedMeshBuilder } from '../BatchedMeshBuilder'
-import { emitDormer } from './Ornaments'
 import type { FacadeConfig } from '../FacadeTexture'
 import { createFacadeTexture, createEmissiveTexture } from '../FacadeTexture'
 
@@ -172,17 +172,50 @@ export interface EmitVolumeContext {
 }
 
 /**
- * Position a geometry built at local origin into world space:
- *   1. translate by (lx, ly, lz) — local position from building base center
- *   2. rotate around local origin (= building base center) by leanX, leanZ —
- *      organic-age tilt; pivot is at ground level so the base stays planted
- *   3. rotate by rotY around local origin (yaw)
- *   4. translate by (wx, wy, wz) — building base center in world
+ * Position a geometry built at the geometry origin into the world.
  *
- * Leans pivot around the BASE not the volume center, so upper floors tip
- * more than lower floors — the geometric signature of a settled building.
- * Yaw is applied after lean; for the small leans we use (≤ ~3.4°) the
- * non-commutativity is invisible.
+ * Coordinate frames in play:
+ *   - GEOMETRY frame: where the BoxGeometry/etc was constructed (origin
+ *     at the geometry's center by default; some callers pre-translate
+ *     to relocate the pivot before calling this function).
+ *   - BUILDING-LOCAL frame: origin is the building's BASE CENTER
+ *     (the world XZ point where the building sits, at terrain Y).
+ *     +Y is up. +X / +Z are the building's local axes BEFORE yaw
+ *     rotation. The volume's offsetX/offsetZ are expressed in this
+ *     frame; bottomY is also in this frame (0 = on the ground).
+ *   - WORLD frame: scene-global. The building base center is at
+ *     (wx, wy, wz).
+ *
+ * Transform order applied to the geometry:
+ *   1. geo.translate(lx, ly, lz)
+ *      Moves the geometry's PIVOT from the geometry origin to the
+ *      desired point in BUILDING-LOCAL space. After this, the geometry
+ *      lives at (lx, ly, lz) relative to the building base.
+ *   2. rotateX(leanX) then rotateZ(leanZ) (BUILDING-LOCAL frame)
+ *      Pivots around the building base (still at origin). leanX tips
+ *      the building forward/back along Z; leanZ tips left/right along X.
+ *      Pivot is at ground level so the base stays planted while upper
+ *      floors swing — the geometric signature of a settled building.
+ *   3. rotateY(rotY)
+ *      Yaw around the building's vertical axis. Used for road-aligned
+ *      rotation (so the painted-door front face points to the street).
+ *   4. geo.translate(wx, wy, wz)
+ *      Place the building-local origin at its world position.
+ *
+ * IMPORTANT: any rotation the CALLER pre-applies (geo.rotateX, .rotateY,
+ * .rotateZ before calling localToWorld) lives in GEOMETRY frame and gets
+ * carried THROUGH the lean+yaw. Used intentionally for things like:
+ *   - bargeboards rotated to lie along the slope
+ *   - roof moss patches rotated to lie flat on a slope
+ *   - flag banners rotated to a hash-determined "wind" angle
+ *   - cellar doors rotated 35° to slant up against the wall
+ * The pre-rotation effectively becomes "rotate around the geometry's
+ * origin in BUILDING-LOCAL space" since translate(lx,ly,lz) just shifts;
+ * the subsequent rotations around (0,0,0) operate on whatever shape is
+ * sitting at (lx,ly,lz).
+ *
+ * For small leans (≤ ~3.4°, hard-capped in BuildingFactory) the
+ * non-commutativity of XZ-then-Y rotation order is visually invisible.
  */
 export function localToWorld(
   geo: THREE.BufferGeometry,
@@ -237,7 +270,7 @@ export function emitVolume(
   const lz = v.offsetZ
   // World center for this building's BASE (lean pivots around (cx, cy, cz)):
   const cx = ctx.centerX, cy = ctx.baseY, cz = ctx.centerZ
-  const floors = Math.max(1, v.floors ?? Math.max(1, Math.round(v.height / 0.9)))
+  const floors = volumeFloors(v)
 
   const applyWeather = v.role !== 'chimneyVol'
   const wallColor = applyWeather ? weatheredColor(v.wallColor, ctx.weather) : v.wallColor
@@ -389,9 +422,8 @@ export function emitVolume(
       const inset = Math.min(v.width, v.depth) / 2 * 0.25
       ridgeLen = (ridgeOnX ? v.width : v.depth) - 2 * inset
     } else {
-      // Gabled/steep ridge spans the full eave-aligned length plus the eave
-      // overhang on both ends.
-      ridgeLen = (ridgeOnX ? v.width : v.depth) + 0.26 * 2
+      // Gabled/steep ridge spans full length + eave overhang on each end.
+      ridgeLen = (ridgeOnX ? v.width : v.depth) + 2 * eaveProjFor(v.roofStyle)
     }
     if (ridgeLen > 0.2) {
       const capH = 0.10, capW = 0.18
@@ -437,10 +469,7 @@ export function emitVolume(
   if ((v.roofStyle === 'gabled' || v.roofStyle === 'steep') &&
       !v.circular && v.role !== 'chimneyVol' &&
       Math.min(v.width, v.depth) >= 1.4 && v.roofHeight > 0.5) {
-    const ridgeOnX = v.roofAxis === 'x'
-    // Gable extent matches the roof prism's gable face (wall + eave).
-    const eaveProj = 0.26
-    const gableExtent = (ridgeOnX ? v.width : v.depth) / 2 + eaveProj
+    const { ridgeOnX, gableExtent } = gableMath(v)
     const wallTopY = v.bottomY + v.height
     const peakY = wallTopY + v.roofHeight
     // Attic window: small dark glass plate on the gable triangle. Placed
@@ -526,59 +555,31 @@ export function emitVolume(
   if ((v.roofStyle === 'gabled' || v.roofStyle === 'steep') &&
       !v.circular && v.role !== 'chimneyVol' &&
       Math.min(v.width, v.depth) >= 1.4 && v.roofHeight > 0.4) {
-    const ridgeOnX = v.roofAxis === 'x'
-    // Gable ends sit at ±gableExtent along the ridge axis. Crucially,
-    // gableExtent INCLUDES the eave overhang — the gable triangle of the
-    // roof prism is at x=±(width/2 + eave), not at the wall plane. Earlier
-    // versions of this code used wall-plane only and the bargeboards
-    // ended up buried inside the eave overhang volume, invisible to the
-    // viewer. Same fix applies to attic-window/peak-finial placement
-    // below — keep the gable extent consistent across all gable trim.
-    const eaveProj = 0.26
-    const gableExtent = (ridgeOnX ? v.width : v.depth) / 2 + eaveProj
-    const perpExtent = (ridgeOnX ? v.depth : v.width) / 2
-    const slopeRunPerp = perpExtent + eaveProj
+    // Gable + slope math via shared helper — gableExtent INCLUDES the eave
+    // overhang so bargeboards / attic windows / peak finials all agree on
+    // where the gable triangle plane is.
+    const { ridgeOnX, gableExtent, perpExtent, slopeAngle, slopeLen } = gableMath(v)
     const slopeRiseY = v.roofHeight
-    const slopeLen = Math.sqrt(slopeRunPerp * slopeRunPerp + slopeRiseY * slopeRiseY)
-    const slopeAngle = Math.atan2(slopeRiseY, slopeRunPerp)  // angle from horizontal
     const boardThk = 0.05
     const boardW = 0.14
     const boardColor = 0x3a2818           // dark oak / weathered wood
     const wallTopY = v.bottomY + v.height
-    // Place each gable end's two slope boards (one per slope side: +perp, -perp)
+    // Two boards per gable end (one per slope side ±perp) × two gable ends.
+    // The board is built with its long axis along Y, then rotated to lie
+    // along the slope. For ridgeOnX the slope tilts in YZ → rotateX;
+    // for ridgeOnZ it tilts in XY → rotateZ. Sign of rotation flips with
+    // slopeSign so both slopes of a single gable end carry boards.
     for (const gableSign of [-1, 1] as const) {
-      // Board sits just past the gable face — gableSign * (gableExtent + small).
       const gableLocalAxisVal = gableSign * (gableExtent + boardThk * 0.5)
       for (const slopeSign of [-1, 1] as const) {
-        // Endpoints of this slope edge in local frame:
-        //   eave corner: (gableLocalAxisVal, wallTopY, slopeSign * (perpExtent + eaveProj))   [if ridgeOnX]
-        //   ridge peak:  (gableLocalAxisVal, wallTopY + slopeRiseY, 0)
-        // Mid of slope:
-        const midPerp = slopeSign * slopeRunPerp / 2
+        const midPerp = slopeSign * perpExtent / 2
         const midY = wallTopY + slopeRiseY / 2
-        // Build a thin board: Y axis is the board's "long" axis. We'll make
-        // a box of (thickness, slopeLen, width) and rotate it around X (when
-        // ridgeOnX) so it lies along the slope.
-        // For ridgeOnX (slope is in YZ plane, varying perp=Z):
-        //   Rotation about X by angle so that the box's local Y points along
-        //   the slope direction. slope direction at slopeSign=+1: from
-        //   (0, 0, perpExtent+eaveProj) to (0, slopeRiseY, 0). That's the
-        //   vector (0, slopeRiseY, -(perpExtent+eaveProj)) after centering.
-        //   The angle from +Y axis is +slopeAngle going toward -Z when
-        //   slopeSign=+1, and toward +Z when slopeSign=-1.
-        //   So rotateX by -slopeAngle * slopeSign.
         const board = new THREE.BoxGeometry(boardThk, slopeLen, boardW)
         if (ridgeOnX) {
           board.rotateX(-slopeAngle * slopeSign)
-          // After rotation, the box's center sits at origin and its long
-          // axis is tilted in YZ. Translate to the slope midpoint.
           localToWorld(board, lx + gableLocalAxisVal, midY, lz + midPerp,
             leanX, leanZ, rot, cx, cy, cz)
         } else {
-          // ridgeOnZ: slope varies with X. Rotate around Z so the board's
-          // long axis (Y) tilts in XY plane. slopeSign=+1 means slope goes
-          // from (perpExtent+eaveProj, 0, 0) to (0, slopeRiseY, 0); angle
-          // from +Y goes toward -X. rotateZ(+slopeAngle * slopeSign).
           board.rotateZ(slopeAngle * slopeSign)
           localToWorld(board, lx + midPerp, midY, lz + gableLocalAxisVal,
             leanX, leanZ, rot, cx, cy, cz)
@@ -597,7 +598,7 @@ export function emitVolume(
   // roofs skip — they have no straight eave run.
   const isBracketed = v.roofStyle === 'gabled' || v.roofStyle === 'steep'
   if (isBracketed && !v.circular && v.role !== 'chimneyVol' && v.height > 1.2) {
-    const eaveProj = 0.26
+    const eaveProj = eaveProjFor(v.roofStyle)
     // Brackets along the eave-facing edges (perpendicular to the ridge).
     // For axis='x' gable, ridge runs along X — the eaves are at z=±depth/2.
     // For axis='z' gable, eaves are at x=±width/2.
@@ -758,100 +759,47 @@ export function emitVolume(
     }
   }
 
-  // --- Roof ornaments (dormers, finials, ridge knobs) ---
-  // Dormers/trim depend on axis-aligned face normals ('x+'/'z+'). When the
-  // building is rotated/leaned, those face helpers would place ornaments in
-  // the wrong world orientation. Skip the non-trivial roof ornaments on
-  // rotated/leaned buildings. Finial ball/cross at the peak still works.
-  const isAxisAligned = rot === 0 && leanX === 0 && leanZ === 0
-  if (!ctx.skipRoofOrnaments && isAxisAligned) {
-    emitRoofOrnaments(v, cx + lx, cz + lz, cy, ctx, wallColor, roofColor, roofBatch, ornamentBatch)
-  } else if (v.roofStyle === 'spire' || v.roofStyle === 'pointed') {
-    // Rotation+lean-safe finial: ball (+ optional cross) at the volume's
-    // roof peak. Axis-symmetric, so transforms don't affect its appearance.
-    const peakLocalY = v.bottomY + v.height + v.roofHeight
-    const ball = new THREE.SphereGeometry(v.roofStyle === 'spire' ? 0.18 : 0.14, 6, 4)
-    const extra = v.roofStyle === 'spire' ? 0.16 : 0.12
-    localToWorld(ball, lx, peakLocalY + extra, lz, leanX, leanZ, rot, cx, cy, cz)
-    ornamentBatch.addPositioned(ball, 0xd4c070)
-    if (v.roofStyle === 'spire') {
-      const armH = 0.3, armW = 0.25, armT = 0.05
-      const v1 = new THREE.BoxGeometry(armT, armH, armT)
-      localToWorld(v1, lx, peakLocalY + 0.28 + armH / 2, lz, leanX, leanZ, rot, cx, cy, cz)
-      ornamentBatch.addPositioned(v1, 0xd4c070)
-      const h1 = new THREE.BoxGeometry(armW, armT, armT)
-      localToWorld(h1, lx, peakLocalY + 0.28 + armH * 0.7, lz, leanX, leanZ, rot, cx, cy, cz)
-      ornamentBatch.addPositioned(h1, 0xd4c070)
-    }
-    // Weather vane — silhouette punch at the very top of the skyline.
-    // Always on spires; sometimes on tall pointed towers.
-    const vaneRoll = ((ctx.hash * 2654435761 + 1313 * 1597334677) >>> 0) / 0xffffffff
-    const wantsVane = v.roofStyle === 'spire' ||
-      (v.role === 'tower' && v.roofHeight > 1.0 && vaneRoll < 0.5)
-    if (wantsVane) {
-      // Vane sits above the cross/ball. Pole + arrow body + compass cross-arms.
-      const vaneBaseY = peakLocalY + (v.roofStyle === 'spire' ? 0.65 : 0.30)
-      const poleH = 0.42, poleT = 0.035
-      const pole = new THREE.BoxGeometry(poleT, poleH, poleT)
-      localToWorld(pole, lx, vaneBaseY + poleH / 2, lz, leanX, leanZ, rot, cx, cy, cz)
-      ornamentBatch.addPositioned(pole, 0xb89858)         // brass
-      // Compass cross-arms: four thin horizontal boxes at the lower-mid of the
-      // pole, pointing N/S (x) and E/W (z). Tiny balls at the ends.
-      const armY = vaneBaseY + poleH * 0.45
-      const armLen = 0.34, armT2 = 0.025
-      // North-South arm
-      const armNS = new THREE.BoxGeometry(armT2, armT2, armLen)
-      localToWorld(armNS, lx, armY, lz, leanX, leanZ, rot, cx, cy, cz)
-      ornamentBatch.addPositioned(armNS, 0xb89858)
-      // East-West arm
-      const armEW = new THREE.BoxGeometry(armLen, armT2, armT2)
-      localToWorld(armEW, lx, armY, lz, leanX, leanZ, rot, cx, cy, cz)
-      ornamentBatch.addPositioned(armEW, 0xb89858)
-      // Cardinal point balls — tiny spheres at the four ends.
-      for (const [dx, dz] of [[armLen / 2, 0], [-armLen / 2, 0], [0, armLen / 2], [0, -armLen / 2]] as const) {
-        const ballMark = new THREE.SphereGeometry(0.045, 4, 3)
-        localToWorld(ballMark, lx + dx, armY, lz + dz, leanX, leanZ, rot, cx, cy, cz)
-        ornamentBatch.addPositioned(ballMark, 0xb89858)
-      }
-      // Arrow body — long horizontal box at the TOP of the pole, oriented
-      // by the hash so each spire's arrow points at a different "wind."
-      const arrowAngle = vaneRoll * Math.PI * 2
-      const arrowLen = 0.55, arrowH = 0.06, arrowT = 0.04
-      const arrow = new THREE.BoxGeometry(arrowLen, arrowH, arrowT)
-      arrow.rotateY(arrowAngle)
-      localToWorld(arrow, lx, vaneBaseY + poleH + arrowH / 2, lz,
-        leanX, leanZ, rot, cx, cy, cz)
-      ornamentBatch.addPositioned(arrow, 0x4a3a2a)        // dark iron
-      // Arrowhead — a small flat triangle / plate at one end of the arrow.
-      // Simulate with a slightly wider thin box at the +X end of the arrow
-      // (post-rotation it's wherever the arrow points).
-      const headW = 0.10, headH = 0.16
-      const head = new THREE.BoxGeometry(headW, headH, arrowT * 1.2)
-      head.translate(arrowLen / 2 - headW / 2, 0, 0)
-      head.rotateY(arrowAngle)
-      localToWorld(head, lx, vaneBaseY + poleH + arrowH / 2, lz,
-        leanX, leanZ, rot, cx, cy, cz)
-      ornamentBatch.addPositioned(head, 0x4a3a2a)
-    }
+  // --- Roof ornaments (dormers, finials, ridge knobs, weather vanes) ---
+  // Single unified pass — every ornament emits in the volume's LOCAL frame
+  // and gets transformed via localToWorld, so the rotation/lean of the
+  // building is honored automatically. Previously this branched between
+  // an axis-aligned path (with dormers/knobs) and a lean-aware fallback
+  // (only finials/vanes), causing dormers and ridge knobs to silently
+  // disappear on every road-rotated building.
+  if (!ctx.skipRoofOrnaments) {
+    emitRoofOrnaments(v, lx, lz, leanX, leanZ, rot, cx, cy, cz, ctx, wallColor, roofColor, ornamentBatch)
   }
 }
 
 /**
  * Emit roof features that read at render resolution: dormers on wide
- * gabled/hipped roofs, finials on spires, ridge knobs on steep pointed roofs.
+ * gabled/hipped roofs, finials on spires, ridge knobs on steep roofs,
+ * weather vanes on spires/tall pointed towers.
+ *
+ * Local-frame: positions are relative to the volume's local origin
+ * (offsetX/Z, bottomY) and transformed to world via localToWorld with
+ * the building's lean+yaw. This keeps every ornament glued to the
+ * leaning, road-rotated wall regardless of orientation.
  */
 function emitRoofOrnaments(
   v: Volume,
-  wx: number, wz: number, wy: number,
+  lx: number, lz: number,
+  leanX: number, leanZ: number, rot: number,
+  cx: number, cy: number, cz: number,
   ctx: EmitVolumeContext,
   wallColor: number, roofColor: number,
-  roofBatch: BatchedMeshBuilder,
   ornamentBatch: BatchedMeshBuilder,
 ): void {
-  const topOfWall = wy + v.height
+  const wallTopLocalY = v.bottomY + v.height
+  const peakLocalY = wallTopLocalY + v.roofHeight
   const h = ctx.hash + (v.role === 'tower' ? 1001 : v.role === 'spire' ? 2003 : 3007)
 
   // --- Dormers on gabled / steep / hipped roofs with sufficient footprint ---
+  // Each dormer is a small wall body + gable roof projecting from one
+  // slope of the main roof. Built in local frame as box + prism, then
+  // transformed via localToWorld so it follows lean+yaw. (The shared
+  // emitDormer helper is world-frame only, so we inline the equivalent
+  // here to support rotated/leaned buildings.)
   if (
     (v.roofStyle === 'gabled' || v.roofStyle === 'steep' || v.roofStyle === 'hipped') &&
     v.roofHeight > 0.35 &&
@@ -863,93 +811,122 @@ function emitRoofOrnaments(
     const dormerD = 0.35
     const dormerWallH = Math.min(0.45, v.roofHeight * 0.55)
     const dormerGableH = Math.min(0.3, v.roofHeight * 0.38)
-    // Which face of the roof gets a dormer — pick the one perpendicular to
-    // the ridge axis so the dormer has a proper gable.
+    // Dormer faces the slope perpendicular to the ridge.
     const dormerOnZ = v.roofAxis === 'x'
-    // Walk along the ridge-parallel axis and try up to 2 positions.
     const count = rand01(h, 9) < 0.45 ? 2 : 1
     for (let i = 0; i < count; i++) {
-      const tNorm = (i + 0.5) / count - 0.5 // -0.25 / 0.25 for count=2, 0 for count=1
+      const tNorm = (i + 0.5) / count - 0.5
       const jitter = (rand01(h, 11 + i) - 0.5) * 0.3
       const tAlong = tNorm + jitter
       const sideSign = i % 2 === 0 ? 1 : -1
-      if (dormerOnZ) {
-        emitDormer(
-          ornamentBatch, sideSign > 0 ? 'z+' : 'z-',
-          wx + tAlong * v.width, wz + sideSign * (v.depth / 2 - 0.35),
-          topOfWall - 0.02,
-          dormerW, dormerD, dormerWallH, dormerGableH,
-          wallColor, roofColor,
-        )
-      } else {
-        emitDormer(
-          ornamentBatch, sideSign > 0 ? 'x+' : 'x-',
-          wx + sideSign * (v.width / 2 - 0.35), wz + tAlong * v.depth,
-          topOfWall - 0.02,
-          dormerW, dormerD, dormerWallH, dormerGableH,
-          wallColor, roofColor,
-        )
+      // The dormer's "outside-of-wall" face direction: +Z for ridgeOnX
+      // (gables face ±X, slopes face ±Z); +X for ridgeOnZ.
+      // Position the dormer body so half sits on the slope and half
+      // hangs out — same offset the world-frame emitDormer used.
+      const dormerLocalX = dormerOnZ ? lx + tAlong * v.width
+                                     : lx + sideSign * (v.width / 2 - 0.35)
+      const dormerLocalZ = dormerOnZ ? lz + sideSign * (v.depth / 2 - 0.35)
+                                     : lz + tAlong * v.depth
+      const baseY = wallTopLocalY - 0.02
+      // Wall body of the dormer: offset by half its depth toward the slope's
+      // outside so the inner face sits inside the main roof.
+      const bodyW = dormerOnZ ? dormerW : dormerD
+      const bodyD = dormerOnZ ? dormerD : dormerW
+      const body = new THREE.BoxGeometry(bodyW, dormerWallH, bodyD)
+      const bodyOffX = dormerOnZ ? 0 : sideSign * dormerD / 2
+      const bodyOffZ = dormerOnZ ? sideSign * dormerD / 2 : 0
+      localToWorld(body,
+        dormerLocalX + bodyOffX,
+        baseY + dormerWallH / 2,
+        dormerLocalZ + bodyOffZ,
+        leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(body, wallColor)
+      // Mini gabled roof on top of the dormer body. We approximate with
+      // a tapered box (squashed pyramid) since we don't want to import
+      // the prism builder here — the roofH is small (max 0.30m) so a
+      // simple tapered shape reads correctly at distance.
+      const roofGeoBase = new THREE.BoxGeometry(bodyW + 0.08, dormerGableH, bodyD + 0.08)
+      // Pinch the top vertices toward the ridge to make it gable-shaped.
+      // For dormerOnZ, the ridge runs along X (since the dormer sits on a
+      // ±Z slope); we pinch the top in Z. For !dormerOnZ, we pinch in X.
+      const posAttr = roofGeoBase.getAttribute('position')
+      const arr = posAttr.array as Float32Array
+      const halfY = dormerGableH / 2
+      for (let p = 0; p < arr.length; p += 3) {
+        if (arr[p + 1] > halfY * 0.9) {  // top face vertices
+          if (dormerOnZ) arr[p + 2] = 0  // collapse Z
+          else arr[p] = 0                // collapse X
+        }
       }
+      posAttr.needsUpdate = true
+      localToWorld(roofGeoBase,
+        dormerLocalX + bodyOffX,
+        baseY + dormerWallH + dormerGableH / 2,
+        dormerLocalZ + bodyOffZ,
+        leanX, leanZ, rot, cx, cy, cz)
+      ornamentBatch.addPositioned(roofGeoBase, roofColor)
     }
   }
 
-  // --- Finial on spires (cross for gothic, ball otherwise) ---
+  // --- Finial on spires/pointed (ball + optional cross) ---
   if (v.roofStyle === 'spire' || v.roofStyle === 'pointed') {
-    const peakY = topOfWall + v.roofHeight
     const ball = new THREE.SphereGeometry(v.roofStyle === 'spire' ? 0.18 : 0.14, 6, 4)
-    ball.translate(wx, peakY + (v.roofStyle === 'spire' ? 0.16 : 0.12), wz)
-    ornamentBatch.addPositioned(ball, 0xd4c070) // brass-ish
-
+    const extra = v.roofStyle === 'spire' ? 0.16 : 0.12
+    localToWorld(ball, lx, peakLocalY + extra, lz, leanX, leanZ, rot, cx, cy, cz)
+    ornamentBatch.addPositioned(ball, 0xd4c070)
     if (v.roofStyle === 'spire' && rand01(h, 13) < 0.65) {
-      // A small cross on top: two thin bars
       const armH = 0.3, armW = 0.25, armT = 0.05
       const vertical = new THREE.BoxGeometry(armT, armH, armT)
-      vertical.translate(wx, peakY + 0.28 + armH / 2, wz)
+      localToWorld(vertical, lx, peakLocalY + 0.28 + armH / 2, lz,
+        leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(vertical, 0xd4c070)
       const horiz = new THREE.BoxGeometry(armW, armT, armT)
-      horiz.translate(wx, peakY + 0.28 + armH * 0.7, wz)
+      localToWorld(horiz, lx, peakLocalY + 0.28 + armH * 0.7, lz,
+        leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(horiz, 0xd4c070)
     }
 
-    // Weather vane atop the cross/ball — silhouette punch at the skyline.
+    // Weather vane atop the cross/ball.
     const vaneRoll = rand01(h, 1313)
     const wantsVane = v.roofStyle === 'spire' ||
       (v.role === 'tower' && v.roofHeight > 1.0 && vaneRoll < 0.5)
     if (wantsVane) {
-      const vaneBaseY = peakY + (v.roofStyle === 'spire' ? 0.65 : 0.30)
+      const vaneBaseY = peakLocalY + (v.roofStyle === 'spire' ? 0.65 : 0.30)
       const poleH = 0.42, poleT = 0.035
       const pole = new THREE.BoxGeometry(poleT, poleH, poleT)
-      pole.translate(wx, vaneBaseY + poleH / 2, wz)
+      localToWorld(pole, lx, vaneBaseY + poleH / 2, lz, leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(pole, 0xb89858)
       const armY = vaneBaseY + poleH * 0.45
       const armLen = 0.34, armT2 = 0.025
       const armNS = new THREE.BoxGeometry(armT2, armT2, armLen)
-      armNS.translate(wx, armY, wz)
+      localToWorld(armNS, lx, armY, lz, leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(armNS, 0xb89858)
       const armEW = new THREE.BoxGeometry(armLen, armT2, armT2)
-      armEW.translate(wx, armY, wz)
+      localToWorld(armEW, lx, armY, lz, leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(armEW, 0xb89858)
       for (const [dx, dz] of [[armLen / 2, 0], [-armLen / 2, 0], [0, armLen / 2], [0, -armLen / 2]] as const) {
         const ballMark = new THREE.SphereGeometry(0.045, 4, 3)
-        ballMark.translate(wx + dx, armY, wz + dz)
+        localToWorld(ballMark, lx + dx, armY, lz + dz, leanX, leanZ, rot, cx, cy, cz)
         ornamentBatch.addPositioned(ballMark, 0xb89858)
       }
       const arrowAngle = vaneRoll * Math.PI * 2
       const arrowLen = 0.55, arrowH = 0.06, arrowT = 0.04
       const arrow = new THREE.BoxGeometry(arrowLen, arrowH, arrowT)
       arrow.rotateY(arrowAngle)
-      arrow.translate(wx, vaneBaseY + poleH + arrowH / 2, wz)
+      localToWorld(arrow, lx, vaneBaseY + poleH + arrowH / 2, lz,
+        leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(arrow, 0x4a3a2a)
       const headW = 0.10, headH = 0.16
       const head = new THREE.BoxGeometry(headW, headH, arrowT * 1.2)
       head.translate(arrowLen / 2 - headW / 2, 0, 0)
       head.rotateY(arrowAngle)
-      head.translate(wx, vaneBaseY + poleH + arrowH / 2, wz)
+      localToWorld(head, lx, vaneBaseY + poleH + arrowH / 2, lz,
+        leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(head, 0x4a3a2a)
     }
   }
 
-  // --- Ridge knobs on steep roofs (small decorative bumps along ridge) ---
+  // --- Ridge knobs on steep roofs (small decorative cones along ridge) ---
   if (
     v.roofStyle === 'steep' &&
     v.roofHeight > 0.5 &&
@@ -961,10 +938,11 @@ function emitRoofOrnaments(
     const count = Math.min(4, Math.max(2, Math.floor(ridgeLen / 1.1)))
     for (let i = 0; i < count; i++) {
       const tAlong = (i + 0.5) / count - 0.5
-      const px = wx + (ridgeOnX ? tAlong * v.width : 0)
-      const pz = wz + (ridgeOnX ? 0 : tAlong * v.depth)
+      const knobLocalX = ridgeOnX ? lx + tAlong * v.width : lx
+      const knobLocalZ = ridgeOnX ? lz : lz + tAlong * v.depth
       const knob = new THREE.ConeGeometry(0.08, 0.22, 4)
-      knob.translate(px, topOfWall + v.roofHeight + 0.11, pz)
+      localToWorld(knob, knobLocalX, peakLocalY + 0.11, knobLocalZ,
+        leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(knob, roofColor)
     }
   }

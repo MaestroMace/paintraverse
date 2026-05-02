@@ -53,6 +53,17 @@ function rand01(hash: number, salt: number): number {
   return n / 0xffffffff
 }
 
+/**
+ * Floor count for a volume — uses the explicit Volume.floors if set,
+ * otherwise estimates from height (1 floor ≈ 0.9 wall units in the
+ * massing's local scale). Single source of truth so VolumeRenderer
+ * (window grid, base course logic) and BuildingFactory (mid-floor
+ * timber beams) agree on the same floor count for the same volume.
+ */
+export function volumeFloors(v: Volume): number {
+  return Math.max(1, v.floors ?? Math.max(1, Math.round(v.height / 0.9)))
+}
+
 /** Choose a roof style from the style vector + some randomness. */
 function roofFromStyle(sv: StyleVector, hash: number, salt: number, forceSpire = false): RoofStyle {
   if (forceSpire) return rand01(hash, salt) < 0.7 ? 'spire' : 'pointed'

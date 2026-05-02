@@ -15,7 +15,8 @@ import type { ObjectDefinition, PlacedObject } from '../core/types'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
-import { pickMassing } from './architecture/Massing'
+import { pickMassing, volumeFloors } from './architecture/Massing'
+import { gableMath } from './architecture/Roofs'
 import { emitVolume, localToWorld, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
 import { pickPaletteForStyle } from './architecture/PaletteBias'
 
@@ -601,7 +602,7 @@ export function buildBuildingMeshes(
           // post-and-beam frame's floor-joist headers. With corner posts +
           // head plate + floor lines, the visible structure now reads as
           // an actual timber frame rather than just decorative trim.
-          const volFloors = Math.max(1, v.floors ?? Math.max(1, Math.round(v.height / 0.9)))
+          const volFloors = volumeFloors(v)
           if (volFloors >= 2) {
             const flBeamH = 0.08
             const flBeamProj = postT * 0.30
@@ -1018,14 +1019,10 @@ export function buildBuildingMeshes(
       rand01(hash, 1801) < 0.55
     if (wantsRoofMoss) {
       const patchCount = 2 + (hash % 3)               // 2..4
-      const ridgeOnX = mainVol.roofAxis === 'x'
-      const eaveProj = 0.26
-      const perpExt = (ridgeOnX ? mainVol.depth : mainVol.width) / 2 + eaveProj
+      // Shared gable math — keeps moss patch positions aligned with
+      // bargeboards / attic windows / ridge cap on the same volume.
+      const { ridgeOnX, perpExtent, slopeAngle } = gableMath(mainVol)
       const wallTopY = (mainVol.bottomY ?? 0) + mainVol.height
-      // Slope angle from horizontal — used to rotate patches so they
-      // lie FLAT on the slope (otherwise a horizontal patch's far edge
-      // would clip into the slope or float visibly above it).
-      const slopeAngle = Math.atan2(mainVol.roofHeight, perpExt)
       const mossColors = [0x405028, 0x506838, 0x344518, 0x3a4a26, 0x2c3818]
       for (let p = 0; p < patchCount; p++) {
         const patchW = 0.20 + rand01(hash, 1811 + p) * 0.22   // along the ridge
@@ -1036,8 +1033,8 @@ export function buildBuildingMeshes(
         const tPerp = 0.4 + rand01(hash, 1851 + p) * 0.55      // 0.4..0.95 (toward eave)
         const slopeY = wallTopY + (1 - tPerp) * mainVol.roofHeight + 0.02
         const localX = ridgeOnX ? mainVol.offsetX + tAlong * mainVol.width
-                                : mainVol.offsetX + slopeSign * tPerp * perpExt
-        const localZ = ridgeOnX ? mainVol.offsetZ + slopeSign * tPerp * perpExt
+                                : mainVol.offsetX + slopeSign * tPerp * perpExtent
+        const localZ = ridgeOnX ? mainVol.offsetZ + slopeSign * tPerp * perpExtent
                                 : mainVol.offsetZ + tAlong * mainVol.depth
         // Box: long-along-ridge × thin × across-slope. The thin axis
         // becomes the slope normal after rotation.
@@ -1302,17 +1299,22 @@ export function buildBuildingMeshes(
     // tmplStepBack-and-friends produce the projecting bays).
 
     // === COLONNADE → batched ===
+    // Pulled through localToWorld with leanX/Z=0 (landmark buildings opt
+    // out of lean) but yaw applied so columns land on the rotated +Z face.
     if ((obj.definitionId === 'temple' || obj.definitionId === 'cathedral' || obj.definitionId === 'guild_hall') && fp.w >= 4) {
       const colH = wallH * 0.85
       const numCols = Math.floor(fp.w / 1.2)
       const spacing = fp.w / (numCols + 1)
       for (let ci = 1; ci <= numCols; ci++) {
         const cg = new THREE.CylinderGeometry(0.085, 0.1, colH, 6)
-        cg.translate(wx - fp.w / 2 + ci * spacing, wy + colH / 2, wz + fp.h / 2 + 0.25)
+        const colLocalX = -fp.w / 2 + ci * spacing
+        localToWorld(cg, colLocalX, colH / 2, fp.h / 2 + 0.25,
+          0, 0, rotationY, wx, wy, wz)
         detailBatch.addPositioned(cg, 0xc0b8a8)
       }
       const bg = new THREE.BoxGeometry(fp.w + 0.2, 0.12, 0.25)
-      bg.translate(wx, wy + colH + 0.06, wz + fp.h / 2 + 0.25)
+      localToWorld(bg, 0, colH + 0.06, fp.h / 2 + 0.25,
+        0, 0, rotationY, wx, wy, wz)
       detailBatch.addPositioned(bg, 0xc0b8a8)
     }
 

@@ -22,6 +22,83 @@ export type RoofStyle =
 /** Ridge axis for gabled / hipped / mansard roofs. */
 export type RoofAxis = 'x' | 'z'
 
+/* ------------------------------------------------------------------ */
+/* Eave / gable math — single source of truth for ornament alignment  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Eave overhang projection (m past the wall plane) per roof style.
+ * EVERY ornament that has to align with the gable triangle plane —
+ * bargeboards, gable attic windows, peak finials, ridge cap, eave
+ * brackets, roof moss patches — pulls these constants from here so
+ * tweaking the overhang only requires changing one place.
+ *
+ * Hipped projects less because all four edges slope; a heavy overhang
+ * on a hipped roof reads as a flat shelf rather than an eave.
+ * Gabled/steep are the same — the "long eave" effect we want in town.
+ * Mansard has its own value (slightly less than gabled because the
+ * steep lower pitch already lands well past the wall face).
+ * Other styles (flat/pointed/spire/cone/dome) have no straight eave,
+ * so eave-aware ornaments skip them.
+ */
+export const EAVE_PROJ_GABLED = 0.26
+export const EAVE_PROJ_HIPPED = 0.18
+export const EAVE_PROJ_MANSARD = 0.20
+
+/** Eave overhang for the given roof style, or 0 for styles without an eave. */
+export function eaveProjFor(style: RoofStyle): number {
+  switch (style) {
+    case 'gabled':
+    case 'steep':
+      return EAVE_PROJ_GABLED
+    case 'hipped':
+      return EAVE_PROJ_HIPPED
+    case 'mansard':
+      return EAVE_PROJ_MANSARD
+    default:
+      return 0
+  }
+}
+
+/**
+ * Geometric values describing a prism roof's gable + slope, useful for
+ * placing ornaments (bargeboards, attic windows, peak finials, moss
+ * patches, ridge cap, etc) so they sit exactly on the visible roof
+ * geometry rather than at the underlying wall plane.
+ *
+ *   gableExtent — distance along the RIDGE axis from volume center to
+ *                 the gable triangle plane (= half-side + eave overhang).
+ *   perpExtent  — distance along the PERP axis from volume center to
+ *                 the eave edge (= half-other-side + eave overhang).
+ *   slopeAngle  — angle of slope from horizontal: atan2(roofHeight, perpExtent).
+ *   slopeLen    — Euclidean slope edge length, eave corner → ridge peak.
+ *   ridgeOnX    — true if the ridge runs along X (gables face ±X).
+ */
+export interface GableMath {
+  ridgeOnX: boolean
+  gableExtent: number
+  perpExtent: number
+  slopeAngle: number
+  slopeLen: number
+}
+
+export function gableMath(args: {
+  width: number
+  depth: number
+  roofHeight: number
+  roofStyle: RoofStyle
+  roofAxis: RoofAxis
+}): GableMath {
+  const ridgeOnX = args.roofAxis === 'x'
+  const eave = eaveProjFor(args.roofStyle)
+  const gableExtent = (ridgeOnX ? args.width : args.depth) / 2 + eave
+  const perpExtent = (ridgeOnX ? args.depth : args.width) / 2 + eave
+  const slopeAngle = Math.atan2(args.roofHeight, perpExtent)
+  const slopeLen = Math.sqrt(perpExtent * perpExtent + args.roofHeight * args.roofHeight)
+  return { ridgeOnX, gableExtent, perpExtent, slopeAngle, slopeLen }
+}
+
+
 export function buildRoof(
   w: number, d: number, h: number,
   style: RoofStyle,
@@ -65,14 +142,8 @@ export function buildRoof(
 
 function buildGablePrism(w: number, d: number, h: number, axis: RoofAxis, hipped: boolean, sag: number = 0): THREE.BufferGeometry {
   const hw = w / 2, hd = d / 2
-  // Eave overhang. Hipped roofs project less because all four edges slope —
-  // a heavy overhang on a hipped roof reads as a flat shelf rather than an
-  // eave. Gabled/steep roofs only project on two sides (the slopes), so
-  // they can carry a bigger overhang without losing the gable read. The
-  // shadow band this casts at the top of the wall is one of the strongest
-  // silhouette cues for "old building" — small geometric change, large
-  // perceptual one.
-  const eaveProj = hipped ? 0.18 : 0.26
+  // Eave projection — see EAVE_PROJ_* constants for rationale.
+  const eaveProj = hipped ? EAVE_PROJ_HIPPED : EAVE_PROJ_GABLED
   const ow = hw + eaveProj, od = hd + eaveProj
 
   let verts: number[]
@@ -191,10 +262,7 @@ function buildGablePrism(w: number, d: number, h: number, axis: RoofAxis, hipped
 
 function buildMansard(w: number, d: number, h: number, axis: RoofAxis): THREE.BufferGeometry {
   const hw = w / 2, hd = d / 2
-  // Mansard eaves project more visibly than other roofs in real buildings
-  // — the steep lower pitch lands well past the wall face. ~0.20m gives
-  // the bottom-of-roof shadow band without sliding into "shelf" territory.
-  const ow = hw + 0.20, od = hd + 0.20
+  const ow = hw + EAVE_PROJ_MANSARD, od = hd + EAVE_PROJ_MANSARD
   // Lower: 60% of h, steep 70° pitch ends at inset0
   // Upper: remaining 40% of h, shallow slope from inset0 to small flat top
   const h0 = h * 0.6
