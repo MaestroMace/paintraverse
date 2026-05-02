@@ -91,6 +91,22 @@ const NO_JITTER = new Set<string>([
   'stone_wall', 'stone_wall_v', 'crenellated_wall',
 ])
 
+/**
+ * Shared palette for painted commercial signage — shop signs (perpendicular
+ * hanging boards) and name placards (horizontal frontage signs) draw from
+ * the same 6 colors so the same building's signs feel like a coordinated
+ * commercial identity. Earthy reds + muted earths + a deep forest + an
+ * indigo + an ochre.
+ */
+const PAINTED_SIGN_COLORS = [
+  0x6b3a1f,  // burnt sienna
+  0x5a2818,  // oxblood
+  0x7a4830,  // tan-clay
+  0x3a4a2a,  // forest
+  0x4a3a55,  // indigo
+  0x6a5028,  // mustard ochre
+]
+
 export interface BuildingBatchResult {
   wallMeshes: THREE.Mesh[]       // individual (textured, emissive)
   batched: THREE.Mesh[]          // merged roof/detail/feature meshes
@@ -443,9 +459,15 @@ export function buildBuildingMeshes(
     // Approximate mainBody roof top for chimney + ornament placement.
     // Prefer the first 'mainBody' volume so chimneys don't float above
     // a tiny corner-tower sub-volume when the massing template puts
-    // the body second.
+    // the body second. Massing templates are required to return at
+    // least one volume; if a future template ever returns an empty
+    // array, this throws and the catch handler downgrades it to a
+    // logged failure rather than crashing the whole pass.
+    if (massing.volumes.length === 0) {
+      throw new Error(`Massing returned 0 volumes for ${obj.definitionId}`)
+    }
     const mainVol = massing.volumes.find(v => v.role === 'mainBody') ?? massing.volumes[0]
-    const mainLocalTopY = (mainVol.bottomY ?? 0) + mainVol.height
+    const mainLocalTopY = mainVol.bottomY + mainVol.height
     const mainRoofH = mainVol.roofHeight
     // Does massing already include a chimney volume? (cottageSmall does.)
     const massingHasChimney = massing.volumes.some(v => v.role === 'chimneyVol')
@@ -564,7 +586,7 @@ export function buildBuildingMeshes(
 
         const halfW = v.width / 2
         const halfD = v.depth / 2
-        const baseLocalY = v.bottomY ?? 0
+        const baseLocalY = v.bottomY
 
         if (wantsTimberPosts) {
           const postH = v.height
@@ -664,7 +686,7 @@ export function buildBuildingMeshes(
       mainVol.height > 1.8 && rand01(hash, 901) < 0.32
     if (wantsDrainpipe) {
       const pipeR = 0.04
-      const baseLocalY = mainVol.bottomY ?? 0
+      const baseLocalY = mainVol.bottomY
       // Run from ~12cm below cornice to the ground.
       const pipeTop = baseLocalY + mainVol.height - 0.12
       const pipeBottom = 0  // building base
@@ -795,8 +817,8 @@ export function buildBuildingMeshes(
         if (Math.abs(localX - mainVol.offsetX) < 0.4 && pH < 1.5) continue
         // Y position: bias toward the lower 60%. Patch center range
         // [pH/2, mainVol.height * 0.6 - pH/2].
-        const yMin = (mainVol.bottomY ?? 0) + pH / 2 + 0.05
-        const yMax = (mainVol.bottomY ?? 0) + mainVol.height * 0.6 + pH / 2
+        const yMin = mainVol.bottomY + pH / 2 + 0.05
+        const yMax = mainVol.bottomY + mainVol.height * 0.6 + pH / 2
         const localY = yMin + rand01(hash, 1741 + p) * Math.max(0.1, yMax - yMin)
         const ivyGeo = new THREE.BoxGeometry(pW, pH, pT)
         localToWorld(ivyGeo, localX, localY, frontLocalZ + pT / 2,
@@ -972,7 +994,7 @@ export function buildBuildingMeshes(
       // FLOOR_HEIGHT of the wall; place placard just above that with a
       // cap so it never hits the cornice on short buildings.
       const targetY = Math.min(mainVol.height - 0.40, FLOOR_HEIGHT + 0.30)
-      const placardY = (mainVol.bottomY ?? 0) + targetY
+      const placardY = mainVol.bottomY + targetY
       const frontLocalZ = mainVol.offsetZ + mainVol.depth / 2
       // Backing board (dark wood)
       const back = new THREE.BoxGeometry(placardW + 0.12, placardH + 0.08, placardT * 0.6)
@@ -983,8 +1005,7 @@ export function buildBuildingMeshes(
       // Color picked from a small painted-sign palette by hash so each
       // shop/inn has its own livery. Same palette as shop signs to keep
       // a coherent commercial-color scheme across town.
-      const placardColors = [0x6b3a1f, 0x5a2818, 0x7a4830, 0x3a4a2a, 0x4a3a55, 0x6a5028]
-      const placardColor = placardColors[hash % placardColors.length]
+      const placardColor = PAINTED_SIGN_COLORS[hash % PAINTED_SIGN_COLORS.length]
       const face = new THREE.BoxGeometry(placardW, placardH, placardT)
       localToWorld(face, mainVol.offsetX, placardY,
         frontLocalZ + placardT * 0.6 + placardT / 2,
@@ -1022,7 +1043,7 @@ export function buildBuildingMeshes(
       // Shared gable math — keeps moss patch positions aligned with
       // bargeboards / attic windows / ridge cap on the same volume.
       const { ridgeOnX, perpExtent, slopeAngle } = gableMath(mainVol)
-      const wallTopY = (mainVol.bottomY ?? 0) + mainVol.height
+      const wallTopY = mainVol.bottomY + mainVol.height
       const mossColors = [0x405028, 0x506838, 0x344518, 0x3a4a26, 0x2c3818]
       for (let p = 0; p < patchCount; p++) {
         const patchW = 0.20 + rand01(hash, 1811 + p) * 0.22   // along the ridge
@@ -1115,7 +1136,7 @@ export function buildBuildingMeshes(
     if (wantsSurround && mainVol.height > 1.5) {
       const doorW = 0.32
       const doorH = Math.min(mainVol.height * 0.55, 1.4)
-      const baseLocalY = mainVol.bottomY ?? 0
+      const baseLocalY = mainVol.bottomY
       const frontLocalZ = mainVol.offsetZ + mainVol.depth / 2
       const proj = 0.06          // how far the frame stands proud of the wall
       const jambW = 0.10
@@ -1221,8 +1242,7 @@ export function buildBuildingMeshes(
       localToWorld(sign, signLocalX, signY, signLocalZ,
         leanX, leanZ, rotationY, wx, wy, wz)
       // Pick from a small palette so signs feel painted / individual.
-      const signColors = [0x6b3a1f, 0x5a2818, 0x7a4830, 0x3a4a2a, 0x4a3a55, 0x6a5028]
-      const signColor = signColors[hash % signColors.length]
+      const signColor = PAINTED_SIGN_COLORS[hash % PAINTED_SIGN_COLORS.length]
       ornamentBatch.addPositioned(sign, signColor)
       // Two short chains rendered as thin vertical bars (we don't have line
       // primitives in the ornament batch). They connect the bracket bottom to
