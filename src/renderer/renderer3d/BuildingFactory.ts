@@ -17,7 +17,7 @@ import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
 import { pickMassing, volumeFloors } from './architecture/Massing'
 import { gableMath } from './architecture/Roofs'
-import { emitVolume, localToWorld, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
+import { emitVolume, localToWorld, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
 import { pickPaletteForStyle } from './architecture/PaletteBias'
 
 /** Re-export so ThreeRenderer can keep importing from BuildingFactory. */
@@ -185,6 +185,21 @@ export function buildBuildingMeshes(
     const style = (obj.properties.style as string) || 'standard'
     const district = (obj.properties.district as string) || 'residential'
 
+    // Style vector + archetype + palette — hoisted to the TOP of the loop
+    // so any decision below (floors / lean / chimneys / signs / etc) can
+    // read styleVector.* without hitting a TDZ. Previously these lived
+    // mid-loop and the lean computation referenced styleVector.weather
+    // before declaration, which caused 20+ buildings per town to throw
+    // "Cannot access 'styleVector' before initialization" and get
+    // dropped from the render. The diagnostics surfaced this in the
+    // very next debug dump.
+    const districtId: DistrictId = VALID_DISTRICTS.has(district)
+      ? (district as DistrictId) : 'residential'
+    const styleVector = buildingStyleVector(districtId, hash)
+    const picks = pickArchetypes(districtId, hash)
+    const dominantArchetype = picks[0]?.id ?? 'traverseCozy'
+    const palette = pickPaletteForStyle(palettes, styleVector, hash)
+
     // Floor count: generator-provided value wins, but otherwise bias urban
     // districts taller (2–4) and rural/fringe shorter (1–2). narrow_house is
     // always tall regardless of district (it's meant to read as a Traverse-
@@ -345,17 +360,9 @@ export function buildBuildingMeshes(
     }
 
     // === PARAMETRIC MASSING ===
-    // The style vector drives a weighted blend of archetypes; pickMassing
-    // then chooses a massing template (body + tower, L-shape, jetty, spire,
-    // nave-transept, cottage-plus-chimney, etc.) and emits Volume[] which
-    // we render one at a time. Buildings are no longer single boxes.
-    const districtId: DistrictId = VALID_DISTRICTS.has(district)
-      ? (district as DistrictId) : 'residential'
-    const styleVector = buildingStyleVector(districtId, hash)
-    const picks = pickArchetypes(districtId, hash)
-    const dominantArchetype = picks[0]?.id ?? 'traverseCozy'
-    const palette = pickPaletteForStyle(palettes, styleVector, hash)
-
+    // styleVector / dominantArchetype / palette were already computed at
+    // the TOP of the loop so all per-decision code below has access to
+    // them. pickMassing turns the style vector into a Volume[] composition.
     const massing = pickMassing({
       definitionId: obj.definitionId,
       dominantArchetype,

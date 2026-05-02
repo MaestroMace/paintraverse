@@ -25,7 +25,7 @@ function rand01(hash: number, salt: number): number {
 }
 
 /** Shift a color's RGB components by a signed [-1,1] amount per channel. */
-function shiftColor(color: number, dR: number, dG: number, dB: number): number {
+export function shiftColor(color: number, dR: number, dG: number, dB: number): number {
   const r = Math.max(0, Math.min(255, ((color >> 16) & 0xff) + Math.round(dR * 255)))
   const g = Math.max(0, Math.min(255, ((color >> 8) & 0xff) + Math.round(dG * 255)))
   const b = Math.max(0, Math.min(255, (color & 0xff) + Math.round(dB * 255)))
