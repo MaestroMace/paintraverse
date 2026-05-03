@@ -297,9 +297,13 @@ export class ThreeRenderer {
     this.sunLight = new THREE.DirectionalLight(0xfff4e0, 1.2)
     this.sunLight.position.set(30, 50, 20)
     this.sunLight.castShadow = true
-    // 512² shadow map (was 1024²) — 4× fewer pixels to rasterize, still
-    // plenty of detail for the softened alley silhouettes we want at dusk.
-    this.sunLight.shadow.mapSize.set(512, 512)
+    // 256² shadow map. Down from 512² (which was already down from 1024²).
+    // Total pixel count: 65k vs 262k vs 1M. PCF filtering already softens
+    // the result so the resolution drop reads as "atmospheric blur" rather
+    // than loss of detail. On integrated GPUs the shadow rasterization
+    // pass is one of the bigger frame-time contributors; cutting it 4×
+    // here (and 16× from the original 1024²) is a clean GPU win.
+    this.sunLight.shadow.mapSize.set(256, 256)
     this.sunLight.shadow.bias = -0.0008
     this.sunLight.shadow.normalBias = 0.04
     this.sunLight.shadow.camera.near = 1
@@ -1082,11 +1086,13 @@ export class ThreeRenderer {
         windowGlow = 0
       }
     }
-    // Composer gating: at true noon/midday (not golden, not dusk, not
-    // dawn), bloom is nearly invisible but the gaussian passes still run.
-    // Skip the whole composer chain and render direct — meaningful perf
-    // win on low-end machines where bloom is the frame-time hotspot.
-    this._useComposer = !(timeOfDay >= 8 && timeOfDay < 15)
+    // Composer is OFF UNCONDITIONALLY for perf. The bloom + OutputPass
+    // chain costs ~5-8ms GPU per frame on integrated graphics. The dusk
+    // mood is now carried entirely by the warm-amber emissive maps on
+    // textured walls + the lantern halo geometry; bloom was a polish
+    // nice-to-have, not a structural requirement. If we want bloom back
+    // we can re-enable per-time-of-day or with a quality flag.
+    this._useComposer = false
     setWallEmissiveIntensity(windowGlow)
     // Hanging lanterns: always a bit brighter than windows (they're supposed
     // to be the primary overhead light source at dusk) but still ramp with

@@ -276,6 +276,15 @@ export function emitVolume(
   const wallColor = applyWeather ? weatheredColor(v.wallColor, ctx.weather) : v.wallColor
   const roofColor = applyWeather ? weatheredColor(v.roofColor, ctx.weather) : v.roofColor
 
+  // Per-volume shadow opt-out: tall narrow tower/spire volumes contribute
+  // long thin shadows that extend far across the orthographic shadow
+  // camera, costing rasterization time without adding gameplay-meaningful
+  // ground shading at the player's walking distance. Building-wide
+  // ctx.castsShadow still applies (short 1-story buildings still skip),
+  // but these specific volume roles are ALWAYS excluded regardless.
+  const isShadowOptOutRole = v.role === 'tower' || v.role === 'spire'
+  const volumeCastsShadow = (ctx.castsShadow !== false) && !isShadowOptOutRole
+
   // --- Walls --- All transforms (lean, yaw, world position) baked into
   // geometry so coalesceWalls can merge cleanly and lean pivots around the
   // building base. Geometry is built at origin, then lifted so its base is at
@@ -286,7 +295,7 @@ export function emitVolume(
     geo.translate(0, v.height / 2, 0)
     localToWorld(geo, lx, v.bottomY, lz, leanX, leanZ, rot, cx, cy, cz)
     const mesh = new THREE.Mesh(geo, getPlainMat(wallColor))
-    mesh.castShadow = ctx.castsShadow !== false
+    mesh.castShadow = volumeCastsShadow
     mesh.receiveShadow = true
     wallMeshes.push(mesh)
   } else {
@@ -323,7 +332,7 @@ export function emitVolume(
     } else {
       mesh = new THREE.Mesh(geo, getPlainMat(wallColor))
     }
-    mesh.castShadow = ctx.castsShadow !== false
+    mesh.castShadow = volumeCastsShadow
     mesh.receiveShadow = true
     wallMeshes.push(mesh)
   }
