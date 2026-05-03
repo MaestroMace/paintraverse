@@ -242,6 +242,12 @@ export class ThreeRenderer {
   // so we don't allocate-and-GC a Vector3 60× per second in the hot path.
   private _scratchSunDir = new THREE.Vector3()
   private _scratchSunDir2 = new THREE.Vector3()
+  /** Last camera XZ when we last updated the shadow camera target. The
+   *  shadow target follows the player but we only push it forward when
+   *  the player has moved more than ~2m, so the shadow camera doesn't
+   *  recompute its world matrix every frame for sub-pixel changes. */
+  private _shadowFollowLastX = -9999
+  private _shadowFollowLastZ = -9999
   // Fog is mutated in place across time-of-day bands rather than replaced;
   // Three.js is happy to pick up color/density changes on the existing
   // instance, and we stop allocating a FogExp2 per slider tick.
@@ -1134,12 +1140,14 @@ export class ThreeRenderer {
 
   /** Initialize particle systems for smoke and fireflies */
   private initParticles(chimneyPositions: THREE.Vector3[], gridW: number, gridH: number): void {
-    // Chimney smoke: 4 particles per chimney × max 16 chimneys = 64.
-    // Previously 8 × 20 = 160 — overkill for atmospheric dots; you
-    // can't distinguish them visually past half that.
+    // Chimney smoke: 2 particles per chimney × max 16 chimneys = 32.
+    // Was 4 × 16 = 64 (originally 8 × 20 = 160). At dusk-walkaround
+    // distance you can't distinguish 4 dots from 2 dots per chimney —
+    // both read as a single soft puff. Halving cuts the per-frame
+    // particle update loop in half on chimney smoke.
     const maxChimneys = Math.min(chimneyPositions.length, 16)
     if (maxChimneys > 0) {
-      const perChimney = 4
+      const perChimney = 2
       const count = maxChimneys * perChimney
       const positions = new Float32Array(count * 3)
       const velocities = new Float32Array(count * 3)
@@ -1176,8 +1184,12 @@ export class ThreeRenderer {
       this.particleSystems.push({ points, positions, velocities, lifetimes, origins, count, type: 'smoke' })
     }
 
-    // Ambient fireflies / dust motes (80 particles scattered across town)
-    const fireflyCount = 80
+    // Ambient fireflies / dust motes — was 80, now 36. The eye reads
+    // these as scattered atmospheric dots; spatial density at this
+    // count is still well above where the effect breaks. CPU update
+    // loop benefits from the halving since the per-frame work scales
+    // linearly with particle count.
+    const fireflyCount = 36
     const ffPositions = new Float32Array(fireflyCount * 3)
     const ffVelocities = new Float32Array(fireflyCount * 3)
     const ffLifetimes = new Float32Array(fireflyCount)
@@ -1369,20 +1381,30 @@ export class ThreeRenderer {
       tickWater(t)
       if (this.skyMesh) this.skyMesh.position.copy(this.camera.position)
       // Shadow target follows the player so the tight ortho bounds
-      // rasterize meshes near the camera, not the whole town. Dramatic
-      // shadow-pass perf win: ~4× fewer casters in shadow frustum at
-      // typical walkaround distance.
+      // rasterize meshes near the camera, not the whole town. We
+      // only update when the player has moved more than ~2m on the
+      // ground plane — the shadow camera's frustum is 28m wide so
+      // a 2m delta is well below where the cutoff edges become
+      // visible, but the savings on every "stationary" frame add up.
+      // The matrix update + light position recompute happens at most
+      // ~once per second of walking; mostly never while standing still.
       if (this.sunLight.shadow.camera && this.renderer?.shadowMap.enabled) {
-        const sunDir = this._scratchSunDir
-          .copy(this.sunLight.position)
-          .sub(this.sunLight.target.position)
-          .normalize()
-        this.sunLight.target.position.set(
-          this.camera.position.x, 0, this.camera.position.z,
-        )
-        this.sunLight.position.copy(this.sunLight.target.position).add(sunDir.multiplyScalar(50))
-        this.sunLight.target.updateMatrixWorld()
-        this.sunLight.shadow.camera.updateMatrixWorld()
+        const cx = this.camera.position.x
+        const cz = this.camera.position.z
+        const dx = cx - this._shadowFollowLastX
+        const dz = cz - this._shadowFollowLastZ
+        if (dx * dx + dz * dz > 4) {        // > 2m moved
+          const sunDir = this._scratchSunDir
+            .copy(this.sunLight.position)
+            .sub(this.sunLight.target.position)
+            .normalize()
+          this.sunLight.target.position.set(cx, 0, cz)
+          this.sunLight.position.copy(this.sunLight.target.position).add(sunDir.multiplyScalar(50))
+          this.sunLight.target.updateMatrixWorld()
+          this.sunLight.shadow.camera.updateMatrixWorld()
+          this._shadowFollowLastX = cx
+          this._shadowFollowLastZ = cz
+        }
       }
       const updateEnd = performance.now()
       if (this.composer && this._useComposer) this.composer.render()
