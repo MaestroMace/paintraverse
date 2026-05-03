@@ -1503,11 +1503,29 @@ function coalesceWalls(wallMeshes: THREE.Mesh[]): THREE.Mesh[] {
     }
     bucket.meshes.push(mesh)
   }
-  const result: THREE.Mesh[] = [...loose]
+  const result: THREE.Mesh[] = []
+  // Loose meshes (cylinder walls + singleton boxes that couldn't merge)
+  // get matrixAutoUpdate=false so Three.js doesn't recompute their world
+  // matrix every frame. Their geometry is pre-baked at world position via
+  // localToWorld in emitVolume; the mesh transform is identity. Avoiding
+  // per-frame matrix recomputation on hundreds of static wall meshes is
+  // a free perf win.
+  for (const m of loose) {
+    m.matrixAutoUpdate = false
+    m.updateMatrix()
+    result.push(m)
+  }
   for (const { key, casts, meshes } of groups.values()) {
     // Even 2-mesh groups are worth merging — one less draw call each,
     // and the shadow pass benefits too. Only singletons stay loose.
-    if (meshes.length < 2) { result.push(...meshes); continue }
+    if (meshes.length < 2) {
+      for (const m of meshes) {
+        m.matrixAutoUpdate = false
+        m.updateMatrix()
+        result.push(m)
+      }
+      continue
+    }
     // Bake each mesh's world transform into its geometry, then merge.
     // All geometries have the same group layout since they're all BoxGeometry
     // so mergeGeometries can combine them preserving per-face material indices.
