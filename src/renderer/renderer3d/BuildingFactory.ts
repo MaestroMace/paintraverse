@@ -487,16 +487,28 @@ export function buildBuildingMeshes(
       // small houses, the occasional tall crooked flue, the rare copper-top
       // or double-stack. Hash picks the variant so regenerating the seed
       // gives the same silhouette.
-      const variant = hash % 7
       // Variant 0,1,2 — stocky single; 3 — double stack; 4 — tall whimsy;
       // 5 — copper-top; 6 — wide short.
+      // Tall whimsy (variant 4) is reserved for floors >= 3 — on a 1-story
+      // cottage a 2.0m chimney stack overshadows the building itself, which
+      // was the "features extending beyond their boundaries" reading on
+      // the most recent debug screenshot. Buildings under 3 floors that
+      // would have rolled variant 4 fall back to variant 0 (stocky single).
+      let variant = hash % 7
+      if (variant === 4 && floors < 3) variant = 0
       const chimCount = (floors >= 3 || styleVector.wealth > 0.6) ? 2
                       : variant === 3 ? 2
                       : 1
-      // Height/width picked per variant so silhouettes read distinctly.
-      const baseH = variant === 4 ? 1.2 + rand01(hash, 701) * 0.8     // 1.2–2.0 (tall whimsy)
-                  : variant === 6 ? 0.35 + rand01(hash, 701) * 0.1    // short chubby
-                  : 0.5 + rand01(hash, 701) * 0.35                    // default 0.5–0.85
+      // Height/width — capped so a chimney can never be more than ~50% of
+      // the building's wallH. Without this clamp a 1-story house with
+      // FLOOR_HEIGHT=1.8 (1.8m wall) could end up with a 0.85m chimney
+      // stack + 0.22m pot = 1.07m of chimney structure, ~60% of the wall.
+      const wallHforCap = floors * FLOOR_HEIGHT * (HEIGHT_MULT[obj.definitionId] ?? 1.0)
+      const heightCap = wallHforCap * 0.50
+      const baseHraw = variant === 4 ? 1.2 + rand01(hash, 701) * 0.8     // 1.2–2.0 (tall whimsy, floors >= 3 only)
+                     : variant === 6 ? 0.35 + rand01(hash, 701) * 0.1    // short chubby
+                     : 0.5 + rand01(hash, 701) * 0.35                    // default 0.5–0.85
+      const baseH = Math.min(baseHraw, heightCap)
       const chimW = variant === 6 ? 0.7 : variant === 4 ? 0.42 : 0.5
       const capColor = variant === 5 ? 0x4a7870 /* verdigris copper */ : 0x5a3020
       // Local Y of chimney base (above the mainBody roof base). Building lean
@@ -545,8 +557,11 @@ export function buildBuildingMeshes(
             detailBatch.addPositioned(pot, potColor)
             // Tall whimsy variant gets an EXTRA tier — a thinner second pot
             // stacked on top, the "I added a flue, then another, then a third"
-            // look. Tudor-cottage signature.
-            if (variant === 4) {
+            // look. Tudor-cottage signature. Reserved for floors >= 3 since
+            // variant 4 itself is now floors-gated; this is a defensive
+            // re-check that also ensures the 2nd-tier pot only appears
+            // where it has visual room.
+            if (variant === 4 && floors >= 3) {
               const pot2 = new THREE.CylinderGeometry(potR * 0.85, potR * 0.85, potH * 0.7, 7)
               localToWorld(pot2, localX, chimBaseLocalY + chimH + 0.12 + potH + (potH * 0.7) / 2, localZ,
                 leanX, leanZ, rotationY, wx, wy, wz)

@@ -286,6 +286,17 @@ export function emitVolume(
   const cx = ctx.centerX, cy = ctx.baseY, cz = ctx.centerZ
   const floors = volumeFloors(v)
 
+  // Detail-ornament gate: 1-story volumes (cottage-scale) skip the
+  // big projecting decorations — bargeboards, eave brackets, window
+  // trim, flowerboxes — keeping their silhouette clean and dropping
+  // ornament fragment count significantly. Cornice / base course /
+  // ridge cap still emit so the silhouette doesn't read as bare.
+  // Multi-volume buildings (a 2-floor house with a 1-floor wing) get
+  // detail on the 2-floor body and clean on the 1-floor wing — which
+  // is also realistic (the main living block has the trim, the shed
+  // doesn't).
+  const showDetailOrnaments = floors >= 2
+
   const applyWeather = v.role !== 'chimneyVol'
   const wallColor = applyWeather ? weatheredColor(v.wallColor, ctx.weather) : v.wallColor
   const roofColor = applyWeather ? weatheredColor(v.roofColor, ctx.weather) : v.roofColor
@@ -489,7 +500,10 @@ export function emitVolume(
   // gable end's triangle face, plus a small carved finial at each gable
   // peak. Both are gable-style-only (gabled or steep prism roofs); hipped
   // has no proper gable triangle; cone/dome/mansard skip.
-  if ((v.roofStyle === 'gabled' || v.roofStyle === 'steep') &&
+  // 1-story cottage volumes skip — their gable triangle is small and an
+  // attic window inside it reads as oversized. Multi-floor buildings keep.
+  if (showDetailOrnaments &&
+      (v.roofStyle === 'gabled' || v.roofStyle === 'steep') &&
       !v.circular && v.role !== 'chimneyVol' &&
       Math.min(v.width, v.depth) >= 1.4 && v.roofHeight > 0.5) {
     const { ridgeOnX, gableExtent } = gableMath(v)
@@ -575,7 +589,10 @@ export function emitVolume(
   // Traverse-Town gables. Two boards per gable end: one along each slope
   // edge from the eave corner up to the ridge peak. Placed slightly past
   // the gable face so they cap the roof's overhang at the gable end.
-  if ((v.roofStyle === 'gabled' || v.roofStyle === 'steep') &&
+  // 1-story cottage volumes skip — their gable triangle is small enough
+  // that bargeboards add visual clutter without silhouette payoff.
+  if (showDetailOrnaments &&
+      (v.roofStyle === 'gabled' || v.roofStyle === 'steep') &&
       !v.circular && v.role !== 'chimneyVol' &&
       Math.min(v.width, v.depth) >= 1.4 && v.roofHeight > 0.4) {
     // Gable + slope math via shared helper — gableExtent INCLUDES the eave
@@ -620,7 +637,7 @@ export function emitVolume(
   // reading as an asymmetric defect. Mansard, pointed, dome, and spire
   // roofs skip — they have no straight eave run.
   const isBracketed = v.roofStyle === 'gabled' || v.roofStyle === 'steep'
-  if (isBracketed && !v.circular && v.role !== 'chimneyVol' && v.height > 1.2) {
+  if (showDetailOrnaments && isBracketed && !v.circular && v.role !== 'chimneyVol' && v.height > 1.2) {
     const eaveProj = eaveProjFor(v.roofStyle)
     // Brackets along the eave-facing edges (perpendicular to the ridge).
     // For axis='x' gable, ridge runs along X — the eaves are at z=±depth/2.
@@ -697,10 +714,10 @@ export function emitVolume(
   // boxes per building — the merge build cost dominates. Ground-floor +Z is
   // the band the player sees walking past, where trim payoff is highest.
   if (
+    showDetailOrnaments &&
     v.textured && !v.circular &&
     v.role !== 'chimneyVol' &&
-    v.width >= 1.4 && v.height >= 1.4 &&
-    floors >= 1
+    v.width >= 1.4 && v.height >= 1.4
   ) {
     const textureWidth = Math.max(1, Math.round(v.width))
     const cols = Math.max(1, Math.floor(textureWidth * 1.5))
