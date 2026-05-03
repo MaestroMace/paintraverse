@@ -380,6 +380,17 @@ export class ThreeRenderer {
     // only slightly harder edges. PCFSoftShadowMap was the third most
     // expensive thing in the frame after wall meshes and bloom.
     this.renderer.shadowMap.type = THREE.PCFShadowMap
+    // Manual shadow map update — by default Three.js redraws the shadow
+    // map every single frame even when the sun, the buildings, and the
+    // camera are all stationary. We turn off auto-update and explicitly
+    // mark needsUpdate=true on the events that actually change shadow
+    // contents:
+    //   - Time-of-day change (sun moves) → set in updateLighting
+    //   - Shadow camera target moves >2m → set in render loop
+    //   - Initial scene load → set in loadMap
+    // While standing still in a fixed-time scene: zero shadow pass work.
+    this.renderer.shadowMap.autoUpdate = false
+    this.renderer.shadowMap.needsUpdate = true
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     // Disable automatic reset of renderer.info so we can snapshot scene
     // draw-call / triangle counts before the composer's OutputPass
@@ -956,10 +967,14 @@ export class ThreeRenderer {
     const isGolden = timeOfDay >= 15 && timeOfDay < 17
     // Shadow gating: at deep night the sun is below horizon, shadows are
     // invisible anyway, so skip the shadow pass entirely. Saves a full
-    // 512² render + sort per frame.
+    // 256² render + sort per frame.
     if (this.renderer) {
       const sunBelowHorizon = timeOfDay < 5.5 || timeOfDay >= 19.5
       this.renderer.shadowMap.enabled = !sunBelowHorizon
+      // Sun moved → shadow contents changed → mark dirty so the next
+      // frame recomputes the shadow map. (Auto-update was disabled at
+      // init; we control redraws manually.)
+      this.renderer.shadowMap.needsUpdate = !sunBelowHorizon
     }
 
     // Sun angle based on time (0=midnight, 12=noon)
@@ -1402,6 +1417,9 @@ export class ThreeRenderer {
           this.sunLight.position.copy(this.sunLight.target.position).add(sunDir.multiplyScalar(50))
           this.sunLight.target.updateMatrixWorld()
           this.sunLight.shadow.camera.updateMatrixWorld()
+          // Shadow contents changed (different region of town now in
+          // the frustum) → kick the shadow map to redraw this frame.
+          if (this.renderer) this.renderer.shadowMap.needsUpdate = true
           this._shadowFollowLastX = cx
           this._shadowFollowLastZ = cz
         }
