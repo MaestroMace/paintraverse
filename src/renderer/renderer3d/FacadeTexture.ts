@@ -29,9 +29,38 @@ export type { FacadeConfig }
 const TEXTURE_SCALE = 64 // pixels per tile unit
 const _textureCache = new Map<string, THREE.CanvasTexture>()
 
+/**
+ * Quantize a 24-bit color to 4 bits per channel (12 bits total) before
+ * using it as a cache key. Two near-identical wallColors that differ
+ * only in low-order bits will hash to the SAME quantized key, sharing
+ * one cached texture and one material — and therefore one merged
+ * wall mesh in coalesceWalls. Visually the 16-step-per-channel ramp
+ * is well below the per-building variation we already get from
+ * weathering / mood lighting; the eye can't distinguish #6b3a1f
+ * from #6c3b1e at building scale.
+ *
+ * Drops the unique-facade-material count significantly: with N
+ * palettes generating dozens of slightly-different wallColors,
+ * quantization collapses them to ~16-32 distinct buckets.
+ */
+function quantizeColor(c: number): number {
+  const r = (c >> 16) & 0xf0
+  const g = (c >> 8) & 0xf0
+  const b = c & 0xf0
+  return (r << 16) | (g << 8) | b
+}
+
 function facadeKey(config: FacadeConfig, face: 'front' | 'side'): string {
-  const gfc = config.groundFloorColor !== undefined ? config.groundFloorColor.toString(16) : 'none'
-  return `${config.floors}_${config.width}_${config.wallColor.toString(16)}_${config.doorColor.toString(16)}_${config.hasTimber}_${config.hasAwning}_${config.hasShutters}_${config.hasFlowerBox}_${config.style}_${gfc}_${face}`
+  // Cache key uses QUANTIZED colors so near-identical wallColors collapse
+  // into the same texture/material, allowing coalesceWalls to merge their
+  // wall meshes. The CANVAS still paints with the full-fidelity colors
+  // (see createFacadeTexture below) — only the cache identity is quantized.
+  const wq = quantizeColor(config.wallColor)
+  const dq = quantizeColor(config.doorColor)
+  const gfc = config.groundFloorColor !== undefined
+    ? quantizeColor(config.groundFloorColor).toString(16)
+    : 'none'
+  return `${config.floors}_${config.width}_${wq.toString(16)}_${dq.toString(16)}_${config.hasTimber}_${config.hasAwning}_${config.hasShutters}_${config.hasFlowerBox}_${config.style}_${gfc}_${face}`
 }
 
 function hexToRGB(color: number): [number, number, number] {

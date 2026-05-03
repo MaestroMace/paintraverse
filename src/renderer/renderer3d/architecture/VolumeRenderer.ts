@@ -36,8 +36,16 @@ export function shiftColor(color: number, dR: number, dG: number, dB: number): n
 const _wallMatCache = new Map<string, THREE.MeshLambertMaterial>()
 const _plainMatCache = new Map<number, THREE.MeshLambertMaterial>()
 
+/** Quantize a 24-bit color to 4 bits per channel for cache identity.
+ *  See FacadeTexture.quantizeColor — same intent here: collapse near-
+ *  identical wallColors into the same MATERIAL bucket so coalesceWalls
+ *  can merge their wall meshes. */
+function quantizeMatColor(c: number): number {
+  return ((c >> 16) & 0xf0) << 16 | ((c >> 8) & 0xf0) << 8 | (c & 0xf0)
+}
+
 function facadeKey(cfg: FacadeConfig): string {
-  return `${cfg.floors}_${cfg.width}_${cfg.wallColor.toString(16)}_${cfg.hasTimber}_${cfg.hasShutters}_${cfg.hasFlowerBox}_${cfg.style}`
+  return `${cfg.floors}_${cfg.width}_${quantizeMatColor(cfg.wallColor).toString(16)}_${cfg.hasTimber}_${cfg.hasShutters}_${cfg.hasFlowerBox}_${cfg.style}`
 }
 
 /** Per-material flicker phase so each building's windows flicker on its
@@ -75,10 +83,16 @@ function getFacadeMat(cfg: FacadeConfig): THREE.MeshLambertMaterial {
 }
 
 function getPlainMat(wallColor: number): THREE.MeshLambertMaterial {
-  let mat = _plainMatCache.get(wallColor)
+  // Quantize the color before caching so per-building weathering / palette
+  // shifts that produce near-identical colors collapse into one material.
+  // The Lambert .color is set to the QUANTIZED color, so visually we
+  // accept a 16-step-per-channel ramp in exchange for far fewer unique
+  // materials and far better wall-mesh merging.
+  const qColor = quantizeMatColor(wallColor)
+  let mat = _plainMatCache.get(qColor)
   if (!mat) {
-    mat = new THREE.MeshLambertMaterial({ color: wallColor, flatShading: true })
-    _plainMatCache.set(wallColor, mat)
+    mat = new THREE.MeshLambertMaterial({ color: qColor, flatShading: true })
+    _plainMatCache.set(qColor, mat)
   }
   return mat
 }
