@@ -797,6 +797,9 @@ interface AppState {
   // App mode
   appMode: AppMode
 
+  // Landscape: 2D editor vs 3D walkthrough (toolbar-owned so it's discoverable)
+  view3D: boolean
+
   // Document
   map: MapDocument
   projectName: string
@@ -844,6 +847,7 @@ interface AppState {
 
   // Mode
   setAppMode: (mode: AppMode) => void
+  setView3D: (v: boolean) => void
 
   // Map operations
   setMap: (map: MapDocument) => void
@@ -920,6 +924,7 @@ interface AppState {
 export const useAppStore = create<AppState>((set, get) => ({
   // Initial state
   appMode: 'menu' as AppMode,
+  view3D: false,
   map: createDefaultMap(),
   projectName: 'Untitled Project',
   projectPath: null,
@@ -960,6 +965,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Mode
   setAppMode: (mode) => set({ appMode: mode }),
+  setView3D: (v) => set({ view3D: v }),
 
   // Map operations
   setMap: (map) => {

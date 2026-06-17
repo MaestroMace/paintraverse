@@ -2,7 +2,7 @@
   display: flex;
   align-items: center;
   padding: 0 12px;
-  background: linear-gradient(180deg, rgba(14, 18, 40, 0.96), rgba(10, 14, 32, 0.98));
+  background: linear-gradient(180deg, rgba(26, 18, 22, 0.97), rgba(16, 11, 16, 0.98));
   border-bottom: 1px solid var(--border);
   gap: 4px;
   height: 44px;
@@ -17,7 +17,7 @@
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(100, 140, 255, 0.15), transparent);
+  background: linear-gradient(90deg, transparent, rgba(240, 178, 110, 0.15), transparent);
 }
 
 .toolbar-group {
@@ -57,10 +57,10 @@
   display: flex;
   gap: 2px;
   margin-left: 8px;
-  background: rgba(8, 12, 24, 0.6);
+  background: rgba(12, 8, 14, 0.6);
   border-radius: 8px;
   padding: 2px;
-  border: 1px solid rgba(100, 140, 255, 0.08);
+  border: 1px solid rgba(240, 178, 110, 0.08);
 }
 
 .toolbar-mode-btn {
@@ -76,7 +76,7 @@
 
 .toolbar-mode-btn:hover {
   color: var(--text) !important;
-  background: rgba(100, 140, 255, 0.08) !important;
+  background: rgba(240, 178, 110, 0.08) !important;
 }
 
 .toolbar-mode-btn.active {
@@ -122,4 +122,57 @@
 .toolbar-home-btn:hover {
   color: var(--accent) !important;
   text-shadow: 0 0 8px rgba(240, 192, 64, 0.3);
+}
+
+/* 2D / 3D view toggle (landscape) */
+.toolbar-view-toggle {
+  display: flex;
+  gap: 2px;
+  background: rgba(12, 8, 14, 0.6);
+  border-radius: 8px;
+  padding: 2px;
+  border: 1px solid var(--border);
+}
+
+.toolbar-view-btn {
+  padding: 3px 12px !important;
+  border-radius: 6px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  border: none !important;
+  background: transparent !important;
+  color: var(--text-dim) !important;
+  cursor: pointer;
+  transition: all 0.2s ease !important;
+}
+
+.toolbar-view-btn:hover {
+  color: var(--text) !important;
+  background: rgba(240, 178, 110, 0.08) !important;
+}
+
+.toolbar-view-btn.active {
+  color: var(--accent) !important;
+  background: rgba(240, 184, 64, 0.14) !important;
+  box-shadow: 0 0 8px rgba(240, 184, 64, 0.12) !important;
+}
+
+/* Keyboard-shortcut hint inside tool buttons */
+.toolbar-kbd {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  color: var(--text-dim);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
+.toolbar-tool-btn.active .toolbar-kbd {
+  color: var(--accent);
+  border-color: rgba(240, 184, 64, 0.35);
 }

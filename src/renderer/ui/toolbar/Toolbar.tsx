@@ -25,6 +25,8 @@ export function Toolbar() {
   const redo = useAppStore((s) => s.redo)
   const undoStack = useAppStore((s) => s.undoStack)
   const redoStack = useAppStore((s) => s.redoStack)
+  const view3D = useAppStore((s) => s.view3D)
+  const setView3D = useAppStore((s) => s.setView3D)
 
   return (
     <div className="toolbar">
@@ -63,6 +65,7 @@ export function Toolbar() {
                 title={`${t.label} (${t.shortcut})`}
               >
                 {t.label}
+                <span className="toolbar-kbd">{t.shortcut}</span>
               </button>
             ))}
           </div>
@@ -94,6 +97,24 @@ export function Toolbar() {
 
       {/* Right side */}
       <div className="toolbar-group">
+        {appMode === 'landscape' && (
+          <div className="toolbar-view-toggle" title="Switch between the 2D editor and the 3D walkthrough">
+            <button
+              className={`toolbar-view-btn ${!view3D ? 'active' : ''}`}
+              onClick={() => setView3D(false)}
+              title="2D top-down editor"
+            >
+              2D
+            </button>
+            <button
+              className={`toolbar-view-btn ${view3D ? 'active' : ''}`}
+              onClick={() => setView3D(true)}
+              title="3D walkthrough"
+            >
+              3D
+            </button>
+          </div>
+        )}
         <button
           className="toolbar-home-btn"
           onClick={() => setAppMode('menu')}

@@ -55,18 +55,18 @@
   );
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(100, 140, 255, 0.15);
+  border: 1px solid rgba(240, 178, 110, 0.15);
   border-radius: 12px;
   box-shadow:
-    0 0 12px rgba(60, 100, 200, 0.08),
+    0 0 12px rgba(200, 120, 60, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   transition: box-shadow 0.3s ease, border-color 0.3s ease;
 }
 
 .kh-panel:hover {
-  border-color: rgba(100, 140, 255, 0.25);
+  border-color: rgba(240, 178, 110, 0.25);
   box-shadow:
-    0 0 18px rgba(60, 100, 200, 0.12),
+    0 0 18px rgba(200, 120, 60, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
@@ -100,7 +100,7 @@
 }
 
 .kh-cmd-item:hover {
-  background: rgba(100, 140, 255, 0.1);
+  background: rgba(240, 178, 110, 0.1);
 }
 
 .kh-cmd-item:hover::before {
@@ -124,7 +124,7 @@
 /* -- KH1 Pill button -- */
 .kh-btn {
   background: linear-gradient(135deg, rgba(30, 40, 80, 0.9), rgba(20, 28, 60, 0.9));
-  border: 1px solid rgba(100, 140, 255, 0.2);
+  border: 1px solid rgba(240, 178, 110, 0.2);
   border-radius: 20px;
   padding: 6px 16px;
   color: var(--text);
@@ -229,7 +229,7 @@
     rgba(16, 22, 50, 0.9) 0%,
     rgba(24, 32, 64, 0.85) 100%
   );
-  border: 1px solid rgba(100, 140, 255, 0.2);
+  border: 1px solid rgba(240, 178, 110, 0.2);
   cursor: pointer;
   transition: all 0.35s ease;
   overflow: hidden;
@@ -258,7 +258,7 @@
 .mode-card:hover {
   transform: translateY(-4px) scale(1.02);
   border-color: rgba(240, 192, 64, 0.4);
-  box-shadow: 0 8px 32px rgba(240, 192, 64, 0.12), 0 0 20px rgba(60, 100, 200, 0.1);
+  box-shadow: 0 8px 32px rgba(240, 192, 64, 0.12), 0 0 20px rgba(200, 120, 60, 0.1);
 }
 
 .mode-card:hover::before {
@@ -321,7 +321,7 @@
   position: relative;
   border-radius: 6px;
   overflow: hidden;
-  border: 1px solid rgba(100, 140, 255, 0.1);
+  border: 1px solid rgba(240, 178, 110, 0.1);
   cursor: pointer;
   transition: all 0.2s ease;
   aspect-ratio: 1;
@@ -350,7 +350,7 @@
 .asset-preview-3d {
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid rgba(100, 140, 255, 0.15);
+  border: 1px solid rgba(240, 178, 110, 0.15);
   background: radial-gradient(ellipse at 50% 40%, rgba(20, 30, 60, 1), rgba(8, 12, 24, 1));
   position: relative;
 }
@@ -364,7 +364,7 @@
 /* -- Asset library drawer -- */
 .asset-drawer {
   background: linear-gradient(0deg, rgba(8, 10, 24, 0.95), rgba(12, 16, 36, 0.9));
-  border-top: 1px solid rgba(100, 140, 255, 0.15);
+  border-top: 1px solid rgba(240, 178, 110, 0.15);
   padding: 8px;
   display: flex;
   gap: 8px;
@@ -381,7 +381,7 @@
   width: 56px;
   height: 56px;
   border-radius: 8px;
-  border: 1px solid rgba(100, 140, 255, 0.15);
+  border: 1px solid rgba(240, 178, 110, 0.15);
   background: rgba(16, 22, 44, 0.8);
   display: flex;
   align-items: center;
