@@ -26,6 +26,9 @@ export class EditorViewport {
   private _keysHeld = new Set<string>()
   private _cameraTickId = 0
   private _renderScheduled = false
+  /** True only between init() completing and destroy(). Guards rAF renders
+   *  scheduled in the gap before Pixi's renderer exists or after teardown. */
+  private _ready = false
   private _lastHoverTileX = -1
   private _lastHoverTileY = -1
   private _objectBoundsCache: ReturnType<EditorViewport['getAllObjects']> | null = null
@@ -96,6 +99,7 @@ export class EditorViewport {
 
     this.setupInteraction()
     this.centerView(32, 32, 32)
+    this._ready = true
     this.requestRender()
   }
 
@@ -105,7 +109,9 @@ export class EditorViewport {
     this._renderScheduled = true
     requestAnimationFrame(() => {
       this._renderScheduled = false
-      this.app.render()
+      // app.renderer doesn't exist until init() completes and is gone after
+      // destroy(); a frame can be queued in either gap. Skip it safely.
+      if (this._ready) this.app.render()
     })
   }
 
@@ -361,6 +367,9 @@ export class EditorViewport {
   }
 
   destroy(): void {
+    // Mark not-ready first so any queued rAF render bails instead of touching
+    // the torn-down Pixi renderer.
+    this._ready = false
     // Clean up event listeners to prevent memory leaks
     this.stopCameraTick()
     if (this._wheelHandler) {
