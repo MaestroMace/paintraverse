@@ -13,76 +13,51 @@ export function getActiveThreeRenderer(): ThreeRenderer | null { return _activeR
 export function ThreeViewport() {
   const containerRef = useRef<HTMLDivElement>(null)
   const rendererRef = useRef<ThreeRenderer | null>(null)
-  const map = useAppStore((s) => s.map)
+
+  // Subscribe to the NARROW slices we actually react to, not the whole `map`.
+  // updateEnvironment() spreads a new map object on every slider tick, so a
+  // whole-map subscription re-rendered this viewport ~24x/sec while dragging
+  // the weather/moon/star/ambient/sun sliders — even though only timeOfDay
+  // drives the 3D lighting. layers/grid drive structural rebuilds; name only
+  // feeds the screenshot filename.
+  const layers = useAppStore((s) => s.map.layers)
+  const gridWidth = useAppStore((s) => s.map.gridWidth)
+  const gridHeight = useAppStore((s) => s.map.gridHeight)
+  const tileSize = useAppStore((s) => s.map.tileSize)
+  const timeOfDay = useAppStore((s) => s.map.environment.timeOfDay)
+  const mapName = useAppStore((s) => s.map.name)
   const objectDefs = useAppStore((s) => s.objectDefinitions)
   const buildingPalettes = useAppStore((s) => s.buildingPalettes)
-  // Track the structural shape we last uploaded to the renderer so we can
-  // skip rebuilds when only an unrelated field (e.g. environment.timeOfDay)
-  // mutated. updateEnvironment creates a new `map` reference via spread,
-  // but layers/grid dims stay referentially stable.
-  const loadedStructRef = useRef<{
-    layers: unknown
-    gridWidth: number
-    gridHeight: number
-    tileSize: number
-    objectDefs: unknown
-    palettes: unknown
-  } | null>(null)
 
+  // Mount: build the renderer once from the current map snapshot.
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
     const renderer = new ThreeRenderer()
     renderer.init(container)
-    renderer.loadMap(map, objectDefs, buildingPalettes)
-    loadedStructRef.current = {
-      layers: map.layers,
-      gridWidth: map.gridWidth,
-      gridHeight: map.gridHeight,
-      tileSize: map.tileSize,
-      objectDefs,
-      palettes: buildingPalettes,
-    }
+    renderer.loadMap(useAppStore.getState().map, objectDefs, buildingPalettes)
     rendererRef.current = renderer
     _activeRenderer = renderer
     return () => {
       renderer.dispose()
       rendererRef.current = null
       _activeRenderer = null
-      loadedStructRef.current = null
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Rebuild the scene only when its structural inputs change. Environment
+  // tweaks no longer reach here (we don't subscribe to the whole map), so the
+  // old manual ref-diff guarding against per-tick rebuilds is unnecessary.
+  const skipFirstStruct = useRef(true)
   useEffect(() => {
-    const r = rendererRef.current
-    const prev = loadedStructRef.current
-    if (!r || !prev) return
-    // Only rebuild when the scene's actual structural inputs changed. Env
-    // tweaks (time of day, weather) spread a new map object but leave these
-    // references intact — rebuilding would toss the whole Three scene on
-    // every slider tick.
-    if (
-      prev.layers === map.layers &&
-      prev.gridWidth === map.gridWidth &&
-      prev.gridHeight === map.gridHeight &&
-      prev.tileSize === map.tileSize &&
-      prev.objectDefs === objectDefs &&
-      prev.palettes === buildingPalettes
-    ) return
-    r.loadMap(map, objectDefs, buildingPalettes)
-    loadedStructRef.current = {
-      layers: map.layers,
-      gridWidth: map.gridWidth,
-      gridHeight: map.gridHeight,
-      tileSize: map.tileSize,
-      objectDefs,
-      palettes: buildingPalettes,
-    }
-  }, [map, objectDefs, buildingPalettes])
+    if (skipFirstStruct.current) { skipFirstStruct.current = false; return } // mount already loaded
+    rendererRef.current?.loadMap(useAppStore.getState().map, objectDefs, buildingPalettes)
+  }, [layers, gridWidth, gridHeight, tileSize, objectDefs, buildingPalettes])
 
+  // Lighting tracks time of day.
   useEffect(() => {
-    if (rendererRef.current) rendererRef.current.updateLighting(map.environment.timeOfDay)
-  }, [map.environment.timeOfDay])
+    rendererRef.current?.updateLighting(timeOfDay)
+  }, [timeOfDay])
 
   // FPS/draws telemetry: updates once per second. Writing to a ref'd DOM
   // node avoids a React state update → full component re-render every tick,
@@ -109,10 +84,10 @@ export function ThreeViewport() {
     const dataURL = rendererRef.current.captureScreenshot()
     if (!dataURL) return
     const link = document.createElement('a')
-    link.download = `${map.name.replace(/\s+/g, '_')}_3d_screenshot.png`
+    link.download = `${mapName.replace(/\s+/g, '_')}_3d_screenshot.png`
     link.href = dataURL
     link.click()
-  }, [map.name])
+  }, [mapName])
 
   return (
     <div
