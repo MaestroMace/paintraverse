@@ -79,6 +79,17 @@ function darkenColor(color: number, amount: number): number {
   return (r << 16) | (g << 8) | b
 }
 
+/** Tint a color toward white by `amount` (0..1). Used for masonry trim
+ *  (lintels/sills) that catch the dusk light and read as a lighter stone
+ *  band against the wall — the horizontal banding the eye uses to parse
+ *  a row of windows at distance. Clamped at 255 per channel. */
+function lightenColor(color: number, amount: number): number {
+  const r = Math.min(255, ((color >> 16) & 0xff) + (255 - ((color >> 16) & 0xff)) * amount) | 0
+  const g = Math.min(255, ((color >> 8) & 0xff) + (255 - ((color >> 8) & 0xff)) * amount) | 0
+  const b = Math.min(255, (color & 0xff) + (255 - (color & 0xff)) * amount) | 0
+  return (r << 16) | (g << 8) | b
+}
+
 export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'): THREE.CanvasTexture {
   const key = facadeKey(config, face)
   const cached = _textureCache.get(key)
@@ -172,6 +183,24 @@ export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'
       // Window frame (dark)
       ctx.fillStyle = colorStr(darkenColor(config.wallColor, 0.25))
       ctx.fillRect(wx - 2, wy - 2, winW + 4, winH + 4)
+
+      // Masonry trim: a lintel (header) above and a sill (ledge) below.
+      // Thin light bands that catch the light + a darker seam under each so
+      // they read as projecting stone. This is what turns a flat grid of
+      // squares into a legible row of windows at walkaround distance.
+      const trimLight = colorStr(lightenColor(config.wallColor, 0.28))
+      const trimShadow = colorStr(darkenColor(config.wallColor, 0.3))
+      // Lintel — spans a touch wider than the frame, sits just above it.
+      ctx.fillStyle = trimLight
+      ctx.fillRect(wx - 4, wy - 2 - 3, winW + 8, 3)
+      ctx.fillStyle = trimShadow
+      ctx.fillRect(wx - 4, wy - 2, winW + 8, 1)
+      // Sill — overhangs wider than the lintel, with a drop shadow beneath
+      // to imply it projects from the wall face.
+      ctx.fillStyle = trimLight
+      ctx.fillRect(wx - 5, wy + winH + 2, winW + 10, 3)
+      ctx.fillStyle = trimShadow
+      ctx.fillRect(wx - 5, wy + winH + 5, winW + 10, 1)
 
       // Window glass (dark blue-grey, slightly reflective)
       ctx.fillStyle = 'rgb(60,70,90)'
