@@ -118,6 +118,43 @@ html, body, #root {
   padding: var(--s2);
 }
 
+/* Grouped sub-section inside a panel (e.g. Celestial / Lighting) — a subtle
+   inset card so dense panels read as labeled groups, not one long stack. */
+.panel-section {
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--s2);
+  margin-top: var(--s2);
+}
+
+.section-label {
+  font-size: var(--fs-xs);
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-weight: 700;
+  opacity: 0.85;
+  margin-bottom: var(--s2);
+}
+
+/* Labeled slider row: name on the left, live value on the right. */
+.slider-row {
+  margin-bottom: var(--s2);
+}
+.slider-row:last-child {
+  margin-bottom: 0;
+}
+.slider-row .slider-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-sm);
+  margin-bottom: 3px;
+}
+.slider-row .slider-head .k {
+  color: var(--text-dim);
+}
+
 .status-bar {
   display: flex;
   justify-content: space-between;

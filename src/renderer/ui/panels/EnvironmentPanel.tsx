@@ -4,6 +4,34 @@ import type { WeatherType } from '../../core/types'
 
 const weatherOptions: WeatherType[] = ['clear', 'rain', 'fog', 'snow', 'storm']
 
+/** Labeled slider row: name + live value above an amber range track. */
+function Slider(props: {
+  label: string
+  display: string
+  value: number
+  min: number
+  max: number
+  step: number
+  onChange: (v: number) => void
+}) {
+  return (
+    <div className="slider-row">
+      <div className="slider-head">
+        <span className="k">{props.label}</span>
+        <span>{props.display}</span>
+      </div>
+      <input
+        type="range"
+        min={props.min}
+        max={props.max}
+        step={props.step}
+        value={props.value}
+        onChange={(e) => props.onChange(Number(e.target.value))}
+      />
+    </div>
+  )
+}
+
 export function EnvironmentPanel() {
   const [collapsed, setCollapsed] = useState(false)
   const environment = useAppStore((s) => s.map.environment)
@@ -32,35 +60,26 @@ export function EnvironmentPanel() {
       </div>
       {!collapsed && (
         <div className="panel-content">
-          {/* Time of Day */}
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
-              <span style={{ color: 'var(--text-dim)' }}>Time of Day</span>
-              <span>{timeLabel(environment.timeOfDay)} ({timeCategory(environment.timeOfDay)})</span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={24}
-              step={0.25}
-              value={environment.timeOfDay}
-              onChange={(e) => updateEnvironment({ timeOfDay: Number(e.target.value) })}
-              style={{ width: '100%' }}
-            />
-          </div>
+          <Slider
+            label="Time of Day"
+            display={`${timeLabel(environment.timeOfDay)} (${timeCategory(environment.timeOfDay)})`}
+            value={environment.timeOfDay}
+            min={0}
+            max={24}
+            step={0.25}
+            onChange={(v) => updateEnvironment({ timeOfDay: v })}
+          />
 
           {/* Weather */}
-          <div style={{ marginBottom: 8 }}>
-            <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 2 }}>
-              Weather
-            </label>
+          <div className="slider-row">
+            <div className="slider-head"><span className="k">Weather</span></div>
             <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
               {weatherOptions.map((w) => (
                 <button
                   key={w}
                   className={environment.weather === w ? 'active' : ''}
                   onClick={() => updateEnvironment({ weather: w })}
-                  style={{ fontSize: 11, padding: '3px 8px', textTransform: 'capitalize' }}
+                  style={{ fontSize: 'var(--fs-sm)', padding: '3px 8px', textTransform: 'capitalize' }}
                 >
                   {w}
                 </button>
@@ -68,147 +87,71 @@ export function EnvironmentPanel() {
             </div>
           </div>
 
-          {/* Weather Intensity */}
           {environment.weather !== 'clear' && (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
-                <span style={{ color: 'var(--text-dim)' }}>Intensity</span>
-                <span>{(environment.weatherIntensity * 100).toFixed(0)}%</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={environment.weatherIntensity}
-                onChange={(e) => updateEnvironment({ weatherIntensity: Number(e.target.value) })}
-                style={{ width: '100%' }}
-              />
-            </div>
+            <Slider
+              label="Intensity"
+              display={`${(environment.weatherIntensity * 100).toFixed(0)}%`}
+              value={environment.weatherIntensity}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(v) => updateEnvironment({ weatherIntensity: v })}
+            />
           )}
 
           {/* Celestial */}
-          <div
-            style={{
-              fontSize: 10,
-              color: 'var(--text-dim)',
-              textTransform: 'uppercase',
-              padding: '4px 0',
-              letterSpacing: '0.5px',
-              borderTop: '1px solid var(--border)',
-              marginTop: 4
-            }}
-          >
-            Celestial
-          </div>
-
-          <div style={{ marginBottom: 4 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
-              <span style={{ color: 'var(--text-dim)' }}>Moon Phase</span>
-              <span>{(environment.celestial.moonPhase * 100).toFixed(0)}%</span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
+          <div className="panel-section">
+            <div className="section-label">Celestial</div>
+            <Slider
+              label="Moon Phase"
+              display={`${(environment.celestial.moonPhase * 100).toFixed(0)}%`}
               value={environment.celestial.moonPhase}
-              onChange={(e) =>
-                updateEnvironment({
-                  celestial: { ...environment.celestial, moonPhase: Number(e.target.value) }
-                })
-              }
-              style={{ width: '100%' }}
-            />
-          </div>
-
-          <div style={{ marginBottom: 4 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
-              <span style={{ color: 'var(--text-dim)' }}>Star Density</span>
-              <span>{(environment.celestial.starDensity * 100).toFixed(0)}%</span>
-            </div>
-            <input
-              type="range"
               min={0}
               max={1}
               step={0.05}
+              onChange={(v) => updateEnvironment({ celestial: { ...environment.celestial, moonPhase: v } })}
+            />
+            <Slider
+              label="Star Density"
+              display={`${(environment.celestial.starDensity * 100).toFixed(0)}%`}
               value={environment.celestial.starDensity}
-              onChange={(e) =>
-                updateEnvironment({
-                  celestial: { ...environment.celestial, starDensity: Number(e.target.value) }
-                })
-              }
-              style={{ width: '100%' }}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(v) => updateEnvironment({ celestial: { ...environment.celestial, starDensity: v } })}
             />
           </div>
 
           {/* Lighting */}
-          <div
-            style={{
-              fontSize: 10,
-              color: 'var(--text-dim)',
-              textTransform: 'uppercase',
-              padding: '4px 0',
-              letterSpacing: '0.5px',
-              borderTop: '1px solid var(--border)',
-              marginTop: 4
-            }}
-          >
-            Lighting
-          </div>
-
-          <div style={{ marginBottom: 4 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
-              <span style={{ color: 'var(--text-dim)' }}>Ambient</span>
-              <span>{(environment.lighting.ambientIntensity * 100).toFixed(0)}%</span>
-            </div>
-            <input
-              type="range"
+          <div className="panel-section">
+            <div className="section-label">Lighting</div>
+            <Slider
+              label="Ambient"
+              display={`${(environment.lighting.ambientIntensity * 100).toFixed(0)}%`}
+              value={environment.lighting.ambientIntensity}
               min={0}
               max={1}
               step={0.05}
-              value={environment.lighting.ambientIntensity}
-              onChange={(e) =>
-                updateEnvironment({
-                  lighting: { ...environment.lighting, ambientIntensity: Number(e.target.value) }
-                })
-              }
-              style={{ width: '100%' }}
+              onChange={(v) => updateEnvironment({ lighting: { ...environment.lighting, ambientIntensity: v } })}
             />
-          </div>
-
-          <div style={{ marginBottom: 4 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2 }}>
-              <span style={{ color: 'var(--text-dim)' }}>Sun Angle</span>
-              <span>{environment.celestial.sunAngle}&deg;</span>
-            </div>
-            <input
-              type="range"
+            <Slider
+              label="Sun Angle"
+              display={`${environment.celestial.sunAngle}°`}
+              value={environment.celestial.sunAngle}
               min={0}
               max={360}
               step={5}
-              value={environment.celestial.sunAngle}
-              onChange={(e) =>
-                updateEnvironment({
-                  celestial: { ...environment.celestial, sunAngle: Number(e.target.value) }
-                })
-              }
-              style={{ width: '100%' }}
+              onChange={(v) => updateEnvironment({ celestial: { ...environment.celestial, sunAngle: v } })}
             />
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
-            <label style={{ fontSize: 11, color: 'var(--text-dim)' }}>Ambient Color</label>
-            <input
-              type="color"
-              value={environment.lighting.ambientColor}
-              onChange={(e) =>
-                updateEnvironment({
-                  lighting: { ...environment.lighting, ambientColor: e.target.value }
-                })
-              }
-              style={{ width: 32, height: 24, padding: 0 }}
-            />
+            <div className="slider-row" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span className="k" style={{ fontSize: 'var(--fs-sm)' }}>Ambient Color</span>
+              <input
+                type="color"
+                value={environment.lighting.ambientColor}
+                onChange={(e) => updateEnvironment({ lighting: { ...environment.lighting, ambientColor: e.target.value } })}
+                style={{ width: 32, height: 24, padding: 0 }}
+              />
+            </div>
           </div>
         </div>
       )}
