@@ -8,7 +8,7 @@
  * walkthrough render.
  *
  * Prereqs:
- *   npm install            (playwright is a devDependency)
+ *   npm install            (playwright-core is a devDependency)
  *   npm run build          (this loads dist/, so build first)
  *
  * Run:
@@ -24,7 +24,7 @@
  * Output: .shots/01-menu.png, 02-landscape.png, 03-toolbar.png,
  *         04-left-rail.png, 05-right-rail.png, 06-3d.png
  */
-import { _electron as electron } from 'playwright'
+import { _electron as electron } from 'playwright-core'
 import { mkdirSync } from 'fs'
 
 const flags = process.argv.slice(2)
