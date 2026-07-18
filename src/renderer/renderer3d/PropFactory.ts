@@ -151,20 +151,14 @@ export function buildPropMeshes(
     const h = PROP_HEIGHTS[id] ?? 0.6
     const fp = def?.footprint || { w: 1, h: 1 }
     const px = obj.x + fp.w / 2, pz = obj.y + fp.h / 2
-    // Sample terrain across all footprint tiles; use the max so props on
-    // sloped ground sit at the highest point they cover. Ignore
-    // obj.elevation when getHeight is available (generator stored it in raw
-    // heightMap units, not world units, and adding them double-counts).
-    let terrainH = 0
-    if (getHeight) {
-      for (let fy = 0; fy < fp.h; fy++) {
-        for (let fx = 0; fx < fp.w; fx++) {
-          const th = getHeight(obj.x + fx, obj.y + fy)
-          if (th > terrainH) terrainH = th
-        }
-      }
-    }
-    const elev = getHeight ? terrainH : (obj.elevation || 0)
+    // Plant the prop on the actual ground surface directly under its render
+    // center. getHeight now interpolates the sloped mesh, so sampling (px,pz)
+    // — the exact spot the prop is drawn — sits the base on the visible ground
+    // instead of snapping to the tile corner, which left props floating or
+    // half-buried on any slope. Ignore obj.elevation when getHeight is
+    // available (the generator stored it in raw heightMap units, which would
+    // double-count the terrain).
+    const elev = getHeight ? getHeight(px, pz) : (obj.elevation || 0)
     const hash = simpleHash(obj.id)
 
     // Per-prop Y rotation. The generator can set obj.properties.facingY

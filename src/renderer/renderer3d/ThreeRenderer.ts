@@ -639,7 +639,7 @@ export class ThreeRenderer {
         const hScale = jitter ? 0.85 + rand01(hash, 1) * 0.3 : 1.0
         const jitterDX = jitter ? (rand01(hash, 2) - 0.5) * 0.35 : 0
         const jitterDZ = jitter ? (rand01(hash, 3) - 0.5) * 0.35 : 0
-        const wallH = floors * 1.05 * heightMult * hScale
+        const wallH = floors * 1.8 * heightMult * hScale // FLOOR_HEIGHT (was a stale 1.05)
         const roofFrac = ROOF_FRAC_MAP[obj.definitionId] ?? 0.3
         const roofH = wallH * roofFrac
         const chimSide = (obj.properties.chimneyPos === 'left') ? -1 : 1
@@ -650,8 +650,8 @@ export class ThreeRenderer {
         // Sample max terrain height across footprint (matches BuildingFactory).
         let maxTH = 0
         if (heightMap) {
-          for (let fy = 0; fy < fp.h; fy++) {
-            for (let fx = 0; fx < fp.w; fx++) {
+          for (let fy = 0; fy <= fp.h; fy++) {
+            for (let fx = 0; fx <= fp.w; fx++) {
               const th = getTerrainHeight(heightMap, obj.x + fx, obj.y + fy)
               if (th > maxTH) maxTH = th
             }
@@ -713,13 +713,13 @@ export class ThreeRenderer {
           ? (obj.properties.floors as number) : 2 + (hash % 2)
         const heightMult = HEIGHT_MULT_MAP[obj.definitionId] ?? 1.0
         const hScale = 0.85 + rand01(hash, 1) * 0.3
-        const wallH = floors * 1.05 * heightMult * hScale
+        const wallH = floors * 1.8 * heightMult * hScale // FLOOR_HEIGHT (was a stale 1.05)
         const roofFrac = ROOF_FRAC_MAP[obj.definitionId] ?? 0.3
         const roofH = wallH * roofFrac
         let maxTH = 0
         if (heightMap) {
-          for (let fy = 0; fy < fp.h; fy++) {
-            for (let fx = 0; fx < fp.w; fx++) {
+          for (let fy = 0; fy <= fp.h; fy++) {
+            for (let fx = 0; fx <= fp.w; fx++) {
               const th = getTerrainHeight(heightMap, obj.x + fx, obj.y + fy)
               if (th > maxTH) maxTH = th
             }

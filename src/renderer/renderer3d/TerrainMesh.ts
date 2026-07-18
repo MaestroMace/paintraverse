@@ -73,9 +73,30 @@ const TERRAIN_WORLD_SCALE = 1.8
  *  (e.g. the FPS camera's x/z) without crashing into `heightMap[14.3]` →
  *  undefined → NaN, which is what bricked the walkaround. */
 export function getTerrainHeight(heightMap: number[][], x: number, y: number): number {
-  const ix = Math.floor(x), iy = Math.floor(y)
-  if (iy < 0 || iy >= heightMap.length || ix < 0 || ix >= (heightMap[0]?.length ?? 0)) return 0
-  return heightMap[iy][ix] * TERRAIN_WORLD_SCALE
+  const gh = heightMap.length
+  const gw = heightMap[0]?.length ?? 0
+  if (gh === 0 || gw === 0) return 0
+  const tx = Math.floor(x), tz = Math.floor(y)
+  const fx = x - tx, fz = y - tz
+  // Height at a mesh corner, matching buildGroundWithHeight EXACTLY: clamped
+  // heightMap sample (scaled) + the same deterministic corner micro-jitter.
+  const cornerY = (cx: number, cz: number): number => {
+    const ix = Math.max(0, Math.min(gw - 1, cx))
+    const iz = Math.max(0, Math.min(gh - 1, cz))
+    return heightMap[iz][ix] * TERRAIN_WORLD_SCALE + cornerHeightNoise(cx, cz)
+  }
+  const y00 = cornerY(tx, tz)
+  const y10 = cornerY(tx + 1, tz)
+  const y01 = cornerY(tx, tz + 1)
+  const y11 = cornerY(tx + 1, tz + 1)
+  // Interpolate on the SAME triangle the ground mesh renders (quad diagonal
+  // runs (0,0)->(1,1)): fx>=fz -> triangle (00,10,11), else (00,01,11). This
+  // returns the true visible surface height at (x,y) instead of snapping to
+  // the tile's top-left corner — so objects and the camera sit exactly on the
+  // sloped ground rather than floating/sinking by up to half a tile's rise.
+  return fx >= fz
+    ? y00 + (y10 - y00) * fx + (y11 - y10) * fz
+    : y00 + (y11 - y01) * fx + (y01 - y00) * fz
 }
 
 /**

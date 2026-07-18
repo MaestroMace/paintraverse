@@ -240,8 +240,8 @@ export function buildBuildingMeshes(
     const centerTileZ = obj.y + fp.h / 2
     let maxTH = 0, minTH = Infinity
     if (getHeight) {
-      for (let fy = 0; fy < fp.h; fy++) {
-        for (let fx = 0; fx < fp.w; fx++) {
+      for (let fy = 0; fy <= fp.h; fy++) {
+        for (let fx = 0; fx <= fp.w; fx++) {
           const th = getHeight(obj.x + fx, obj.y + fy)
           if (th > maxTH) maxTH = th
           if (th < minTH) minTH = th
