@@ -13,7 +13,9 @@
  * the app, from devtools via the debug bridge, or from headless tooling.
  *
  * Terrain tile ids (see TerrainMesh.TERRAIN_COLORS): 3 = water,
- * 8 = cobblestone road, 9 = dark cobblestone alley.
+ * 8 = cobblestone street, 9 = dark cobblestone alley, 14 = plaza/courtyard
+ * flagstone. Only 8 and 9 are circulation — a building standing on 14 fronts
+ * a square, it does not block a street, so 14 is deliberately not an error.
  */
 
 import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'

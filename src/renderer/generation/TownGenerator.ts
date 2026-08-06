@@ -201,7 +201,7 @@ export class TownGenerator implements IMapGenerator {
       const dPlazaR = d.type === 'temple' || d.type === 'noble' ? Math.floor(4 + complexity * 2)
         : d.type === 'market' || d.type === 'garden' ? Math.floor(3 + complexity * 2)
         : Math.floor(2 + complexity * 1.5)
-      this.carvePlaza(terrainTiles, d.center.x, d.center.y, dPlazaR, width, height, 8)
+      this.carvePlaza(terrainTiles, d.center.x, d.center.y, dPlazaR, width, height, 14)
     }
 
     // 7. Street hierarchy
@@ -650,10 +650,13 @@ export class TownGenerator implements IMapGenerator {
             terrain[y][x] = tilePrimary // inner sanctum
           } else if (ellDist < 0.75) {
             // Golden inner ring — alternating pattern
-            terrain[y][x] = (x + y) % 3 === 0 ? tilePrimary : 8
+            terrain[y][x] = (x + y) % 3 === 0 ? tilePrimary : 14
           } else {
-            // Outer ring — cobblestone with accent variation
-            terrain[y][x] = (x + y) % 5 === 0 ? 9 : 8
+            // Outer ring — plaza flagstone with a stone accent. Uses paving
+            // ids, not the street/alley ids: a plaza is open paved space, not
+            // circulation, and tagging it as road made every building fronting
+            // a square look like it was standing in the street.
+            terrain[y][x] = (x + y) % 5 === 0 ? 2 : 14
           }
         }
       }
@@ -1556,12 +1559,13 @@ export class TownGenerator implements IMapGenerator {
                            (leftB && botB && !rightB && !topB) ||
                            (rightB && botB && !leftB && !topB)
         if (cornerNook) {
-          terrain[y][x] = 8 // lighter cobble for alcoves (intimate feel)
+          terrain[y][x] = 14 // plaza flagstone for alcoves (intimate feel)
         }
 
         // Setback detection: building on one side, open on others = covered walkway feel
         const totalWalls = (leftB ? 1 : 0) + (rightB ? 1 : 0) + (topB ? 1 : 0) + (botB ? 1 : 0)
-        if (totalWalls === 1 && terrain[y][x] !== 8 && terrain[y][x] !== 9) {
+        if (totalWalls === 1 && terrain[y][x] !== 8 && terrain[y][x] !== 9 &&
+            terrain[y][x] !== 14) {
           // Count more distant buildings (2 tiles away) for deeper setbacks
           let distantWalls = 0
           if (x > 1 && buildingMap[y][x - 2]) distantWalls++
@@ -1569,7 +1573,7 @@ export class TownGenerator implements IMapGenerator {
           if (y > 1 && buildingMap[y - 2][x]) distantWalls++
           if (y < h - 2 && buildingMap[y + 2][x]) distantWalls++
           if (distantWalls >= 1) {
-            terrain[y][x] = 8 // covered walkway / arcade feel
+            terrain[y][x] = 14 // covered walkway / arcade feel
           }
         }
       }
@@ -2567,7 +2571,7 @@ export class TownGenerator implements IMapGenerator {
           for (let dy = 0; dy < 2; dy++) {
             for (let dx = 0; dx < 2; dx++) {
               if (y + dy < h && x + dx < w && !roadMap[y + dy][x + dx]) {
-                terrain[y + dy][x + dx] = 8 // cobblestone courtyard
+                terrain[y + dy][x + dx] = 14 // flagstone courtyard (paving, not street)
               }
             }
           }

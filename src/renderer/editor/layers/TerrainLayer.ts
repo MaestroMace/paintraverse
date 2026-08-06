@@ -2,7 +2,7 @@ import { Container, Sprite, Texture } from 'pixi.js'
 import type { MapLayer } from '../../core/types'
 
 // Terrain tile colors
-const TERRAIN_COLORS: Record<number, number> = {
+export const TERRAIN_COLORS: Record<number, number> = {
   0: 0x2d5a27, // grass (default)
   1: 0x8b7355, // dirt
   2: 0x708090, // stone
@@ -12,7 +12,15 @@ const TERRAIN_COLORS: Record<number, number> = {
   6: 0x3a3a3a, // road/paved
   7: 0xdcdcdc, // snow
   8: 0x6a6a68, // cobblestone
-  9: 0x4a4a48  // dark cobblestone
+  9: 0x4a4a48, // dark cobblestone
+  // 10-14 existed in the 3D renderer but not here, so the 2D editor — the
+  // view used to check what the generator actually produced — drew them all
+  // as grass. Kept roughly in step with TerrainMesh.TERRAIN_COLORS.
+  10: 0x5f8a55, // garden
+  11: 0x6a5232, // mud
+  12: 0x76a24a, // wildflower
+  13: 0xbfae86, // gravel / path
+  14: 0xa89a86  // plaza flagstone
 }
 
 export const TERRAIN_NAMES: Record<number, string> = {
@@ -25,7 +33,12 @@ export const TERRAIN_NAMES: Record<number, string> = {
   6: 'Road',
   7: 'Snow',
   8: 'Cobblestone',
-  9: 'Dark Cobble'
+  9: 'Dark Cobble',
+  10: 'Garden',
+  11: 'Mud',
+  12: 'Wildflower',
+  13: 'Gravel Path',
+  14: 'Plaza Flagstone'
 }
 
 function hexToRGB(hex: number): string {

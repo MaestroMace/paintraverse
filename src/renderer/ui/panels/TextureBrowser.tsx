@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAppStore } from '../../app/store'
-import { TERRAIN_NAMES } from '../../editor/layers/TerrainLayer'
+import { TERRAIN_NAMES, TERRAIN_COLORS } from '../../editor/layers/TerrainLayer'
 
 export function TextureBrowser() {
   const [collapsed, setCollapsed] = useState(false)
@@ -9,17 +9,10 @@ export function TextureBrowser() {
   const setBrushTileId = useAppStore((s) => s.setBrushTileId)
   const setActiveTool = useAppStore((s) => s.setActiveTool)
 
-  // Terrain tile colors for preview
-  const terrainColors: Record<number, string> = {
-    0: '#2d5a27',
-    1: '#8b7355',
-    2: '#708090',
-    3: '#4682b4',
-    4: '#f4e9c8',
-    5: '#556b2f',
-    6: '#3a3a3a',
-    7: '#dcdcdc'
-  }
+  // Swatch colours come from the editor's terrain palette so the picker
+  // can't drift out of step with what the canvas draws (this used to be a
+  // second, partial copy that stopped at tile 7).
+  const swatch = (id: number) => '#' + (TERRAIN_COLORS[id] ?? 0x808080).toString(16).padStart(6, '0')
 
   return (
     <div className="panel">
@@ -54,7 +47,7 @@ export function TextureBrowser() {
                 >
                   <div
                     className="item-color"
-                    style={{ backgroundColor: terrainColors[id] }}
+                    style={{ backgroundColor: swatch(id) }}
                   />
                   <span className="item-name">{name}</span>
                 </div>

@@ -31,6 +31,11 @@ const TERRAIN_COLORS: Record<number, number> = {
   11: 0x7a5c3a, // mud — saturated brown
   12: 0x78b040, // wildflower — bright apple green
   13: 0xd8c490, // gravel/path — warm sandy
+  // Plaza / courtyard flagstone. Distinct from 8 (cobblestone STREET) so the
+  // data says whether a tile is circulation or just paved open space — a
+  // building fronting a plaza stands on paving, it does not block a street.
+  // Paler and warmer than street cobble, so squares read as their own space.
+  14: 0xc9b9a2,
 }
 
 const WALL_COLOR = new THREE.Color(0x887868) // retaining wall stone — warm sandstone
@@ -154,10 +159,11 @@ export function buildTerrainMesh(
   // kills the tile-grid appearance by showing a continuous cobble pattern
   // across adjacent road tiles. Pucks are gone — the texture alone sells
   // the cobble look; geometric pucks read as alien disks on top.
-  const roads = buildRoadSurface(tiles, gridWidth, gridHeight, heightMap, false)
-  if (roads) group.add(roads)
-  const alleys = buildRoadSurface(tiles, gridWidth, gridHeight, heightMap, true)
-  if (alleys) group.add(alleys)
+  // One paved surface per paving id: street cobble, dark alley, plaza flagstone.
+  for (const pavingId of [8, 9, 14]) {
+    const paved = buildRoadSurface(tiles, gridWidth, gridHeight, heightMap, pavingId)
+    if (paved) group.add(paved)
+  }
 
   // Store height map on group for other systems to use
   ;(group as any)._heightMap = heightMap
@@ -205,8 +211,8 @@ function buildGroundWithHeight(
         g *= (1 - shadowMix * 0.25)
         b *= (1 - shadowMix * 0.2)
       }
-      const isRoad = tileId === 8 || tileId === 9
-      const noiseAmt = isNatural ? 0.13 : isRoad ? 0.16 : 0.05
+      const isPaved = tileId === 8 || tileId === 9 || tileId === 14
+      const noiseAmt = isNatural ? 0.13 : isPaved ? 0.16 : 0.05
 
       const x0 = tx, x1 = tx + 1, z0 = ty, z1 = ty + 1
       // Corner-shared heights: each vertex uses the heightmap value AT the
@@ -399,9 +405,9 @@ function buildWaterMesh(
  */
 function buildRoadSurface(
   tiles: number[][], gridWidth: number, gridHeight: number,
-  heightMap: number[][], alley: boolean,
+  heightMap: number[][], targetId: number,
 ): THREE.Mesh | null {
-  const targetId = alley ? 9 : 8
+  const alley = targetId === 9
   const positions: number[] = []
   const normals: number[] = []
   const uvs: number[] = []
