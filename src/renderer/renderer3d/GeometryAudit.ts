@@ -1,0 +1,206 @@
+/**
+ * Geometry Audit — machine-checkable placement invariants.
+ *
+ * The town is procedural, so "does it look right?" has always meant walking
+ * around and eyeballing it. That misses systematic errors (a whole class of
+ * object silently dropped, every wall run off by a tile) and can't tell you
+ * whether a change made placement better or worse.
+ *
+ * This module states the invariants a correct town must satisfy and reports
+ * every violation with the object id and tile, so placement bugs become a
+ * number that must go down instead of a vibe. It is PURE (MapDocument +
+ * ObjectDefinitions in, report out) so it runs without a 3D context — from
+ * the app, from devtools via the debug bridge, or from headless tooling.
+ *
+ * Terrain tile ids (see TerrainMesh.TERRAIN_COLORS): 3 = water,
+ * 8 = cobblestone road, 9 = dark cobblestone alley.
+ */
+
+import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
+
+export type IssueKind =
+  | 'missing-definition'
+  | 'out-of-bounds'
+  | 'building-overlap'
+  | 'building-on-road'
+  | 'building-in-water'
+  | 'prop-inside-building'
+  | 'prop-in-water'
+  | 'prop-stacked'
+
+export interface GeometryIssue {
+  kind: IssueKind
+  severity: 'error' | 'warn'
+  objectId: string
+  definitionId: string
+  x: number
+  y: number
+  detail: string
+}
+
+export interface AuditReport {
+  ok: boolean
+  counts: { structures: number; props: number; errors: number; warnings: number }
+  byKind: Record<string, number>
+  /** Bounded sample so a broken town can't produce a megabyte of output. */
+  issues: GeometryIssue[]
+  /** Distinct definitionIds present in the map but absent from the defs. */
+  missingDefinitions: string[]
+}
+
+const WATER = 3
+const ROAD = 8
+const ALLEY = 9
+
+/** Structures that are SUPPOSED to sit on/over a road or water. */
+const SPANS_ROAD = new Set([
+  'town_gate', 'gatehouse', 'archway', 'bridge', 'aqueduct', 'covered_market',
+])
+const WATER_TOLERANT = new Set([
+  'bridge', 'pier', 'dock', 'fishing_boat', 'water_channel', 'mill',
+  'lighthouse', 'crane', 'well', 'fountain',
+])
+
+const MAX_ISSUES = 60
+
+function footprintOf(
+  obj: PlacedObject,
+  defs: Map<string, ObjectDefinition>
+): { w: number; h: number } | null {
+  const def = defs.get(obj.definitionId)
+  if (!def) return null
+  return { w: Math.max(1, def.footprint.w), h: Math.max(1, def.footprint.h) }
+}
+
+export function auditMapGeometry(
+  map: MapDocument,
+  objectDefinitions: ObjectDefinition[]
+): AuditReport {
+  const defs = new Map(objectDefinitions.map((d) => [d.id, d]))
+  const gw = map.gridWidth
+  const gh = map.gridHeight
+  const tiles = map.layers.find((l) => l.type === 'terrain')?.terrainTiles
+  const structures = map.layers.find((l) => l.type === 'structure')?.objects ?? []
+  const props = map.layers.find((l) => l.type === 'prop')?.objects ?? []
+
+  const issues: GeometryIssue[] = []
+  const byKind: Record<string, number> = {}
+  const missingDefs = new Set<string>()
+  let errors = 0
+  let warnings = 0
+
+  const add = (
+    kind: IssueKind,
+    severity: 'error' | 'warn',
+    obj: PlacedObject,
+    detail: string
+  ) => {
+    byKind[kind] = (byKind[kind] ?? 0) + 1
+    if (severity === 'error') errors++
+    else warnings++
+    if (issues.length < MAX_ISSUES) {
+      issues.push({
+        kind, severity, objectId: obj.id, definitionId: obj.definitionId,
+        x: obj.x, y: obj.y, detail,
+      })
+    }
+  }
+
+  const tileAt = (x: number, y: number): number =>
+    tiles?.[y]?.[x] ?? -1
+
+  // Occupancy grid of building footprints — also used for prop containment.
+  const occupied: (PlacedObject | undefined)[] = new Array(gw * gh)
+
+  for (const obj of structures) {
+    const fp = footprintOf(obj, defs)
+    if (!fp) {
+      missingDefs.add(obj.definitionId)
+      // BuildingFactory does `if (!def) continue` — this object never renders.
+      add('missing-definition', 'error', obj,
+        `no ObjectDefinition for "${obj.definitionId}" — silently dropped from the 3D scene`)
+      continue
+    }
+
+    if (obj.x < 0 || obj.y < 0 || obj.x + fp.w > gw || obj.y + fp.h > gh) {
+      add('out-of-bounds', 'error', obj,
+        `${fp.w}x${fp.h} footprint at (${obj.x},${obj.y}) extends past the ${gw}x${gh} grid`)
+      continue
+    }
+
+    let roadTiles = 0
+    let waterTiles = 0
+    for (let fy = 0; fy < fp.h; fy++) {
+      for (let fx = 0; fx < fp.w; fx++) {
+        const tx = obj.x + fx
+        const ty = obj.y + fy
+        const t = tileAt(tx, ty)
+        if (t === ROAD || t === ALLEY) roadTiles++
+        if (t === WATER) waterTiles++
+        const idx = ty * gw + tx
+        const other = occupied[idx]
+        if (other && other !== obj) {
+          add('building-overlap', 'error', obj,
+            `overlaps "${other.definitionId}" (${other.id.slice(0, 8)}) at tile (${tx},${ty})`)
+        }
+        occupied[idx] = obj
+      }
+    }
+
+    if (roadTiles > 0 && !SPANS_ROAD.has(obj.definitionId)) {
+      add('building-on-road', 'error', obj,
+        `${roadTiles}/${fp.w * fp.h} footprint tiles are road/alley — building sits in the street`)
+    }
+    if (waterTiles > 0 && !WATER_TOLERANT.has(obj.definitionId)) {
+      add('building-in-water', 'error', obj,
+        `${waterTiles}/${fp.w * fp.h} footprint tiles are water`)
+    }
+  }
+
+  // Props: PropFactory falls back to a 1x1 footprint when a def is missing,
+  // so a missing def mis-sizes AND mis-centers the prop rather than dropping it.
+  const propAtTile = new Map<number, PlacedObject>()
+  for (const obj of props) {
+    const fp = footprintOf(obj, defs)
+    if (!fp) {
+      missingDefs.add(obj.definitionId)
+      add('missing-definition', 'error', obj,
+        `no ObjectDefinition for "${obj.definitionId}" — PropFactory falls back to 1x1, so size and center are wrong`)
+      continue
+    }
+
+    if (obj.x < 0 || obj.y < 0 || obj.x + fp.w > gw || obj.y + fp.h > gh) {
+      add('out-of-bounds', 'error', obj,
+        `${fp.w}x${fp.h} footprint at (${obj.x},${obj.y}) extends past the ${gw}x${gh} grid`)
+      continue
+    }
+
+    const t = tileAt(obj.x, obj.y)
+    if (t === WATER && !WATER_TOLERANT.has(obj.definitionId)) {
+      add('prop-in-water', 'warn', obj, `stands on a water tile`)
+    }
+
+    const idx = obj.y * gw + obj.x
+    const host = occupied[idx]
+    if (host) {
+      add('prop-inside-building', 'error', obj,
+        `sits inside "${host.definitionId}" footprint — buried in the building`)
+    }
+
+    const prev = propAtTile.get(idx)
+    if (prev) {
+      add('prop-stacked', 'warn', obj,
+        `shares tile (${obj.x},${obj.y}) with "${prev.definitionId}" — overlapping geometry`)
+    } else {
+      propAtTile.set(idx, obj)
+    }
+  }
+
+  return {
+    ok: errors === 0,
+    counts: { structures: structures.length, props: props.length, errors, warnings },
+    byKind,
+    issues,
+    missingDefinitions: [...missingDefs].sort(),
+  }
+}

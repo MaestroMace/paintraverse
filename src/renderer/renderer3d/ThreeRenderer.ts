@@ -1624,6 +1624,65 @@ export class ThreeRenderer {
     }
   }
 
+  // === Debug hooks (used by the window.__pt bridge / headless tooling) ===
+
+  /** Terrain surface height at a world x/z — the same sample placement uses. */
+  debugHeightAt(x: number, z: number): number {
+    return this.sampleGroundY(x, z)
+  }
+
+  /**
+   * Vertical extent of the built scene. `maxY` is the tallest point in town —
+   * a blunt but effective regression signal for runaway geometry (a single
+   * needle spire pushes it into the tens of metres above everything else).
+   */
+  debugSceneStats(): Record<string, unknown> {
+    const box = new THREE.Box3()
+    const tops: number[] = []
+    for (const group of [this.buildingGroup, this.propGroup]) {
+      for (const child of group.children) {
+        box.setFromObject(child)
+        if (isFinite(box.max.y)) tops.push(box.max.y)
+      }
+    }
+    tops.sort((a, b) => b - a)
+    const terrainTop = this.terrainHeightMap
+      ? Math.max(...this.terrainHeightMap.flat()) * 1.8
+      : 0
+    return {
+      maxY: tops.length ? +tops[0].toFixed(2) : 0,
+      top10: tops.slice(0, 10).map((v) => +v.toFixed(2)),
+      medianTop: tops.length ? +tops[Math.floor(tops.length / 2)].toFixed(2) : 0,
+      terrainTop: +terrainTop.toFixed(2),
+      meshes: tops.length,
+    }
+  }
+
+  /** Stand the walk camera on the ground at a world x/z. */
+  debugTeleport(x: number, z: number): { x: number; y: number; z: number } {
+    const groundY = this.sampleGroundY(x, z)
+    this.camera.position.set(x, groundY + EYE_HEIGHT, z)
+    this.verticalVel = 0
+    return { x, y: this.camera.position.y, z }
+  }
+
+  /**
+   * Put the camera at an arbitrary world point in fly mode (no gravity), aimed
+   * by yaw/pitch. Used to inspect a specific tile from above.
+   */
+  debugFlyTo(x: number, y: number, z: number, yaw: number, pitch: number): void {
+    this.flyMode = true
+    this.verticalVel = 0
+    this.camera.position.set(x, y, z)
+    this.debugLookAt(yaw, pitch)
+  }
+
+  /** Aim the camera (radians). Applied on the next update tick. */
+  debugLookAt(yaw: number, pitch: number): void {
+    this.cameraYaw = yaw
+    this.cameraPitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch))
+  }
+
   dispose(): void {
     this.disposed = true
     cancelAnimationFrame(this.animId)
