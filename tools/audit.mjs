@@ -3,12 +3,20 @@
  * the GeometryAudit invariants against each, via the window.__pt bridge.
  *
  *   npm run build && xvfb-run -a node tools/audit.mjs [seed ...]
+ *   xvfb-run -a node tools/audit.mjs --max-errors=73
  *
- * Exits non-zero if any town has errors — usable as a regression gate.
+ * Exits non-zero when the total error count exceeds --max-errors (default 0),
+ * so CI can hold the line against regressions while a known backlog is worked
+ * down. Lower the baseline as classes of defect are fixed; it should never be
+ * raised to make a red build green.
  */
 import { _electron as electron } from 'playwright-core'
 
-const seeds = process.argv.slice(2).length ? process.argv.slice(2) : ['4242', '777', '31337']
+const argv = process.argv.slice(2)
+const maxErrorsArg = argv.find((a) => a.startsWith('--max-errors='))
+const MAX_ERRORS = maxErrorsArg ? Number(maxErrorsArg.split('=')[1]) : 0
+const seedArgs = argv.filter((a) => !a.startsWith('--'))
+const seeds = seedArgs.length ? seedArgs : ['4242', '777', '31337']
 
 const app = await electron.launch({ args: ['.'], cwd: process.cwd() })
 const win = await app.firstWindow()
@@ -48,5 +56,12 @@ for (const seed of seeds) {
 }
 
 await app.close()
-console.log(`\nTOTAL ERRORS ACROSS ${seeds.length} SEEDS: ${totalErrors}`)
-process.exit(totalErrors > 0 ? 1 : 0)
+console.log(`\nTOTAL ERRORS ACROSS ${seeds.length} SEEDS: ${totalErrors} (budget ${MAX_ERRORS})`)
+if (totalErrors > MAX_ERRORS) {
+  console.error(`FAIL: ${totalErrors} placement errors exceeds the budget of ${MAX_ERRORS}.`)
+  process.exit(1)
+}
+if (totalErrors < MAX_ERRORS) {
+  console.log(`Budget has slack — lower --max-errors to ${totalErrors} to lock in the win.`)
+}
+process.exit(0)

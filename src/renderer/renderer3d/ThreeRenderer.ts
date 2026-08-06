@@ -1591,6 +1591,11 @@ export class ThreeRenderer {
     const box = new THREE.Box3()
     const tops: number[] = []
     for (const group of [this.buildingGroup, this.propGroup]) {
+      // Most scene objects run with matrixAutoUpdate=false, so their world
+      // matrices can be stale when this is called from tooling — which made
+      // maxY jump around between runs on an identical seed. Force them
+      // current before measuring.
+      group.updateMatrixWorld(true)
       for (const child of group.children) {
         box.setFromObject(child)
         if (isFinite(box.max.y)) tops.push(box.max.y)
