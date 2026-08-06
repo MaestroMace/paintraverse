@@ -11,6 +11,7 @@
 import type { StyleVector } from './StyleVector'
 import type { ArchetypeId } from './Archetypes'
 import type { RoofStyle, RoofAxis } from './Roofs'
+import { clampRoofHeight } from './Roofs'
 
 export type VolumeRole =
   | 'mainBody' | 'tower' | 'wing' | 'upperFloor' | 'spire'
@@ -971,6 +972,15 @@ export function pickMassing(input: PickMassingInput): MassingResult {
     const options = TEMPLATES_BY_ARCHETYPE[input.dominantArchetype] ?? [tmplStepBack]
     const idx = Math.floor(rand01(input.hash, 301) * options.length)
     volumes = options[Math.min(idx, options.length - 1)](ctx)
+  }
+
+  // Roof heights are derived from wall height, so a slim volume could carry a
+  // roof many times its own width. Clamp on the Volume itself — not just at
+  // draw time — so every consumer of v.roofHeight (ridge caps, finials,
+  // weather vanes, dormers, attic windows) positions against the roof that is
+  // actually rendered instead of floating above a clipped cone.
+  for (const v of volumes) {
+    v.roofHeight = clampRoofHeight(v.width, v.depth, v.roofHeight, v.roofStyle)
   }
 
   return { volumes, primaryFace: 'z+' }

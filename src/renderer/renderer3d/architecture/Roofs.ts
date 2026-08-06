@@ -116,6 +116,20 @@ const MAX_ROOF_SPAN_RATIO: Record<RoofStyle, number> = {
   steep: 1.9, pointed: 2.4, spire: 3.0,
 }
 
+/**
+ * Clamp a roof height to stay proportional to its own base span. Applied to
+ * the Volume in pickMassing so that ridge caps, finials, weather vanes,
+ * dormers and attic windows — all of which position against v.roofHeight —
+ * agree with the roof that actually gets drawn. Idempotent, so buildRoof
+ * re-applies it as a safety net for any caller that bypasses massing.
+ */
+export function clampRoofHeight(
+  w: number, d: number, h: number, style: RoofStyle
+): number {
+  const cap = ((w + d) / 2) * MAX_ROOF_SPAN_RATIO[style]
+  return cap > 0 && h > cap ? cap : h
+}
+
 export function buildRoof(
   w: number, d: number, h: number,
   style: RoofStyle,
@@ -127,10 +141,7 @@ export function buildRoof(
 ): THREE.BufferGeometry | null {
   if (style === 'flat' || style === 'none' || h <= 0) return null
 
-  // Keep the roof proportional to what it sits on. Normal buildings are well
-  // under this cap and are unaffected; only runaway spires get clipped.
-  const cap = ((w + d) / 2) * MAX_ROOF_SPAN_RATIO[style]
-  if (cap > 0 && h > cap) h = cap
+  h = clampRoofHeight(w, d, h, style)
 
   if (style === 'pointed' || style === 'spire') {
     const r = Math.max(w, d) * (style === 'spire' ? 0.42 : 0.58)
