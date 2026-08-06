@@ -72,19 +72,49 @@ const TERRAIN_WORLD_SCALE = 1.8
  *  Floors x/y internally so callers can safely pass fractional world coords
  *  (e.g. the FPS camera's x/z) without crashing into `heightMap[14.3]` →
  *  undefined → NaN, which is what bricked the walkaround. */
+/**
+ * Height of a single mesh CORNER, in world units. The one definition of where
+ * the ground surface is: the ground mesh, the road/plaza overlay, the
+ * interpolated getTerrainHeight() and the smooth normals below all build on
+ * this, so a corner shared by four tiles gets one height and one normal and
+ * the surfaces cannot disagree.
+ */
+function terrainCornerY(heightMap: number[][], cx: number, cz: number): number {
+  const gh = heightMap.length
+  const gw = heightMap[0]?.length ?? 0
+  if (gh === 0 || gw === 0) return 0
+  const ix = Math.max(0, Math.min(gw - 1, cx))
+  const iz = Math.max(0, Math.min(gh - 1, cz))
+  return heightMap[iz][ix] * TERRAIN_WORLD_SCALE + cornerHeightNoise(cx, cz)
+}
+
+/**
+ * Smooth surface normal at a mesh corner, from central differences of the
+ * height field. Because it depends only on the corner coordinate, adjacent
+ * tiles agree at shared corners and lighting flows continuously across tile
+ * boundaries — instead of every triangle taking its own face normal and
+ * shattering the ground into lit/unlit shards (what flatShading did).
+ */
+function terrainCornerNormal(
+  heightMap: number[][], cx: number, cz: number
+): [number, number, number] {
+  const dx = terrainCornerY(heightMap, cx + 1, cz) - terrainCornerY(heightMap, cx - 1, cz)
+  const dz = terrainCornerY(heightMap, cx, cz + 1) - terrainCornerY(heightMap, cx, cz - 1)
+  // Surface (x, h(x,z), z) -> normal ∝ (-dh/dx, 1, -dh/dz); the differences
+  // span 2 world units, hence the halving.
+  const nx = -dx / 2
+  const nz = -dz / 2
+  const len = Math.hypot(nx, 1, nz) || 1
+  return [nx / len, 1 / len, nz / len]
+}
+
 export function getTerrainHeight(heightMap: number[][], x: number, y: number): number {
   const gh = heightMap.length
   const gw = heightMap[0]?.length ?? 0
   if (gh === 0 || gw === 0) return 0
   const tx = Math.floor(x), tz = Math.floor(y)
   const fx = x - tx, fz = y - tz
-  // Height at a mesh corner, matching buildGroundWithHeight EXACTLY: clamped
-  // heightMap sample (scaled) + the same deterministic corner micro-jitter.
-  const cornerY = (cx: number, cz: number): number => {
-    const ix = Math.max(0, Math.min(gw - 1, cx))
-    const iz = Math.max(0, Math.min(gh - 1, cz))
-    return heightMap[iz][ix] * TERRAIN_WORLD_SCALE + cornerHeightNoise(cx, cz)
-  }
+  const cornerY = (cx: number, cz: number) => terrainCornerY(heightMap, cx, cz)
   const y00 = cornerY(tx, tz)
   const y10 = cornerY(tx + 1, tz)
   const y01 = cornerY(tx, tz + 1)
@@ -142,6 +172,7 @@ function buildGroundWithHeight(
   const numTiles = gridWidth * gridHeight
   const positions = new Float32Array(numTiles * 6 * 3)
   const colors = new Float32Array(numTiles * 6 * 3)
+  const normals = new Float32Array(numTiles * 6 * 3)
   let vi = 0
 
   for (let ty = 0; ty < gridHeight; ty++) {
@@ -174,15 +205,8 @@ function buildGroundWithHeight(
         g *= (1 - shadowMix * 0.25)
         b *= (1 - shadowMix * 0.2)
       }
-      // Per-tile color noise so the ground doesn't read as a checkerboard
-      // of uniform squares. Deterministic from tile coordinate.
-      const tileNoise = ((((tx * 73856093) ^ (ty * 19349663)) >>> 0) / 0xffffffff - 0.5)
       const isRoad = tileId === 8 || tileId === 9
-      const noiseAmt = isNatural ? 0.12 : isRoad ? 0.16 : 0.04
-      const jitter = tileNoise * noiseAmt
-      r = Math.max(0, Math.min(1, r * (1 + jitter)))
-      g = Math.max(0, Math.min(1, g * (1 + jitter)))
-      b = Math.max(0, Math.min(1, b * (1 + jitter)))
+      const noiseAmt = isNatural ? 0.13 : isRoad ? 0.16 : 0.05
 
       const x0 = tx, x1 = tx + 1, z0 = ty, z1 = ty + 1
       // Corner-shared heights: each vertex uses the heightmap value AT the
@@ -190,23 +214,28 @@ function buildGroundWithHeight(
       // now share the same Y at shared corners, slopes flow continuously
       // across tile boundaries instead of stair-stepping. Out-of-bounds
       // falls back to the current tile's height for graceful edges.
-      const cornerH = (cx: number, cz: number): number => {
-        const ix = Math.max(0, Math.min(gridWidth - 1, cx))
-        const iz = Math.max(0, Math.min(gridHeight - 1, cz))
-        return (heightMap[iz]?.[ix] ?? 0) * TERRAIN_WORLD_SCALE
-      }
-      const y00 = cornerH(x0, z0) + cornerHeightNoise(x0, z0)
-      const y10 = cornerH(x1, z0) + cornerHeightNoise(x1, z0)
-      const y01 = cornerH(x0, z1) + cornerHeightNoise(x0, z1)
-      const y11 = cornerH(x1, z1) + cornerHeightNoise(x1, z1)
+      const y00 = terrainCornerY(heightMap, x0, z0)
+      const y10 = terrainCornerY(heightMap, x1, z0)
+      const y01 = terrainCornerY(heightMap, x0, z1)
+      const y11 = terrainCornerY(heightMap, x1, z1)
 
-      // Per-corner COLOR jitter for road tiles — breaks the flat-tile
-      // checkerboard by giving each corner its own tint. Shared across
-      // adjacent tiles via the hashed corner coord so seams are clean.
+      // Smooth per-corner normals, shared with the neighbouring tiles that
+      // touch the same corner, so lighting is continuous across the grid.
+      const n00 = terrainCornerNormal(heightMap, x0, z0)
+      const n10 = terrainCornerNormal(heightMap, x1, z0)
+      const n01 = terrainCornerNormal(heightMap, x0, z1)
+      const n11 = terrainCornerNormal(heightMap, x1, z1)
+
+      // Per-CORNER colour jitter, for every tile type — not just roads.
+      // The previous per-TILE jitter tinted each quad uniformly, which is
+      // exactly the checkerboard of flat squares it was meant to prevent.
+      // Keying the jitter to the shared corner coordinate makes the tint vary
+      // WITHIN a tile and agree with the neighbour across each seam, so the
+      // grid dissolves. Salted apart from cornerHeightNoise so colour and
+      // height variation don't line up into a visible pattern.
       const cornerColor = (cx: number, cz: number): [number, number, number] => {
-        if (!isRoad) return [r, g, b]
-        const cn = ((cx * 374761393 + cz * 668265263) ^ 0x9e3779b1) >>> 0
-        const k = 1 + ((cn / 0xffffffff) - 0.5) * 0.22
+        const cn = ((cx * 374761393 + cz * 668265263) ^ 0x85ebca6b) >>> 0
+        const k = 1 + ((cn / 0xffffffff) - 0.5) * noiseAmt * 2
         return [Math.max(0, Math.min(1, r * k)),
                 Math.max(0, Math.min(1, g * k)),
                 Math.max(0, Math.min(1, b * k))]
@@ -218,29 +247,39 @@ function buildGroundWithHeight(
 
       // Triangle 1: CCW winding when viewed from above → normal points UP (+Y)
       positions[vi] = x0; positions[vi+1] = y00; positions[vi+2] = z0
-      colors[vi] = c00[0]; colors[vi+1] = c00[1]; colors[vi+2] = c00[2]; vi += 3
+      colors[vi] = c00[0]; colors[vi+1] = c00[1]; colors[vi+2] = c00[2]
+      normals[vi] = n00[0]; normals[vi+1] = n00[1]; normals[vi+2] = n00[2]; vi += 3
       positions[vi] = x1; positions[vi+1] = y11; positions[vi+2] = z1
-      colors[vi] = c11[0]; colors[vi+1] = c11[1]; colors[vi+2] = c11[2]; vi += 3
+      colors[vi] = c11[0]; colors[vi+1] = c11[1]; colors[vi+2] = c11[2]
+      normals[vi] = n11[0]; normals[vi+1] = n11[1]; normals[vi+2] = n11[2]; vi += 3
       positions[vi] = x1; positions[vi+1] = y10; positions[vi+2] = z0
-      colors[vi] = c10[0]; colors[vi+1] = c10[1]; colors[vi+2] = c10[2]; vi += 3
+      colors[vi] = c10[0]; colors[vi+1] = c10[1]; colors[vi+2] = c10[2]
+      normals[vi] = n10[0]; normals[vi+1] = n10[1]; normals[vi+2] = n10[2]; vi += 3
 
       // Triangle 2
       positions[vi] = x0; positions[vi+1] = y00; positions[vi+2] = z0
-      colors[vi] = c00[0]; colors[vi+1] = c00[1]; colors[vi+2] = c00[2]; vi += 3
+      colors[vi] = c00[0]; colors[vi+1] = c00[1]; colors[vi+2] = c00[2]
+      normals[vi] = n00[0]; normals[vi+1] = n00[1]; normals[vi+2] = n00[2]; vi += 3
       positions[vi] = x0; positions[vi+1] = y01; positions[vi+2] = z1
-      colors[vi] = c01[0]; colors[vi+1] = c01[1]; colors[vi+2] = c01[2]; vi += 3
+      colors[vi] = c01[0]; colors[vi+1] = c01[1]; colors[vi+2] = c01[2]
+      normals[vi] = n01[0]; normals[vi+1] = n01[1]; normals[vi+2] = n01[2]; vi += 3
       positions[vi] = x1; positions[vi+1] = y11; positions[vi+2] = z1
-      colors[vi] = c11[0]; colors[vi+1] = c11[1]; colors[vi+2] = c11[2]; vi += 3
+      colors[vi] = c11[0]; colors[vi+1] = c11[1]; colors[vi+2] = c11[2]
+      normals[vi] = n11[0]; normals[vi+1] = n11[1]; normals[vi+2] = n11[2]; vi += 3
     }
   }
 
   const geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.BufferAttribute(positions.slice(0, vi), 3))
   geo.setAttribute('color', new THREE.BufferAttribute(colors.slice(0, vi), 3))
-  geo.computeVertexNormals()
+  // Analytic corner normals instead of computeVertexNormals(): the geometry is
+  // non-indexed, so computed normals are per-face and adjacent tiles never
+  // share one. flatShading is off for the same reason — together they turned
+  // the corner micro-jitter into a field of lit/unlit triangular shards.
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals.slice(0, vi), 3))
 
   return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
-    vertexColors: true, flatShading: true,
+    vertexColors: true, flatShading: false,
   }))
 }
 
@@ -364,6 +403,7 @@ function buildRoadSurface(
 ): THREE.Mesh | null {
   const targetId = alley ? 9 : 8
   const positions: number[] = []
+  const normals: number[] = []
   const uvs: number[] = []
   let anyFound = false
 
@@ -376,14 +416,29 @@ function buildRoadSurface(
       if (tiles[ty]?.[tx] !== targetId) continue
       anyFound = true
       const x0 = tx, x1 = tx + 1, z0 = ty, z1 = ty + 1
-      const tileH = getTerrainHeight(heightMap, tx, ty) + 0.01
       const u0 = tx * UV_SCALE, u1 = (tx + 1) * UV_SCALE
       const v0 = ty * UV_SCALE, v1 = (ty + 1) * UV_SCALE
+      // Follow the ground's corner heights instead of laying one flat quad at
+      // the tile's own corner height. A flat quad on sloped ground is a
+      // plateau: it stair-steps against the terrain and pokes through it on
+      // the downhill side, which the 0.01 lift can't hide. LIFT keeps the
+      // paving just clear of the ground it now parallels.
+      const LIFT = 0.02
+      const y00 = terrainCornerY(heightMap, x0, z0) + LIFT
+      const y10 = terrainCornerY(heightMap, x1, z0) + LIFT
+      const y01 = terrainCornerY(heightMap, x0, z1) + LIFT
+      const y11 = terrainCornerY(heightMap, x1, z1) + LIFT
+      const n00 = terrainCornerNormal(heightMap, x0, z0)
+      const n10 = terrainCornerNormal(heightMap, x1, z0)
+      const n01 = terrainCornerNormal(heightMap, x0, z1)
+      const n11 = terrainCornerNormal(heightMap, x1, z1)
       // Triangle 1 (CCW from above → normal +Y)
-      positions.push(x0, tileH, z0, x1, tileH, z1, x1, tileH, z0)
+      positions.push(x0, y00, z0, x1, y11, z1, x1, y10, z0)
+      normals.push(...n00, ...n11, ...n10)
       uvs.push(u0, v0, u1, v1, u1, v0)
       // Triangle 2
-      positions.push(x0, tileH, z0, x0, tileH, z1, x1, tileH, z1)
+      positions.push(x0, y00, z0, x0, y01, z1, x1, y11, z1)
+      normals.push(...n00, ...n01, ...n11)
       uvs.push(u0, v0, u0, v1, u1, v1)
     }
   }
@@ -392,11 +447,11 @@ function buildRoadSurface(
   const geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3))
   geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2))
-  geo.computeVertexNormals()
+  geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3))
 
   const baseColor = TERRAIN_COLORS[targetId]
   const tex = createCobbleTexture(baseColor, alley ? 0.18 : 0.0)
-  const mat = new THREE.MeshLambertMaterial({ map: tex, flatShading: true })
+  const mat = new THREE.MeshLambertMaterial({ map: tex, flatShading: false })
   return new THREE.Mesh(geo, mat)
 }
 
