@@ -249,31 +249,37 @@ export class TownGenerator implements IMapGenerator {
 
     // 13. Contextual props per district
     const props = this.placeProps(
-      width, height, roadMap, waterMap, [...buildings, ...landmarks, ...gates],
+      width, height, roadMap, waterMap,
+      [...buildings, ...landmarks, ...gates],
+      // Blockers only: town walls and bridges were previously invisible here,
+      // so props ended up buried inside the wall and its watchtowers.
+      [...bridges, ...townWalls],
       districtMap, districts, density, config.assetFrequencies, rng, mainCenter
     )
 
     // 14. Lampposts along all streets
-    const lights = this.placeLights(width, height, roadMap, [...buildings, ...landmarks, ...gates, ...props], rng, density)
+    const lights = this.placeLights(width, height, roadMap,
+      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls, ...props], rng, density)
 
     // 15. Plaza features (fountain, market stalls, statues)
     const plazaProps = this.placePlazaFeatures(
       width, height, mainCenter, plazaRadius, districts,
-      [...buildings, ...landmarks, ...gates, ...props, ...lights], density, rng,
+      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls, ...props, ...lights], density, rng,
       roadMap, waterMap,
     )
 
     // 16. Vegetation with district awareness + species variety
     const vegetation = this.placeVegetation(
       width, height, roadMap, waterMap,
-      [...buildings, ...landmarks, ...gates, ...props, ...lights, ...plazaProps],
+      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls, ...props, ...lights, ...plazaProps],
       districtMap, districts, density, rng, noise, heightMap
     )
 
     // 16b. Private gardens behind buildings
     const gardens = this.plantPrivateGardens(
       width, height, roadMap, waterMap, heightMap,
-      [...buildings, ...landmarks], districtMap, districts,
+      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls],
+      districtMap, districts,
       [...props, ...lights, ...plazaProps, ...vegetation],
       terrainTiles, rng, noise
     )
@@ -1585,7 +1591,13 @@ export class TownGenerator implements IMapGenerator {
   private placeProps(
     w: number, h: number,
     roadMap: boolean[][], waterMap: boolean[][],
+    /** Buildings that props may cluster AGAINST — also blocks their tiles. */
     existingObjs: PlacedObject[],
+    /** Blocks tiles but is not a prop anchor: town walls, bridges. Without
+     *  these, props were placed inside the wall and its watchtowers; feeding
+     *  them through existingObjs instead would line the whole perimeter with
+     *  barrels, so the two roles are kept separate. */
+    blockers: PlacedObject[],
     districtMap: number[][], districts: District[],
     density: number, assetFrequencies: Record<string, number>,
     rng: () => number, center: { x: number; y: number }
@@ -1593,6 +1605,7 @@ export class TownGenerator implements IMapGenerator {
     const props: PlacedObject[] = []
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
     this.markObjects(occupied, existingObjs, w, h)
+    this.markObjects(occupied, blockers, w, h)
 
     const place = (defId: string, x: number, y: number) => {
       if (x < 0 || x >= w || y < 0 || y >= h || occupied[y][x]) return false
