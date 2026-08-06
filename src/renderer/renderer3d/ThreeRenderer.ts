@@ -22,7 +22,7 @@ const FLY_SPEED = 10.0
 const DOUBLE_TAP_MS = 300
 const MOUSE_YAW_SENS = 0.0025
 const MOUSE_PITCH_SENS = 0.002
-import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, type BuildingBatchResult } from './BuildingFactory'
+import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, type BuildingBatchResult, type BuildingTop } from './BuildingFactory'
 import { tickWallEmissive } from './architecture/VolumeRenderer'
 import { buildLanternStrings, buildWallLanterns, setLanternEmissiveIntensity, tickLanternEmissive } from './LanternStrings'
 import { buildPropMeshes, setLampPoolOpacity, type PropBatchResult } from './PropFactory'
@@ -78,32 +78,12 @@ function simpleHash(id: string): number {
   return Math.abs(h)
 }
 
-// Mirrored from BuildingFactory so we can compute chimney positions
-const HEIGHT_MULT_MAP: Record<string, number> = {
-  tower: 2.0, clock_tower: 2.4, bell_tower: 2.6, bell_tower_tall: 3.0,
-  watchtower: 2.2, cathedral: 2.0, lighthouse: 3.0, chapel: 1.5,
-  temple: 1.5, town_gate: 1.8, archway: 1.5, round_tower: 2.4,
-}
 const NO_JITTER_MAP = new Set<string>([
   'archway', 'town_gate', 'gatehouse', 'staircase', 'aqueduct',
 ])
 function rand01(hash: number, salt: number): number {
   const n = (hash * 2654435761 + salt * 1597334677) >>> 0
   return n / 0xffffffff
-}
-const ROOF_FRAC_MAP: Record<string, number> = {
-  flat: 0, gabled: 0.35, hipped: 0.3, pointed: 0.7, steep: 0.5, dome: 0.4, none: 0,
-  building_small: 0.35, building_medium: 0.35, building_large: 0.3,
-  tavern: 0.35, shop: 0.5, tower: 0.7, clock_tower: 0.7,
-  balcony_house: 0.35, row_house: 0.5, corner_building: 0.3,
-  archway: 0, staircase: 0, town_gate: 0,
-  chapel: 0.5, guild_hall: 0.3, warehouse: 0.35,
-  watchtower: 0.7, mansion: 0.3, bakery: 0.35,
-  apothecary: 0.5, inn: 0.35, temple: 0.4,
-  covered_market: 0.35, bell_tower: 0.7, half_timber: 0.35,
-  narrow_house: 0.5, cathedral: 0.5, lighthouse: 0.4,
-  round_tower: 0.7, gatehouse: 0, stable: 0.35, mill: 0.35,
-  bell_tower_tall: 0.7, aqueduct: 0, windmill: 0.7,
 }
 
 const DEFAULT_BUILDING_PALETTES = [
@@ -203,6 +183,9 @@ export class ThreeRenderer {
   private lastSpaceTap = 0   // ms timestamp for double-tap detection
   // Cached height map for ground sampling; populated in loadMap.
   private terrainHeightMap: number[][] | null = null
+  /** Real per-building vertical extents from the last build, by object id.
+   *  Particle systems read these instead of re-deriving building heights. */
+  private _buildingTops = new Map<string, BuildingTop>()
   // Collision mask for walk-mode: 1 byte per tile, non-zero = blocked
   // (building footprint, water, out-of-bounds). Populated in loadMap.
   private collisionMask: Uint8Array | null = null
@@ -597,7 +580,7 @@ export class ThreeRenderer {
       } catch (err) {
         const e = err as { message?: string; stack?: string }
         console.error(`[ThreeRenderer] buildBuildingMeshes threw: ${e?.message || err}`, e?.stack)
-        result = { wallMeshes: [], batched: [] }
+        result = { wallMeshes: [], batched: [], tops: [] }
       }
       for (const m of result.wallMeshes) {
         // castShadow was decided per-volume (short buildings opt out to
@@ -616,51 +599,32 @@ export class ThreeRenderer {
         this.buildingGroup.add(m)
       }
 
-      // Collect chimney positions for smoke particles. Must mirror the
-      // jitter applied in BuildingFactory so smoke lines up with the
-      // chimney's actual position, not its pre-jitter grid cell.
-      const URBAN_DISTRICT_IDS = new Set(['residential', 'market', 'artisan', 'noble'])
+      // Collect chimney positions for smoke particles. X/Z still mirrors the
+      // jitter BuildingFactory applies so smoke lines up with the chimney's
+      // actual position; the HEIGHT comes from the factory's reported tops
+      // rather than a second copy of the floors/HEIGHT_MULT/roof math, which
+      // drifted every time massing changed (see BuildingTop).
+      const topById = new Map(result.tops.map(t => [t.id, t]))
       for (const obj of structureLayer.objects) {
         const hash = simpleHash(obj.id)
         if (hash % 5 >= 2) continue
         const def = defMap.get(obj.definitionId)
         if (!def) continue
+        const top = topById.get(obj.id)
+        if (!top) continue
         const fp = { w: def.footprint.w, h: def.footprint.h }
-        const district = (obj.properties.district as string) || 'residential'
-        // Mirrored floor-count logic from BuildingFactory (urban districts
-        // taller, narrow_house always tall, otherwise 1–2 floors).
-        let floors: number
-        if (typeof obj.properties.floors === 'number') floors = obj.properties.floors as number
-        else if (obj.definitionId === 'narrow_house') floors = 3 + (hash % 2)
-        else if (URBAN_DISTRICT_IDS.has(district)) floors = 2 + (hash % 3)
-        else floors = 1 + (hash % 2)
-        const heightMult = HEIGHT_MULT_MAP[obj.definitionId] ?? 1.0
         const jitter = !NO_JITTER_MAP.has(obj.definitionId)
-        const hScale = jitter ? 0.85 + rand01(hash, 1) * 0.3 : 1.0
         const jitterDX = jitter ? (rand01(hash, 2) - 0.5) * 0.35 : 0
         const jitterDZ = jitter ? (rand01(hash, 3) - 0.5) * 0.35 : 0
-        const wallH = floors * 1.8 * heightMult * hScale // FLOOR_HEIGHT (was a stale 1.05)
-        const roofFrac = ROOF_FRAC_MAP[obj.definitionId] ?? 0.3
-        const roofH = wallH * roofFrac
         const chimSide = (obj.properties.chimneyPos === 'left') ? -1 : 1
-        const centerX = obj.x + fp.w / 2
-        const centerZ = obj.y + fp.h / 2
-        const bx = centerX + chimSide * fp.w * 0.3 + jitterDX
-        const bz = centerZ + jitterDZ
-        // Sample max terrain height across footprint (matches BuildingFactory).
-        let maxTH = 0
-        if (heightMap) {
-          for (let fy = 0; fy <= fp.h; fy++) {
-            for (let fx = 0; fx <= fp.w; fx++) {
-              const th = getTerrainHeight(heightMap, obj.x + fx, obj.y + fy)
-              if (th > maxTH) maxTH = th
-            }
-          }
-        }
-        const baseY = heightMap ? maxTH : (obj.elevation || 0)
-        const chimTopY = baseY + wallH + roofH * 0.3 + roofH * 0.8
-        chimneyPositions.push(new THREE.Vector3(bx, chimTopY, bz))
+        const bx = obj.x + fp.w / 2 + chimSide * fp.w * 0.3 + jitterDX
+        const bz = obj.y + fp.h / 2 + jitterDZ
+        // Chimney tip clears the main body's roof.
+        chimneyPositions.push(
+          new THREE.Vector3(bx, top.mainWallTopY + top.mainRoofH * 1.1, bz)
+        )
       }
+      this._buildingTops = topById
     }
 
     // Props — batched: all merged except lampposts
@@ -708,25 +672,12 @@ export class ThreeRenderer {
         const def = defMap.get(obj.definitionId)
         if (!def) continue
         const fp = { w: def.footprint.w, h: def.footprint.h }
-        const hash = simpleHash(obj.id)
-        const floors = typeof obj.properties.floors === 'number'
-          ? (obj.properties.floors as number) : 2 + (hash % 2)
-        const heightMult = HEIGHT_MULT_MAP[obj.definitionId] ?? 1.0
-        const hScale = 0.85 + rand01(hash, 1) * 0.3
-        const wallH = floors * 1.8 * heightMult * hScale // FLOOR_HEIGHT (was a stale 1.05)
-        const roofFrac = ROOF_FRAC_MAP[obj.definitionId] ?? 0.3
-        const roofH = wallH * roofFrac
-        let maxTH = 0
-        if (heightMap) {
-          for (let fy = 0; fy <= fp.h; fy++) {
-            for (let fx = 0; fx <= fp.w; fx++) {
-              const th = getTerrainHeight(heightMap, obj.x + fx, obj.y + fy)
-              if (th > maxTH) maxTH = th
-            }
-          }
-        }
-        const baseY = heightMap ? maxTH : (obj.elevation || 0)
-        const topY = baseY + wallH + roofH + 0.8
+        // True apex from BuildingFactory — birds circled well above the
+        // spires while this was re-derived here, and the roof/tower clamps
+        // made that estimate over-shoot badly.
+        const top = this._buildingTops.get(obj.id)
+        if (!top) continue
+        const topY = top.apexY + 0.8
         // Only genuinely tall landmarks — skip any sub-6m "spire" so birds
         // don't orbit low roofs and read as static dots.
         if (topY < 6.0) continue

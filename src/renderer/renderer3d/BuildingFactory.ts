@@ -110,9 +110,32 @@ const PAINTED_SIGN_COLORS = [
   0x6a5028,  // mustard ochre
 ]
 
+/**
+ * Where a finished building actually ends up vertically.
+ *
+ * ThreeRenderer used to re-derive this (floors x FLOOR_HEIGHT x HEIGHT_MULT x
+ * hScale, plus a roof fraction) to hang chimney smoke and circling birds off
+ * buildings. That duplicate is how a stale 1.05 floor height survived long
+ * after the real one became 1.8, and it silently drifts again every time
+ * massing changes — the roof/tower clamps made it over-shoot immediately.
+ * Reporting the real numbers from the one place that computes them keeps the
+ * particle systems attached to the geometry.
+ */
+export interface BuildingTop {
+  id: string
+  /** Highest point of any volume (world Y) — spire/roof apex. */
+  apexY: number
+  /** Top of the main body's walls (world Y) — where a chimney starts. */
+  mainWallTopY: number
+  /** Main body's roof height (0 when flat). */
+  mainRoofH: number
+}
+
 export interface BuildingBatchResult {
   wallMeshes: THREE.Mesh[]       // individual (textured, emissive)
   batched: THREE.Mesh[]          // merged roof/detail/feature meshes
+  /** Per-building vertical extents, keyed by PlacedObject id. */
+  tops: BuildingTop[]
 }
 
 /**
@@ -169,6 +192,7 @@ export function buildBuildingMeshes(
 ): BuildingBatchResult {
   const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
   const wallMeshes: THREE.Mesh[] = []
+  const tops: BuildingTop[] = []
   const roofBatch = new BatchedMeshBuilder()
   const detailBatch = new BatchedMeshBuilder()
   const ornamentBatch = new BatchedMeshBuilder()
@@ -479,6 +503,20 @@ export function buildBuildingMeshes(
     const mainVol = massing.volumes.find(v => v.role === 'mainBody') ?? massing.volumes[0]
     const mainLocalTopY = mainVol.bottomY + mainVol.height
     const mainRoofH = mainVol.roofHeight
+
+    // Record where this building really ends up so particle systems can hang
+    // off it without re-deriving its height (see BuildingTop).
+    let apexLocalY = 0
+    for (const v of massing.volumes) {
+      const t = v.bottomY + v.height + v.roofHeight
+      if (t > apexLocalY) apexLocalY = t
+    }
+    tops.push({
+      id: obj.id,
+      apexY: wy + apexLocalY,
+      mainWallTopY: wy + mainLocalTopY,
+      mainRoofH,
+    })
     // Does massing already include a chimney volume? (cottageSmall does.)
     const massingHasChimney = massing.volumes.some(v => v.role === 'chimneyVol')
 
@@ -1472,7 +1510,7 @@ export function buildBuildingMeshes(
     console.error(`[BuildingFactory] ${failed} of ${attempted} buildings failed to emit (succeeded=${succeeded}). See getBuildingDiagnostics() for details.`)
   }
 
-  return { wallMeshes: mergedWalls, batched }
+  return { wallMeshes: mergedWalls, batched, tops }
 }
 
 /**
