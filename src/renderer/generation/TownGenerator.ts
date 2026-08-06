@@ -2336,19 +2336,37 @@ export class TownGenerator implements IMapGenerator {
     // Both route to tmplWallSegment which renders a 2.2-tall crenellated
     // fortification — not a garden wall.
     const occupied = new Set<string>()
+    // Seed with every existing building/landmark tile. The buildings list was
+    // previously used ONLY for the bounding box above, so wall runs plowed
+    // straight through whatever stood on the perimeter — chapels, cathedrals
+    // and towers were the most-overlapped objects in the whole town.
+    for (const b of buildings) {
+      const bfp = this.getFootprint(b.definitionId)
+      for (let dy = 0; dy < bfp.h; dy++) {
+        for (let dx = 0; dx < bfp.w; dx++) occupied.add(`${b.x + dx},${b.y + dy}`)
+      }
+    }
+
+    // A wall segment covers TWO tiles, so both must be clear of buildings,
+    // water and streets. Roads are left open (that is where a gate belongs) —
+    // roadMap was passed in but never consulted, so walls sealed off streets.
     const placeHorizontalWall = (x: number, y: number) => {
-      const key = `${x},${y}`
-      if (occupied.has(key) || x < 0 || x + 1 >= w || y < 0 || y >= h) return
-      if (waterMap[y]?.[x] || isGateNear(x, y)) return
-      occupied.add(key)
+      if (x < 0 || x + 1 >= w || y < 0 || y >= h) return
+      if (occupied.has(`${x},${y}`) || occupied.has(`${x + 1},${y}`)) return
+      if (waterMap[y]?.[x] || waterMap[y]?.[x + 1]) return
+      if (roadMap[y]?.[x] || roadMap[y]?.[x + 1]) return
+      if (isGateNear(x, y)) return
+      occupied.add(`${x},${y}`)
       occupied.add(`${x + 1},${y}`)
       walls.push(this.createObj('stone_wall', x, y, 0.3))
     }
     const placeVerticalWall = (x: number, y: number) => {
-      const key = `${x},${y}`
-      if (occupied.has(key) || x < 0 || x >= w || y < 0 || y + 1 >= h) return
-      if (waterMap[y]?.[x] || isGateNear(x, y)) return
-      occupied.add(key)
+      if (x < 0 || x >= w || y < 0 || y + 1 >= h) return
+      if (occupied.has(`${x},${y}`) || occupied.has(`${x},${y + 1}`)) return
+      if (waterMap[y]?.[x] || waterMap[y + 1]?.[x]) return
+      if (roadMap[y]?.[x] || roadMap[y + 1]?.[x]) return
+      if (isGateNear(x, y)) return
+      occupied.add(`${x},${y}`)
       occupied.add(`${x},${y + 1}`)
       walls.push(this.createObj('stone_wall_v', x, y, 0.3))
     }
@@ -2365,6 +2383,15 @@ export class TownGenerator implements IMapGenerator {
     for (const pos of cornerPositions) {
       if (pos.x < 0 || pos.x + 1 >= w || pos.y < 0 || pos.y + 1 >= h) continue
       if (waterMap[pos.y][pos.x]) continue
+      // Corner towers are 2x2 — skip if anything already stands there.
+      let blocked = false
+      for (let dy = 0; dy < 2 && !blocked; dy++) {
+        for (let dx = 0; dx < 2 && !blocked; dx++) {
+          if (occupied.has(`${pos.x + dx},${pos.y + dy}`)) blocked = true
+          if (roadMap[pos.y + dy]?.[pos.x + dx]) blocked = true
+        }
+      }
+      if (blocked) continue
       walls.push(this.createObj('watchtower', pos.x, pos.y, 1.0))
       for (let dy = 0; dy < 2; dy++) {
         for (let dx = 0; dx < 2; dx++) {

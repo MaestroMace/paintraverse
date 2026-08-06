@@ -57,7 +57,10 @@ const FOOTPRINTS: Record<string, { w: number; h: number }> = {
   cathedral: { w: 5, h: 6 }, lighthouse: { w: 3, h: 3 },
   round_tower: { w: 2, h: 2 }, gatehouse: { w: 4, h: 2 },
   stable: { w: 4, h: 3 }, mill: { w: 3, h: 3 },
-  bell_tower_tall: { w: 3, h: 3 }, aqueduct: { w: 5, h: 1 },
+  // 2x2 to match store.objectDefinitions and TownGenerator.getFootprint —
+  // rendering it 3x3 drew a building larger than the space reserved for it,
+  // so it clipped into its neighbours.
+  bell_tower_tall: { w: 2, h: 2 }, aqueduct: { w: 5, h: 1 },
   windmill: { w: 3, h: 3 },
   // Town-wall variants: horizontal runs 2x1, vertical runs 1x2.
   stone_wall: { w: 2, h: 1 }, stone_wall_v: { w: 1, h: 2 },

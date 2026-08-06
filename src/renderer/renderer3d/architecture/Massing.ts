@@ -93,6 +93,21 @@ function roofAxisFor(w: number, d: number): RoofAxis {
   return w >= d ? 'x' : 'z'
 }
 
+/**
+ * Cap a tower/spire BODY height against its own width.
+ *
+ * These volumes are sized as a multiple of wallH, which already compounds
+ * floors x FLOOR_HEIGHT x HEIGHT_MULT (up to 3.0 on landmarks), while being
+ * only a fraction of the footprint wide. The raw product reached 30:1 — the
+ * black needles that stabbed out of the skyline. Real towers run about 6-9:1,
+ * so clamp there; ordinary buildings never approach the cap.
+ * (buildRoof applies the matching cap to the roof cone on top.)
+ */
+const MAX_TOWER_ASPECT = 9
+function towerHeightFor(raw: number, width: number): number {
+  return Math.min(raw, width * MAX_TOWER_ASPECT)
+}
+
 interface MassingContext {
   sv: StyleVector
   hash: number
@@ -241,7 +256,7 @@ function tmplLShape(ctx: MassingContext): Volume[] {
 function tmplCornerTower(ctx: MassingContext): Volume[] {
   const mainRoof = roofFromStyle(ctx.sv, ctx.hash, 11)
   const towerW = Math.max(1.2, Math.min(ctx.footW, ctx.footD) * 0.45)
-  const towerH = ctx.wallH * (1.5 + ctx.sv.wealth * 0.5)
+  const towerH = towerHeightFor(ctx.wallH * (1.5 + ctx.sv.wealth * 0.5), towerW)
   const cornerX = (rand01(ctx.hash, 13) < 0.5 ? -1 : 1) * (ctx.footW / 2 - towerW / 2)
   const cornerZ = (rand01(ctx.hash, 15) < 0.5 ? -1 : 1) * (ctx.footD / 2 - towerW / 2)
   const towerRoof: RoofStyle = rand01(ctx.hash, 17) < 0.55 ? 'pointed' : 'spire'
@@ -275,8 +290,8 @@ function tmplCornerTower(ctx: MassingContext): Volume[] {
 /** Gothic-style: body + tall slim spire tower at one end. */
 function tmplSpireEnd(ctx: MassingContext): Volume[] {
   const mainRoof = roofFromStyle(ctx.sv, ctx.hash, 21)
-  const spireW = Math.max(0.9, Math.min(ctx.footW, ctx.footD) * 0.35)
-  const spireH = ctx.wallH * (1.6 + ctx.sv.wealth * 0.6)
+  const spireW = Math.max(1.1, Math.min(ctx.footW, ctx.footD) * 0.45)
+  const spireH = towerHeightFor(ctx.wallH * (1.6 + ctx.sv.wealth * 0.6), spireW)
   const endSide = rand01(ctx.hash, 23) < 0.5 ? -1 : 1
   return [
     {
@@ -444,7 +459,7 @@ function tmplCircularTower(ctx: MassingContext, lighthouse: boolean): Volume[] {
 /** Gate: two flanking towers with a lower passage block between them. */
 function tmplGatehouse(ctx: MassingContext): Volume[] {
   const towerW = Math.max(1.2, ctx.footW * 0.28)
-  const towerH = ctx.wallH * 1.25
+  const towerH = towerHeightFor(ctx.wallH * 1.25, towerW)
   const passageH = ctx.wallH * 0.78
   const passageW = ctx.footW - towerW * 2
   const passageRoof: RoofStyle = 'flat'
@@ -567,7 +582,7 @@ function tmplCrossPlan(ctx: MassingContext): Volume[] {
   const armW = ctx.footW, armD = Math.max(1.4, ctx.footD * 0.55)
   const armW2 = Math.max(1.4, ctx.footW * 0.55), armD2 = ctx.footD
   const towerW = Math.max(1.2, Math.min(armD, armW2) * 0.85)
-  const towerH = ctx.wallH * (1.3 + ctx.sv.wealth * 0.4)
+  const towerH = towerHeightFor(ctx.wallH * (1.3 + ctx.sv.wealth * 0.4), towerW)
   const towerRoof: RoofStyle = rand01(ctx.hash, 84) < 0.55 ? 'pointed' : 'spire'
   return [
     {
@@ -707,7 +722,7 @@ function tmplTallTowerHouse(ctx: MassingContext): Volume[] {
 function tmplStackedTower(ctx: MassingContext): Volume[] {
   const mainRoof: RoofStyle = 'flat'
   const towerW = Math.max(1.2, Math.min(ctx.footW, ctx.footD) * 0.55)
-  const towerH = ctx.wallH * (1.8 + ctx.sv.wealth * 0.4)
+  const towerH = towerHeightFor(ctx.wallH * (1.8 + ctx.sv.wealth * 0.4), towerW)
   const towerRoof: RoofStyle = rand01(ctx.hash, 113) < 0.5 ? 'pointed' : 'hipped'
   return [
     {

@@ -99,6 +99,23 @@ export function gableMath(args: {
 }
 
 
+/**
+ * Maximum roof height as a multiple of the roof's OWN base span.
+ *
+ * Roof heights are derived from wall height (see Massing.roofHeightFor), which
+ * already compounds floors x FLOOR_HEIGHT x HEIGHT_MULT. On a slim volume —
+ * a spire tower is ~0.35 of the building's short side — that produced roofs
+ * tens of metres tall on a ~1m base: 45:1 needles stabbing out of the town.
+ * A roof taller than a few times its own footprint stops reading as a roof,
+ * so clamp here, the one place the base dimensions are actually known (every
+ * template and any future caller routes through buildRoof).
+ */
+const MAX_ROOF_SPAN_RATIO: Record<RoofStyle, number> = {
+  none: 0, flat: 0,
+  hipped: 1.3, gabled: 1.4, mansard: 1.2, dome: 1.3,
+  steep: 1.9, pointed: 2.4, spire: 3.0,
+}
+
 export function buildRoof(
   w: number, d: number, h: number,
   style: RoofStyle,
@@ -109,6 +126,11 @@ export function buildRoof(
   sag: number = 0,
 ): THREE.BufferGeometry | null {
   if (style === 'flat' || style === 'none' || h <= 0) return null
+
+  // Keep the roof proportional to what it sits on. Normal buildings are well
+  // under this cap and are unaffected; only runaway spires get clipped.
+  const cap = ((w + d) / 2) * MAX_ROOF_SPAN_RATIO[style]
+  if (cap > 0 && h > cap) h = cap
 
   if (style === 'pointed' || style === 'spire') {
     const r = Math.max(w, d) * (style === 'spire' ? 0.42 : 0.58)

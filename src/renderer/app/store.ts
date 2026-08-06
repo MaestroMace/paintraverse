@@ -789,6 +789,122 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 5, h: 1 },
     styleSetSlots: ['wall']
   },
+
+  // === DISTRICT-SIGNATURE DRESSING ===
+  // These are placed by TownGenerator and rendered by Prop/BuildingFactory,
+  // but had no ObjectDefinition — so BuildingFactory dropped them entirely
+  // (`if (!def) continue`) and PropFactory fell back to a 1x1 footprint,
+  // mis-sizing and mis-centering every multi-tile one. Footprints here match
+  // TownGenerator.getFootprint so placement, alley carving and rendering all
+  // agree.
+  {
+    id: 'stone_wall_v',
+    name: 'Stone Wall (Vertical)',
+    category: 'infrastructure',
+    tags: ['barrier', 'fortification'],
+    color: '#707068',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: []
+  },
+  {
+    id: 'crenellated_wall',
+    name: 'Crenellated Wall',
+    category: 'infrastructure',
+    tags: ['barrier', 'fortification'],
+    color: '#787268',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'trellis_arch',
+    name: 'Trellis Arch',
+    category: 'vegetation',
+    tags: ['decoration', 'nature'],
+    color: '#4A7A3A',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: []
+  },
+  {
+    id: 'flower_bed',
+    name: 'Flower Bed',
+    category: 'vegetation',
+    tags: ['nature', 'decoration'],
+    color: '#7A9A4A',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'fish_rack',
+    name: 'Fish Drying Rack',
+    category: 'prop',
+    tags: ['harbor', 'trade'],
+    color: '#8A7A58',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'prayer_flags',
+    name: 'Prayer Flags',
+    category: 'prop',
+    tags: ['decoration', 'religious'],
+    color: '#C05050',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'rope_coil',
+    name: 'Rope Coil',
+    category: 'prop',
+    tags: ['harbor'],
+    color: '#A89060',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'forge_brazier',
+    name: 'Forge Brazier',
+    category: 'prop',
+    tags: ['light', 'artisan'],
+    color: '#8A4A28',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'bunting_pole',
+    name: 'Bunting Pole',
+    category: 'prop',
+    tags: ['decoration', 'festive'],
+    color: '#C0A050',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'heraldic_banner',
+    name: 'Heraldic Banner',
+    category: 'prop',
+    tags: ['decoration', 'noble'],
+    color: '#8A3040',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'cemetery_cross',
+    name: 'Cemetery Cross',
+    category: 'prop',
+    tags: ['cemetery', 'decoration'],
+    color: '#9A9A90',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'rubble_pile',
+    name: 'Rubble Pile',
+    category: 'prop',
+    tags: ['debris'],
+    color: '#7A7268',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
 ]
 
 // === STORE ===
