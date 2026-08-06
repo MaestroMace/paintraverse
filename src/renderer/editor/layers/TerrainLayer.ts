@@ -20,7 +20,9 @@ export const TERRAIN_COLORS: Record<number, number> = {
   11: 0x6a5232, // mud
   12: 0x76a24a, // wildflower
   13: 0xbfae86, // gravel / path
-  14: 0xa89a86  // plaza flagstone
+  14: 0xa89a86, // plaza flagstone
+  15: 0x6a6a68, // district cobble (matches 8)
+  16: 0x4a4a48  // dark district cobble (matches 9)
 }
 
 export const TERRAIN_NAMES: Record<number, string> = {
@@ -38,7 +40,9 @@ export const TERRAIN_NAMES: Record<number, string> = {
   11: 'Mud',
   12: 'Wildflower',
   13: 'Gravel Path',
-  14: 'Plaza Flagstone'
+  14: 'Plaza Flagstone',
+  15: 'District Cobble',
+  16: 'Dark District Cobble'
 }
 
 function hexToRGB(hex: number): string {

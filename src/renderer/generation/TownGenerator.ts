@@ -215,12 +215,16 @@ export class TownGenerator implements IMapGenerator {
     // 9. Place buildings with district awareness
     const buildings = this.placeBuildings(
       width, height, roadMap, waterMap, heightMap, districtMap, districts,
-      complexity, density, rng, mainCenter, terrainTiles, noise
+      complexity, density, rng, mainCenter, terrainTiles, noise,
+      bridges // already placed — don't build through them
     )
 
     // 10. Place landmarks
     const landmarks = this.placeLandmarks(
-      width, height, roadMap, waterMap, districts, districtMap, buildings, heightMap,
+      // Bridges are laid down before landmarks and are pure occupancy here —
+      // without them a staircase could be dropped on top of a bridge.
+      width, height, roadMap, waterMap, districts, districtMap,
+      [...buildings, ...bridges], heightMap,
       complexity, rng, mainCenter
     )
 
@@ -235,7 +239,8 @@ export class TownGenerator implements IMapGenerator {
     this.carveAlleys(terrainTiles, [...buildings, ...landmarks], width, height)
 
     // 12. Place town gates at map edges where roads exit
-    const gates = this.placeGates(width, height, roadMap, rng)
+    const gates = this.placeGates(width, height, roadMap, rng,
+      [...buildings, ...landmarks, ...bridges])
 
     // 12b. Town walls around perimeter
     const townWalls = this.placeWalls(width, height, roadMap, waterMap, [...buildings, ...landmarks], gates, rng)
@@ -598,8 +603,10 @@ export class TownGenerator implements IMapGenerator {
             break
           case 'market':
             // Cobblestone base with stone accents
-            if (n > 0.15) terrain[y][x] = 8 // cobblestone
-            else if (n > -0.1) terrain[y][x] = n2 > 0 ? 9 : 8 // dark/light cobble
+            // District GROUND cobble (15/16), not street cobble (8/9): a
+            // market is paved all over, which is a material, not a road.
+            if (n > 0.15) terrain[y][x] = 15 // cobblestone
+            else if (n > -0.1) terrain[y][x] = n2 > 0 ? 16 : 15 // dark/light cobble
             break
           case 'artisan':
             // Dirt workshop yards
@@ -611,8 +618,8 @@ export class TownGenerator implements IMapGenerator {
             if (n > 0.25 && n2 > 0) terrain[y][x] = 1 // dirt paths
             break
           case 'harbor':
-            if (n > 0.1) terrain[y][x] = 8 // cobblestone
-            else if (n > -0.15) terrain[y][x] = n2 > 0 ? 4 : 8 // sand/cobble mix
+            if (n > 0.1) terrain[y][x] = 15 // district cobble (see market)
+            else if (n > -0.15) terrain[y][x] = n2 > 0 ? 4 : 15 // sand/cobble mix
             else terrain[y][x] = 4 // sand
             break
           case 'fortress':
@@ -869,7 +876,20 @@ export class TownGenerator implements IMapGenerator {
     w: number, h: number, roadMap: boolean[][], waterMap: boolean[][], rng: () => number
   ): PlacedObject[] {
     const bridges: PlacedObject[] = []
-    const placed = new Set<string>()
+    // Reserve the tiles each bridge actually covers. This used to dedupe on a
+    // coarse `floor(x/4),floor(y/4)` bucket, but a bridge is 4x2 tiles, so two
+    // bridges in neighbouring buckets still overlapped — the last remaining
+    // building-overlap in the audit was one bridge laid across another.
+    const taken = new Set<string>()
+    const fp = this.getFootprint('bridge')
+    const fits = (bx: number, by: number): boolean => {
+      for (let dy = 0; dy < fp.h; dy++) {
+        for (let dx = 0; dx < fp.w; dx++) {
+          if (taken.has(`${bx + dx},${by + dy}`)) return false
+        }
+      }
+      return true
+    }
 
     for (let y = 2; y < h - 4; y += 3) {
       for (let x = 2; x < w - 6; x += 3) {
@@ -880,11 +900,10 @@ export class TownGenerator implements IMapGenerator {
         for (let dx = 1; dx <= 4; dx++) {
           if (x + dx < w && waterMap[y][x + dx]) { waterCross = true; break }
         }
-        if (waterCross) {
-          const key = `${Math.floor(x / 4)},${Math.floor(y / 4)}`
-          if (!placed.has(key)) {
-            bridges.push(this.createObj('bridge', x, y))
-            placed.add(key)
+        if (waterCross && fits(x, y)) {
+          bridges.push(this.createObj('bridge', x, y))
+          for (let dy = 0; dy < fp.h; dy++) {
+            for (let dx = 0; dx < fp.w; dx++) taken.add(`${x + dx},${y + dy}`)
           }
         }
       }
@@ -899,10 +918,15 @@ export class TownGenerator implements IMapGenerator {
     districtMap: number[][], districts: District[],
     complexity: number, density: number,
     rng: () => number, center: { x: number; y: number },
-    terrainTiles: number[][], noise: SimplexNoise
+    terrainTiles: number[][], noise: SimplexNoise,
+    /** Already-placed structures whose tiles are off limits — bridges are
+     *  laid down before buildings, and without this a house could be built
+     *  straight through one. */
+    blockers: PlacedObject[] = []
   ): PlacedObject[] {
     const buildings: PlacedObject[] = []
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
+    this.markObjects(occupied, blockers, w, h)
     const maxDist = Math.sqrt(w * w + h * h) / 2
 
     // ════════════════════════════════════════════════════════════════
@@ -1504,9 +1528,19 @@ export class TownGenerator implements IMapGenerator {
 
   // === TOWN GATES ===
   private placeGates(
-    w: number, h: number, roadMap: boolean[][], rng: () => number
+    w: number, h: number, roadMap: boolean[][], rng: () => number,
+    /** Gates were placed on road exits with no regard for what already stood
+     *  there, so a gatehouse could land on top of a bridge or a house. */
+    blockers: PlacedObject[] = []
   ): PlacedObject[] {
     const gates: PlacedObject[] = []
+    const blocked = new Set<string>()
+    for (const b of blockers) {
+      const bfp = this.getFootprint(b.definitionId)
+      for (let dy = 0; dy < bfp.h; dy++) {
+        for (let dx = 0; dx < bfp.w; dx++) blocked.add(`${b.x + dx},${b.y + dy}`)
+      }
+    }
 
     // Check each edge for road exits
     const edges: { x: number; y: number; side: string }[] = []
@@ -1525,6 +1559,15 @@ export class TownGenerator implements IMapGenerator {
       if (gates.length >= 4) break
       const key = edge.side
       if (placed.has(key)) continue
+      // town_gate is 3x1 — every tile it covers must be clear.
+      const gfp = this.getFootprint('town_gate')
+      let clear = true
+      for (let dy = 0; dy < gfp.h && clear; dy++) {
+        for (let dx = 0; dx < gfp.w && clear; dx++) {
+          if (blocked.has(`${edge.x + dx},${edge.y + dy}`)) clear = false
+        }
+      }
+      if (!clear) continue
       placed.add(key)
       gates.push(this.createObj('town_gate', edge.x, edge.y))
     }

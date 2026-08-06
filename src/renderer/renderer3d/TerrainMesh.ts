@@ -36,6 +36,14 @@ const TERRAIN_COLORS: Record<number, number> = {
   // building fronting a plaza stands on paving, it does not block a street.
   // Paler and warmer than street cobble, so squares read as their own space.
   14: 0xc9b9a2,
+  // District GROUND paving — market and harbor districts are cobbled all over,
+  // which is a material choice, not circulation. Deliberately the same colours
+  // as 8/9 so nothing looks different; they exist so the data can say whether
+  // a cobbled tile is a street or just a cobbled district. paintDistrictTerrain
+  // lays these down before the street network, so real roads overwrite them
+  // with 8/9 exactly where roads actually run.
+  15: 0xb09878, // district cobble (matches 8)
+  16: 0x584838, // dark district cobble (matches 9)
 }
 
 const WALL_COLOR = new THREE.Color(0x887868) // retaining wall stone — warm sandstone
@@ -159,8 +167,9 @@ export function buildTerrainMesh(
   // kills the tile-grid appearance by showing a continuous cobble pattern
   // across adjacent road tiles. Pucks are gone — the texture alone sells
   // the cobble look; geometric pucks read as alien disks on top.
-  // One paved surface per paving id: street cobble, dark alley, plaza flagstone.
-  for (const pavingId of [8, 9, 14]) {
+  // One paved surface per paving id: street cobble, dark alley, plaza
+  // flagstone, and the two district-ground cobbles.
+  for (const pavingId of [8, 9, 14, 15, 16]) {
     const paved = buildRoadSurface(tiles, gridWidth, gridHeight, heightMap, pavingId)
     if (paved) group.add(paved)
   }
@@ -211,7 +220,8 @@ function buildGroundWithHeight(
         g *= (1 - shadowMix * 0.25)
         b *= (1 - shadowMix * 0.2)
       }
-      const isPaved = tileId === 8 || tileId === 9 || tileId === 14
+      const isPaved = tileId === 8 || tileId === 9 || tileId === 14 ||
+        tileId === 15 || tileId === 16
       const noiseAmt = isNatural ? 0.13 : isPaved ? 0.16 : 0.05
 
       const x0 = tx, x1 = tx + 1, z0 = ty, z1 = ty + 1
@@ -407,7 +417,7 @@ function buildRoadSurface(
   tiles: number[][], gridWidth: number, gridHeight: number,
   heightMap: number[][], targetId: number,
 ): THREE.Mesh | null {
-  const alley = targetId === 9
+  const alley = targetId === 9 || targetId === 16 // darker, rougher cobble
   const positions: number[] = []
   const normals: number[] = []
   const uvs: number[] = []
