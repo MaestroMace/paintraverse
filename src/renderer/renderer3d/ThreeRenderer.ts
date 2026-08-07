@@ -640,7 +640,7 @@ export class ThreeRenderer {
     // close buildings. Emissive intensity is driven from updateLighting so
     // they light up at dusk with the windows.
     {
-      const ls = buildLanternStrings(map, defMap, heightMap)
+      const ls = buildLanternStrings(map, defMap, heightMap, this._buildingTops)
       if (ls.ropeMesh) this.propGroup.add(ls.ropeMesh)
       if (ls.lanternMesh) this.propGroup.add(ls.lanternMesh)
       // Wall-mounted eye-level lanterns — small warm points on ~18% of

@@ -15,8 +15,15 @@ import type { MapDocument, ObjectDefinition } from '../core/types'
 import { getTerrainHeight } from './TerrainMesh'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 
-// How high above the higher endpoint's ground we hang the rope midpoint.
+// Fallback hang height above ground, used only when a building's real roof
+// height isn't available. Buildings are 2-4 floors at 1.8m, so a fixed 3.2m
+// above the GROUND sat below most rooflines — the ropes ran straight through
+// the buildings they were strung between and poked out of the walls as stray
+// dark planks. Real eave heights are passed in now; see buildLanternStrings.
 const HANG_HEIGHT = 3.2
+// Clearance above the higher of the two eaves, so the rope crosses the gap
+// overhead instead of intersecting either roof.
+const EAVE_CLEARANCE = 0.55
 // How far the rope's middle sags below a straight line between endpoints.
 const SAG = 0.35
 // Segments per string (more = smoother catenary).
@@ -147,6 +154,10 @@ export function buildLanternStrings(
   map: MapDocument,
   defMap: Map<string, ObjectDefinition>,
   heightMap: number[][] | null,
+  /** Real per-building tops from BuildingFactory, keyed by object id. Without
+   *  these the rope falls back to a fixed height above the ground and cuts
+   *  through the buildings it connects. */
+  tops?: Map<string, { mainWallTopY: number }>,
 ): LanternStringsResult {
   const structureLayer = map.layers.find(l => l.type === 'structure')
   if (!structureLayer) return { ropeMesh: null, lanternMesh: null }
@@ -159,7 +170,7 @@ export function buildLanternStrings(
     'archway', 'town_gate', 'gatehouse', 'staircase', 'aqueduct',
     'watchtower',
   ])
-  const centers: Array<{ cx: number; cz: number; groundY: number }> = []
+  const centers: Array<{ cx: number; cz: number; groundY: number; eaveY: number }> = []
   for (const obj of structureLayer.objects) {
     if (EXCLUDE.has(obj.definitionId)) continue
     const def = defMap.get(obj.definitionId)
@@ -167,7 +178,9 @@ export function buildLanternStrings(
     const cx = obj.x + fp.w / 2
     const cz = obj.y + fp.h / 2
     const groundY = heightMap ? getTerrainHeight(heightMap, cx, cz) : 0
-    centers.push({ cx, cz, groundY })
+    // Top of this building's walls — where a rope can actually be tied.
+    const eaveY = tops?.get(obj.id)?.mainWallTopY ?? (groundY + HANG_HEIGHT)
+    centers.push({ cx, cz, groundY, eaveY })
   }
   if (centers.length < 2) return { ropeMesh: null, lanternMesh: null }
 
@@ -187,7 +200,10 @@ export function buildLanternStrings(
       const dx = a.cx - b.cx, dz = a.cz - b.cz
       const d = Math.hypot(dx, dz)
       if (d < MIN_DIST || d > MAX_DIST) continue
-      const y = (a.groundY + b.groundY) / 2 + HANG_HEIGHT
+      // Hang above the HIGHER of the two eaves so the rope spans the gap
+      // overhead. Averaging ground heights (the old behaviour) ignored how
+      // tall the buildings actually were.
+      const y = Math.max(a.eaveY, b.eaveY) + EAVE_CLEARANCE
       strings.push({ ax: a.cx, az: a.cz, bx: b.cx, bz: b.cz, y })
       usage[i]++
       usage[j]++

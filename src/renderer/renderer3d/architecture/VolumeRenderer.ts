@@ -914,8 +914,13 @@ function emitRoofOrnaments(
     const extra = v.roofStyle === 'spire' ? 0.16 : 0.12
     localToWorld(ball, lx, peakLocalY + extra, lz, leanX, leanZ, rot, cx, cy, cz)
     ornamentBatch.addPositioned(ball, 0xd4c070)
-    if (v.roofStyle === 'spire' && rand01(h, 13) < 0.65) {
-      const armH = 0.3, armW = 0.25, armT = 0.05
+    // A spire gets EITHER a cross or a weather vane, never both. Stacking
+    // them piled ~10 separate 2.5-4cm bars above every spire tip, which at
+    // the renderer's 0.4 internal scale aliased into a spray of stray dark
+    // planks rather than reading as finials.
+    const hasCross = v.roofStyle === 'spire' && rand01(h, 13) < 0.65
+    if (hasCross) {
+      const armH = 0.3, armW = 0.25, armT = 0.075
       const vertical = new THREE.BoxGeometry(armT, armH, armT)
       localToWorld(vertical, lx, peakLocalY + 0.28 + armH / 2, lz,
         leanX, leanZ, rot, cx, cy, cz)
@@ -928,16 +933,18 @@ function emitRoofOrnaments(
 
     // Weather vane atop the cross/ball.
     const vaneRoll = rand01(h, 1313)
-    const wantsVane = v.roofStyle === 'spire' ||
+    // Spires used to take a vane unconditionally, so every single one carried
+    // the full stack. Now it's the alternative to a cross, and only on some.
+    const wantsVane = (v.roofStyle === 'spire' && !hasCross && rand01(h, 1319) < 0.5) ||
       (v.role === 'tower' && v.roofHeight > 1.0 && vaneRoll < 0.5)
     if (wantsVane) {
       const vaneBaseY = peakLocalY + (v.roofStyle === 'spire' ? 0.65 : 0.30)
-      const poleH = 0.42, poleT = 0.035
+      const poleH = 0.42, poleT = 0.055
       const pole = new THREE.BoxGeometry(poleT, poleH, poleT)
       localToWorld(pole, lx, vaneBaseY + poleH / 2, lz, leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(pole, 0xb89858)
       const armY = vaneBaseY + poleH * 0.45
-      const armLen = 0.34, armT2 = 0.025
+      const armLen = 0.30, armT2 = 0.042
       const armNS = new THREE.BoxGeometry(armT2, armT2, armLen)
       localToWorld(armNS, lx, armY, lz, leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(armNS, 0xb89858)
@@ -945,12 +952,12 @@ function emitRoofOrnaments(
       localToWorld(armEW, lx, armY, lz, leanX, leanZ, rot, cx, cy, cz)
       ornamentBatch.addPositioned(armEW, 0xb89858)
       for (const [dx, dz] of [[armLen / 2, 0], [-armLen / 2, 0], [0, armLen / 2], [0, -armLen / 2]] as const) {
-        const ballMark = new THREE.SphereGeometry(0.045, 4, 3)
+        const ballMark = new THREE.SphereGeometry(0.06, 4, 3)
         localToWorld(ballMark, lx + dx, armY, lz + dz, leanX, leanZ, rot, cx, cy, cz)
         ornamentBatch.addPositioned(ballMark, 0xb89858)
       }
       const arrowAngle = vaneRoll * Math.PI * 2
-      const arrowLen = 0.55, arrowH = 0.06, arrowT = 0.04
+      const arrowLen = 0.46, arrowH = 0.095, arrowT = 0.065
       const arrow = new THREE.BoxGeometry(arrowLen, arrowH, arrowT)
       arrow.rotateY(arrowAngle)
       localToWorld(arrow, lx, vaneBaseY + poleH + arrowH / 2, lz,
