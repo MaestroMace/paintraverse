@@ -172,6 +172,8 @@ export interface BuildingDiagnostics {
    *  unfinished building, so this makes that measurable. */
   roofStyles: Record<string, number>
   flatToppedTallVolumes: number
+  /** Street-dressing features that are gated behind district/type rules. */
+  featureCounts: Record<string, number>
 }
 
 const FAILURE_LOG_CAP = 30
@@ -185,6 +187,7 @@ let _lastDiagnostics: BuildingDiagnostics = {
   ornamentFragments: 0,
   roofStyles: {},
   flatToppedTallVolumes: 0,
+  featureCounts: {},
 }
 
 export function getBuildingDiagnostics(): BuildingDiagnostics {
@@ -201,6 +204,8 @@ export function buildBuildingMeshes(
   const wallMeshes: THREE.Mesh[] = []
   const tops: BuildingTop[] = []
   const roofStyles: Record<string, number> = {}
+  const featureCounts: Record<string, number> = {}
+  const tally = (k: string) => { featureCounts[k] = (featureCounts[k] ?? 0) + 1 }
   let flatToppedTallVolumes = 0
   const roofBatch = new BatchedMeshBuilder()
   const detailBatch = new BatchedMeshBuilder()
@@ -1301,21 +1306,38 @@ export function buildBuildingMeshes(
     // signs reads as "this street has shops" the moment you turn into it.
     // Gated on commercial district + commercial building + hash. Follows the
     // building's lean+yaw via localToWorld so it stays attached visually.
-    const isCommercialDistrict = district === 'market' || district === 'artisan'
-    const isCommercialBldg = (
+    // A tavern is a tavern wherever it stands, so the sign is driven by the
+    // BUILDING first and the district second. Requiring both a commercial
+    // district AND a commercial type produced 4 signs on one 154-building
+    // town and zero on another — the "row of projecting signs" that is
+    // supposed to announce a shopping street never actually appeared.
+    const isCommercialDistrict = district === 'market' || district === 'artisan' ||
+      district === 'harbor' || district === 'waterfront'
+    const isTradeBldg = (
       obj.definitionId === 'shop' || obj.definitionId === 'tavern' ||
       obj.definitionId === 'inn' || obj.definitionId === 'bakery' ||
       obj.definitionId === 'apothecary' || obj.definitionId === 'guild_hall' ||
-      obj.definitionId === 'covered_market' || obj.definitionId === 'building_small' ||
-      obj.definitionId === 'building_medium' || obj.definitionId === 'half_timber'
+      obj.definitionId === 'covered_market'
     )
+    // Generic houses only get a sign when they sit on a trading street.
+    const isShopfrontHouse = isCommercialDistrict && (
+      obj.definitionId === 'building_small' || obj.definitionId === 'building_medium' ||
+      obj.definitionId === 'half_timber' || obj.definitionId === 'corner_building' ||
+      obj.definitionId === 'row_house'
+    )
+    const signChance = isTradeBldg ? 0.85 : 0.45
     if (
-      isCommercialDistrict && isCommercialBldg && fp.w >= 2 &&
+      // Width gate is max(w,h), not w: a row_house is 1x2, and terraced row
+      // houses are the ONE type a shopping street is mostly made of. Keying
+      // on fp.w alone excluded every one of them, so market streets had no
+      // signs on the very buildings that should carry them.
+      (isTradeBldg || isShopfrontHouse) && Math.max(fp.w, fp.h) >= 2 &&
       !NO_JITTER.has(obj.definitionId) &&
-      wallH > 2.4 && rand01(hash, 811) < 0.6
+      wallH > 2.4 && rand01(hash, 811) < signChance
     ) {
       // Sign at ground-floor top, ~2.3m above base — eye level for a
       // 1.6m-tall player so it reads as "shop sign" not "high banner".
+      tally('shopSign')
       const signY = Math.min(2.3, FLOOR_HEIGHT * 1.05)
       const signW = 0.5 + rand01(hash, 813) * 0.25      // 0.5..0.75
       const signH = 0.32 + rand01(hash, 815) * 0.16     // 0.32..0.48
@@ -1358,11 +1380,15 @@ export function buildBuildingMeshes(
     // Sits at the top of the ground-floor band, projecting 0.55m forward.
     // Slightly thinner at the front than back so it reads as a sloped awning,
     // not a flat shelf.
+    // Same reasoning as the shop sign: keyed off trade buildings and trading
+    // streets rather than the single 'market' district, which on some seeds
+    // contained no eligible building at all.
     if (
-      district === 'market' && fp.w >= 2 &&
+      (isTradeBldg || isShopfrontHouse) && Math.max(fp.w, fp.h) >= 2 &&
       !NO_JITTER.has(obj.definitionId) &&
-      wallH > 1.8 && rand01(hash, 821) < 0.45
+      wallH > 1.8 && rand01(hash, 821) < (isTradeBldg ? 0.6 : 0.35)
     ) {
+      tally('awning')
       const awningY = Math.min(2.0, FLOOR_HEIGHT * 0.95)
       const awningW = Math.min(1.4, fp.w * 0.55)
       const awningD = 0.55
@@ -1540,6 +1566,7 @@ export function buildBuildingMeshes(
     ornamentFragments,
     roofStyles,
     flatToppedTallVolumes,
+    featureCounts,
   }
   if (failed > 0) {
     console.error(`[BuildingFactory] ${failed} of ${attempted} buildings failed to emit (succeeded=${succeeded}). See getBuildingDiagnostics() for details.`)
