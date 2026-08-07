@@ -2141,20 +2141,47 @@ export class TownGenerator implements IMapGenerator {
       return true
     }
 
+    // Ring populations are derived from each ring's CIRCUMFERENCE, not from a
+    // fixed count. Eight items looked right on a plaza that was eight units
+    // across and leaves a 24m square almost bare — the same scale coupling as
+    // everywhere else: a count tuned against tiles, spread over metres. One
+    // item roughly every 2.5 tiles keeps the spacing a person would read as
+    // "furnished" however big the square is.
+    const ringCount = (r: number, spacingTiles: number) =>
+      Math.max(6, Math.round((2 * Math.PI * r) / spacingTiles))
+
     // Inner ring — cafe tables + potted plants. facingY = ang + π so
     // the prop's local +Z (its "front") points back toward the fountain.
-    for (let i = 0; i < 8; i++) {
-      const ang = (i / 8) * Math.PI * 2
+    const innerCount = ringCount(innerR, 2.2)
+    for (let i = 0; i < innerCount; i++) {
+      const ang = (i / innerCount) * Math.PI * 2
       const tx = Math.round(center.x + Math.cos(ang) * innerR)
       const ty = Math.round(center.y + Math.sin(ang) * innerR)
       const item = i % 3 === 0 ? 'potted_plant' : 'cafe_table'
       placePlaza(item, tx, ty, 1, 1, ang + Math.PI)
     }
 
+    // MIDDLE ring — the gap between the two original rings is the widest
+    // empty band in the town, and on a big plaza it is metres of bare paving.
+    // Offset by half a step so it reads as a scatter rather than a third
+    // concentric circle.
+    const midR = (innerR + outerR) / 2
+    const midCount = ringCount(midR, 2.8)
+    const MID_ITEMS = ['barrel', 'crate', 'bench', 'potted_plant', 'wagon']
+    for (let i = 0; i < midCount; i++) {
+      const ang = ((i + 0.5) / midCount) * Math.PI * 2
+      // Wobble the radius so the ring does not read as a drawn circle.
+      const r = midR * (0.86 + rng() * 0.28)
+      const mx = Math.round(center.x + Math.cos(ang) * r)
+      const my = Math.round(center.y + Math.sin(ang) * r)
+      const item = MID_ITEMS[Math.floor(rng() * MID_ITEMS.length)]
+      placePlaza(item, mx, my, 1, 1, ang + Math.PI + (rng() - 0.5) * 0.8)
+    }
+
     // Outer ring — market stalls (2x2) alternating with benches; same
     // inward facing so the canopies and bench backs all turn toward
     // the plaza center.
-    const outerCount = Math.max(8, Math.floor(8 + density * 6))
+    const outerCount = ringCount(outerR, 2.4)
     for (let i = 0; i < outerCount; i++) {
       const ang = (i / outerCount) * Math.PI * 2
       const rx = Math.round(center.x + Math.cos(ang) * outerR)

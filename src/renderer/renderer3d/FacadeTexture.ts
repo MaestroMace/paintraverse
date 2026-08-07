@@ -188,6 +188,29 @@ export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'
     }
   }
 
+  // STRING COURSES — a shallow band of stone at each floor line, running the
+  // full width. Almost every masonry building of this period has them, and
+  // they are the cheapest thing that stops a large wall reading as a blank
+  // panel: they give the eye a horizontal rhythm and a scale reference even
+  // where there are no windows.
+  {
+    const bandH = Math.max(2, 0.14 * M)
+    const light = colorStr(lightenColor(config.wallColor, 0.16))
+    const shade = colorStr(darkenColor(config.wallColor, 0.24))
+    for (let fl = 1; fl * STOREY_M < wallHm - 0.4; fl++) {
+      const y = h - fl * STOREY_M * M
+      ctx.fillStyle = light
+      ctx.fillRect(0, y - bandH, w, bandH)
+      ctx.fillStyle = shade
+      ctx.fillRect(0, y, w, Math.max(1, bandH * 0.35))
+    }
+    // Plinth at the base — the same idea where the wall meets the ground.
+    ctx.fillStyle = shade
+    ctx.fillRect(0, h - Math.max(2, 0.3 * M), w, Math.max(2, 0.3 * M))
+    ctx.fillStyle = light
+    ctx.fillRect(0, h - Math.max(2, 0.3 * M) - Math.max(1, 0.05 * M), w, Math.max(1, 0.05 * M))
+  }
+
   // Windows — a real sash is about 1.0m x 1.35m with its sill 0.95m off the
   // floor, and windows sit roughly every 2.4m along a facade. All four of
   // those are metres, so all four survive any future change to the tile
