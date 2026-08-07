@@ -247,73 +247,107 @@ export class TownGenerator implements IMapGenerator {
       complexity, rng, mainCenter
     )
 
+    // Running accumulators of what is already on the ground.
+    //
+    // Every prop placer needs this, and until now each call site hand-listed
+    // its own inputs — six sites spreading up to nine arrays each. Three
+    // sources were never threaded through at all (both courtyard passes and,
+    // at the far end of the chain, countryside), which is exactly why road
+    // markers landed on lampposts and potted plants on cafe tables. It only
+    // takes one forgotten spread. Accumulating makes that impossible:
+    // `allProps` below IS this list, so the props that get audited are
+    // precisely the props every placer was shown.
+    //
+    // `anchors` are structures props may deliberately cluster AGAINST;
+    // `blockers` merely occupy tiles and must never act as anchors (feeding
+    // town walls through the anchor role once lined the whole perimeter
+    // with barrels).
+    const anchors: PlacedObject[] = [...buildings, ...landmarks]
+    const blockers: PlacedObject[] = [...bridges]
+    const placedProps: PlacedObject[] = []
+    /** Structures placed so far — occupancy only. */
+    const solid = (): PlacedObject[] => [...anchors, ...blockers]
+    /** Everything placed so far, structures and props alike. */
+    const taken = (): PlacedObject[] => [...anchors, ...blockers, ...placedProps]
+
     // 10b. Hidden passages & garden courtyards (Parisian passages + Kyoto tsuboniwa)
     const hiddenCourtyards = this.carveHiddenPassages(
       terrainTiles, roadMap, waterMap, heightMap,
-      [...buildings, ...landmarks], districtMap, districts,
+      solid(), districtMap, districts,
       width, height, rng, noise
     )
+    placedProps.push(...hiddenCourtyards)
 
     // 11. Carve alleys between building clusters
     this.carveAlleys(terrainTiles, [...buildings, ...landmarks], width, height)
 
     // 12. Place town gates at map edges where roads exit
-    const gates = this.placeGates(width, height, roadMap, rng,
-      [...buildings, ...landmarks, ...bridges])
+    const gates = this.placeGates(width, height, roadMap, rng, solid(), waterMap)
+    anchors.push(...gates)
 
-    // 12b. Town walls around perimeter
-    const townWalls = this.placeWalls(width, height, roadMap, waterMap, [...buildings, ...landmarks], gates, rng, terrainTiles)
+    // 12b. Town walls around perimeter.
+    // Deliberately NOT solid(): this list also sets the wall's bounding box,
+    // and gates sit at the map edge while bridges reach out over water, so
+    // including either would push the perimeter outward. Gates are handled
+    // by the dedicated param, which already keeps a 4-tile opening.
+    const townWalls = this.placeWalls(
+      width, height, roadMap, waterMap, [...buildings, ...landmarks], gates, rng, terrainTiles)
+    blockers.push(...townWalls)
 
     // 12c. Grand courtyards — intentional enclosed spaces with symmetry
     const courtyardProps = this.generateGrandCourtyards(
       terrainTiles, roadMap, waterMap, heightMap,
-      [...buildings, ...landmarks, ...gates, ...townWalls],
+      taken(),
       districtMap, districts, width, height, rng, noise
     )
+    placedProps.push(...courtyardProps)
 
     // 13. Contextual props per district
     const props = this.placeProps(
       width, height, roadMap, waterMap,
-      [...buildings, ...landmarks, ...gates],
+      anchors,
       // Blockers only: town walls and bridges were previously invisible here,
       // so props ended up buried inside the wall and its watchtowers.
-      [...bridges, ...townWalls],
+      [...blockers, ...placedProps],
       districtMap, districts, density, config.assetFrequencies, rng, mainCenter
     )
+    placedProps.push(...props)
 
     // 14. Lampposts along all streets
-    const lights = this.placeLights(width, height, roadMap, waterMap,
-      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls, ...props], rng, density)
+    const lights = this.placeLights(width, height, roadMap, waterMap, taken(), rng, density)
+    placedProps.push(...lights)
 
     // 14b. Street furniture along the walkable network itself
     const streetFurniture = this.placeStreetFurniture(
-      width, height, roadMap, waterMap,
-      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls, ...props, ...lights],
+      width, height, roadMap, waterMap, taken(),
       districtMap, districts, density, rng, terrainTiles
     )
+    placedProps.push(...streetFurniture)
 
     // 15. Plaza features (fountain, market stalls, statues)
     const plazaProps = this.placePlazaFeatures(
       width, height, mainCenter, plazaRadius, districts,
-      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls, ...props, ...lights, ...streetFurniture], density, rng,
+      taken(), density, rng,
       roadMap, waterMap,
     )
+    placedProps.push(...plazaProps)
 
     // 16. Vegetation with district awareness + species variety
     const vegetation = this.placeVegetation(
-      width, height, roadMap, waterMap,
-      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls, ...props, ...lights, ...streetFurniture, ...plazaProps],
+      width, height, roadMap, waterMap, taken(),
       districtMap, districts, density, rng, noise, heightMap
     )
+    placedProps.push(...vegetation)
 
     // 16b. Private gardens behind buildings
     const gardens = this.plantPrivateGardens(
       width, height, roadMap, waterMap, heightMap,
-      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls],
+      solid(),
       districtMap, districts,
-      [...props, ...lights, ...streetFurniture, ...plazaProps, ...vegetation],
+      placedProps,
       terrainTiles, rng, noise
     )
+    placedProps.push(...gardens)
 
     // 16c. Organic terrain features (rocky outcrops, wildflower meadows)
     this.paintOrganicTerrain(terrainTiles, heightMap, waterMap, roadMap, districtMap, districts,
@@ -323,8 +357,9 @@ export class TownGenerator implements IMapGenerator {
     // 17. Countryside beyond walls
     const countrysideProps = this.placeCountryside(
       width, height, roadMap, waterMap, districtMap, terrainTiles,
-      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls], gates, noise, rng
+      solid(), gates, placedProps, noise, rng
     )
+    placedProps.push(...countrysideProps)
 
     // Safety net: drop anything whose footprint hangs off the grid. Every
     // placer is supposed to bounds-check (most use areaFree), but a stray
@@ -336,10 +371,10 @@ export class TownGenerator implements IMapGenerator {
       return o.x >= 0 && o.y >= 0 && o.x + ofp.w <= width && o.y + ofp.h <= height
     }
 
-    const allStructures = [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls]
-      .filter(inBounds)
-    const allProps = [...props, ...lights, ...streetFurniture, ...plazaProps, ...vegetation, ...hiddenCourtyards, ...gardens, ...courtyardProps, ...countrysideProps]
-      .filter(inBounds)
+    const allStructures = [...anchors, ...blockers].filter(inBounds)
+    // Exactly the accumulator every placer above was handed — there is no
+    // second, hand-maintained list that can drift out of sync with it.
+    const allProps = placedProps.filter(inBounds)
 
     const terrainLayer: MapLayer = {
       id: uuid(), name: 'Terrain', type: 'terrain',
@@ -1576,7 +1611,12 @@ export class TownGenerator implements IMapGenerator {
     w: number, h: number, roadMap: boolean[][], rng: () => number,
     /** Gates were placed on road exits with no regard for what already stood
      *  there, so a gatehouse could land on top of a bridge or a house. */
-    blockers: PlacedObject[] = []
+    blockers: PlacedObject[] = [],
+    /** Gates were also the one placer never handed the water map. Where a
+     *  road left the map across a river, the 3x1 gatehouse was built standing
+     *  in it. Each side keeps scanning for a dry exit rather than giving up,
+     *  so a watery crossing costs that gate only if the whole edge is wet. */
+    waterMap?: boolean[][],
   ): PlacedObject[] {
     const gates: PlacedObject[] = []
     const blocked = new Set<string>()
@@ -1609,7 +1649,9 @@ export class TownGenerator implements IMapGenerator {
       let clear = true
       for (let dy = 0; dy < gfp.h && clear; dy++) {
         for (let dx = 0; dx < gfp.w && clear; dx++) {
-          if (blocked.has(`${edge.x + dx},${edge.y + dy}`)) clear = false
+          const gx = edge.x + dx, gy = edge.y + dy
+          if (blocked.has(`${gx},${gy}`)) clear = false
+          if (waterMap?.[gy]?.[gx]) clear = false
         }
       }
       if (!clear) continue
@@ -2681,11 +2723,17 @@ export class TownGenerator implements IMapGenerator {
     roadMap: boolean[][], waterMap: boolean[][],
     districtMap: number[][], terrainTiles: number[][],
     buildings: PlacedObject[], gates: PlacedObject[],
+    /** Props placed by every earlier pass. This is the last placer in the
+     *  chain and it used to see none of them, so its road markers — laid
+     *  along the exit roads, exactly where street lighting and kerbside
+     *  dressing already are — stacked on lampposts and barrels. */
+    existingProps: PlacedObject[],
     noise: SimplexNoise, rng: () => number
   ): PlacedObject[] {
     const countryside: PlacedObject[] = []
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
     this.markObjects(occupied, buildings, w, h)
+    this.markObjects(occupied, existingProps, w, h)
 
     // Paint countryside terrain (unassigned tiles)
     for (let y = 0; y < h; y++) {
