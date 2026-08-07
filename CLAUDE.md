@@ -104,18 +104,28 @@ Then `Read` the extracted PNG to see the scene. The diagnostic JSON shows:
 
 ## Key numbers / constants
 
+Verified against the code; if you change one, change it here too.
+
 - `FLOOR_HEIGHT = 1.8` (BuildingFactory) — 1.05 was the "kaiju" scale bug
 - `TERRAIN_WORLD_SCALE = 1.8` (TerrainMesh) — raw height unit → world
 - `EYE_HEIGHT = 1.6` (ThreeRenderer) — player camera height
+- `RENDER_SCALE = 0.4` (ThreeRenderer) — renders at 40% then CSS-upscales.
+  This is why thin geometry aliases: a feature spans one pixel at ~340× its
+  own size, so anything under ~5cm is invisible past ~17m.
 - `SHADOW_RADIUS = 28m` (ThreeRenderer.updateShadowCamera) — follows player
-- Shadow map 512² (was 1024²) with PCF (was PCFSoft)
-- Bloom at half-resolution; composer gated off 8am–3pm
-- Row-streak: 2–4 buildings extended along road tangent, continuity
-  bonus 0.7 on adjacent-to-existing edges
-- Lantern strings max 25 per map, distance 2.6–5.0 tiles, 3 lanterns each
-- Wall lanterns on ~18% of buildings at 2.4m height
-- Birds: 5 spires × 3 birds = max 15. Dusk-only visible.
-- Smoke: 4 particles × 16 chimneys = 64 max
+- Shadow map **256²** with PCF, manual updates (not per-frame)
+- Composer/bloom is **disabled** (`_useComposer = false`)
+- `MAX_ROOF_SPAN_RATIO` (Roofs) / `MAX_TOWER_ASPECT = 9` (Massing) — roofs and
+  tower bodies are capped against their own width. Without these, spires
+  reached 74m needles.
+- Lantern strings max 25 per map, 2.6–5.0 tiles apart, hung above the higher
+  building's **eaves** (not a fixed height above ground)
+- Birds: max 15, dusk-only. Smoke: 2 × 16 chimneys = 32. Fireflies: 36.
+- Lampposts: ~28 per 48×48 town, spaced along every road; all their ground
+  light pools are merged into ONE mesh sharing `_lampPoolMat`
+- Terrain tile ids: 3 water · 8 street cobble · 9 alley · 14 plaza flagstone ·
+  15/16 district cobble. **Only 8 and 9 are circulation** — 14/15/16 are
+  paving, so a building standing on them is not blocking a street.
 
 ## Hard-won lessons (don't repeat)
 
@@ -140,6 +150,30 @@ Then `Read` the extracted PNG to see the scene. The diagnostic JSON shows:
 - **Shadow cam on town-radius was wasteful.** Now follows camera at 28m
   radius — sharper shadows AND fewer casters in frustum.
 
+### Measurement lessons (this arc fixed ~350 placement errors)
+
+- **Tile ids conflated material with function.** Tile 8 meant "street" AND
+  "plaza paving" AND "market district ground", so an audit could not tell a
+  building blocking a road from one fronting a square. Most "buildings in the
+  street" were never real. Split into 8/9 (circulation) vs 14/15/16 (paving).
+- **A clean metric is not a clean codebase.** The first "exposed flat roof"
+  check asked *is this volume the building's apex?* and returned a confident
+  0. A flat-topped tower on a building with a taller spire elsewhere is still
+  an open box. Asking *is anything stacked on THIS volume?* found 14-16.
+- **Verify the edit landed before trusting an A/B.** A patch silently failed
+  to apply and the "before/after" was two identical builds, which
+  "disproved" a correct hypothesis. Byte-identical output is a red flag.
+- **Three seeds is not enough.** Eight previously-untested seeds found a
+  staircase-on-bridge bug the regression seeds all missed.
+- **Count gated features before tuning them.** Shop signs required a
+  commercial district AND type AND `fp.w >= 2`; the result was 0-4 per town
+  and the "row of shop signs" simply never existed. Nobody notices absent
+  content — `featureCounts` in BuildingDiagnostics exists for this.
+- **Duplicated math drifts silently.** ThreeRenderer re-derived building
+  heights for smoke/birds; that copy kept a stale 1.05 FLOOR_HEIGHT long
+  after the real one became 1.8. BuildingFactory now reports `BuildingTop`
+  and there is one calculation.
+
 ## Current state summary (as of last commit)
 
 - Scale fixed (FLOOR_HEIGHT 1.8), lamp pools as ground discs, chimneys
@@ -162,29 +196,54 @@ Then `Read` the extracted PNG to see the scene. The diagnostic JSON shows:
 
 ## What's still open / what to push on next
 
-Ordered by aesthetic impact per effort:
+Items 1-4 of the old list (buildings cut off by roads, window trim, shop
+signs, market awnings) are DONE — verified, not assumed. Current state:
 
-1. **Generator still places buildings from tile corners** — they don't
-   always align to street edges cleanly. Investigate whether buildings
-   are ever cut off by roads.
-2. **Facade detail** — windows are squares. Adding trim (lintels, sills)
-   or timber framing lines around windows would add texture at distance.
-3. **Shop signs projecting perpendicular to walls** — medieval/Diagon-Alley
-   signature. Market/artisan districts only.
-4. **Awnings over market-district doors** — canvas strips extending 0.5m
-   from the wall.
-5. **Building corners: vary with age.** Older buildings slump, lean
-   slightly. Add small `leanZ` on ~15% of buildings.
-6. **Perf: look at what's still driving draw calls.** 1389 was the last
-   count. Target <500 at dusk walkaround. Post-composer adds ~15;
-   shadow doubles scene meshes. Scene geometry is ~600 meshes —
-   coalescing can go lower if threshold drops to 1 (merge singletons too)
-   but risks losing frustum culling.
+1. **Ground-level life is thin.** Streets are lit now, but barrels / crates /
+   benches cluster against buildings rather than along the street edge, so
+   the walkable space still reads empty. Highest remaining aesthetic payoff.
+2. **`prop-in-water` warnings** (1-4 per seed) — the last audit items.
+   Props standing on water tiles; cosmetic but real.
+3. **Only 7 of 154 buildings are trade types**, and the market district is
+   mostly plain row houses. Signage now compensates on the render side, but
+   biasing district building-type weights would make markets read as markets
+   from the plan view too.
+4. **The 2D editor and the pixel-art Canvas2D path have had no attention**
+   this whole arc — all recent work is the Three.js walkaround. The
+   Canvas2DRenderer has its own copies of building/prop logic that have
+   almost certainly drifted from the 3D path.
+5. **Perf on real hardware is unmeasured.** ~125k triangles at ~300-600 draw
+   calls is unremarkable for a GPU; the low FPS in agent screenshots is
+   SwiftShader software rendering with no GPU. Don't optimise against that
+   number — get a debug dump from real hardware first.
 
 ## Quick reference — where commands live
 
-- Start session: `git pull origin claude/explore-repo-w4X5k`
-- Build check: `npm run typecheck && npm run build`
+- Start session: `git pull origin main`
+- Build check: `npm run typecheck && npm run build` (both must be green)
 - Commit: `git add -A && git commit -m "..."`
-- Push: `git push -u origin claude/explore-repo-w4X5k`
+- Push: `git push origin main`
 - Inspect latest dump: see Debug-dump workflow above
+
+## Seeing and measuring the app (no display needed)
+
+You do not have to guess what the app looks like, and you should not.
+
+```bash
+npm install && npm run build
+xvfb-run -a -s "-screen 0 1400x900x24" node tools/screenshot.mjs   # or: npm run shot
+```
+
+Screenshots land in `.shots/`. Two more tools and a live bridge:
+
+- `node tools/audit.mjs [seeds...] [--max-errors=N]` — placement invariants
+  (see `renderer3d/GeometryAudit.ts`). Currently **0 errors**; exits non-zero
+  above the budget, so run it after touching placement or massing.
+- `node tools/inspect.mjs <seed> <issue-kind>` — flies the camera to flagged
+  objects and screenshots them.
+- `window.__pt` (see `debug/DebugBridge.ts`) — from devtools or
+  `page.evaluate`: `audit()`, `debugInfo()`, `sceneStats()`, `heightAt()`,
+  `teleport()`, `flyTo()`, `inspectTile()`, `fragmentAudit`.
+  TS `private` is compile-time only, so `__pt.renderer().buildingGroup` etc.
+  are reachable — hiding groups/meshes at runtime is the fastest way to
+  bisect "what is that artifact?".
