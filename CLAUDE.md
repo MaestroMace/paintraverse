@@ -622,6 +622,11 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   emitted it plus a world position, and optionally photographed. A batched mesh
   otherwise gives you no way to ask which line drew a triangle, which is why
   that defect survived several rounds of staring at screenshots.
+- `node tools/emptiness.mjs [seeds...]` — distance from every walkable tile to
+  the nearest prop or building frontage, as a distribution, split street vs
+  plaza. "A ton of empty space" is a real complaint and a vague one; this makes
+  it a number and says WHICH surface is bare. Streets were median 6m with 8% of
+  tiles over 12m from anything; they are median 3m and 0% now.
 - `node tools/roofwinding.mjs` — **every roof triangle checked for OUTWARD
   winding, exhaustively, with no camera.** The batched material is FrontSide,
   so an inward-facing triangle is DELETED, not mis-lit — and you cannot

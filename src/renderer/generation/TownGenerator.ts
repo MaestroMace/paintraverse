@@ -362,6 +362,17 @@ export class TownGenerator implements IMapGenerator {
     )
     placedProps.push(...countrysideProps)
 
+    // 17b. Fill the streets the emptiness metric says are bare. Runs LAST so
+    // it can see every anchor and every prop the earlier passes produced.
+    const streetFill = this.dressEmptyStreets(
+      width, height, terrainTiles, roadMap, waterMap,
+      // solid(), not anchors — bridges live in `blockers`, and passing only
+      // anchors put a bush inside one. This is the hand-threaded argument list
+      // the accumulators exist to prevent; use the accumulator.
+      solid(), placedProps, rng,
+    )
+    placedProps.push(...streetFill)
+
     // Safety net: drop anything whose footprint hangs off the grid. Every
     // placer is supposed to bounds-check (most use areaFree), but a stray
     // 2x2 fountain anchored on the last row still slipped through, and an
@@ -3369,6 +3380,126 @@ export class TownGenerator implements IMapGenerator {
   }
 
   // === UTILITY METHODS ===
+
+  /**
+   * Put something within sight of every stretch of walkable street.
+   *
+   * tools/emptiness.mjs measures the distance from each walkable tile to the
+   * nearest prop or building frontage. Plazas came out furnished (median 3m)
+   * once their ring counts followed circumference, but STREETS did not: median
+   * 6m, and 8% of street tiles more than 12m from anything, worst case 24m.
+   * Twenty-four metres of bare cobble with nothing to look at is the "ton of
+   * empty space".
+   *
+   * Rather than scatter more props at random and hope, this runs the same
+   * measurement the tool runs and places only where the measurement says it is
+   * bare. Every item lands on a tile that is genuinely far from everything, so
+   * the fill is self-limiting: a dense quarter gets nothing, a long empty lane
+   * gets a row of kerbside clutter.
+   */
+  private dressEmptyStreets(
+    w: number, h: number,
+    terrain: number[][],
+    roadMap: boolean[][], waterMap: boolean[][],
+    /** Everything solid — buildings, landmarks AND bridges. */
+    solidObjs: PlacedObject[], existingProps: PlacedObject[],
+    rng: () => number,
+  ): PlacedObject[] {
+    const out: PlacedObject[] = []
+    // NOT createOccupied: that marks every road tile as occupied, which is
+    // right for placers that must stay off the carriageway and exactly wrong
+    // here — the street is the thing being dressed. Block water and anything
+    // already standing, nothing else. (Getting this wrong the first time was
+    // silent: the pass ran, placed nothing, and the emptiness metric came back
+    // byte-identical, which is the tell.)
+    const occupied: boolean[][] = []
+    for (let y = 0; y < h; y++) {
+      const row: boolean[] = new Array(w).fill(false)
+      for (let x = 0; x < w; x++) if (waterMap[y]?.[x]) row[x] = true
+      occupied.push(row)
+    }
+    this.markObjects(occupied, solidObjs, w, h)
+    this.markObjects(occupied, existingProps, w, h)
+
+    // Circulation only — plazas are handled by placePlazaFeatures and a barrel
+    // in the middle of a ceremonial square is not the same as one by a kerb.
+    const isStreet = (x: number, y: number) => {
+      const t = terrain[y]?.[x]
+      return t === 8 || t === 9
+    }
+
+    // Multi-source BFS out from everything that already exists.
+    const INF = 0x3fffffff
+    const dist = new Int32Array(w * h).fill(INF)
+    const queue: number[] = []
+    const seed = (px: number, py: number) => {
+      const x = Math.round(px), y = Math.round(py)
+      if (x < 0 || y < 0 || x >= w || y >= h) return
+      const i = y * w + x
+      if (dist[i] !== 0) { dist[i] = 0; queue.push(i) }
+    }
+    for (const a of solidObjs) seed(a.x, a.y)
+    for (const p of existingProps) seed(p.x, p.y)
+    for (let head = 0; head < queue.length; head++) {
+      const i = queue[head], x = i % w, y = (i / w) | 0
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = x + dx, ny = y + dy
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+        if (!isStreet(nx, ny)) continue
+        const ni = ny * w + nx
+        if (dist[ni] > dist[i] + 1) { dist[ni] = dist[i] + 1; queue.push(ni) }
+      }
+    }
+
+    // 3 tiles is 9m — far enough that the tile has nothing within a normal
+    // conversational distance, close enough that we are not only patching the
+    // very worst holes.
+    const BARE = 3
+    const candidates: Array<{ i: number; d: number }> = []
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (!isStreet(x, y)) continue
+        const d = dist[y * w + x]
+        if (d >= BARE && d < INF) candidates.push({ i: y * w + x, d })
+      }
+    }
+    // Barest first, so the worst holes are filled even if we run out of room.
+    candidates.sort((a, b) => b.d - a.d)
+
+    // Weighted so the street reads as lived-in rather than as a prop shop:
+    // mostly small clutter, a lamppost now and then, rarely a cart.
+    const KIT: Array<[string, number]> = [
+      ['barrel', 22], ['crate', 18], ['potted_plant', 14], ['bench', 12],
+      ['lamppost', 12], ['bush', 10], ['well', 4], ['wagon', 4], ['statue', 2],
+    ]
+    const totalW = KIT.reduce((a, [, n]) => a + n, 0)
+    const pick = () => {
+      let r = rng() * totalW
+      for (const [id, n] of KIT) { r -= n; if (r <= 0) return id }
+      return 'barrel'
+    }
+
+    for (const c of candidates) {
+      const x = c.i % w, y = (c.i / w) | 0
+      if (!this.areaFree(occupied, x, y, 1, 1, w, h)) continue
+      // Keep the middle of the carriageway clear — clutter belongs at the
+      // kerb. A tile with a non-street neighbour is an edge tile.
+      const atKerb = !isStreet(x + 1, y) || !isStreet(x - 1, y) ||
+        !isStreet(x, y + 1) || !isStreet(x, y - 1)
+      if (!atKerb && rng() < 0.75) continue
+      const obj = this.createObj(pick(), x, y)
+      obj.properties.facingY = rng() * Math.PI * 2
+      out.push(obj)
+      // Claim a small neighbourhood so the fill spreads instead of clumping
+      // into the single barest corner.
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          this.markArea(occupied, x + dx, y + dy, 1, 1, w, h)
+        }
+      }
+    }
+    return out
+  }
 
   private createObj(defId: string, x: number, y: number, elevation: number = 0): PlacedObject {
     return {
