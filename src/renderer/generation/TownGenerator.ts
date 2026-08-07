@@ -738,7 +738,11 @@ export class TownGenerator implements IMapGenerator {
     // Temple and noble districts get grand processional ways (width 5)
     // Others get standard boulevards (width 4)
     for (const d of districts) {
-      const boulWidth = (d.type === 'temple' || d.type === 'noble') ? 5 : 4
+      // Only the ceremonial approaches stay grand. Everything else steps
+      // down: the town previously had NO narrow tier at all — every ordinary
+      // street was 3 wide and ~25 of them overlapped into open expanses, so
+      // 48% of the map was circulation and the streets read as plazas.
+      const boulWidth = (d.type === 'temple' || d.type === 'noble') ? 4 : 3
       const curviness = d.type === 'temple' ? 0.05 : 0.1 // Temples get straighter, more formal approaches
       this.carveRoad(roadMap, terrain, center.x, center.y, d.center.x, d.center.y,
         w, h, boulWidth, curviness, noise, rng, waterMap)
@@ -753,7 +757,7 @@ export class TownGenerator implements IMapGenerator {
         w, h, length, 3, 0.15, noise, rng, waterMap)
     }
 
-    // LANES: Connect districts to each other (width 3 for walkable 3D streets)
+    // LANES: Connect districts to each other (width 2 — side streets)
     for (let i = 0; i < districts.length; i++) {
       for (let j = i + 1; j < districts.length; j++) {
         const dx = districts[i].center.x - districts[j].center.x
@@ -761,23 +765,26 @@ export class TownGenerator implements IMapGenerator {
         const dist = Math.sqrt(dx * dx + dy * dy)
         if (dist < Math.min(w, h) * 0.5) {
           this.carveRoad(roadMap, terrain, districts[i].center.x, districts[i].center.y,
-            districts[j].center.x, districts[j].center.y, w, h, 3, 0.2, noise, rng, waterMap)
+            districts[j].center.x, districts[j].center.y, w, h, 2, 0.2, noise, rng, waterMap)
         }
       }
     }
 
-    // SECONDARY STREETS within districts (width 3) — walkable side streets
-    const numSecondary = Math.floor(8 + complexity * 18)
+    // SECONDARY STREETS within districts (width 2) — the bulk of the network
+    // Fewer, narrower side streets. 17 random 3-wide scribbles on a 48x48
+    // grid merged into open ground; 10 two-wide ones read as lanes between
+    // blocks and leave room for buildings to form continuous street walls.
+    const numSecondary = Math.floor(5 + complexity * 10)
     for (let i = 0; i < numSecondary; i++) {
       const sx = Math.floor(w * 0.08 + rng() * w * 0.84)
       const sy = Math.floor(h * 0.08 + rng() * h * 0.84)
       if (waterMap[sy]?.[sx]) continue
       const angle = rng() * Math.PI * 2
       this.carveOrganicPath(roadMap, terrain, sx, sy, angle,
-        w, h, Math.floor(6 + rng() * 12), 3, 0.25, noise, rng, waterMap)
+        w, h, Math.floor(6 + rng() * 12), 2, 0.25, noise, rng, waterMap)
     }
 
-    // ALLEYS branching off roads (width 2 for walkable 3D)
+    // ALLEYS branching off roads (width 1 — squeeze-through back lanes)
     if (complexity > 0.2) {
       const numAlleys = Math.floor(8 + complexity * 18)
       for (let i = 0; i < numAlleys; i++) {
@@ -786,7 +793,7 @@ export class TownGenerator implements IMapGenerator {
         if (bx >= 0 && bx < w && by >= 0 && by < h && roadMap[by][bx]) {
           const angle = rng() * Math.PI * 2
           this.carveOrganicPath(roadMap, terrain, bx, by, angle,
-            w, h, Math.floor(3 + rng() * 5), 2, 0.35, noise, rng, waterMap)
+            w, h, Math.floor(3 + rng() * 5), 1, 0.35, noise, rng, waterMap)
         }
       }
     }
