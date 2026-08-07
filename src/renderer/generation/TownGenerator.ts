@@ -3421,11 +3421,19 @@ export class TownGenerator implements IMapGenerator {
     this.markObjects(occupied, solidObjs, w, h)
     this.markObjects(occupied, existingProps, w, h)
 
-    // Circulation only — plazas are handled by placePlazaFeatures and a barrel
-    // in the middle of a ceremonial square is not the same as one by a kerb.
-    const isStreet = (x: number, y: number) => {
+    // Circulation (8 street, 9 alley) AND paving (14 plaza flagstone, 15/16
+    // district cobble). placePlazaFeatures furnishes the rings around a
+    // fountain, but a square is bigger than its rings and the paved ground
+    // beyond them got nothing at all — which is the wide bare foreground in
+    // the walkaround shots. Paving still asks for more clearance below, so a
+    // ceremonial square keeps its open centre.
+    const isDressable = (x: number, y: number) => {
       const t = terrain[y]?.[x]
-      return t === 8 || t === 9
+      return t === 8 || t === 9 || t === 14 || t === 15 || t === 16
+    }
+    const isPaving = (x: number, y: number) => {
+      const t = terrain[y]?.[x]
+      return t === 14 || t === 15 || t === 16
     }
 
     // Multi-source BFS out from everything that already exists.
@@ -3445,7 +3453,7 @@ export class TownGenerator implements IMapGenerator {
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
         const nx = x + dx, ny = y + dy
         if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
-        if (!isStreet(nx, ny)) continue
+        if (!isDressable(nx, ny)) continue
         const ni = ny * w + nx
         if (dist[ni] > dist[i] + 1) { dist[ni] = dist[i] + 1; queue.push(ni) }
       }
@@ -3454,29 +3462,46 @@ export class TownGenerator implements IMapGenerator {
     // 3 tiles is 9m — far enough that the tile has nothing within a normal
     // conversational distance, close enough that we are not only patching the
     // very worst holes.
+    // 3 tiles (9m) on a street; 4 (12m) on paving, so an open square reads as
+    // deliberately open near its middle and furnished toward its edges.
     const BARE = 3
+    const BARE_PAVING = 4
     const candidates: Array<{ i: number; d: number }> = []
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        if (!isStreet(x, y)) continue
+        if (!isDressable(x, y)) continue
         const d = dist[y * w + x]
-        if (d >= BARE && d < INF) candidates.push({ i: y * w + x, d })
+        const need = isPaving(x, y) ? BARE_PAVING : BARE
+        if (d >= need && d < INF) candidates.push({ i: y * w + x, d })
       }
     }
     // Barest first, so the worst holes are filled even if we run out of room.
     candidates.sort((a, b) => b.d - a.d)
 
-    // Weighted so the street reads as lived-in rather than as a prop shop:
-    // mostly small clutter, a lamppost now and then, rarely a cart.
-    const KIT: Array<[string, number]> = [
+    // TWO kits, because a street and a square are emptied by different things.
+    //
+    // A street is a narrow corridor: you pass within a metre of the kerb, so
+    // small clutter reads and a row of barrels feels lived-in.
+    //
+    // A square is thirty metres of open ground seen from eye level, where a
+    // 0.8m barrel subtends almost nothing past fifteen metres. The distance
+    // metric could not see this — it measures top-down, and from above a
+    // barrel and a tree are both "something". What actually furnishes a square
+    // is HEIGHT: trees, lampposts, market stalls, a statue. So paving draws
+    // from a kit of things you can see across a square.
+    const STREET_KIT: Array<[string, number]> = [
       ['barrel', 22], ['crate', 18], ['potted_plant', 14], ['bench', 12],
       ['lamppost', 12], ['bush', 10], ['well', 4], ['wagon', 4], ['statue', 2],
     ]
-    const totalW = KIT.reduce((a, [, n]) => a + n, 0)
-    const pick = () => {
-      let r = rng() * totalW
-      for (const [id, n] of KIT) { r -= n; if (r <= 0) return id }
-      return 'barrel'
+    const SQUARE_KIT: Array<[string, number]> = [
+      ['tree', 26], ['lamppost', 22], ['market_stall', 16], ['statue', 10],
+      ['well', 8], ['wagon', 8], ['bench', 6], ['potted_plant', 4],
+    ]
+    const pickFrom = (kit: Array<[string, number]>) => {
+      const total = kit.reduce((a, [, n]) => a + n, 0)
+      let r = rng() * total
+      for (const [id, n] of kit) { r -= n; if (r <= 0) return id }
+      return kit[0][0]
     }
 
     for (const c of candidates) {
@@ -3484,10 +3509,14 @@ export class TownGenerator implements IMapGenerator {
       if (!this.areaFree(occupied, x, y, 1, 1, w, h)) continue
       // Keep the middle of the carriageway clear — clutter belongs at the
       // kerb. A tile with a non-street neighbour is an edge tile.
-      const atKerb = !isStreet(x + 1, y) || !isStreet(x - 1, y) ||
-        !isStreet(x, y + 1) || !isStreet(x, y - 1)
-      if (!atKerb && rng() < 0.75) continue
-      const obj = this.createObj(pick(), x, y)
+      const atKerb = !isDressable(x + 1, y) || !isDressable(x - 1, y) ||
+        !isDressable(x, y + 1) || !isDressable(x, y - 1)
+      // Mid-carriageway clutter is mostly skipped, but an open square needs
+      // SOME furniture away from its edges or it stays a car park; paving is
+      // therefore only lightly thinned.
+      if (!atKerb && rng() < (isPaving(x, y) ? 0.45 : 0.75)) continue
+      const paved = isPaving(x, y)
+      const obj = this.createObj(pickFrom(paved ? SQUARE_KIT : STREET_KIT), x, y)
       obj.properties.facingY = rng() * Math.PI * 2
       out.push(obj)
       // Claim a small neighbourhood so the fill spreads instead of clumping
