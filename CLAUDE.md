@@ -265,6 +265,57 @@ Verified against the code; if you change one, change it here too.
 - Plan view reads: role-tinted buildings, prop glyphs, labels that fit
 - Pixel-art export works at every hour (see tools/pixelart.mjs)
 
+## THE SCALE BUG (diagnosed, NOT yet fixed — read before touching FLOOR_HEIGHT)
+
+Reported from the phone as "houses the size of cars with windows as big as
+inches". Measured, the diagnosis is the opposite of what it sounds like.
+
+- `BuildingFactory` passes `footW: fp.w` — footprint TILES straight through as
+  world units. One tile = one world unit, and `EYE_HEIGHT = 1.6`.
+- Median building top is **6.96 units**, so ~4.3x eye height. A real two-storey
+  house is ~4.1x a standing eye. **Heights are approximately correct.**
+- But 60% of all structures are 2-tile footprints, mostly `row_house` at 1x2.
+  The typical building is therefore **1 wide x 2 deep x ~6 tall — a 6:1
+  tower**. A real row house is nearer 1.8:1.
+
+So buildings are not too short. They are **~3x too NARROW for their height**,
+which is also why windows must be tiny to fit on a one-unit-wide facade, and
+why a two-tile lane reads as an alley.
+
+**This is why raising FLOOR_HEIGHT 1.05 -> 1.8 did not fix it.** That change
+was made to cure "kaiju scale" and it treated a horizontal problem with a
+vertical lever — it stopped buildings being squat and made them into towers
+instead. Do not reach for FLOOR_HEIGHT again; lowering it brings kaiju scale
+straight back.
+
+The real fix is a horizontal **tile -> world factor** (a tile should be ~3
+units, not 1) applied consistently to: building footprints AND positions,
+terrain mesh, prop positions, the collision mask's tile indexing, lantern
+string anchors, shadow radius, and camera speeds. Buildings get 3x wider AND
+3x further apart, so placement stays valid and only the proportions change.
+It is invasive and deserves its own session; a partial application will put
+buildings on top of each other.
+
+## Known problems, reported from the device (unfixed)
+
+In the reporter's words, with what is known so far:
+
+1. **Scale** — see above. Root cause identified, fix not started.
+2. **Signs floating** — not investigated.
+3. **Buildings colliding / flickering overlapping textures** — z-fighting from
+   coincident volume faces. Related to the overhang work (MAX_OVERHANG) but
+   that only clipped geometry leaving its own footprint, not two volumes
+   sharing a plane.
+4. **Shading glitches** — not investigated.
+5. **Props hovering or oddly placed** — suspect terrain height sampling; note
+   `getTerrainHeight` interpolates on the same triangle the mesh renders, so
+   check prop Y against that rather than a tile centre.
+6. **Jagged water tiles** — not investigated.
+7. **Collision feels random** — CONFIRMED cause: `isBlocked(x, z)` floors to a
+   tile index and tests a per-tile `collisionMask`. The player has no radius
+   at all, so it is a point in tile space: you can stand half inside a wall on
+   one side of a tile and be stopped a full tile away on the other.
+
 ## What's still open / what to push on next
 
 Everything on the previous list except perf has been done and verified.
