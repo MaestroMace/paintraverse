@@ -12,13 +12,13 @@
  * ObjectDefinitions in, report out) so it runs without a 3D context — from
  * the app, from devtools via the debug bridge, or from headless tooling.
  *
- * Terrain tile ids (see TerrainMesh.TERRAIN_COLORS): 3 = water,
- * 8 = cobblestone street, 9 = dark cobblestone alley, 14 = plaza/courtyard
- * flagstone. Only 8 and 9 are circulation — a building standing on 14 fronts
- * a square, it does not block a street, so 14 is deliberately not an error.
+ * Terrain tile semantics come from core/terrain.ts. Only 8 and 9 are
+ * circulation — a building standing on plaza flagstone (14) fronts a square,
+ * it does not block a street, so 14 is deliberately not an error.
  */
 
 import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
+import { TILE_WATER, isCirculation } from '../core/terrain'
 
 export type IssueKind =
   | 'missing-definition'
@@ -50,9 +50,6 @@ export interface AuditReport {
   missingDefinitions: string[]
 }
 
-const WATER = 3
-const ROAD = 8
-const ALLEY = 9
 
 /** Structures that are SUPPOSED to sit on/over a road or water. */
 const SPANS_ROAD = new Set([
@@ -137,8 +134,8 @@ export function auditMapGeometry(
         const tx = obj.x + fx
         const ty = obj.y + fy
         const t = tileAt(tx, ty)
-        if (t === ROAD || t === ALLEY) roadTiles++
-        if (t === WATER) waterTiles++
+        if (isCirculation(t)) roadTiles++
+        if (t === TILE_WATER) waterTiles++
         const idx = ty * gw + tx
         const other = occupied[idx]
         if (other && other !== obj) {
@@ -178,7 +175,7 @@ export function auditMapGeometry(
     }
 
     const t = tileAt(obj.x, obj.y)
-    if (t === WATER && !WATER_TOLERANT.has(obj.definitionId)) {
+    if (t === TILE_WATER && !WATER_TOLERANT.has(obj.definitionId)) {
       add('prop-in-water', 'warn', obj, `stands on a water tile`)
     }
 

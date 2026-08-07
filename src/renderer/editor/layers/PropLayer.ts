@@ -1,6 +1,9 @@
 import { Container, Sprite, Texture } from 'pixi.js'
-import type { MapLayer, ObjectDefinition, PlacedObject } from '../../core/types'
+import type { MapLayer, ObjectDefinition } from '../../core/types'
 import type { ObjectBounds } from './StructureLayer'
+import {
+  darkenCSS, propTint, glyphFor, drawGlyph, fitLabel, drawOutlinedText,
+} from './planStyle'
 
 /**
  * PropLayer renders all props to a single Canvas2D texture.
@@ -55,6 +58,8 @@ export class PropLayer {
     canvas.height = maxY
     const ctx = canvas.getContext('2d')!
 
+    const fontSize = Math.max(8, Math.min(10, tileSize * 0.3))
+
     for (const obj of layer.objects) {
       const def = this._defMap.get(obj.definitionId)
       if (!def) continue
@@ -63,7 +68,7 @@ export class PropLayer {
       const py = obj.y * tileSize
       const w = def.footprint.w * tileSize
       const h = def.footprint.h * tileSize
-      const color = def.color || '#808080'
+      const color = propTint(def.color || '#808080', def.tags)
 
       if (def.footprint.w === 1 && def.footprint.h === 1) {
         const cx = px + tileSize / 2
@@ -82,19 +87,22 @@ export class PropLayer {
         ctx.arc(cx, cy, r, 0, Math.PI * 2)
         ctx.fill()
 
-        ctx.strokeStyle = darkenCSS(color, 0.3)
+        ctx.strokeStyle = darkenCSS(color, 0.35)
         ctx.lineWidth = 1
         ctx.stroke()
 
-        // Label (first letter)
-        ctx.fillStyle = '#ffffff'
-        ctx.font = `${Math.min(9, tileSize * 0.3)}px monospace`
-        ctx.shadowColor = '#000000'
-        ctx.shadowOffsetX = 1
-        ctx.shadowOffsetY = 1
-        ctx.fillText(def.name[0], px + tileSize * 0.33, py + tileSize * 0.55)
-        ctx.shadowOffsetX = 0
-        ctx.shadowOffsetY = 0
+        // Glyph instead of `def.name[0]`. The first letter collapsed barrel,
+        // bench, bush, barrel_stack, bunting_pole and bakery-crate all onto
+        // "B"; a shape at least tells you it is storage rather than planting.
+        // Below ~14px the glyph is finer than the disc it sits on, so the
+        // disc's colour carries it alone.
+        if (tileSize >= 14) {
+          ctx.strokeStyle = 'rgba(20,14,10,0.78)'
+          ctx.lineWidth = Math.max(1, tileSize * 0.055)
+          ctx.lineCap = 'round'
+          drawGlyph(ctx, glyphFor(def.tags), cx, cy, r)
+          ctx.lineCap = 'butt'
+        }
       } else {
         // Shadow
         ctx.fillStyle = 'rgba(0,0,0,0.15)'
@@ -106,19 +114,29 @@ export class PropLayer {
         roundRect(ctx, px + 2, py + 2, w - 4, h - 4, 4)
         ctx.fill()
 
-        ctx.strokeStyle = darkenCSS(color, 0.3)
+        ctx.strokeStyle = darkenCSS(color, 0.35)
         ctx.lineWidth = 1
         ctx.stroke()
 
-        // Label
-        ctx.fillStyle = '#ffffff'
-        ctx.font = `${Math.min(10, tileSize * 0.3)}px monospace`
-        ctx.shadowColor = '#000000'
-        ctx.shadowOffsetX = 1
-        ctx.shadowOffsetY = 1
-        ctx.fillText(def.name, px + 3, py + Math.min(12, tileSize * 0.35))
-        ctx.shadowOffsetX = 0
-        ctx.shadowOffsetY = 0
+        // Glyph in the corner marks the class; the label names the instance
+        // when there is room for it.
+        const gr = Math.min(tileSize, w, h) * 0.28
+        ctx.strokeStyle = 'rgba(20,14,10,0.7)'
+        ctx.lineWidth = Math.max(1, tileSize * 0.05)
+        ctx.lineCap = 'round'
+        drawGlyph(ctx, glyphFor(def.tags), px + w - gr - 4, py + h - gr - 4, gr)
+        ctx.lineCap = 'butt'
+
+        ctx.font = `${fontSize}px monospace`
+        const label = fitLabel(ctx, def.name, w - 8)
+        if (label && h >= fontSize + 6) {
+          ctx.save()
+          ctx.beginPath()
+          ctx.rect(px, py, w, h)
+          ctx.clip()
+          drawOutlinedText(ctx, label, px + 4, py + fontSize + 2)
+          ctx.restore()
+        }
       }
 
       this._bounds.push({ id: obj.id, layerId: this._layerId, x: px, y: py, width: w, height: h })
@@ -132,14 +150,6 @@ export class PropLayer {
   getObjectBounds(): ObjectBounds[] {
     return this._bounds
   }
-}
-
-function darkenCSS(hex: string, amount: number): string {
-  const c = parseInt(hex.replace('#', ''), 16)
-  const r = Math.max(0, Math.floor(((c >> 16) & 0xff) * (1 - amount)))
-  const g = Math.max(0, Math.floor(((c >> 8) & 0xff) * (1 - amount)))
-  const b = Math.max(0, Math.floor((c & 0xff) * (1 - amount)))
-  return '#' + r.toString(16).padStart(2, '0') + g.toString(16).padStart(2, '0') + b.toString(16).padStart(2, '0')
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

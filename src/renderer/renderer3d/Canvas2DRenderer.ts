@@ -7,6 +7,7 @@
 import type { MapDocument, ObjectDefinition, PlacedObject, RenderCamera, EnvironmentState } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { SpatialGrid } from './SpatialGrid'
+import { TERRAIN_COLORS } from '../core/terrain'
 
 // ── Spatial grids for fast object culling (built once per map, reused across frames) ──
 let _structureGrid: SpatialGrid | null = null
@@ -15,15 +16,9 @@ let _gridMapVersion = -1
 
 // ── Color constants ──
 
-const TERRAIN_COLORS: Record<number, number> = {
-  0: 0x2d5a27, 1: 0x8b7355, 2: 0x708090, 3: 0x4682b4,
-  4: 0xf4e9c8, 5: 0x556b2f, 6: 0x3a6a30, 7: 0x8a8a7a,
-  8: 0x6a6a68, 9: 0x4a4a48,
-  10: 0x6a7a5a, // mossy stone (old courtyards)
-  11: 0x6a5a45, // mud (near ponds)
-  12: 0x2a5522, // wildflower meadow base (painted over with dots)
-  13: 0x9a8a6a, // gravel path
-}
+// Palette and tile semantics: core/terrain.ts. This file's private copy
+// stopped at id 13, so every plaza (14) and market/harbor district (15/16)
+// exported as fallback grey once the tile ids were split.
 
 const DEFAULT_BUILDING_PALETTES = [
   // Timber-framed (warm)

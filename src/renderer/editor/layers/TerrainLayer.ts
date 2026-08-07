@@ -1,55 +1,13 @@
 import { Container, Sprite, Texture } from 'pixi.js'
 import type { MapLayer } from '../../core/types'
 
-// Terrain tile colors
-export const TERRAIN_COLORS: Record<number, number> = {
-  0: 0x2d5a27, // grass (default)
-  1: 0x8b7355, // dirt
-  2: 0x708090, // stone
-  3: 0x4682b4, // water
-  4: 0xf4e9c8, // sand
-  5: 0x556b2f, // dark grass
-  6: 0x3a3a3a, // road/paved
-  7: 0xdcdcdc, // snow
-  8: 0x6a6a68, // cobblestone
-  9: 0x4a4a48, // dark cobblestone
-  // 10-14 existed in the 3D renderer but not here, so the 2D editor — the
-  // view used to check what the generator actually produced — drew them all
-  // as grass. Kept roughly in step with TerrainMesh.TERRAIN_COLORS.
-  10: 0x5f8a55, // garden
-  11: 0x6a5232, // mud
-  12: 0x76a24a, // wildflower
-  13: 0xbfae86, // gravel / path
-  14: 0xa89a86, // plaza flagstone
-  15: 0x6a6a68, // district cobble (matches 8)
-  16: 0x4a4a48  // dark district cobble (matches 9)
-}
-
-export const TERRAIN_NAMES: Record<number, string> = {
-  0: 'Grass',
-  1: 'Dirt',
-  2: 'Stone',
-  3: 'Water',
-  4: 'Sand',
-  5: 'Dark Grass',
-  6: 'Road',
-  7: 'Snow',
-  8: 'Cobblestone',
-  9: 'Dark Cobble',
-  10: 'Garden',
-  11: 'Mud',
-  12: 'Wildflower',
-  13: 'Gravel Path',
-  14: 'Plaza Flagstone',
-  15: 'District Cobble',
-  16: 'Dark District Cobble'
-}
-
-function hexToRGB(hex: number): string {
-  return '#' + ((hex >> 16) & 0xff).toString(16).padStart(2, '0')
-    + ((hex >> 8) & 0xff).toString(16).padStart(2, '0')
-    + (hex & 0xff).toString(16).padStart(2, '0')
-}
+// The palette and names live in core/terrain.ts — this file used to own its
+// own copy, which is how the editor ended up offering a "Road" swatch that
+// painted grass and drawing the generator's rocky ground as snow. Re-exported
+// because the texture browser imports them from here.
+export { TERRAIN_COLORS, TERRAIN_NAMES } from '../../core/terrain'
+import { TERRAIN_COLORS, TILE_WATER } from '../../core/terrain'
+import { groundWash } from './planStyle'
 
 /**
  * TerrainLayer renders the entire terrain as a single Sprite with a Canvas2D-generated texture.
@@ -124,7 +82,8 @@ export class TerrainLayer {
       for (let x = 0; x < gridW; x++) {
         const tileId = tiles[y]?.[x] ?? 0
         const color = TERRAIN_COLORS[tileId] ?? TERRAIN_COLORS[0]
-        ctx.fillStyle = hexToRGB(color)
+        // Washed back so buildings and props read as figure against it.
+        ctx.fillStyle = groundWash(color, tileId === TILE_WATER)
         ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize)
       }
     }

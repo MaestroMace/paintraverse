@@ -12,39 +12,12 @@ import * as THREE from 'three'
 import { SimplexNoise } from '../generation/noise'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 import { createCobbleTexture } from './CobbleTexture'
+import { TERRAIN_COLORS } from '../core/terrain'
 
 // Tile palette — deliberately punchy so districts read as distinct zones.
 // Cobblestone (8) shifted to warm orange-grey so it visually differs from
 // the blue-grey noble-district stone (2). Alley (9) pushed warmer-darker.
-const TERRAIN_COLORS: Record<number, number> = {
-  0: 0x4a8a3a,  // grass — vivid spring green
-  1: 0xa88868,  // dirt — warm earthy tan
-  2: 0xc8c0a8,  // stone — pale warm sandstone (was cool blue-grey)
-  3: 0x4682b4,  // water — handled separately
-  4: 0xe8d090,  // sand — warm light yellow
-  5: 0x3a7a28,  // dark grass — forest green
-  6: 0x5aae4a,  // light grass — more saturated vivid green
-  7: 0xb0a898,  // gravel — warm light grey
-  8: 0xb09878,  // cobblestone road — warm orange-grey (distinct from alley)
-  9: 0x584838,  // dark cobblestone alley — deep warm brown
-  10: 0x70a060, // garden — green-ish
-  11: 0x7a5c3a, // mud — saturated brown
-  12: 0x78b040, // wildflower — bright apple green
-  13: 0xd8c490, // gravel/path — warm sandy
-  // Plaza / courtyard flagstone. Distinct from 8 (cobblestone STREET) so the
-  // data says whether a tile is circulation or just paved open space — a
-  // building fronting a plaza stands on paving, it does not block a street.
-  // Paler and warmer than street cobble, so squares read as their own space.
-  14: 0xc9b9a2,
-  // District GROUND paving — market and harbor districts are cobbled all over,
-  // which is a material choice, not circulation. Deliberately the same colours
-  // as 8/9 so nothing looks different; they exist so the data can say whether
-  // a cobbled tile is a street or just a cobbled district. paintDistrictTerrain
-  // lays these down before the street network, so real roads overwrite them
-  // with 8/9 exactly where roads actually run.
-  15: 0xb09878, // district cobble (matches 8)
-  16: 0x584838, // dark district cobble (matches 9)
-}
+// Palette and tile semantics: core/terrain.ts (single source of truth).
 
 const WALL_COLOR = new THREE.Color(0x887868) // retaining wall stone — warm sandstone
 

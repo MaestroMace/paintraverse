@@ -1,5 +1,8 @@
 import { Container, Sprite, Texture } from 'pixi.js'
-import type { MapLayer, ObjectDefinition, PlacedObject } from '../../core/types'
+import type { MapLayer, ObjectDefinition } from '../../core/types'
+import {
+  darkenCSS, lightenCSS, structureTint, fitLabel, drawOutlinedText,
+} from './planStyle'
 
 export interface ObjectBounds {
   id: string
@@ -65,6 +68,8 @@ export class StructureLayer {
     canvas.height = maxY
     const ctx = canvas.getContext('2d')!
 
+    const fontSize = Math.max(8, Math.min(11, tileSize * 0.35))
+
     for (const obj of layer.objects) {
       const def = this._defMap.get(obj.definitionId)
       if (!def) continue
@@ -73,7 +78,9 @@ export class StructureLayer {
       const y = obj.y * tileSize
       const w = def.footprint.w * tileSize
       const h = def.footprint.h * tileSize
-      const color = def.color || '#808080'
+      // Tint toward the building's ROLE. Without this the 34 building types
+      // occupy a 30-degree band of brown and the plan cannot be read at all.
+      const color = structureTint(def.color || '#808080', def.tags)
 
       // Building body
       ctx.fillStyle = color
@@ -98,15 +105,19 @@ export class StructureLayer {
       ctx.fillStyle = darkenCSS(color, 0.4)
       ctx.fillRect(x + w / 2 - doorW / 2, y + h - doorH, doorW, doorH)
 
-      // Label
-      ctx.fillStyle = '#ffffff'
-      ctx.font = `${Math.min(11, tileSize * 0.35)}px monospace`
-      ctx.shadowColor = '#000000'
-      ctx.shadowOffsetX = 1
-      ctx.shadowOffsetY = 1
-      ctx.fillText(def.name, x + 3, y + Math.min(13, tileSize * 0.4))
-      ctx.shadowOffsetX = 0
-      ctx.shadowOffsetY = 0
+      // Label — must fit inside its own footprint, and is clipped to it so
+      // that it physically cannot bleed into the neighbouring building even
+      // if the fitting ever gets it wrong.
+      ctx.font = `${fontSize}px monospace`
+      const label = fitLabel(ctx, def.name, w - 8)
+      if (label && h >= fontSize + 6) {
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(x, y, w, h)
+        ctx.clip()
+        drawOutlinedText(ctx, label, x + 4, y + fontSize + 2)
+        ctx.restore()
+      }
 
       this._bounds.push({ id: obj.id, layerId: this._layerId, x, y, width: w, height: h })
     }
@@ -119,20 +130,4 @@ export class StructureLayer {
   getObjectBounds(): ObjectBounds[] {
     return this._bounds
   }
-}
-
-function darkenCSS(hex: string, amount: number): string {
-  const c = parseInt(hex.replace('#', ''), 16)
-  const r = Math.max(0, Math.floor(((c >> 16) & 0xff) * (1 - amount)))
-  const g = Math.max(0, Math.floor(((c >> 8) & 0xff) * (1 - amount)))
-  const b = Math.max(0, Math.floor((c & 0xff) * (1 - amount)))
-  return '#' + r.toString(16).padStart(2, '0') + g.toString(16).padStart(2, '0') + b.toString(16).padStart(2, '0')
-}
-
-function lightenCSS(hex: string, amount: number): string {
-  const c = parseInt(hex.replace('#', ''), 16)
-  const r = Math.min(255, Math.floor(((c >> 16) & 0xff) * (1 + amount)))
-  const g = Math.min(255, Math.floor(((c >> 8) & 0xff) * (1 + amount)))
-  const b = Math.min(255, Math.floor((c & 0xff) * (1 + amount)))
-  return '#' + r.toString(16).padStart(2, '0') + g.toString(16).padStart(2, '0') + b.toString(16).padStart(2, '0')
 }

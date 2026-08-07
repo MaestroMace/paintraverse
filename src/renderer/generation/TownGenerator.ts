@@ -2,6 +2,7 @@ import { v4 as uuid } from 'uuid'
 import type { MapDocument, MapLayer, PlacedObject, GenerationConfig, EnvironmentState } from '../core/types'
 import type { IMapGenerator } from './GeneratorRegistry'
 import { createRNG, SimplexNoise, poissonDiskSampling, nearestPoint, perturbedDistance } from './noise'
+import { isCirculation } from '../core/terrain'
 
 // === District System ===
 
@@ -2601,8 +2602,7 @@ export class TownGenerator implements IMapGenerator {
     terrain?: number[][],
   ): PlacedObject[] {
     const paved = (x: number, y: number): boolean => {
-      const t = terrain?.[y]?.[x]
-      return t === 8 || t === 9
+      return isCirculation(terrain?.[y]?.[x])
     }
     const walls: PlacedObject[] = []
     if (buildings.length < 10) return walls
