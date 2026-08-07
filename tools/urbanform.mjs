@@ -108,6 +108,27 @@ for (const seed of seeds) {
       }
     }
 
+    // --- FRONTAGE BY SIDE ----------------------------------------------
+    // Footprints extend +X/+Y from their origin tile, so a building can only
+    // butt against a road lying to its NORTH or WEST — a road to the south or
+    // east would be overlapped by the building's own footprint and the
+    // placement is rejected. If that asymmetry is real, frontage occupancy
+    // splits by side, and half of every street is structurally set back.
+    const bySide = { N: [0, 0], S: [0, 0], E: [0, 0], W: [0, 0] }
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (!isRoad(x, y)) continue
+        const dirs = [[0, -1, 'N'], [0, 1, 'S'], [1, 0, 'E'], [-1, 0, 'W']]
+        for (const [dx, dy, name] of dirs) {
+          const nx = x + dx, ny = y + dy
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue
+          if (isRoad(nx, ny) || isWater(nx, ny)) continue
+          bySide[name][1]++
+          if (built[ny][nx] >= 0) bySide[name][0]++
+        }
+      }
+    }
+
     // --- PARTY WALLS ---------------------------------------------------
     // A building touches a neighbour when any of its tiles is orthogonally
     // adjacent to a tile of a DIFFERENT building.
@@ -172,6 +193,7 @@ for (const seed of seeds) {
       touching: touches.size,
       land, landBuilt,
       widths: ratios,
+      bySide,
     }
   })
   if (!r) { console.log(`seed ${seed}: no terrain`); continue }
@@ -204,6 +226,22 @@ const all = rows.reduce((a, r) => ({
   t: a.t + r.touching, l: a.l + r.land, lb: a.lb + r.landBuilt,
   w: a.w.concat(r.widths),
 }), { b: 0, ft: 0, fb: 0, t: 0, l: 0, lb: 0, w: [] })
+
+// Frontage occupancy split by which side of the road the land is on. Roughly
+// equal means the placer is symmetric; a big N/W vs S/E gap means the
+// top-left footprint anchor is structurally setting back half of every street.
+const sides = { N: [0, 0], S: [0, 0], E: [0, 0], W: [0, 0] }
+for (const r of rows) {
+  for (const k of ['N', 'S', 'E', 'W']) {
+    sides[k][0] += r.bySide[k][0]
+    sides[k][1] += r.bySide[k][1]
+  }
+}
+console.log('\nFRONTAGE OCCUPANCY BY SIDE (is the placer symmetric?):')
+for (const k of ['N', 'S', 'E', 'W']) {
+  console.log(`  land ${k} of the road: ${String(pct(sides[k][0], sides[k][1]) + '%').padStart(5)}` +
+    `   (${sides[k][1]} edges)`)
+}
 
 console.log('\nWHAT A REAL WALLED TOWN LOOKS LIKE, for comparison:')
 console.log('  frontage with a building against it   ~85-95%   here: ' +

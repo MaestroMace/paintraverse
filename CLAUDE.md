@@ -569,6 +569,34 @@ between the road edge and the nearest building. The buildings are not pulled up
 to their frontage. That is what the plot system has to fix, and it is worth
 more than any amount of prop scatter.
 
+### The setback has a specific, measurable cause
+
+`urbanform.mjs` also splits frontage occupancy by which side of the road the
+land is on, and the split is not random:
+
+    land N of the road: 38%      land E of the road: 59%
+    land S of the road: 45%      land W of the road: 58%
+
+North-south streets are served half again as well as east-west ones. The cause
+is in `placeBuildings`: `const bw = type.w, bh = type.h` takes the footprint
+as authored, whatever direction the street runs. A 1x2 row house therefore
+presents a TWO tile face to a north-south street and a ONE tile face to an
+east-west one, so the same building covers twice the frontage on one axis as
+on the other. Half the streets in every town are structurally worse served
+than the other half and nobody chose that.
+
+The fix is to orient the plot to its street — short side on the frontage,
+depth running away from it, which is what makes a terrace a terrace and is the
+same shape on both axes once oriented. **An attempt at this was reverted**: it
+is not a local change, because `BuildingFactory` and `GeometryAudit` both look
+the footprint up by definition id, so a reserved h x w rectangle has to be
+communicated to both (a `plotRotated` property) and the building's base
+rotation turned to match. Threading all three produced a town with zero
+buildings and no exception — every candidate silently rejected — and it needs
+a session with room to bisect rather than the tail of one. Start here: it is
+the highest-value item in the rework and the measurement is already in place
+to grade it.
+
 Cheap side effect of the narrowing, worth keeping: ~+9 buildings per town and
 coverage 48% -> 49%, because narrower streets return land to the blocks.
 
