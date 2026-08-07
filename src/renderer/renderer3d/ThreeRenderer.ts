@@ -23,6 +23,11 @@ const WALK_SPEED = 6.0
 // world units, so the old 10 made every debug fly-through a slow pan.
 const FLY_SPEED = 24.0
 
+/** How far from the player the sun's shadow map covers, in metres. Also sizes
+ *  the shadow normalBias — the two have to agree or the map either self-shadows
+ *  or peter-pans. */
+const SHADOW_RADIUS = 40
+
 /** Player's horizontal half-width, in metres. Used by isBlocked so the player
  *  is a disc rather than the dimensionless point it used to be. */
 const PLAYER_RADIUS = 0.35
@@ -316,9 +321,16 @@ export class ThreeRenderer {
     // than loss of detail. On integrated GPUs the shadow rasterization
     // pass is one of the bigger frame-time contributors; cutting it 4×
     // here (and 16× from the original 1024²) is a clean GPU win.
-    this.sunLight.shadow.mapSize.set(256, 256)
+    this.sunLight.shadow.mapSize.set(512, 512)
     this.sunLight.shadow.bias = -0.0008
-    this.sunLight.shadow.normalBias = 0.04
+    // A 36m frustum across 256 texels is 14cm per texel, and normalBias has to
+    // clear roughly that much geometry or the surface shadows itself. 0.04 was
+    // under a third of a texel, which is why big sunlit walls picked up acne
+    // at dusk — a grazing sun is the worst case for it, and dusk is the whole
+    // point of this scene. Sized to the texel, so it stays right if either the
+    // radius or the map size moves.
+    this.sunLight.shadow.normalBias =
+      (2 * SHADOW_RADIUS / this.sunLight.shadow.mapSize.x) * 1.2
     this.sunLight.shadow.camera.near = 1
     this.sunLight.shadow.camera.far = 200
     this.scene.add(this.sunLight)
@@ -412,6 +424,16 @@ export class ThreeRenderer {
     this.renderer.shadowMap.autoUpdate = false
     this.renderer.shadowMap.needsUpdate = true
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
+    // Roll the highlights off instead of clipping them. With no tone mapping,
+    // a surface facing the noon sky takes sun 1.2 + ambient 0.42 + hemisphere
+    // 0.40 and everything above 1.0 is thrown away — so midday paving fused
+    // into a flat white sheet with the texture washed out of it. This is the
+    // same defect the Canvas2D light map had ("clamping is not tone mapping");
+    // the 3D path only dodged it while the town was sparse enough not to
+    // saturate. Exposure is above 1 because ACES pulls midtones down and dusk,
+    // which is the look this scene is tuned for, is nearly all midtones.
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+    this.renderer.toneMappingExposure = 1.15
     // Disable automatic reset of renderer.info so we can snapshot scene
     // draw-call / triangle counts before the composer's OutputPass
     // overwrites them. We reset at the start of each rAF loop.
@@ -900,7 +922,6 @@ export class ThreeRenderer {
     // shadow edges at eye level, and the shadow pass only iterates the
     // handful of buildings inside the frustum. Previous 28m covered most
     // of a 48-tile town so practically every wall was a caster.
-    const SHADOW_RADIUS = 18
     const r = Math.min(this.townRadius, SHADOW_RADIUS)
     cam.left = -r
     cam.right = r

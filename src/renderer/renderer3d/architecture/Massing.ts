@@ -1070,6 +1070,40 @@ export function pickMassing(input: PickMassingInput): MassingResult {
     }
   }
 
+  // === COINCIDENT FACES ===
+  //
+  // Several templates put a volume's side face EXACTLY on the main body's:
+  // the corner tower sits at `footW/2 - towerW/2`, the L-shape wing at
+  // `wingSide * (footW/2 - wingW/2)`. Both make the outer face land on
+  // footW/2 — the same plane as the main body's outer face. Two coplanar,
+  // overlapping, same-facing quads is a depth-buffer tie, and it resolves
+  // differently per pixel and per frame: the flickering overlapping textures
+  // reported from the device.
+  //
+  // Nudging the attached volume OUTWARD by a couple of centimetres breaks the
+  // tie. Outward rather than inward because these volumes are meant to read as
+  // attached — pulling one in opens a visible seam, pushing it out just makes
+  // it very slightly proud, well under the overhang cap it was clipped to.
+  const ZFIGHT_EPS = 0.02
+  for (const v of volumes) {
+    if (v.role === 'mainBody') continue
+    for (const o of volumes) {
+      if (o === v) continue
+      // Only a real tie if the two actually share vertical range; volumes
+      // stacked on top of each other meet edge-on and cull cleanly.
+      const vTop = v.bottomY + v.height, oTop = o.bottomY + o.height
+      if (vTop <= o.bottomY + 0.01 || oTop <= v.bottomY + 0.01) continue
+      for (const s of [-1, 1]) {
+        if (Math.abs((v.offsetX + s * v.width / 2) - (o.offsetX + s * o.width / 2)) < ZFIGHT_EPS) {
+          v.offsetX += s * ZFIGHT_EPS
+        }
+        if (Math.abs((v.offsetZ + s * v.depth / 2) - (o.offsetZ + s * o.depth / 2)) < ZFIGHT_EPS) {
+          v.offsetZ += s * ZFIGHT_EPS
+        }
+      }
+    }
+  }
+
   // Roof heights are derived from wall height, so a slim volume could carry a
   // roof many times its own width. Clamp on the Volume itself — not just at
   // draw time — so every consumer of v.roofHeight (ridge caps, finials,
