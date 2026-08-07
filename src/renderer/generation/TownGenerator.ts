@@ -262,7 +262,7 @@ export class TownGenerator implements IMapGenerator {
       [...buildings, ...landmarks, ...bridges])
 
     // 12b. Town walls around perimeter
-    const townWalls = this.placeWalls(width, height, roadMap, waterMap, [...buildings, ...landmarks], gates, rng)
+    const townWalls = this.placeWalls(width, height, roadMap, waterMap, [...buildings, ...landmarks], gates, rng, terrainTiles)
 
     // 12c. Grand courtyards — intentional enclosed spaces with symmetry
     const courtyardProps = this.generateGrandCourtyards(
@@ -2535,8 +2535,11 @@ export class TownGenerator implements IMapGenerator {
         case 'left':   px = sx - 1; py = sy + 1; break
         case 'right':  px = sx + 3; py = sy + 1; break
       }
-      // Paint passage tiles
-      if (px >= 0 && px < w && py >= 0 && py < h) {
+      // Paint passage tiles. buildingMap is built at the top of this method
+      // but was never consulted here, so a passage could be painted straight
+      // onto a building's footprint — which then reads (correctly) as a
+      // building standing in an alley.
+      if (px >= 0 && px < w && py >= 0 && py < h && !buildingMap[py][px]) {
         terrain[py][px] = 9 // dark cobblestone (narrow passage)
       }
     }
@@ -2549,8 +2552,16 @@ export class TownGenerator implements IMapGenerator {
     w: number, h: number,
     roadMap: boolean[][], waterMap: boolean[][],
     buildings: PlacedObject[], gates: PlacedObject[],
-    rng: () => number
+    rng: () => number,
+    /** Terrain, because carveAlleys paints alley tiles (9) between buildings
+     *  WITHOUT registering them in roadMap — so a roadMap-only check happily
+     *  walled off an alley. */
+    terrain?: number[][],
   ): PlacedObject[] {
+    const paved = (x: number, y: number): boolean => {
+      const t = terrain?.[y]?.[x]
+      return t === 8 || t === 9
+    }
     const walls: PlacedObject[] = []
     if (buildings.length < 10) return walls
 
@@ -2602,6 +2613,7 @@ export class TownGenerator implements IMapGenerator {
       if (occupied.has(`${x},${y}`) || occupied.has(`${x + 1},${y}`)) return
       if (waterMap[y]?.[x] || waterMap[y]?.[x + 1]) return
       if (roadMap[y]?.[x] || roadMap[y]?.[x + 1]) return
+      if (paved(x, y) || paved(x + 1, y)) return
       if (isGateNear(x, y)) return
       occupied.add(`${x},${y}`)
       occupied.add(`${x + 1},${y}`)
@@ -2612,6 +2624,7 @@ export class TownGenerator implements IMapGenerator {
       if (occupied.has(`${x},${y}`) || occupied.has(`${x},${y + 1}`)) return
       if (waterMap[y]?.[x] || waterMap[y + 1]?.[x]) return
       if (roadMap[y]?.[x] || roadMap[y + 1]?.[x]) return
+      if (paved(x, y) || paved(x, y + 1)) return
       if (isGateNear(x, y)) return
       occupied.add(`${x},${y}`)
       occupied.add(`${x},${y + 1}`)
@@ -2636,6 +2649,7 @@ export class TownGenerator implements IMapGenerator {
         for (let dx = 0; dx < 2 && !blocked; dx++) {
           if (occupied.has(`${pos.x + dx},${pos.y + dy}`)) blocked = true
           if (roadMap[pos.y + dy]?.[pos.x + dx]) blocked = true
+          if (paved(pos.x + dx, pos.y + dy)) blocked = true
         }
       }
       if (blocked) continue
