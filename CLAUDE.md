@@ -76,6 +76,10 @@ Then `Read` the extracted PNG to see the scene. The diagnostic JSON shows:
 
 ## Critical files map
 
+### Shared vocabulary (import these, never re-declare)
+- `src/renderer/core/terrain.ts` — tile ids, colours, names, `isCirculation()`.
+  All three renderers read this one table.
+
 ### Rendering (3D)
 - `src/renderer/renderer3d/ThreeRenderer.ts` — main renderer, scene, loop
 - `src/renderer/renderer3d/BuildingFactory.ts` — per-building mesh emission,
@@ -97,6 +101,21 @@ Then `Read` the extracted PNG to see the scene. The diagnostic JSON shows:
   building placement (Phase B walks road edges + row-streak extension),
   vegetation, props
 - `src/renderer/generation/noise.ts` — SimplexNoise + fbm
+
+### Pixel-art export path (the Render / Export PNG buttons)
+- `src/renderer/renderer3d/Canvas2DRenderer.ts` — the whole painterly
+  renderer: `shadeFace` (ambient + sun + hemisphere skylight, tone-mapped),
+  building blueprints, prop drawing, light-source collection
+- `src/renderer/renderer3d/RenderPipeline.ts` — `renderLightMap` (float
+  accumulation + tone map), post-process, bloom, palette quantization
+
+### 2D editor plan view
+- `src/renderer/editor/layers/planStyle.ts` — role tints, ground wash, prop
+  glyph vocabulary, label fitting. Shared by both object layers.
+- `src/renderer/editor/layers/{Structure,Prop,Terrain}Layer.ts` — each bakes
+  its whole layer to ONE canvas texture (SwiftShader can't take hundreds of
+  Pixi draw calls). Rendered at `map.tileSize`; zoom is a container scale, so
+  a label that fits once always fits.
 
 ### UI
 - `src/renderer/ui/panels/RenderPanel.tsx` — debug dump export (embeds
@@ -123,9 +142,12 @@ Verified against the code; if you change one, change it here too.
 - Birds: max 15, dusk-only. Smoke: 2 × 16 chimneys = 32. Fireflies: 36.
 - Lampposts: ~28 per 48×48 town, spaced along every road; all their ground
   light pools are merged into ONE mesh sharing `_lampPoolMat`
-- Terrain tile ids: 3 water · 8 street cobble · 9 alley · 14 plaza flagstone ·
-  15/16 district cobble. **Only 8 and 9 are circulation** — 14/15/16 are
-  paving, so a building standing on them is not blocking a street.
+- Terrain tile ids live in **`src/renderer/core/terrain.ts`** — one table for
+  all three renderers, plus `isCirculation()`. 3 water · 8 street cobble ·
+  9 alley · 14 plaza flagstone · 15/16 district cobble. **Only 8 and 9 are
+  circulation** — 14/15/16 are paving, so a building standing on them is not
+  blocking a street. Never re-declare this table; three copies had already
+  drifted into disagreeing about what tiles *mean*.
 
 ## Hard-won lessons (don't repeat)
 
@@ -174,6 +196,32 @@ Verified against the code; if you change one, change it here too.
   after the real one became 1.8. BuildingFactory now reports `BuildingTop`
   and there is one calculation.
 
+### Drift and blind-spot lessons (the plan-view / pixel-art arc)
+
+- **Hand-threaded argument lists are a bug generator.** Six prop placers each
+  hand-listed "everything placed so far" by spreading up to nine arrays. Three
+  sources were simply never threaded in, so road markers landed on lampposts.
+  `generate()` now keeps `anchors` / `blockers` / `placedProps` accumulators
+  and `allProps` IS the accumulator — there is no second list to forget.
+- **Duplicated *presentation* drifts too, and worse: it drifts in MEANING.**
+  Three copies of TERRAIN_COLORS disagreed about what tiles are — id 6 was
+  "light grass" in 3D and "Road" in the editor's own name table; id 7 was
+  gravel vs "Snow"; ids 14/15/16 didn't exist in the pixel-art path at all,
+  so plazas exported as fallback grey.
+- **An output nobody can see WILL be broken.** The Render / Export PNG path
+  had no headless capture and was producing a white blob with black spires.
+  Four real defects were hiding there. If a code path produces output, build
+  a way to look at it — that is what found every one of them.
+- **Clamping is not tone mapping.** Both the light map (`'lighter'` into 8-bit)
+  and `shadeFace` (`Math.min(1, ...)`) clipped instead of rolling off. Each
+  looked fine at low density and collapsed as the town got richer: the light
+  map saturated to white once lamps went 9 → 28, and midday paving fused into
+  a flat white sheet. Both now use `1 - exp(-x)`.
+- **Compare two times of day to split a lighting bug from a draw bug.** The
+  black spires looked like broken geometry. Rendering the same seed at noon
+  showed them perfectly coloured, which localised it to dusk exposure in one
+  step. `tools/pixelart.mjs --time=12`.
+
 ## Current state summary (as of last commit)
 
 - Scale fixed (FLOOR_HEIGHT 1.8), lamp pools as ground discs, chimneys
@@ -193,29 +241,36 @@ Verified against the code; if you change one, change it here too.
 - Shadow: 512² map, PCF, camera-follow at 28m radius
 - Bloom half-res, composer gated in daytime
 - Debug dump exposes honest FPS, draw calls, frame time split
+- Street network narrowed (circulation 48% → 39-43% of tiles), which turned
+  the freed land into ~40 more buildings: ~165-222 structures per town
+- Placement audit is at **0 errors AND 0 warnings across 16 seeds**
+- Plan view reads: role-tinted buildings, prop glyphs, labels that fit
+- Pixel-art export works at every hour (see tools/pixelart.mjs)
 
 ## What's still open / what to push on next
 
-Items 1-4 of the old list (buildings cut off by roads, window trim, shop
-signs, market awnings) are DONE — verified, not assumed. Current state:
+Everything on the previous list except perf has been done and verified.
+Current state:
 
-1. **Ground-level life is thin.** Streets are lit now, but barrels / crates /
-   benches cluster against buildings rather than along the street edge, so
-   the walkable space still reads empty. Highest remaining aesthetic payoff.
-2. **`prop-in-water` warnings** (1-4 per seed) — the last audit items.
-   Props standing on water tiles; cosmetic but real.
-3. **Only 7 of 154 buildings are trade types**, and the market district is
-   mostly plain row houses. Signage now compensates on the render side, but
+1. **Ground-level life is thin.** Streets are lit and kerb-dressed now, but
+   the walkable space could still carry more. Highest aesthetic payoff.
+2. **Only ~7 of ~200 buildings are trade types**, and market districts are
+   mostly plain row houses. Signage compensates on the render side, but
    biasing district building-type weights would make markets read as markets
-   from the plan view too.
-4. **The 2D editor and the pixel-art Canvas2D path have had no attention**
-   this whole arc — all recent work is the Three.js walkaround. The
-   Canvas2DRenderer has its own copies of building/prop logic that have
-   almost certainly drifted from the 3D path.
-5. **Perf on real hardware is unmeasured.** ~125k triangles at ~300-600 draw
+   in the plan view too. This is now easy to *see*, since the plan colours by
+   role — a market district that looks residential is visibly wrong.
+3. **Row placement predates the narrowing.** Streets are much tighter than
+   when the row-streak logic was tuned; worth revisiting whether rows should
+   hug the new lanes more aggressively.
+4. **Perf on real hardware is unmeasured.** ~125k triangles at ~300-600 draw
    calls is unremarkable for a GPU; the low FPS in agent screenshots is
    SwiftShader software rendering with no GPU. Don't optimise against that
-   number — get a debug dump from real hardware first.
+   number — get a debug dump from real hardware first. The narrowing added
+   ~40 buildings per town, so this is more worth checking than it was.
+5. **The 3D walkaround has no equivalent of the pixel-art tone-mapping fix.**
+   Its composer/bloom is disabled, so it dodged the problem, but if bloom is
+   ever re-enabled check it against a dense dusk town, not a sparse one —
+   that is exactly how the Canvas2D light map got away with being broken.
 
 ## Quick reference — where commands live
 
@@ -234,11 +289,24 @@ npm install && npm run build
 xvfb-run -a -s "-screen 0 1400x900x24" node tools/screenshot.mjs   # or: npm run shot
 ```
 
-Screenshots land in `.shots/`. Two more tools and a live bridge:
+**Every tool needs `xvfb-run` on a headless box** — Electron exits with
+"Missing X server or $DISPLAY" otherwise, and the failure looks like a
+SIGSEGV crash rather than a missing display.
+
+Screenshots land in `.shots/`. Three more tools and a live bridge:
 
 - `node tools/audit.mjs [seeds...] [--max-errors=N]` — placement invariants
-  (see `renderer3d/GeometryAudit.ts`). Currently **0 errors**; exits non-zero
-  above the budget, so run it after touching placement or massing.
+  (see `renderer3d/GeometryAudit.ts`). Currently **0 errors, 0 warnings across
+  16 seeds**; exits non-zero above the budget, so run it after touching
+  placement or massing. Never raise the budget to make a red run green.
+  Regression seeds: `4242 777 31337 11 65535 2024 8080 999999`. Untested
+  seeds keep finding real bugs — the last sweep of eight fresh ones caught a
+  town gate standing in a river, so add new seeds, don't just rerun these.
+- `node tools/pixelart.mjs [seeds...] [--time=12]` — captures the **pixel-art
+  render path** (Render / Export PNG), which the screenshot harness cannot
+  see because the result lands in an `<img>`, not a canvas. `--time` renders
+  a different hour; comparing dusk against noon is the fastest way to tell a
+  lighting bug from a draw bug.
 - `node tools/inspect.mjs <seed> <issue-kind>` — flies the camera to flagged
   objects and screenshots them.
 - `window.__pt` (see `debug/DebugBridge.ts`) — from devtools or
