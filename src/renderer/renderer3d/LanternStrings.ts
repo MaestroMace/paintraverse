@@ -14,6 +14,8 @@ import * as THREE from 'three'
 import type { MapDocument, ObjectDefinition } from '../core/types'
 import { getTerrainHeight } from './TerrainMesh'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
+import type { BuildingTop } from './BuildingFactory'
+import { TILE } from './scale'
 
 // Fallback hang height above ground, used only when a building's real roof
 // height isn't available. Buildings are 2-4 floors at 1.8m, so a fixed 3.2m
@@ -32,9 +34,16 @@ const SEGMENTS = 10
 const LANTERN_COUNT = 3
 // Limit on total strings per map — performance bound.
 const MAX_STRINGS = 25
-// Pair filter: accept when building centers are this far apart in XZ.
-const MIN_DIST = 2.6
-const MAX_DIST = 5.0
+// Pair filter: accept when building centers are this far apart in XZ. The
+// centres are world positions, so these are metres — the tuned values were
+// 2.6-5.0 TILES, which is what the factor preserves. Without it the filter
+// would only ever match buildings closer than two tiles and no string would
+// span a street, which is the entire point of them.
+const MIN_DIST = 2.6 * TILE
+const MAX_DIST = 5.0 * TILE
+// Rope sag and lantern drop scale with the span, not with a fixed number of
+// world units, or a 15m string hangs as taut as a 8m one.
+const SAG_FRACTION = 0.045
 
 const _lanternMat = new THREE.MeshLambertMaterial({
   color: 0xffcc44,
@@ -84,6 +93,10 @@ export function buildWallLanterns(
   map: MapDocument,
   defMap: Map<string, ObjectDefinition>,
   heightMap: number[][] | null,
+  /** Real per-building extents from BuildingFactory, keyed by object id.
+   *  These carry where the WALL is; the footprint only says which tiles the
+   *  generator reserved. */
+  tops?: Map<string, BuildingTop>,
 ): THREE.Mesh | null {
   const structureLayer = map.layers.find(l => l.type === 'structure')
   if (!structureLayer) return null
@@ -100,24 +113,43 @@ export function buildWallLanterns(
     const h = simpleHash(obj.id)
     if (h % 100 >= 18) continue
     const def = defMap.get(obj.definitionId)
-    const fp = def?.footprint ?? { w: 1, h: 1 }
-    const cx = obj.x + fp.w / 2
-    const cz = obj.y + fp.h / 2
-    const groundY = heightMap ? getTerrainHeight(heightMap, cx, cz) : 0
+    const fpT = def?.footprint ?? { w: 1, h: 1 }
+    const ctx = obj.x + fpT.w / 2
+    const ctz = obj.y + fpT.h / 2
+    const groundY = heightMap ? getTerrainHeight(heightMap, ctx, ctz) : 0
     const mountY = groundY + 2.4
-    // Pick a wall side deterministically; project out from wall by
-    // footprint-half + a small offset so the lantern hangs in free air.
+
+    // Where the wall IS, from the building that built it — not the footprint
+    // rectangle, which is a reservation the massing sits inside. Hanging a
+    // bracket off the footprint edge left the lantern floating in the gap;
+    // at 3m tiles that gap is metres wide. Fall back to the footprint only
+    // when the building failed to emit (it is then absent from `tops`).
+    const top = tops?.get(obj.id)
+    const cx = top ? top.centerX : ctx * TILE
+    const cz = top ? top.centerZ : ctz * TILE
+    const halfW = top ? top.halfW : (fpT.w * TILE) / 2
+    const halfD = top ? top.halfD : (fpT.h * TILE) / 2
+    const yaw = top ? top.rotationY : 0
+
+    // Pick a wall side deterministically, step out to that wall face in the
+    // building's own frame, then rotate into world so the lantern lands on
+    // the wall even when the building is turned.
     const side = h % 4
-    let px = cx, pz = cz
-    const offset = 0.35
-    if (side === 0) { pz = obj.y - offset }               // north wall
-    else if (side === 1) { pz = obj.y + fp.h + offset }   // south wall
-    else if (side === 2) { px = obj.x - offset }          // west wall
-    else { px = obj.x + fp.w + offset }                   // east wall
+    const offset = 0.18
+    let lx = 0, lz = 0
+    if (side === 0) lz = -(halfD + offset)        // north wall
+    else if (side === 1) lz = halfD + offset      // south wall
+    else if (side === 2) lx = -(halfW + offset)   // west wall
+    else lx = halfW + offset                      // east wall
+    const cosY = Math.cos(yaw), sinY = Math.sin(yaw)
+    const px = cx + lx * cosY - lz * sinY
+    const pz = cz + lx * sinY + lz * cosY
 
     // Bracket — a dark thin box from the wall to the lantern.
-    const bracketDx = side === 2 ? 0.2 : side === 3 ? -0.2 : 0
-    const bracketDz = side === 0 ? 0.2 : side === 1 ? -0.2 : 0
+    const bdx = side === 2 ? 0.2 : side === 3 ? -0.2 : 0
+    const bdz = side === 0 ? 0.2 : side === 1 ? -0.2 : 0
+    const bracketDx = bdx * cosY - bdz * sinY
+    const bracketDz = bdx * sinY + bdz * cosY
     const bracketLen = 0.3
     const bracket = new THREE.BoxGeometry(
       (side === 0 || side === 1) ? 0.03 : bracketLen,
@@ -143,6 +175,20 @@ export function buildWallLanterns(
   return mesh
 }
 
+/**
+ * How far a building's footprint reaches from its centre along a direction —
+ * the exact support function of a yawed box, `hw*|ux| + hd*|uz|` measured in
+ * the box's own frame. Used to stop lantern ropes at the wall.
+ */
+function supportRadius(
+  b: { halfW: number; halfD: number; yaw: number }, ux: number, uz: number
+): number {
+  const c = Math.cos(-b.yaw), s = Math.sin(-b.yaw)
+  const lx = ux * c - uz * s
+  const lz = ux * s + uz * c
+  return b.halfW * Math.abs(lx) + b.halfD * Math.abs(lz)
+}
+
 /** Simple string hash for obj.id → integer. */
 function simpleHash(s: string): number {
   let n = 0
@@ -157,7 +203,7 @@ export function buildLanternStrings(
   /** Real per-building tops from BuildingFactory, keyed by object id. Without
    *  these the rope falls back to a fixed height above the ground and cuts
    *  through the buildings it connects. */
-  tops?: Map<string, { mainWallTopY: number }>,
+  tops?: Map<string, BuildingTop>,
 ): LanternStringsResult {
   const structureLayer = map.layers.find(l => l.type === 'structure')
   if (!structureLayer) return { ropeMesh: null, lanternMesh: null }
@@ -170,17 +216,30 @@ export function buildLanternStrings(
     'archway', 'town_gate', 'gatehouse', 'staircase', 'aqueduct',
     'watchtower',
   ])
-  const centers: Array<{ cx: number; cz: number; groundY: number; eaveY: number }> = []
+  // halfW/halfD/yaw ride along so the rope can stop AT each building instead
+  // of at its centre — see the endpoint pull-in below.
+  const centers: Array<{
+    cx: number; cz: number; groundY: number; eaveY: number
+    halfW: number; halfD: number; yaw: number
+  }> = []
   for (const obj of structureLayer.objects) {
     if (EXCLUDE.has(obj.definitionId)) continue
     const def = defMap.get(obj.definitionId)
-    const fp = def?.footprint ?? { w: 1, h: 1 }
-    const cx = obj.x + fp.w / 2
-    const cz = obj.y + fp.h / 2
-    const groundY = heightMap ? getTerrainHeight(heightMap, cx, cz) : 0
+    const fpT = def?.footprint ?? { w: 1, h: 1 }
+    const ctx = obj.x + fpT.w / 2
+    const ctz = obj.y + fpT.h / 2
+    const groundY = heightMap ? getTerrainHeight(heightMap, ctx, ctz) : 0
     // Top of this building's walls — where a rope can actually be tied.
-    const eaveY = tops?.get(obj.id)?.mainWallTopY ?? (groundY + HANG_HEIGHT)
-    centers.push({ cx, cz, groundY, eaveY })
+    const t = tops?.get(obj.id)
+    const eaveY = t?.mainWallTopY ?? (groundY + HANG_HEIGHT)
+    centers.push({
+      cx: t ? t.centerX : ctx * TILE,
+      cz: t ? t.centerZ : ctz * TILE,
+      groundY, eaveY,
+      halfW: t ? t.halfW : (fpT.w * TILE) / 2,
+      halfD: t ? t.halfD : (fpT.h * TILE) / 2,
+      yaw: t ? t.rotationY : 0,
+    })
   }
   if (centers.length < 2) return { ropeMesh: null, lanternMesh: null }
 
@@ -204,7 +263,21 @@ export function buildLanternStrings(
       // overhead. Averaging ground heights (the old behaviour) ignored how
       // tall the buildings actually were.
       const y = Math.max(a.eaveY, b.eaveY) + EAVE_CLEARANCE
-      strings.push({ ax: a.cx, az: a.cz, bx: b.cx, bz: b.cz, y })
+      // Tie the rope off at each building's WALL, not its centre. Spanning
+      // centre to centre buried most of the rope inside the two buildings it
+      // connected and left it poking out of their far sides — invisible when
+      // buildings were a metre wide, obvious once they are ten.
+      const ux = -dx / d, uz = -dz / d          // unit vector a -> b
+      const inA = supportRadius(a, ux, uz)
+      const inB = supportRadius(b, -ux, -uz)
+      // Nothing left to span once both buildings are pulled in: skip rather
+      // than emit a backwards rope.
+      if (inA + inB >= d - 0.5) continue
+      strings.push({
+        ax: a.cx + ux * inA, az: a.cz + uz * inA,
+        bx: b.cx - ux * inB, bz: b.cz - uz * inB,
+        y,
+      })
       usage[i]++
       usage[j]++
       break
@@ -222,11 +295,13 @@ export function buildLanternStrings(
   for (const s of strings) {
     // Sample the catenary (simple sagged lerp) at SEGMENTS+1 points.
     const points: Array<[number, number, number]> = []
+    const span = Math.hypot(s.bx - s.ax, s.bz - s.az)
+    const sagDepth = Math.max(SAG, span * SAG_FRACTION)
     for (let k = 0; k <= SEGMENTS; k++) {
       const t = k / SEGMENTS
       const x = s.ax * (1 - t) + s.bx * t
       const z = s.az * (1 - t) + s.bz * t
-      const sag = SAG * Math.sin(Math.PI * t)  // 0 at endpoints, max at t=0.5
+      const sag = sagDepth * Math.sin(Math.PI * t)  // 0 at endpoints, max at t=0.5
       points.push([x, s.y - sag, z])
     }
     // Rope segments: a thin box from each point to the next.

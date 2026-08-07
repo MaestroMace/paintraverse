@@ -19,6 +19,7 @@ import { pickMassing, volumeFloors } from './architecture/Massing'
 import { gableMath } from './architecture/Roofs'
 import { emitVolume, localToWorld, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
 import { pickPaletteForStyle } from './architecture/PaletteBias'
+import { TILE } from './scale'
 
 /** Re-export so ThreeRenderer can keep importing from BuildingFactory. */
 export const setWallEmissiveIntensity = setVolumeEmissiveIntensity
@@ -33,7 +34,7 @@ const VALID_DISTRICTS: Set<string> = new Set([
 // player towering over a toy town ("kaiju" scale). Bumped to 1.8 so a
 // 2-story is a comfortable 3.6m and a 3-story is 5.4m, letting the player
 // feel inside the architecture rather than above it.
-const FLOOR_HEIGHT = 1.8
+export const FLOOR_HEIGHT = 1.8
 
 // Districts where buildings should read as urban — taller floor counts.
 const URBAN_DISTRICTS = new Set<string>([
@@ -129,6 +130,14 @@ export interface BuildingTop {
   mainWallTopY: number
   /** Main body's roof height (0 when flat). */
   mainRoofH: number
+  /** World-space centre of the MAIN BODY — not the footprint centre. */
+  centerX: number
+  centerZ: number
+  /** Main body's half-extents in world units, before yaw. */
+  halfW: number
+  halfD: number
+  /** Yaw applied to the whole building, radians. */
+  rotationY: number
 }
 
 export interface BuildingBatchResult {
@@ -221,7 +230,15 @@ export function buildBuildingMeshes(
     attempted++
     try {
 
-    const fp = FOOTPRINTS[obj.definitionId] || { w: def.footprint.w, h: def.footprint.h }
+    // TWO footprints, and the distinction matters everywhere below.
+    //   fpT — the footprint in TILES, as the generator reserved it. Use for
+    //         anything that indexes the map: terrain sampling, per-tile loops,
+    //         and the "is this building big enough for a stoop?" gates.
+    //   fp  — the same footprint in WORLD units. Use for every geometry
+    //         dimension and local offset, which is nearly all of them.
+    // See scale.ts for why one tile is not one metre.
+    const fpT = FOOTPRINTS[obj.definitionId] || { w: def.footprint.w, h: def.footprint.h }
+    const fp = { w: fpT.w * TILE, h: fpT.h * TILE }
     const hash = simpleHash(obj.id)
     const style = (obj.properties.style as string) || 'standard'
     const district = (obj.properties.district as string) || 'residential'
@@ -277,12 +294,12 @@ export function buildBuildingMeshes(
     // We *ignore* obj.elevation when getHeight is available: the generator
     // stored elevation in raw heightMap units (0..2.5) whereas terrainH is
     // in scaled world units, so adding them double-counts the terrain.
-    const centerTileX = obj.x + fp.w / 2
-    const centerTileZ = obj.y + fp.h / 2
+    const centerTileX = obj.x + fpT.w / 2
+    const centerTileZ = obj.y + fpT.h / 2
     let maxTH = 0, minTH = Infinity
     if (getHeight) {
-      for (let fy = 0; fy <= fp.h; fy++) {
-        for (let fx = 0; fx <= fp.w; fx++) {
+      for (let fy = 0; fy <= fpT.h; fy++) {
+        for (let fx = 0; fx <= fpT.w; fx++) {
           const th = getHeight(obj.x + fx, obj.y + fy)
           if (th > maxTH) maxTH = th
           if (th < minTH) minTH = th
@@ -292,9 +309,12 @@ export function buildBuildingMeshes(
       minTH = 0
     }
     if (!isFinite(minTH)) minTH = 0
-    const wx = centerTileX + jitterDX
+    // Tile centre and jitter are both in tiles; one multiply takes the pair
+    // into world space. Y is already in world units — getHeight returns
+    // terrain height scaled, and never passes through TILE.
+    const wx = (centerTileX + jitterDX) * TILE
     const wy = getHeight ? maxTH : (obj.elevation || 0)
-    const wz = centerTileZ + jitterDZ
+    const wz = (centerTileZ + jitterDZ) * TILE
 
     // Continuous Y rotation per building — computed once and applied to
     // the plinth, chimneys, and all volumes so they rotate as a unit.
@@ -319,13 +339,13 @@ export function buildBuildingMeshes(
       // reserved, colliding with neighboring buildings or punching into roads.
       // N/S rotation (π) is safe for any footprint — the rotated bounding box
       // is unchanged.
-      const isSquareish = Math.abs(fp.w - fp.h) <= 1
+      const isSquareish = Math.abs(fpT.w - fpT.h) <= 1
       let baseRot = 0
       if (roadSide === 'N') baseRot = Math.PI
       else if (roadSide === 'E' && isSquareish) baseRot = Math.PI / 2
       else if (roadSide === 'W' && isSquareish) baseRot = -Math.PI / 2
       // 'S', unspecified, or non-square E/W → 0
-      const aspect = Math.min(fp.w, fp.h) / Math.max(fp.w, fp.h)
+      const aspect = Math.min(fpT.w, fpT.h) / Math.max(fpT.w, fpT.h)
       // Wobble amplitude: smaller when we have a known road alignment to
       // preserve, larger when we don't (preserves the old behaviour for
       // buildings the generator didn't tag).
@@ -378,22 +398,25 @@ export function buildBuildingMeshes(
     // +0.06 overhang on each side.
     if (getHeight && maxTH - minTH > 0.08) {
       const cos = Math.cos(rotationY), sin = Math.sin(rotationY)
-      for (let fy = 0; fy < fp.h; fy++) {
-        for (let fx = 0; fx < fp.w; fx++) {
+      for (let fy = 0; fy < fpT.h; fy++) {
+        for (let fx = 0; fx < fpT.w; fx++) {
           const tileGround = getHeight(obj.x + fx, obj.y + fy)
           const colH = maxTH - tileGround
           if (colH < 0.08) continue
-          // Tile-local offset from building center, then rotate by rotationY.
-          const lx = fx - fp.w / 2 + 0.5
-          const lz = fy - fp.h / 2 + 0.5
+          // Tile-local offset from building center, taken into world units
+          // before the rotation so the column lands under its own tile.
+          const lx = (fx - fpT.w / 2 + 0.5) * TILE
+          const lz = (fy - fpT.h / 2 + 0.5) * TILE
           const rx = lx * cos - lz * sin
           const rz = lx * sin + lz * cos
-          const col = new THREE.BoxGeometry(1.08, colH, 1.08)
+          // One tile square plus the 8% overlap that keeps interior seams
+          // from z-fighting and pushes the outer edge past the wall face.
+          const col = new THREE.BoxGeometry(TILE * 1.08, colH, TILE * 1.08)
           if (rotationY !== 0) col.rotateY(rotationY)
           col.translate(
-            centerTileX + rx,
+            centerTileX * TILE + rx,
             tileGround + colH / 2,
-            centerTileZ + rz,
+            centerTileZ * TILE + rz,
           )
           detailBatch.addPositioned(col, 0x6a5a48) // stone foundation
         }
@@ -518,6 +541,25 @@ export function buildBuildingMeshes(
     const mainLocalTopY = mainVol.bottomY + mainVol.height
     const mainRoofH = mainVol.roofHeight
 
+    // === WHERE THE FRONT WALL ACTUALLY IS ===
+    //
+    // Every front-attached detail — shop sign, awning, stoop, bench, doorstep,
+    // hitching post, colonnade, balcony — used to hang off `fp.h / 2`: the edge
+    // of the footprint RECTANGLE. That is not the wall. The massing volume is
+    // inset inside its footprint and then multiplied by wealthScale (0.78-1.22)
+    // and landmarkScale, so the gap between the footprint edge and the actual
+    // wall face is both nonzero and different for every building.
+    //
+    // That gap is what "signs floating" was: a bracket drawn from the footprint
+    // edge outward, starting in mid-air some distance in FRONT of the wall it
+    // was supposed to be bolted to. It was already wrong at one-unit tiles and
+    // scaled straight up with the tile factor.
+    //
+    // So: one anchor pair, derived from the volume that actually carries the
+    // front face, and everything hangs off these instead.
+    const frontWallZ = mainVol.offsetZ + mainVol.depth / 2
+    const frontWallHalfW = mainVol.width / 2
+
     // Record where this building really ends up so particle systems can hang
     // off it without re-deriving its height (see BuildingTop).
     let apexLocalY = 0
@@ -544,7 +586,16 @@ export function buildBuildingMeshes(
         Math.abs(o.offsetZ - v.offsetZ) < (o.depth + v.depth) / 2)
       if (isFlatTop && !covered && v.height >= 2.0) flatToppedTallVolumes++
     }
+    // Horizontal extents travel with the vertical ones for the same reason
+    // BuildingTop exists at all: anything hanging off a wall — lanterns,
+    // signs, awnings — otherwise re-derives the wall position from the
+    // footprint rectangle, and the footprint is not where the wall is.
     tops.push({
+      centerX: wx + (mainVol.offsetX * Math.cos(rotationY) - mainVol.offsetZ * Math.sin(rotationY)),
+      centerZ: wz + (mainVol.offsetX * Math.sin(rotationY) + mainVol.offsetZ * Math.cos(rotationY)),
+      halfW: mainVol.width / 2,
+      halfD: mainVol.depth / 2,
+      rotationY,
       id: obj.id,
       apexY: wy + apexLocalY,
       mainWallTopY: wy + mainLocalTopY,
@@ -594,10 +645,14 @@ export function buildBuildingMeshes(
           ? ((obj.properties.chimneyPos === 'left') ? -1 : 1)
           : (((obj.properties.chimneyPos === 'left') ? 1 : -1))
         const chimH = baseH * (c === 0 ? 1.0 : 0.75 + rand01(hash, 711 + c) * 0.15)
-        const localX = chimSide * fp.w * 0.32
-        const localZ = c === 0
-          ? (rand01(hash, 703) - 0.5) * fp.h * 0.25
-          : (rand01(hash, 600 + c) - 0.5) * fp.h * 0.4
+        // Relative to the ROOF it stands on — mainVol — not the footprint
+        // rectangle. A chimney offset by a fraction of the footprint can clear
+        // the roof edge entirely and stand on air beside the building, which is
+        // exactly the class of defect reported as things hovering.
+        const localX = mainVol.offsetX + chimSide * mainVol.width * 0.32
+        const localZ = mainVol.offsetZ + (c === 0
+          ? (rand01(hash, 703) - 0.5) * mainVol.depth * 0.25
+          : (rand01(hash, 600 + c) - 0.5) * mainVol.depth * 0.4)
         // Small Z-tilt on the tall whimsy variant — crooked flue look.
         const flueLeanZ = variant === 4 ? (rand01(hash, 719) - 0.5) * 0.25 : 0
         const stack = new THREE.BoxGeometry(chimW, chimH, chimW)
@@ -940,7 +995,7 @@ export function buildBuildingMeshes(
     // the simple single step. Multi-step entries narrow as they go up
     // (the bottom step is widest) so the silhouette reads as a stone
     // approach rather than a stack.
-    if (fp.w >= 2) {
+    if (fpT.w >= 2) {
       const wantsStepUp = (district === 'noble' || district === 'temple' ||
         styleVector.wealth > 0.65 || obj.definitionId === 'mansion' ||
         obj.definitionId === 'cathedral' || obj.definitionId === 'guild_hall')
@@ -950,14 +1005,14 @@ export function buildBuildingMeshes(
         for (let s = 0; s < stepCount; s++) {
           const stepW = 0.85 - s * 0.10                  // narrower as we go up
           const stepD = 0.18 - s * 0.02
-          const stepZ = fp.h / 2 + (stepCount - s) * 0.13
+          const stepZ = frontWallZ + (stepCount - s) * 0.13
           const geo = new THREE.BoxGeometry(stepW, stepH, stepD)
           localToWorld(geo, 0, stepH / 2 + s * stepH, stepZ, 0, 0, rotationY, wx, wy, wz)
           detailBatch.addPositioned(geo, 0x9c9890)        // limestone steps
         }
       } else {
         const geo = new THREE.BoxGeometry(0.5, 0.05, 0.15)
-        localToWorld(geo, 0, 0.025, fp.h / 2 + 0.08, 0, 0, rotationY, wx, wy, wz)
+        localToWorld(geo, 0, 0.025, frontWallZ + 0.08, 0, 0, rotationY, wx, wy, wz)
         detailBatch.addPositioned(geo, 0x808080)
       }
     }
@@ -968,7 +1023,7 @@ export function buildBuildingMeshes(
     // benches don't all align on one side of every door. Skip on
     // landmarks (their architecture doesn't want sidewalks of stone) and
     // tiny buildings where it'd push past the wall edge.
-    const wantsStoop = !isLandmark && !mainVol.circular && fp.w >= 3 &&
+    const wantsStoop = !isLandmark && !mainVol.circular && fpT.w >= 3 &&
       !NO_JITTER.has(obj.definitionId) &&
       (district === 'residential' || district === 'market' || district === 'artisan' ||
        district === 'garden') &&
@@ -977,7 +1032,7 @@ export function buildBuildingMeshes(
       const benchW = 0.85, benchH = 0.40, benchD = 0.32
       const benchSide = rand01(hash, 1103) < 0.5 ? -1 : 1
       const benchX = benchSide * (0.45 + benchW / 2)        // beside the door area
-      const benchZ = fp.h / 2 + benchD / 2 - 0.04
+      const benchZ = frontWallZ + benchD / 2 - 0.04
       const bench = new THREE.BoxGeometry(benchW, benchH, benchD)
       localToWorld(bench, benchX, benchH / 2, benchZ, 0, 0, rotationY, wx, wy, wz)
       detailBatch.addPositioned(bench, 0x7a7068)             // weathered stone
@@ -1000,10 +1055,10 @@ export function buildBuildingMeshes(
     const wantsHitching = (obj.definitionId === 'tavern' || obj.definitionId === 'inn' ||
       obj.definitionId === 'stable') &&
       district !== 'market' &&
-      rand01(hash, 1201) < 0.7 && fp.w >= 3
+      rand01(hash, 1201) < 0.7 && fpT.w >= 3
     if (wantsHitching) {
       const postH = 0.88, postT = 0.09
-      const postZ = fp.h / 2 + 0.55
+      const postZ = frontWallZ + 0.55
       for (const xOff of [-0.6, 0.6]) {
         const post = new THREE.BoxGeometry(postT, postH, postT)
         localToWorld(post, xOff, postH / 2, postZ, 0, 0, rotationY, wx, wy, wz)
@@ -1084,11 +1139,11 @@ export function buildBuildingMeshes(
       obj.definitionId === 'inn' || obj.definitionId === 'tavern' ||
       obj.definitionId === 'guild_hall' || obj.definitionId === 'apothecary' ||
       obj.definitionId === 'bakery' || obj.definitionId === 'shop'
-    ) && !mainVol.circular && fp.w >= 3 &&
+    ) && !mainVol.circular && fpT.w >= 3 &&
       !NO_JITTER.has(obj.definitionId) &&
       mainVol.height > 2.4
     if (wantsPlacard) {
-      const placardW = Math.min(2.0, fp.w * 0.55)
+      const placardW = Math.min(2.4, frontWallHalfW * 0.9)
       const placardH = 0.32
       const placardT = 0.06
       // Mount it above the door zone. Ground floor is roughly the lower
@@ -1187,7 +1242,7 @@ export function buildBuildingMeshes(
     // a road (per roadSide) and only when there isn't already a corner
     // post / quoin emitted at that corner (those would clash visually).
     const wantsWheelGuard = !isLandmark && !wantsTimberPosts && !wantsQuoins &&
-      !mainVol.circular && fp.w >= 2 &&
+      !mainVol.circular && fpT.w >= 2 &&
       !NO_JITTER.has(obj.definitionId) &&
       (styleVector.wealth > 0.4 || district === 'market' || district === 'noble') &&
       rand01(hash, 1401) < 0.40
@@ -1226,11 +1281,18 @@ export function buildBuildingMeshes(
     // Only emit when the mainBody volume actually carries the building's
     // front face — for L-shapes/porch templates, mainVol's front face is
     // inset and a surround there would land on an interior surface.
+    // This used to ask "is the main body flush with the footprint edge?", with
+    // a fixed 0.4 tolerance. But the main body is ALWAYS inset inside its
+    // footprint by some template- and wealth-dependent amount, so that test was
+    // really measuring the inset — and a fixed metric tolerance against a
+    // footprint-sized quantity stops meaning anything the moment tiles are not
+    // one unit. Ask the question the comment above actually describes instead:
+    // is anything sticking out in front of the main body? That is scale-free.
     const mainFrontZ = mainVol.offsetZ + mainVol.depth / 2
-    const buildingFrontZ = fp.h / 2
-    const frontMatches = Math.abs(mainFrontZ - buildingFrontZ) < 0.4
+    const frontmostZ = Math.max(...massing.volumes.map(v => v.offsetZ + v.depth / 2))
+    const frontMatches = mainFrontZ >= frontmostZ - 0.25
     const wantsSurround = !isLandmark && !mainVol.circular && frontMatches &&
-      !NO_JITTER.has(obj.definitionId) && fp.w >= 2 && mainVol.width >= 1.4 &&
+      !NO_JITTER.has(obj.definitionId) && fpT.w >= 2 && mainVol.width >= 1.4 &&
       (styleVector.stone > 0.5 || styleVector.cornice > 0.4 ||
        district === 'noble' || district === 'temple' ||
        rand01(hash, 951) < 0.4)
@@ -1331,7 +1393,7 @@ export function buildBuildingMeshes(
       // houses are the ONE type a shopping street is mostly made of. Keying
       // on fp.w alone excluded every one of them, so market streets had no
       // signs on the very buildings that should carry them.
-      (isTradeBldg || isShopfrontHouse) && Math.max(fp.w, fp.h) >= 2 &&
+      (isTradeBldg || isShopfrontHouse) && Math.max(fpT.w, fpT.h) >= 2 &&
       !NO_JITTER.has(obj.definitionId) &&
       wallH > 2.4 && rand01(hash, 811) < signChance
     ) {
@@ -1343,13 +1405,13 @@ export function buildBuildingMeshes(
       const signH = 0.32 + rand01(hash, 815) * 0.16     // 0.32..0.48
       const signProj = 0.55                              // distance from wall to sign center
       const signSide = rand01(hash, 817) < 0.5 ? -1 : 1  // along front face
-      const signLocalX = signSide * fp.w * 0.18
-      const signLocalZ = fp.h / 2 + signProj
+      const signLocalX = signSide * frontWallHalfW * 0.36
+      const signLocalZ = frontWallZ + signProj
       // Bracket: thin bar along Z from wall (lz=fp.h/2) to sign center (signLocalZ).
       const bracketLen = signProj - 0.05
       const bracket = new THREE.BoxGeometry(0.05, 0.06, bracketLen)
       // Bracket centered between wall (fp.h/2 + 0.025) and sign (signLocalZ - 0.025)
-      const bracketLocalZ = fp.h / 2 + bracketLen / 2 + 0.025
+      const bracketLocalZ = frontWallZ + bracketLen / 2 + 0.025
       localToWorld(bracket, signLocalX, signY + signH * 0.4, bracketLocalZ,
         leanX, leanZ, rotationY, wx, wy, wz)
       ornamentBatch.addPositioned(bracket, 0x3a2418)  // dark wood
@@ -1384,13 +1446,13 @@ export function buildBuildingMeshes(
     // streets rather than the single 'market' district, which on some seeds
     // contained no eligible building at all.
     if (
-      (isTradeBldg || isShopfrontHouse) && Math.max(fp.w, fp.h) >= 2 &&
+      (isTradeBldg || isShopfrontHouse) && Math.max(fpT.w, fpT.h) >= 2 &&
       !NO_JITTER.has(obj.definitionId) &&
       wallH > 1.8 && rand01(hash, 821) < (isTradeBldg ? 0.6 : 0.35)
     ) {
       tally('awning')
       const awningY = Math.min(2.0, FLOOR_HEIGHT * 0.95)
-      const awningW = Math.min(1.4, fp.w * 0.55)
+      const awningW = Math.min(2.6, frontWallHalfW * 1.1)
       const awningD = 0.55
       // Front-edge dip so the awning slopes downward away from the wall.
       const slopeRot = -0.12  // ~7° down at front edge
@@ -1412,7 +1474,7 @@ export function buildBuildingMeshes(
         stripGeo.rotateX(slopeRot)
         const stripX = -awningW / 2 + (s + 0.5) * stripW
         const stripColor = s % 2 === 0 ? awnPrimary : awnAccent
-        localToWorld(stripGeo, stripX, awningY, fp.h / 2,
+        localToWorld(stripGeo, stripX, awningY, frontWallZ,
           leanX, leanZ, rotationY, wx, wy, wz)
         ornamentBatch.addPositioned(stripGeo, stripColor)
       }
@@ -1424,7 +1486,7 @@ export function buildBuildingMeshes(
       // a small positive drop). Subtract another half-thickness for the
       // bottom face, then ~3cm of headroom.
       const postZRel = awningD - 0.04
-      const postZ = fp.h / 2 + postZRel
+      const postZ = frontWallZ + postZRel
       const awningBottomDrop = postZRel * Math.sin(-slopeRot) + 0.02
       const postH = Math.max(0.5, awningY - awningBottomDrop - 0.03)
       for (const px of [-awningW * 0.42, awningW * 0.42]) {
@@ -1443,19 +1505,26 @@ export function buildBuildingMeshes(
     // === COLONNADE → batched ===
     // Pulled through localToWorld with leanX/Z=0 (landmark buildings opt
     // out of lean) but yaw applied so columns land on the rotated +Z face.
-    if ((obj.definitionId === 'temple' || obj.definitionId === 'cathedral' || obj.definitionId === 'guild_hall') && fp.w >= 4) {
+    if ((obj.definitionId === 'temple' || obj.definitionId === 'cathedral' || obj.definitionId === 'guild_hall') && fpT.w >= 4) {
       const colH = wallH * 0.85
-      const numCols = Math.floor(fp.w / 1.2)
-      const spacing = fp.w / (numCols + 1)
+      // Clamped to a portico's worth. Spacing off the real wall width means a
+      // 15m temple facade would otherwise take twelve columns at 1.2m centres,
+      // which is a fence, not a colonnade — and twelve cylinders per landmark
+      // is real geometry for something nobody reads as more detailed.
+      const numCols = Math.max(3, Math.min(8, Math.round(mainVol.width / 1.9)))
+      const spacing = mainVol.width / (numCols + 1)
+      // Column girth follows the order rather than staying at a fixed 17cm,
+      // which reads as scaffolding poles once the facade is metres wide.
+      const colR = Math.min(0.34, Math.max(0.12, spacing * 0.22))
       for (let ci = 1; ci <= numCols; ci++) {
-        const cg = new THREE.CylinderGeometry(0.085, 0.1, colH, 6)
-        const colLocalX = -fp.w / 2 + ci * spacing
-        localToWorld(cg, colLocalX, colH / 2, fp.h / 2 + 0.25,
+        const cg = new THREE.CylinderGeometry(colR * 0.85, colR, colH, 7)
+        const colLocalX = -frontWallHalfW + ci * spacing
+        localToWorld(cg, colLocalX, colH / 2, frontWallZ + 0.25,
           0, 0, rotationY, wx, wy, wz)
         detailBatch.addPositioned(cg, 0xc0b8a8)
       }
-      const bg = new THREE.BoxGeometry(fp.w + 0.2, 0.12, 0.25)
-      localToWorld(bg, 0, colH + 0.06, fp.h / 2 + 0.25,
+      const bg = new THREE.BoxGeometry(mainVol.width + 0.2, 0.12, 0.25)
+      localToWorld(bg, 0, colH + 0.06, frontWallZ + 0.25,
         0, 0, rotationY, wx, wy, wz)
       detailBatch.addPositioned(bg, 0xc0b8a8)
     }
@@ -1464,19 +1533,19 @@ export function buildBuildingMeshes(
     // Lean+yaw transformed via localToWorld so the balcony stays attached to
     // the (possibly leaning) wall.
     if ((obj.definitionId === 'balcony_house' || obj.definitionId === 'inn') && floors >= 2) {
-      const balcW = fp.w * 0.5, balcD = 0.4
+      const balcW = mainVol.width * 0.5, balcD = 0.4
       const balcY = FLOOR_HEIGHT * 1.1 * heightMult
       const pg = new THREE.BoxGeometry(balcW, 0.06, balcD)
-      localToWorld(pg, 0, balcY, fp.h / 2 + balcD / 2,
+      localToWorld(pg, 0, balcY, frontWallZ + balcD / 2,
         leanX, leanZ, rotationY, wx, wy, wz)
       detailBatch.addPositioned(pg, 0x705a40)
       const rg = new THREE.BoxGeometry(balcW, 0.25, 0.04)
-      localToWorld(rg, 0, balcY + 0.15, fp.h / 2 + balcD,
+      localToWorld(rg, 0, balcY + 0.15, frontWallZ + balcD,
         leanX, leanZ, rotationY, wx, wy, wz)
       detailBatch.addPositioned(rg, 0x705a40)
       for (const side of [-balcW * 0.35, balcW * 0.35]) {
         const bg = new THREE.BoxGeometry(0.06, 0.2, balcD * 0.7)
-        localToWorld(bg, side, balcY - 0.1, fp.h / 2 + balcD * 0.4,
+        localToWorld(bg, side, balcY - 0.1, frontWallZ + balcD * 0.4,
           leanX, leanZ, rotationY, wx, wy, wz)
         detailBatch.addPositioned(bg, 0x705a40)
       }

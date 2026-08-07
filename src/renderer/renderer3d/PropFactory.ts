@@ -10,6 +10,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
+import { TILE } from './scale'
 
 // Heights tuned for FLOOR_HEIGHT=1.8. A 2-story building = 3.6m eaves,
 // so lampposts at 3.2m sit just under eaves (classic streetlamp height).
@@ -150,8 +151,12 @@ export function buildPropMeshes(
     const def = defMap.get(obj.definitionId)
     const id = obj.definitionId
     const h = PROP_HEIGHTS[id] ?? 0.6
-    const fp = def?.footprint || { w: 1, h: 1 }
-    const px = obj.x + fp.w / 2, pz = obj.y + fp.h / 2
+    // Tiles vs world, same split as BuildingFactory: fpT indexes the map,
+    // fp is a geometry extent. See scale.ts.
+    const fpT = def?.footprint || { w: 1, h: 1 }
+    const fp = { w: fpT.w * TILE, h: fpT.h * TILE }
+    const ptx = obj.x + fpT.w / 2, ptz = obj.y + fpT.h / 2
+    const px = ptx * TILE, pz = ptz * TILE
     // Plant the prop on the actual ground surface directly under its render
     // center. getHeight now interpolates the sloped mesh, so sampling (px,pz)
     // — the exact spot the prop is drawn — sits the base on the visible ground
@@ -159,7 +164,7 @@ export function buildPropMeshes(
     // half-buried on any slope. Ignore obj.elevation when getHeight is
     // available (the generator stored it in raw heightMap units, which would
     // double-count the terrain).
-    const elev = getHeight ? getHeight(px, pz) : (obj.elevation || 0)
+    const elev = getHeight ? getHeight(ptx, ptz) : (obj.elevation || 0)
     const hash = simpleHash(obj.id)
 
     // Per-prop Y rotation. The generator can set obj.properties.facingY
@@ -169,7 +174,7 @@ export function buildPropMeshes(
     // fall back to a hash-random angle so unfacing-aware prop streams
     // (countryside scatter, etc.) still don't all point at world +Z.
     // Y-symmetric props (fountains, wells) always pin to 0.
-    const isSingleTile = fp.w === 1 && fp.h === 1
+    const isSingleTile = fpT.w === 1 && fpT.h === 1
     const maxPropRot = isSingleTile ? Math.PI : Math.PI * 0.2
     const propRot = (id === 'fountain' || id === 'fountain_grand' || id === 'well' || id === 'well_grand')
       ? 0

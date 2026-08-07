@@ -13,6 +13,7 @@ import { SimplexNoise } from '../generation/noise'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 import { createCobbleTexture } from './CobbleTexture'
 import { TERRAIN_COLORS } from '../core/terrain'
+import { TILE } from './scale'
 
 // Tile palette — deliberately punchy so districts read as distinct zones.
 // Cobblestone (8) shifted to warm orange-grey so it visually differs from
@@ -52,7 +53,7 @@ function generateHeightMap(w: number, h: number, seed: number): number[][] {
 }
 
 /** World height scale: one raw height unit equals this many world units. */
-const TERRAIN_WORLD_SCALE = 1.8
+export const TERRAIN_WORLD_SCALE = 1.8
 
 /** Get the height at a tile position (with bounds checking) in world units.
  *  Floors x/y internally so callers can safely pass fractional world coords
@@ -94,6 +95,22 @@ function terrainCornerNormal(
   return [nx / len, 1 / len, nz / len]
 }
 
+/**
+ * Ground height under a WORLD position. This is the one to call with a camera
+ * or prop position; getTerrainHeight below takes TILE coordinates.
+ *
+ * The two used to be interchangeable, because a tile was a world unit. They
+ * are not any more (see scale.ts), and mixing them up silently reads the
+ * height map at a third of the intended place — so they have separate names.
+ */
+export function groundYAtWorld(heightMap: number[][], wx: number, wz: number): number {
+  return getTerrainHeight(heightMap, wx / TILE, wz / TILE)
+}
+
+/** Ground height at a TILE coordinate, interpolated across the same triangle
+ *  the ground mesh renders. Fractional tile coordinates are meaningful and
+ *  wanted — do not floor before calling, that throws away the interpolation
+ *  and snaps the result to a tile corner. */
 export function getTerrainHeight(heightMap: number[][], x: number, y: number): number {
   const gh = heightMap.length
   const gw = heightMap[0]?.length ?? 0
@@ -197,23 +214,27 @@ function buildGroundWithHeight(
         tileId === 15 || tileId === 16
       const noiseAmt = isNatural ? 0.13 : isPaved ? 0.16 : 0.05
 
-      const x0 = tx, x1 = tx + 1, z0 = ty, z1 = ty + 1
+      // TWO coordinate spaces per quad, and mixing them is a live hazard:
+      //   cx*/cz* index the height map and salt the corner hashes — TILES.
+      //   x*/z*   are vertex positions — WORLD units.
+      const cx0 = tx, cx1 = tx + 1, cz0 = ty, cz1 = ty + 1
+      const x0 = cx0 * TILE, x1 = cx1 * TILE, z0 = cz0 * TILE, z1 = cz1 * TILE
       // Corner-shared heights: each vertex uses the heightmap value AT the
       // corner cell, not the tile-center's height. Because adjacent tiles
       // now share the same Y at shared corners, slopes flow continuously
       // across tile boundaries instead of stair-stepping. Out-of-bounds
       // falls back to the current tile's height for graceful edges.
-      const y00 = terrainCornerY(heightMap, x0, z0)
-      const y10 = terrainCornerY(heightMap, x1, z0)
-      const y01 = terrainCornerY(heightMap, x0, z1)
-      const y11 = terrainCornerY(heightMap, x1, z1)
+      const y00 = terrainCornerY(heightMap, cx0, cz0)
+      const y10 = terrainCornerY(heightMap, cx1, cz0)
+      const y01 = terrainCornerY(heightMap, cx0, cz1)
+      const y11 = terrainCornerY(heightMap, cx1, cz1)
 
       // Smooth per-corner normals, shared with the neighbouring tiles that
       // touch the same corner, so lighting is continuous across the grid.
-      const n00 = terrainCornerNormal(heightMap, x0, z0)
-      const n10 = terrainCornerNormal(heightMap, x1, z0)
-      const n01 = terrainCornerNormal(heightMap, x0, z1)
-      const n11 = terrainCornerNormal(heightMap, x1, z1)
+      const n00 = terrainCornerNormal(heightMap, cx0, cz0)
+      const n10 = terrainCornerNormal(heightMap, cx1, cz0)
+      const n01 = terrainCornerNormal(heightMap, cx0, cz1)
+      const n11 = terrainCornerNormal(heightMap, cx1, cz1)
 
       // Per-CORNER colour jitter, for every tile type — not just roads.
       // The previous per-TILE jitter tinted each quad uniformly, which is
@@ -229,10 +250,10 @@ function buildGroundWithHeight(
                 Math.max(0, Math.min(1, g * k)),
                 Math.max(0, Math.min(1, b * k))]
       }
-      const c00 = cornerColor(x0, z0)
-      const c10 = cornerColor(x1, z0)
-      const c01 = cornerColor(x0, z1)
-      const c11 = cornerColor(x1, z1)
+      const c00 = cornerColor(cx0, cz0)
+      const c10 = cornerColor(cx1, cz0)
+      const c01 = cornerColor(cx0, cz1)
+      const c11 = cornerColor(cx1, cz1)
 
       // Triangle 1: CCW winding when viewed from above → normal points UP (+Y)
       positions[vi] = x0; positions[vi+1] = y00; positions[vi+2] = z0
@@ -288,10 +309,12 @@ function buildRetainingWalls(
       // Check each neighbor — if lower, add a vertical wall face
       const neighbors: [number, number, number, number, number, number, number, number][] = [
         // [dx, dz, wall x0, wall z0, wall x1, wall z1, nx, nz] (wall edge + normal)
-        [1, 0, tx + 1, ty, tx + 1, ty + 1, 1, 0],   // right neighbor
-        [-1, 0, tx, ty + 1, tx, ty, -1, 0],           // left neighbor
-        [0, 1, tx + 1, ty + 1, tx, ty + 1, 0, 1],    // bottom neighbor
-        [0, -1, tx, ty, tx + 1, ty, 0, -1],           // top neighbor
+        // dx/dz stay tile steps (they index the height map); the wall edge
+        // coordinates are vertex positions and go to world units.
+        [1, 0, (tx + 1) * TILE, ty * TILE, (tx + 1) * TILE, (ty + 1) * TILE, 1, 0],   // right
+        [-1, 0, tx * TILE, (ty + 1) * TILE, tx * TILE, ty * TILE, -1, 0],             // left
+        [0, 1, (tx + 1) * TILE, (ty + 1) * TILE, tx * TILE, (ty + 1) * TILE, 0, 1],   // bottom
+        [0, -1, tx * TILE, ty * TILE, (tx + 1) * TILE, ty * TILE, 0, -1],             // top
       ]
 
       for (const [dx, dz, wx0, wz0, wx1, wz1] of neighbors) {
@@ -335,9 +358,16 @@ function buildRetainingWalls(
 /** Shared water material — module singleton so ThreeRenderer can tick
  *  its color over time for the shimmer effect without having to find
  *  the water mesh each frame. */
+// flatShading off: the surface now carries corner-shared heights like the
+// ground, so per-face normals would shatter exactly the continuity that was
+// just built. Same reason the ground mesh stopped using it.
 const _waterMat = new THREE.MeshLambertMaterial({
-  color: 0x3070a0, transparent: true, opacity: 0.75, flatShading: true,
+  color: 0x3070a0, transparent: true, opacity: 0.75, flatShading: false,
+  side: THREE.DoubleSide,
 })
+/** Opaque channel bed under the translucent surface — without it a shallow
+ *  river reads as a hole showing sky, since the ground mesh skips water. */
+const _waterBedMat = new THREE.MeshLambertMaterial({ color: 0x1d3a4d })
 const _waterBaseColor = new THREE.Color(0x3070a0)
 const _waterTint = new THREE.Color(0x50a0c0)
 
@@ -354,16 +384,44 @@ function buildWaterMesh(
   tiles: number[][], gridWidth: number, gridHeight: number,
   heightMap: number[][]
 ): THREE.Mesh {
+  // === WHY THIS IS NOT ONE FLAT QUAD PER TILE ===
+  //
+  // It used to be, and that is what got reported as "jagged water tiles".
+  // Two separate defects stacked:
+  //
+  //   1. Every water tile took ONE height for all four of its corners — the
+  //      exact stair-step bug that corner-shared heights fixed for the ground
+  //      mesh. Adjacent water tiles at different heights met at a visible
+  //      step, and the flat quad cut through the sloped ground around it.
+  //   2. The surface was pushed 0.08 BELOW that height, while the ground mesh
+  //      skips water tiles entirely (`tileId === 3 -> continue`). So the water
+  //      plane sat below the rim of a hole in the terrain, and what showed
+  //      through was a ragged outline of whatever ground happened to be lower.
+  //
+  // Fix: the surface uses the same corner heights and the same quad diagonal
+  // as the ground, so it seams exactly with the banks — no step between water
+  // tiles, no gap at the shoreline. A darker opaque bed sits below it so the
+  // translucent surface has something to read against instead of the skybox.
   const positions: number[] = []
+  const bedPositions: number[] = []
+  const BED_DEPTH = 0.45
   for (let ty = 0; ty < gridHeight; ty++) {
     for (let tx = 0; tx < gridWidth; tx++) {
       if (tiles[ty]?.[tx] !== 3) continue
-      const x0 = tx, x1 = tx + 1, z0 = ty, z1 = ty + 1
-      // Water sits at the lowest neighboring terrain height
-      const h = Math.max(0, getTerrainHeight(heightMap, tx, ty) - 0.08)
-      // CCW winding for upward-facing normals (same fix as ground tiles)
-      positions.push(x0, h, z0, x1, h, z1, x1, h, z0)
-      positions.push(x0, h, z0, x0, h, z1, x1, h, z1)
+      const cx0 = tx, cx1 = tx + 1, cz0 = ty, cz1 = ty + 1
+      const x0 = cx0 * TILE, x1 = cx1 * TILE, z0 = cz0 * TILE, z1 = cz1 * TILE
+      const y00 = terrainCornerY(heightMap, cx0, cz0)
+      const y10 = terrainCornerY(heightMap, cx1, cz0)
+      const y01 = terrainCornerY(heightMap, cx0, cz1)
+      const y11 = terrainCornerY(heightMap, cx1, cz1)
+      // Same diagonal as buildGroundWithHeight — (0,0)->(1,1) — so shared
+      // edges are shared exactly and never crack.
+      positions.push(x0, y00, z0, x1, y11, z1, x1, y10, z0)
+      positions.push(x0, y00, z0, x0, y01, z1, x1, y11, z1)
+      const b00 = y00 - BED_DEPTH, b10 = y10 - BED_DEPTH
+      const b01 = y01 - BED_DEPTH, b11 = y11 - BED_DEPTH
+      bedPositions.push(x0, b00, z0, x1, b11, z1, x1, b10, z0)
+      bedPositions.push(x0, b00, z0, x0, b01, z1, x1, b11, z1)
     }
   }
 
@@ -375,7 +433,18 @@ function buildWaterMesh(
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3))
   geo.computeVertexNormals()
 
-  return new THREE.Mesh(geo, _waterMat)
+  const mesh = new THREE.Mesh(geo, _waterMat)
+
+  const bedGeo = new THREE.BufferGeometry()
+  bedGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(bedPositions), 3))
+  bedGeo.computeVertexNormals()
+  const bed = new THREE.Mesh(bedGeo, _waterBedMat)
+  bed.receiveShadow = true
+  // Parented to the surface so ThreeRenderer's existing add/dispose of the
+  // water mesh carries the bed with it — no second lifecycle to keep in step.
+  mesh.add(bed)
+
+  return mesh
 }
 
 /**
@@ -399,12 +468,19 @@ function buildRoadSurface(
   // Each tile contributes two triangles. UVs use the world (tx, ty)
   // coordinates so cobbles are continuous: adjacent road tiles see
   // adjacent UVs, pattern flows through.
-  const UV_SCALE = 0.35 // how many texture repeats per world unit; tweak for stone size
+  // Texture repeats per TILE, derived from how big a stone should actually be.
+  // The pattern carries ~5 stones across one repeat, so a 1.2m repeat gives
+  // ~24cm setts — which is a cobble. The old constant was 0.35 repeats per
+  // tile: fine when a tile was a metre, and 2.9m per repeat once it was not,
+  // which paved the streets in 57cm boulders.
+  const STONE_REPEAT_M = 1.2
+  const UV_SCALE = TILE / STONE_REPEAT_M
   for (let ty = 0; ty < gridHeight; ty++) {
     for (let tx = 0; tx < gridWidth; tx++) {
       if (tiles[ty]?.[tx] !== targetId) continue
       anyFound = true
-      const x0 = tx, x1 = tx + 1, z0 = ty, z1 = ty + 1
+      const cx0 = tx, cx1 = tx + 1, cz0 = ty, cz1 = ty + 1
+      const x0 = cx0 * TILE, x1 = cx1 * TILE, z0 = cz0 * TILE, z1 = cz1 * TILE
       const u0 = tx * UV_SCALE, u1 = (tx + 1) * UV_SCALE
       const v0 = ty * UV_SCALE, v1 = (ty + 1) * UV_SCALE
       // Follow the ground's corner heights instead of laying one flat quad at
@@ -413,14 +489,14 @@ function buildRoadSurface(
       // the downhill side, which the 0.01 lift can't hide. LIFT keeps the
       // paving just clear of the ground it now parallels.
       const LIFT = 0.02
-      const y00 = terrainCornerY(heightMap, x0, z0) + LIFT
-      const y10 = terrainCornerY(heightMap, x1, z0) + LIFT
-      const y01 = terrainCornerY(heightMap, x0, z1) + LIFT
-      const y11 = terrainCornerY(heightMap, x1, z1) + LIFT
-      const n00 = terrainCornerNormal(heightMap, x0, z0)
-      const n10 = terrainCornerNormal(heightMap, x1, z0)
-      const n01 = terrainCornerNormal(heightMap, x0, z1)
-      const n11 = terrainCornerNormal(heightMap, x1, z1)
+      const y00 = terrainCornerY(heightMap, cx0, cz0) + LIFT
+      const y10 = terrainCornerY(heightMap, cx1, cz0) + LIFT
+      const y01 = terrainCornerY(heightMap, cx0, cz1) + LIFT
+      const y11 = terrainCornerY(heightMap, cx1, cz1) + LIFT
+      const n00 = terrainCornerNormal(heightMap, cx0, cz0)
+      const n10 = terrainCornerNormal(heightMap, cx1, cz0)
+      const n01 = terrainCornerNormal(heightMap, cx0, cz1)
+      const n11 = terrainCornerNormal(heightMap, cx1, cz1)
       // Triangle 1 (CCW from above → normal +Y)
       positions.push(x0, y00, z0, x1, y11, z1, x1, y10, z0)
       normals.push(...n00, ...n11, ...n10)
@@ -476,7 +552,7 @@ function buildCobblestones(
       const g = Math.max(0, Math.min(1, baseColor.g * (1 + jitter) * darken))
       const b = Math.max(0, Math.min(1, baseColor.b * (1 + jitter) * darken))
       const colorHex = (Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255)
-      batch.add(puckBig, colorHex, tx + 0.25 + h1 * 0.5, groundY + 0.03, ty + 0.25 + h2 * 0.5)
+      batch.add(puckBig, colorHex, (tx + 0.25 + h1 * 0.5) * TILE, groundY + 0.03, (ty + 0.25 + h2 * 0.5) * TILE)
     }
   }
 

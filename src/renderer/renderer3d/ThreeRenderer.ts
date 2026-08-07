@@ -11,18 +11,25 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
-import { buildTerrainMesh, getTerrainHeight, tickWater } from './TerrainMesh'
+import { buildTerrainMesh, getTerrainHeight, groundYAtWorld, tickWater, TERRAIN_WORLD_SCALE } from './TerrainMesh'
+import { TILE } from './scale'
 
 // First-person walkaround constants. Minecraft-ish feel.
 const EYE_HEIGHT = 1.6
 const JUMP_STRENGTH = 7.0
 const GRAVITY = 22.0
 const WALK_SPEED = 6.0
-const FLY_SPEED = 10.0
+// Flying is for surveying, and the town is now ~144m across rather than ~48
+// world units, so the old 10 made every debug fly-through a slow pan.
+const FLY_SPEED = 24.0
+
+/** Player's horizontal half-width, in metres. Used by isBlocked so the player
+ *  is a disc rather than the dimensionless point it used to be. */
+const PLAYER_RADIUS = 0.35
 const DOUBLE_TAP_MS = 300
 const MOUSE_YAW_SENS = 0.0025
 const MOUSE_PITCH_SENS = 0.002
-import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, type BuildingBatchResult, type BuildingTop } from './BuildingFactory'
+import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, type BuildingBatchResult, type BuildingTop, FLOOR_HEIGHT } from './BuildingFactory'
 import { tickWallEmissive } from './architecture/VolumeRenderer'
 import { buildLanternStrings, buildWallLanterns, setLanternEmissiveIntensity, tickLanternEmissive } from './LanternStrings'
 import { buildPropMeshes, setLampPoolOpacity, type PropBatchResult } from './PropFactory'
@@ -281,9 +288,9 @@ export class ThreeRenderer {
   private _onPointerLockChange: (() => void) | null = null
   private _resizeObserver: ResizeObserver | null = null
   // Track town extents for shadow camera
-  private townCenterX = 24
-  private townCenterZ = 24
-  private townRadius = 32
+  private townCenterX = 24 * TILE
+  private townCenterZ = 24 * TILE
+  private townRadius = 32 * TILE
 
   // Post-processing
   private composer: EffectComposer | null = null
@@ -617,9 +624,11 @@ export class ThreeRenderer {
     const defMap = new Map(objectDefs.map(d => [d.id, d]))
 
     // Track town extents for shadow camera sizing
-    this.townCenterX = map.gridWidth / 2
-    this.townCenterZ = map.gridHeight / 2
-    this.townRadius = Math.max(16, Math.max(map.gridWidth, map.gridHeight) * 0.7)
+    // World units — these aim the sun rig and the shadow camera, both of
+    // which live in world space, not tile space.
+    this.townCenterX = (map.gridWidth / 2) * TILE
+    this.townCenterZ = (map.gridHeight / 2) * TILE
+    this.townRadius = Math.max(16, Math.max(map.gridWidth, map.gridHeight) * 0.7 * TILE)
 
     // Terrain (with height map from seed)
     const seed = map.generationConfig?.seed ?? 0
@@ -751,12 +760,12 @@ export class ThreeRenderer {
       if (ls.lanternMesh) this.propGroup.add(ls.lanternMesh)
       // Wall-mounted eye-level lanterns — small warm points on ~18% of
       // buildings, complements the overhead rope strings.
-      const wall = buildWallLanterns(map, defMap, heightMap)
+      const wall = buildWallLanterns(map, defMap, heightMap, this._buildingTops)
       if (wall) this.propGroup.add(wall)
     }
 
     // Spawn particles
-    this.initParticles(chimneyPositions, map.gridWidth, map.gridHeight)
+    this.initParticles(chimneyPositions, map.gridWidth * TILE, map.gridHeight * TILE)
 
     // === BIRDS AT SPIRES ===
     // Collect the top-centers of the tallest landmarks (cathedral, bell tower,
@@ -830,8 +839,12 @@ export class ThreeRenderer {
       // Nudge to tile center so the player starts centered on a tile.
       spawnX += 0.5; spawnZ += 0.5
     }
+    // spawnX/spawnZ and cx/cz are all TILE coordinates; the height map wants
+    // tiles and the camera wants world, so the conversion happens right here
+    // and nowhere else. The yaw is an angle between two tile-space points,
+    // and a uniform scale does not change an angle — so it needs no factor.
     const spawnGround = heightMap ? getTerrainHeight(heightMap, spawnX, spawnZ) : 0
-    this.camera.position.set(spawnX, spawnGround + EYE_HEIGHT, spawnZ)
+    this.camera.position.set(spawnX * TILE, spawnGround + EYE_HEIGHT, spawnZ * TILE)
     this.cameraYaw = Math.atan2(cz - spawnZ, cx - spawnX)
     this.cameraPitch = -0.05
     this.verticalVel = 0
@@ -924,29 +937,36 @@ export class ThreeRenderer {
         if (dist < 3 || dist > 6) continue
 
         const fpA = defA.footprint, fpB = defB.footprint
-        const ax = a.x + fpA.w / 2, az = a.y + fpA.h / 2
-        const bx = b.x + fpB.w / 2, bz = b.y + fpB.h / 2
-        const bridgeH = 1.2 // height of the walkway (second floor level)
-        const ah = heightMap ? getTerrainHeight(heightMap, Math.floor(ax), Math.floor(az)) : 0
-        const bh = heightMap ? getTerrainHeight(heightMap, Math.floor(bx), Math.floor(bz)) : 0
+        // Tile centres first — the height map is indexed in tiles — then one
+        // conversion to world for the geometry.
+        const atx = a.x + fpA.w / 2, atz = a.y + fpA.h / 2
+        const btx = b.x + fpB.w / 2, btz = b.y + fpB.h / 2
+        const ah = heightMap ? getTerrainHeight(heightMap, atx, atz) : 0
+        const bh = heightMap ? getTerrainHeight(heightMap, btx, btz) : 0
+        const ax = atx * TILE, az = atz * TILE
+        const bx = btx * TILE, bz = btz * TILE
+        // Second-floor level. 1.2 was below the player's own 1.6m eye height,
+        // so the "elevated walkway between upper storeys" was a plank at
+        // shin height crossing the street.
+        const bridgeH = FLOOR_HEIGHT * 2
 
         // Bridge deck
         const midX = (ax + bx) / 2, midZ = (az + bz) / 2
         const angle = Math.atan2(bz - az, bx - ax)
-        const bridgeLen = dist * 0.7 // shorter than building distance
-        const bridgeGeo = new THREE.BoxGeometry(bridgeLen, 0.12, 0.8)
+        const bridgeLen = dist * TILE * 0.7 // shorter than building distance
+        const bridgeGeo = new THREE.BoxGeometry(bridgeLen, 0.12, 1.1)
         const bridge = new THREE.Mesh(bridgeGeo, walkwayMat)
         bridge.position.set(midX, (ah + bh) / 2 + bridgeH, midZ)
         bridge.rotation.y = -angle
         this.propGroup.add(bridge)
 
         // Railings
-        for (const side of [-0.35, 0.35]) {
-          const railGeo = new THREE.BoxGeometry(bridgeLen, 0.4, 0.05)
+        for (const side of [-0.5, 0.5]) {
+          const railGeo = new THREE.BoxGeometry(bridgeLen, 0.9, 0.06)
           const rail = new THREE.Mesh(railGeo, railMat)
           rail.position.set(
             midX + Math.sin(angle) * side,
-            (ah + bh) / 2 + bridgeH + 0.2,
+            (ah + bh) / 2 + bridgeH + 0.45,
             midZ - Math.cos(angle) * side
           )
           rail.rotation.y = -angle
@@ -956,11 +976,15 @@ export class ThreeRenderer {
         // Support arch (simple box underneath)
         const archGeo = new THREE.BoxGeometry(0.2, bridgeH, 0.2)
         const archMat = new THREE.MeshLambertMaterial({ color: 0x706058, flatShading: true })
+        // At the DECK ENDS. These used to sit 0.5 out from each building's
+        // centre point, which is inside the building — so the walkway's only
+        // visible support was buried in a wall.
+        const half = bridgeLen / 2
         const support1 = new THREE.Mesh(archGeo, archMat)
-        support1.position.set(ax + Math.cos(angle) * 0.5, ah + bridgeH / 2, az + Math.sin(angle) * 0.5)
+        support1.position.set(midX - Math.cos(angle) * half, ah + bridgeH / 2, midZ - Math.sin(angle) * half)
         this.propGroup.add(support1)
         const support2 = new THREE.Mesh(archGeo, archMat)
-        support2.position.set(bx - Math.cos(angle) * 0.5, bh + bridgeH / 2, bz - Math.sin(angle) * 0.5)
+        support2.position.set(midX + Math.cos(angle) * half, bh + bridgeH / 2, midZ + Math.sin(angle) * half)
         this.propGroup.add(support2)
 
         count++
@@ -986,17 +1010,23 @@ export class ThreeRenderer {
           const diff = h - nh
           if (diff < 0.15 || diff > 0.8) continue // need a step but not a cliff
 
-          // Generate steps from low to high
-          const numSteps = Math.max(2, Math.ceil(diff / 0.08))
-          const stepW = 0.6, stepD = 0.25
+          // Generate steps from low to high. The run is a fraction of a TILE
+          // and so has to reach world units; the tread and rise are already
+          // metres. Tread depth follows the actual spacing rather than a fixed
+          // 0.25, which used to leave visible gaps between floating slabs
+          // whenever the drop needed more than a handful of steps.
+          const numSteps = Math.max(2, Math.min(9, Math.ceil(diff / 0.18)))
+          const runW = 0.6 * TILE
+          const spacing = runW / numSteps
+          const stepW = 1.4, stepD = spacing * 1.08
           const stepH = diff / numSteps
-          const startX = tx + 0.5, startZ = ty + 0.5
+          const startX = (tx + 0.5) * TILE, startZ = (ty + 0.5) * TILE
           const angle = Math.atan2(dz, dx)
 
           for (let s = 0; s < numSteps; s++) {
             const t = s / numSteps
-            const sx = startX + dx * (0.3 + t * 0.6)
-            const sz = startZ + dz * (0.3 + t * 0.6)
+            const sx = startX + dx * (0.3 * TILE + t * runW)
+            const sz = startZ + dz * (0.3 * TILE + t * runW)
             const sy = nh + s * stepH + stepH / 2
 
             const stepGeo = new THREE.BoxGeometry(
@@ -1223,7 +1253,7 @@ export class ThreeRenderer {
   }
 
   /** Initialize particle systems for smoke and fireflies */
-  private initParticles(chimneyPositions: THREE.Vector3[], gridW: number, gridH: number): void {
+  private initParticles(chimneyPositions: THREE.Vector3[], worldW: number, worldH: number): void {
     // Chimney smoke: 2 particles per chimney × max 16 chimneys = 32.
     // Was 4 × 16 = 64 (originally 8 × 20 = 160). At dusk-walkaround
     // distance you can't distinguish 4 dots from 2 dots per chimney —
@@ -1281,8 +1311,8 @@ export class ThreeRenderer {
 
     for (let i = 0; i < fireflyCount; i++) {
       const i3 = i * 3
-      const ox = Math.random() * gridW
-      const oz = Math.random() * gridH
+      const ox = Math.random() * worldW
+      const oz = Math.random() * worldH
       const oy = 1.5 + Math.random() * 3
       ffOrigins[i3] = ox; ffOrigins[i3 + 1] = oy; ffOrigins[i3 + 2] = oz
       ffPositions[i3] = ox; ffPositions[i3 + 1] = oy; ffPositions[i3 + 2] = oz
@@ -1526,25 +1556,47 @@ export class ThreeRenderer {
     this.animId = requestAnimationFrame(loop)
   }
 
+  /** Ground height under a WORLD position, following the slope.
+   *
+   *  This used to floor x and z before sampling, which threw away the
+   *  triangle interpolation getTerrainHeight exists to provide and snapped the
+   *  camera to whichever tile corner it was standing nearest. The player's
+   *  eye then jumped by the full tile rise at each boundary instead of walking
+   *  up the slope — and at 3m tiles you get three metres of travel between
+   *  steps, so it reads as the ground lurching. */
   private sampleGroundY(x: number, z: number): number {
     if (!this.terrainHeightMap) return 0
-    // getTerrainHeight now floors internally, but doing it here too makes
-    // the contract explicit and saves a redundant bounds check in the
-    // common case where the camera is far inside the map.
-    return getTerrainHeight(this.terrainHeightMap, Math.floor(x), Math.floor(z))
+    return groundYAtWorld(this.terrainHeightMap, x, z)
   }
 
   /**
-   * Returns true if the tile at world XZ is blocked for walking. Reads
-   * the collision mask built in loadMap. Out-of-bounds counts as blocked
-   * so the player can't walk off the map. When no mask exists (no map
-   * loaded yet) nothing is blocked — caller handles that case.
+   * Is a player standing at this WORLD position clipping anything solid?
+   *
+   * The old version floored the position to a single tile index and tested
+   * that one cell. The player therefore had no radius at all — a dimensionless
+   * point in tile space. Standing with your nose in a wall was legal as long
+   * as your centre was on the open tile, and on the far side of the same tile
+   * you were stopped a full tile early. That asymmetry is what got reported as
+   * "collision feels random", and it got worse with 3m tiles, which is the
+   * error bar on a point test.
+   *
+   * Now the player is a disc of PLAYER_RADIUS metres and every tile its
+   * bounding square touches has to be clear. Out-of-bounds counts as blocked
+   * so you cannot walk off the map.
    */
   private isBlocked(x: number, z: number): boolean {
     if (!this.collisionMask) return false
-    const ix = Math.floor(x), iz = Math.floor(z)
-    if (ix < 0 || ix >= this.gridW || iz < 0 || iz >= this.gridH) return true
-    return this.collisionMask[iz * this.gridW + ix] !== 0
+    const rTiles = PLAYER_RADIUS / TILE
+    const tx = x / TILE, tz = z / TILE
+    const ix0 = Math.floor(tx - rTiles), ix1 = Math.floor(tx + rTiles)
+    const iz0 = Math.floor(tz - rTiles), iz1 = Math.floor(tz + rTiles)
+    for (let iz = iz0; iz <= iz1; iz++) {
+      for (let ix = ix0; ix <= ix1; ix++) {
+        if (ix < 0 || ix >= this.gridW || iz < 0 || iz >= this.gridH) return true
+        if (this.collisionMask[iz * this.gridW + ix] !== 0) return true
+      }
+    }
+    return false
   }
 
   private updateCamera(dt: number): void {
@@ -1578,13 +1630,14 @@ export class ThreeRenderer {
       const stepZ = (dz / mag) * moveSpeed * throttle
       // Fly mode and "no map loaded" bypass collision — walk-mode does
       // a 3-try axis-slide: full move → X-only → Z-only → stay put.
-      // Probe ~0.3 units ahead along each axis so we stop just before the
-      // wall instead of clipping into it before the slide kicks in.
+      // The probe used to reach 0.3 ahead to compensate for the player having
+      // no radius. isBlocked now tests an actual disc, so this is back to
+      // being nothing more than a numerical nudge.
       if (this.flyMode || !this.collisionMask) {
         this.camera.position.x += stepX
         this.camera.position.z += stepZ
       } else {
-        const EPS = 0.3
+        const EPS = 0.02
         const px = this.camera.position.x
         const pz = this.camera.position.z
         const lookX = px + stepX + Math.sign(stepX) * EPS
@@ -1731,7 +1784,7 @@ export class ThreeRenderer {
     }
     tops.sort((a, b) => b - a)
     const terrainTop = this.terrainHeightMap
-      ? Math.max(...this.terrainHeightMap.flat()) * 1.8
+      ? Math.max(...this.terrainHeightMap.flat()) * TERRAIN_WORLD_SCALE
       : 0
     return {
       maxY: tops.length ? +tops[0].toFixed(2) : 0,

@@ -104,9 +104,19 @@ function roofAxisFor(w: number, d: number): RoofAxis {
  * so clamp there; ordinary buildings never approach the cap.
  * (buildRoof applies the matching cap to the roof cone on top.)
  */
-/** How far, in tiles, a volume may extend beyond its building's footprint.
- *  Generous — jetties and deep eaves are wanted; three-tile sails are not. */
-const MAX_OVERHANG = 0.9
+/** How far, in METRES, a volume may extend beyond its building's footprint.
+ *
+ *  This was 0.9 back when footW arrived in tiles and a tile was one unit, so
+ *  it meant 0.9 of a tile. footW is now in world units (see scale.ts), and a
+ *  proportional translation would be 2.7m — which is not a jetty, it is the
+ *  three-tile sail this cap exists to prevent, and it is what got reported
+ *  from the device as crossed timbers jutting out of houses.
+ *
+ *  So it is pinned to a physical number instead: a real jettied upper storey
+ *  overhangs 0.3-0.6m. Small and medium buildings keep their full jetty
+ *  (footW * 1.15 only exceeds this above ~8m frontage); only the large ones
+ *  get trimmed, which is where the sails came from anyway. */
+const MAX_OVERHANG = 0.6
 
 /** How many volumes the overhang cap has trimmed since the last reset, by
  *  template role. Exposed through the debug bridge: if a template starts
@@ -117,7 +127,12 @@ export function resetOverhangClamps(): void {
   for (const k of Object.keys(overhangClamps)) delete overhangClamps[k]
 }
 
-const MAX_TOWER_ASPECT = 9
+/** Height:width ceiling for tower bodies — the guard that stopped spires
+ *  reaching 74m needles. It was 9 when `width` was a tile count; width is now
+ *  world units and 3x larger, which silently made the guard 3x weaker. 4 is
+ *  the faithful translation with headroom: the tallest legitimate tower here
+ *  (a 3-tile lighthouse at 4 floors) sits at 2.75. */
+const MAX_TOWER_ASPECT = 4
 function towerHeightFor(raw: number, width: number): number {
   return Math.min(raw, width * MAX_TOWER_ASPECT)
 }
@@ -1023,15 +1038,6 @@ export function pickMassing(input: PickMassingInput): MassingResult {
     v.roofAxis = roofAxisFor(v.width, v.depth)
   }
 
-  // Roof heights are derived from wall height, so a slim volume could carry a
-  // roof many times its own width. Clamp on the Volume itself — not just at
-  // draw time — so every consumer of v.roofHeight (ridge caps, finials,
-  // weather vanes, dormers, attic windows) positions against the roof that is
-  // actually rendered instead of floating above a clipped cone.
-  for (const v of volumes) {
-    v.roofHeight = clampRoofHeight(v.width, v.depth, v.roofHeight, v.roofStyle)
-  }
-
   // Nothing may hang far outside the footprint the placer reserved.
   //
   // The audit checks FOOTPRINTS, so a building can pass every placement
@@ -1062,6 +1068,22 @@ export function pickMassing(input: PickMassingInput): MassingResult {
       v.depth = Math.max(0.1, nHiZ - nLoZ)
       v.offsetZ = (nLoZ + nHiZ) / 2
     }
+  }
+
+  // Roof heights are derived from wall height, so a slim volume could carry a
+  // roof many times its own width. Clamp on the Volume itself — not just at
+  // draw time — so every consumer of v.roofHeight (ridge caps, finials,
+  // weather vanes, dormers, attic windows) positions against the roof that is
+  // actually rendered instead of floating above a clipped cone.
+  //
+  // This runs AFTER the overhang clip, and the order is the whole point. It
+  // used to run before, so a volume that got clipped narrower kept the roof
+  // height computed for its original span. buildRoof re-clamps against the
+  // real width and draws a shorter cone, while the finial still sits at the
+  // old apex — which is why spires had ornaments hanging in the air above
+  // their tips. clampRoofHeight is idempotent, so doing it last is safe.
+  for (const v of volumes) {
+    v.roofHeight = clampRoofHeight(v.width, v.depth, v.roofHeight, v.roofStyle)
   }
 
   return { volumes, primaryFace: 'z+' }

@@ -56,14 +56,17 @@ await win.waitForTimeout(7000) // Three init + build + first frame under SwiftSh
 // The "Click to walk" hint sits dead centre over whatever we came to look at.
 await win.addStyleTag({ content: '.walk-hint { display: none !important; }' })
 
-// Centre of a 48x48 town. Heights are ABOVE the terrain at that point, so
-// the shots stay framed on hilly seeds too.
+// Centre of a 48x48 town. x/z are TILE coordinates (the bridge converts);
+// `up` is METRES above the terrain at that point, so the shots stay framed on
+// hilly seeds too. The aerial heights are a fraction of the town's world
+// extent — 48 tiles is ~144m now, not 48 units, and the old 34m overview
+// framed about six houses.
 const SHOTS = [
-  { name: 'overview',  x: 24, z: 40, up: 34, yaw: -Math.PI / 2, pitch: -0.62 },
-  { name: 'skyline',   x: 24, z: 46, up: 12, yaw: -Math.PI / 2, pitch: -0.14 },
+  { name: 'overview',  x: 24, z: 40, up: 100, yaw: -Math.PI / 2, pitch: -0.62 },
+  { name: 'skyline',   x: 24, z: 46, up: 34, yaw: -Math.PI / 2, pitch: -0.14 },
   { name: 'street',    x: 24, z: 24, up: 1.6, yaw: 0.0, pitch: -0.05 },
   { name: 'street-alt', x: 16, z: 30, up: 1.6, yaw: Math.PI / 2, pitch: 0.0 },
-  { name: 'rooftops',  x: 24, z: 30, up: 16, yaw: -Math.PI / 2, pitch: -0.45 },
+  { name: 'rooftops',  x: 24, z: 30, up: 30, yaw: -Math.PI / 2, pitch: -0.45 },
 ]
 
 for (const s of SHOTS) {
