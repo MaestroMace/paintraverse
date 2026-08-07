@@ -19,7 +19,7 @@ import { pickMassing, volumeFloors } from './architecture/Massing'
 import { gableMath } from './architecture/Roofs'
 import { emitVolume, localToWorld, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
 import { pickPaletteForStyle } from './architecture/PaletteBias'
-import { TILE } from './scale'
+import { TILE, STOREY_HEIGHT, MIN_HABITABLE_W } from './scale'
 
 /** Re-export so ThreeRenderer can keep importing from BuildingFactory. */
 export const setWallEmissiveIntensity = setVolumeEmissiveIntensity
@@ -29,12 +29,10 @@ const VALID_DISTRICTS: Set<string> = new Set([
   'temple', 'slum', 'garden', 'harbor', 'fortress', 'cemetery',
 ])
 
-// World units per building floor. Previous 1.05 made a 2-story building
-// only 2.1m tall — roughly the player's eye height — which read as the
-// player towering over a toy town ("kaiju" scale). Bumped to 1.8 so a
-// 2-story is a comfortable 3.6m and a 3-story is 5.4m, letting the player
-// feel inside the architecture rather than above it.
-export const FLOOR_HEIGHT = 1.8
+// Floor-to-floor. Re-exported from scale.ts so there is exactly one number
+// for "how tall is a storey" — see STOREY_HEIGHT there for why it is 2.9 and
+// what measurement moved it off 1.8.
+export const FLOOR_HEIGHT = STOREY_HEIGHT
 
 // Districts where buildings should read as urban — taller floor counts.
 const URBAN_DISTRICTS = new Set<string>([
@@ -183,6 +181,43 @@ export interface BuildingDiagnostics {
   flatToppedTallVolumes: number
   /** Street-dressing features that are gated behind district/type rules. */
   featureCounts: Record<string, number>
+  /** Per-building human-scale samples — see BuildingScale. */
+  scaleSamples: BuildingScale[]
+}
+
+/**
+ * One building's dimensions, in METRES, for the human-scale audit.
+ *
+ * The point of this record is that "is the scale right?" is not answerable by
+ * looking at a screenshot and it is not answerable by a single median either.
+ * The complaint from the device was "some buildings are tiny and others are
+ * huge, and the tiny ones have tiny doors and windows" — that is a statement
+ * about a DISTRIBUTION and about whether details track the building or stay
+ * human-sized. So every building reports what a person standing next to it
+ * would actually measure, and tools/humanscale.mjs prints the spread.
+ *
+ * The door and window figures are DERIVED, not guessed: FacadeTexture lays the
+ * facade out in texture units — the texture is `width` units across and
+ * `floors + 0.5` tall — and that image is then stretched over the wall. So a
+ * feature's real size is its texture fraction times the wall's world size, and
+ * that is what these fields compute.
+ */
+export interface BuildingScale {
+  definitionId: string
+  /** Main body, world metres. */
+  wallW: number
+  wallD: number
+  wallH: number
+  /** Whole building including roof and any spire. */
+  totalH: number
+  floors: number
+  /** wallH / floors — a real storey is 2.6-3.2m. */
+  storeyH: number
+  /** Painted opening sizes on the finished wall, world metres. */
+  doorH: number
+  doorW: number
+  windowH: number
+  windowW: number
 }
 
 const FAILURE_LOG_CAP = 30
@@ -197,6 +232,7 @@ let _lastDiagnostics: BuildingDiagnostics = {
   roofStyles: {},
   flatToppedTallVolumes: 0,
   featureCounts: {},
+  scaleSamples: [],
 }
 
 export function getBuildingDiagnostics(): BuildingDiagnostics {
@@ -213,6 +249,7 @@ export function buildBuildingMeshes(
   const wallMeshes: THREE.Mesh[] = []
   const tops: BuildingTop[] = []
   const roofStyles: Record<string, number> = {}
+  const scaleSamples: BuildingScale[] = []
   const featureCounts: Record<string, number> = {}
   const tally = (k: string) => { featureCounts[k] = (featureCounts[k] ?? 0) + 1 }
   let flatToppedTallVolumes = 0
@@ -471,6 +508,19 @@ export function buildBuildingMeshes(
         roofHeight: v.roofHeight * sizeScale,
         bottomY: v.bottomY * sizeScale,
       }))
+      // wealthScale runs AFTER massing, so it can pull a volume back under the
+      // human minimum that pickMassing just enforced — a slum multiplier of
+      // 0.78 on a 2.6m wall is 2.0m. Re-floor here, bounded by the footprint
+      // plus the overhang allowance so this cannot reintroduce a sail.
+      const maxW = fp.w + 1.2, maxD = fp.h + 1.2
+      for (const v of massing.volumes) {
+        if (v.role === 'chimneyVol' || v.role === 'porch' || v.role === 'spire') continue
+        v.width = Math.min(maxW, Math.max(v.width, Math.min(MIN_HABITABLE_W, maxW)))
+        v.depth = Math.min(maxD, Math.max(v.depth, Math.min(MIN_HABITABLE_W, maxD)))
+        if (v.role === 'mainBody' || v.role === 'upperFloor') {
+          v.height = Math.max(v.height, STOREY_HEIGHT)
+        }
+      }
     }
 
     // Short 1-story buildings don't contribute meaningfully to the dusk
@@ -590,6 +640,34 @@ export function buildBuildingMeshes(
     // BuildingTop exists at all: anything hanging off a wall — lanterns,
     // signs, awnings — otherwise re-derives the wall position from the
     // footprint rectangle, and the footprint is not where the wall is.
+    // === HUMAN-SCALE SAMPLE ===
+    // FacadeTexture builds the facade in texture units: the image is
+    // `fpT.w` units across and `floors + 0.5` tall, and it is then stretched
+    // over the wall. So an opening's real size is its texture fraction times
+    // the wall's world size. Recording it here — where both the texture config
+    // and the finished volume are in scope — is the only place the two can be
+    // multiplied without re-deriving either.
+    {
+      const sFloors = volumeFloors(mainVol)
+      // FacadeTexture is metric in both axes now — one texture unit is one
+      // metre — so an opening drawn at N units lands on the wall at N metres
+      // and these are simply the constants it draws with. When they stop
+      // matching, this audit is the thing that says so.
+      scaleSamples.push({
+        definitionId: obj.definitionId,
+        wallW: +mainVol.width.toFixed(2),
+        wallD: +mainVol.depth.toFixed(2),
+        wallH: +mainVol.height.toFixed(2),
+        totalH: +(apexLocalY).toFixed(2),
+        floors: sFloors,
+        storeyH: +(mainVol.height / sFloors).toFixed(2),
+        doorH: 2.05,
+        doorW: 0.95,
+        windowH: 1.35,
+        windowW: 1.0,
+      })
+    }
+
     tops.push({
       centerX: wx + (mainVol.offsetX * Math.cos(rotationY) - mainVol.offsetZ * Math.sin(rotationY)),
       centerZ: wz + (mainVol.offsetX * Math.sin(rotationY) + mainVol.offsetZ * Math.cos(rotationY)),
@@ -1712,6 +1790,7 @@ export function buildBuildingMeshes(
     ornamentFragments,
     roofStyles,
     flatToppedTallVolumes,
+    scaleSamples,
     featureCounts,
   }
   if (failed > 0) {

@@ -12,6 +12,7 @@ import type { StyleVector } from './StyleVector'
 import type { ArchetypeId } from './Archetypes'
 import type { RoofStyle, RoofAxis } from './Roofs'
 import { clampRoofHeight, ensureRoofPitch } from './Roofs'
+import { STOREY_HEIGHT, MIN_HABITABLE_W } from '../scale'
 
 export type VolumeRole =
   | 'mainBody' | 'tower' | 'wing' | 'upperFloor' | 'spire'
@@ -62,7 +63,19 @@ function rand01(hash: number, salt: number): number {
  * timber beams) agree on the same floor count for the same volume.
  */
 export function volumeFloors(v: Volume): number {
-  return Math.max(1, v.floors ?? Math.max(1, Math.round(v.height / 0.9)))
+  // STOREY_HEIGHT, not a local 0.9. That literal was left over from when a
+  // storey was about a world unit, and it survived every rescale — so a 5.4m
+  // volume reported SIX floors, and FacadeTexture dutifully painted six rows
+  // of windows a third of a metre tall onto a three-storey wall.
+  const byHeight = Math.max(1, Math.round(v.height / STOREY_HEIGHT))
+  if (v.floors === undefined) return byHeight
+  // The explicit count is the BUILDING's floor count, and templates hand it to
+  // every volume they make — including a jetty's squat lower floor, which is
+  // 32% of the wall carrying a label saying "three storeys". That produced
+  // 0.8m storeys, and a facade laid out per storey then drew windows that
+  // could not fit. Trust the explicit count only while it implies a storey a
+  // person could stand up in.
+  return (v.height / v.floors) < 2.2 ? byHeight : Math.max(1, v.floors)
 }
 
 /** Choose a roof style from the style vector + some randomness. */
@@ -1101,6 +1114,34 @@ export function pickMassing(input: PickMassingInput): MassingResult {
           v.offsetZ += s * ZFIGHT_EPS
         }
       }
+    }
+  }
+
+  // === HUMAN MINIMUMS ===
+  //
+  // Templates inset their volumes as a fraction of the footprint, and those
+  // fractions compound: a jetty takes up to 54% off the lower floor, an L-wing
+  // is 55% of the frontage, wealthScale takes another 22%. The result was
+  // habitable volumes 0.55m across and 0.91m tall — a doghouse with a
+  // full-size door painted on it, which is the "some buildings are tiny" half
+  // of the scale complaint.
+  //
+  // Growing a volume is allowed to reach the same box the overhang clip just
+  // enforced (footprint + MAX_OVERHANG) and no further, so this cannot undo
+  // that clip or push geometry into a neighbour.
+  const HABITABLE = new Set<VolumeRole>([
+    'mainBody', 'wing', 'upperFloor', 'tower', 'penthouse', 'transept',
+  ])
+  for (const v of volumes) {
+    if (!HABITABLE.has(v.role)) continue
+    const maxW = ctx.footW + MAX_OVERHANG * 2
+    const maxD = ctx.footD + MAX_OVERHANG * 2
+    v.width = Math.min(maxW, Math.max(v.width, Math.min(MIN_HABITABLE_W, maxW)))
+    v.depth = Math.min(maxD, Math.max(v.depth, Math.min(MIN_HABITABLE_W, maxD)))
+    // A habitable storey has to clear a person's head. Towers and spires are
+    // sized by their own rules and are never the short case.
+    if (v.role === 'mainBody' || v.role === 'upperFloor') {
+      v.height = Math.max(v.height, STOREY_HEIGHT)
     }
   }
 

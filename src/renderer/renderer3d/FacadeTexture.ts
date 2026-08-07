@@ -6,10 +6,19 @@
  */
 
 import * as THREE from 'three'
+import { STOREY_HEIGHT } from './scale'
 
 interface FacadeConfig {
   floors: number
-  width: number   // footprint width in tiles
+  /** Wall width in METRES. The field used to be documented as tiles, but the
+   *  caller has passed `Math.round(v.width)` — world units — since the tile
+   *  rescale, so the horizontal axis was already metric and only the comment
+   *  was wrong. Every layout number below now says so explicitly. */
+  width: number
+  /** Wall height in METRES. Without this the vertical axis was laid out in
+   *  "floors + 0.5" units and stretched over the wall, which is what made a
+   *  door 0.55 of a made-up unit — 0.79m in practice, against a 1.75m person. */
+  wallH: number
   wallColor: number
   roofColor: number
   doorColor: number
@@ -26,7 +35,9 @@ interface FacadeConfig {
 }
 export type { FacadeConfig }
 
-const TEXTURE_SCALE = 64 // pixels per tile unit
+/** Texture pixels per METRE. Both canvas axes are metric — see createFacadeTexture. */
+const TEXTURE_SCALE = 32
+const STOREY_M = STOREY_HEIGHT
 const _textureCache = new Map<string, THREE.CanvasTexture>()
 
 /**
@@ -60,7 +71,7 @@ function facadeKey(config: FacadeConfig, face: 'front' | 'side'): string {
   const gfc = config.groundFloorColor !== undefined
     ? quantizeColor(config.groundFloorColor).toString(16)
     : 'none'
-  return `${config.floors}_${config.width}_${wq.toString(16)}_${dq.toString(16)}_${config.hasTimber}_${config.hasAwning}_${config.hasShutters}_${config.hasFlowerBox}_${config.style}_${gfc}_${face}`
+  return `${config.floors}_${Math.round(config.width * 2)}_${Math.round(config.wallH * 2)}_${wq.toString(16)}_${dq.toString(16)}_${config.hasTimber}_${config.hasAwning}_${config.hasShutters}_${config.hasFlowerBox}_${config.style}_${gfc}_${face}`
 }
 
 function hexToRGB(color: number): [number, number, number] {
@@ -95,8 +106,16 @@ export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'
   const cached = _textureCache.get(key)
   if (cached) return cached
 
-  const w = config.width * TEXTURE_SCALE
-  const h = config.floors * TEXTURE_SCALE + TEXTURE_SCALE / 2 // extra for ground floor height
+  // ONE texture pixel-per-metre in BOTH axes. Horizontal already worked this
+  // way by accident; vertical was floors-based, so a taller building squeezed
+  // the same drawing into more wall and every opening shrank. With both axes
+  // metric an opening drawn at 2.05 units lands on the wall at 2.05 metres,
+  // whatever the building.
+  const M = TEXTURE_SCALE
+  const wallWm = Math.max(1, config.width)
+  const wallHm = Math.max(1.5, config.wallH)
+  const w = Math.round(wallWm * M)
+  const h = Math.round(wallHm * M)
   const canvas = document.createElement('canvas')
   canvas.width = w
   canvas.height = h
@@ -111,7 +130,7 @@ export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'
   // shop foundation under timber/plaster upper floors. Otherwise just a
   // subtle darker stripe matches the original look.
   if (config.groundFloorColor !== undefined) {
-    const gh = TEXTURE_SCALE
+    const gh = STOREY_M * M
     ctx.fillStyle = colorStr(config.groundFloorColor)
     ctx.fillRect(0, h - gh, w, gh)
     // Suggest stone courses with a few horizontal banding lines in a
@@ -145,40 +164,50 @@ export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'
     ctx.lineWidth = 3
     // Horizontal beams
     for (let floor = 0; floor < config.floors; floor++) {
-      const y = h - (floor + 1) * TEXTURE_SCALE + TEXTURE_SCALE * 0.15
+      const y = h - (floor + 1) * STOREY_M * M + M * 0.15
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke()
     }
     // Vertical beams
-    const beamSpacing = w / (config.width + 1)
-    for (let i = 1; i <= config.width; i++) {
+    const bays = Math.max(1, Math.round(wallWm / 1.7))
+    const beamSpacing = w / (bays + 1)
+    for (let i = 1; i <= bays; i++) {
       ctx.beginPath(); ctx.moveTo(i * beamSpacing, 0); ctx.lineTo(i * beamSpacing, h); ctx.stroke()
     }
     // Diagonal crosses in each panel
     for (let floor = 0; floor < config.floors; floor++) {
-      const fy = h - (floor + 1) * TEXTURE_SCALE
-      for (let panel = 0; panel < config.width; panel++) {
+      const fy = h - (floor + 1) * STOREY_M * M
+      for (let panel = 0; panel < bays; panel++) {
         const px = panel * beamSpacing + beamSpacing / 2
         if ((floor + panel) % 3 === 0) {
           ctx.beginPath()
-          ctx.moveTo(px - beamSpacing * 0.3, fy + TEXTURE_SCALE * 0.2)
-          ctx.lineTo(px + beamSpacing * 0.3, fy + TEXTURE_SCALE * 0.8)
+          ctx.moveTo(px - beamSpacing * 0.3, fy + STOREY_M * M * 0.2)
+          ctx.lineTo(px + beamSpacing * 0.3, fy + STOREY_M * M * 0.8)
           ctx.stroke()
         }
       }
     }
   }
 
-  // Windows
-  const winW = TEXTURE_SCALE * 0.22
-  const winH = TEXTURE_SCALE * 0.35
-  const cols = Math.max(1, Math.floor(config.width * 1.5))
+  // Windows — a real sash is about 1.0m x 1.35m with its sill 0.95m off the
+  // floor, and windows sit roughly every 2.4m along a facade. All four of
+  // those are metres, so all four survive any future change to the tile
+  // factor; the previous fractions-of-a-made-up-unit did not.
+  const WIN_W_M = 1.0, WIN_H_M = 1.35, SILL_M = 0.95, WIN_PITCH_M = 2.4
+  const winW = WIN_W_M * M
+  const winH = WIN_H_M * M
+  const cols = Math.max(1, Math.round(wallWm / WIN_PITCH_M))
   const spacing = w / (cols + 1)
+  // Storeys are laid out from the ground up at their true height, so the
+  // top floor is dropped when the wall is not tall enough to hold it rather
+  // than every floor being compressed to fit.
+  const storeyPx = STOREY_M * M
+  const floorsThatFit = Math.max(1, Math.min(config.floors, Math.floor(wallHm / STOREY_M)))
 
-  for (let floor = 0; floor < config.floors; floor++) {
-    const floorY = h - (floor + 1) * TEXTURE_SCALE
+  for (let floor = 0; floor < floorsThatFit; floor++) {
+    const floorY = h - (floor + 1) * storeyPx
     for (let col = 0; col < cols; col++) {
       const wx = spacing * (col + 1) - winW / 2
-      const wy = floorY + TEXTURE_SCALE * 0.25
+      const wy = floorY + (STOREY_M - SILL_M - WIN_H_M) * M
 
       // Window frame (dark)
       ctx.fillStyle = colorStr(darkenColor(config.wallColor, 0.25))
@@ -237,8 +266,9 @@ export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'
 
   // Door (front face only)
   if (face === 'front') {
-    const doorW = TEXTURE_SCALE * 0.25
-    const doorH = TEXTURE_SCALE * 0.55
+    // A door you can walk through: 0.95m x 2.05m.
+    const doorW = 0.95 * M
+    const doorH = 2.05 * M
     const doorX = w / 2 - doorW / 2
     const doorY = h - doorH
 
@@ -293,8 +323,13 @@ export function createEmissiveTexture(config: FacadeConfig): THREE.CanvasTexture
   const cached = _textureCache.get(key)
   if (cached) return cached
 
-  const w = config.width * TEXTURE_SCALE
-  const h = config.floors * TEXTURE_SCALE + TEXTURE_SCALE / 2
+  // Same metric canvas as createFacadeTexture — if these two disagree the lit
+  // windows sit somewhere other than the painted ones.
+  const M = TEXTURE_SCALE
+  const wallWm = Math.max(1, config.width)
+  const wallHm = Math.max(1.5, config.wallH)
+  const w = Math.round(wallWm * M)
+  const h = Math.round(wallHm * M)
   const canvas = document.createElement('canvas')
   canvas.width = w
   canvas.height = h
@@ -304,18 +339,21 @@ export function createEmissiveTexture(config: FacadeConfig): THREE.CanvasTexture
   ctx.fillStyle = 'rgb(0,0,0)'
   ctx.fillRect(0, 0, w, h)
 
-  // Glowing windows (same layout as facade)
-  const winW = TEXTURE_SCALE * 0.22
-  const winH = TEXTURE_SCALE * 0.35
-  const cols = Math.max(1, Math.floor(config.width * 1.5))
+  // Glowing windows — layout duplicated from createFacadeTexture and it has to
+  // stay identical, so the numbers come from the same named metres.
+  const winW = 1.0 * M
+  const winH = 1.35 * M
+  const cols = Math.max(1, Math.round(wallWm / 2.4))
   const spacing = w / (cols + 1)
+  const storeyPx = STOREY_M * M
+  const floorsThatFit = Math.max(1, Math.min(config.floors, Math.floor(wallHm / STOREY_M)))
 
   // Seeded random for consistent dark windows
   let rng = config.wallColor ^ (config.floors * 7919)
   const nextRng = () => { rng = (rng * 1103515245 + 12345) & 0x7fffffff; return rng / 0x7fffffff }
 
-  for (let floor = 0; floor < config.floors; floor++) {
-    const floorY = h - (floor + 1) * TEXTURE_SCALE
+  for (let floor = 0; floor < floorsThatFit; floor++) {
+    const floorY = h - (floor + 1) * storeyPx
     for (let col = 0; col < cols; col++) {
       // Per-window state with mood variety:
       //   ~25% dark (room unlit / shutters drawn)
@@ -333,7 +371,7 @@ export function createEmissiveTexture(config: FacadeConfig): THREE.CanvasTexture
       if (kind === 'dark') continue
 
       const wx = spacing * (col + 1) - winW / 2
-      const wy = floorY + TEXTURE_SCALE * 0.25
+      const wy = floorY + (STOREY_M - 0.95 - 1.35) * M
 
       const warmth = nextRng()
       let r: number, g: number, b: number

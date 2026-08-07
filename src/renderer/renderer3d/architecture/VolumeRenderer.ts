@@ -339,7 +339,11 @@ export function emitVolume(
         : undefined
       const cfg: FacadeConfig = {
         floors,
-        width: Math.max(1, Math.round(v.width)),
+        // Both in METRES, quantised to half a metre so the texture cache stays
+        // bounded. The facade lays itself out in real dimensions now, so these
+        // have to be the wall's real size — not a floor count and not tiles.
+        width: Math.max(1, Math.round(v.width * 2) / 2),
+        wallH: Math.max(1.5, Math.round(v.height * 2) / 2),
         wallColor: v.wallColor,
         roofColor: v.roofColor,
         doorColor: ctx.palette.door,

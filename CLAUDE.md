@@ -357,6 +357,47 @@ Verified against the code; if you change one, change it here too.
 - Plan view reads: role-tinted buildings, prop glyphs, labels that fit
 - Pixel-art export works at every hour (see tools/pixelart.mjs)
 
+## HUMAN SCALE — read tools/humanscale.mjs before believing a screenshot
+
+TILE = 3.0 fixed the *town's* scale. It did not fix the *building's*, and three
+rounds of screenshots failed to tell the two apart. The audit did it in one run:
+
+| metric | was | now | real |
+|---|---|---|---|
+| storey height | 1.91m | 2.90m | 2.6-3.2 |
+| door height | 0.79m | 2.05m | 2.0 |
+| window height | 0.50m | 1.35m | 1.3 |
+| doors shorter than a person | **95%** | 0% | — |
+| storeys under head height | 59% | 0% | — |
+| frontage p10 / min | 1.34 / 0.55m | 2.60 / 2.60m | — |
+
+Three causes, all of them a number that meant one thing and was read as another:
+
+1. **`FLOOR_HEIGHT` was 1.8m.** A storey is 2.9. The old comment warned against
+   raising it because it "makes needles" — true when a building was 1-3 world
+   units WIDE, meaningless at TILE = 3. Now `STOREY_HEIGHT` in scale.ts, one
+   definition.
+2. **`volumeFloors` divided height by a hardcoded `0.9`** left over from an
+   earlier scale, so a 5.4m volume claimed SIX storeys and the facade painted
+   six rows of windows a third of a metre tall. It also trusted an explicit
+   floor count even when that implied an 0.8m storey — templates hand the
+   BUILDING's floor count to every volume, including a jetty's squat lower
+   floor.
+3. **FacadeTexture laid out in texture units, not metres.** The canvas was
+   `width` by `floors + 0.5` units and got stretched over the wall, so an
+   opening's real size was its fraction times the wall — a taller building
+   squeezed the same drawing into more wall and every opening shrank. Both axes
+   are metric now: a door drawn at 2.05 units lands at 2.05 metres on any
+   building. `FacadeConfig.width`/`wallH` are METRES, quantised to 0.5m so the
+   cache stays bounded.
+
+And the "some tiny" half: templates inset volumes by FRACTIONS that compound
+(a jetty takes 54% off the lower floor, an L-wing is 55% of frontage,
+wealthScale another 22%), and each template's own floor — `Math.max(0.9, ...)`
+— meant 0.9 of a TILE when it was written. `MIN_HABITABLE_W` is enforced once
+at the end of massing and again after wealthScale, bounded by footprint +
+MAX_OVERHANG so it can never reintroduce a sail.
+
 ## THE SCALE FACTOR (fixed — read before touching FLOOR_HEIGHT or TILE)
 
 Reported from the phone as "houses the size of cars with windows as big as
@@ -561,6 +602,13 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   emitted it plus a world position, and optionally photographed. A batched mesh
   otherwise gives you no way to ask which line drew a triangle, which is why
   that defect survived several rounds of staring at screenshots.
+- `node tools/humanscale.mjs [seeds...] [--by-type]` — **the scale audit.** Every
+  building's dimensions in METRES against what that thing measures in the real
+  world, as a DISTRIBUTION. A median cannot see "some buildings are tiny and
+  others are huge, and the tiny ones have tiny doors" — that is a spread and a
+  detail-tracks-its-building problem, and this is the only tool that shows
+  either. Run it after touching STOREY_HEIGHT, TILE, any massing template's
+  size fractions, or FacadeTexture. Read the numbers, not a screenshot.
 - `node tools/roofcheck.mjs [seeds...]` — volumes whose top is flat with
   nothing stacked on them, i.e. open boxes against the sky. Should stay near 0.
 - `node tools/bisect.mjs [seed] [--x= --z= --up= --yaw= --pitch=] [--mesh]` — screenshot
