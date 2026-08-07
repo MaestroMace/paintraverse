@@ -354,83 +354,6 @@ input[type="color"] {
   border-right: none;
 }
 
-/* === PHONE LAYOUT ===
- *
- * The desktop layout is three columns: a 232px rail, the viewport, another
- * 232px rail. On a Pixel that is 464px of chrome inside a 412px screen, so
- * the viewport — the whole point of the app — collapses to nothing.
- *
- * The query must stay identical to MOBILE_LAYOUT_QUERY in core/platform.ts;
- * if they disagree, React treats the rails as drawers while CSS still lays
- * them out as columns, or the reverse.
- *
- * Width alone does NOT identify a phone, and assuming it did shipped a broken
- * APK: `max-width: 820px` is true for a Pixel in portrait (412px) and false
- * the moment you rotate it (915px), so on a real device the desktop layout
- * came back and the 3D view became a narrow middle column. Hence the second
- * branch — a coarse pointer up to tablet width — with the ceiling there to
- * keep touchscreen laptops on the desktop layout.
- *
- * Rails become slide-over drawers so the viewport always owns the screen.
- * Both start closed (see LandscapeMode).
- */
-@media (max-width: 900px), (pointer: coarse) and (max-width: 1180px) {
-  .left-panel, .right-panel {
-    position: fixed;
-    top: 0;
-    bottom: 0;
-    width: min(80vw, 320px);
-    z-index: 60;
-    box-shadow: 0 0 40px rgba(0, 0, 0, 0.7);
-    /* Momentum scrolling, and room to scroll past the toolbar overlay. */
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: 64px;
-  }
-  .left-panel { left: 0; }
-  .right-panel { right: 0; }
-
-  /* The toolbar has more buttons than fit; let it scroll rather than
-   * silently pushing the 2D/3D switch off the edge of the screen. */
-  .toolbar {
-    overflow-x: auto;
-    overflow-y: hidden;
-    flex-wrap: nowrap;
-    scrollbar-width: none;
-  }
-  .toolbar::-webkit-scrollbar { display: none; }
-  .toolbar > * { flex: 0 0 auto; }
-
-  /* Drawer handles need to be thumb-sized, not 18px wide. */
-  .panel-toggle {
-    width: 30px;
-    height: 76px;
-    font-size: 15px;
-  }
-
-  /* Controls sized for a mouse are hard to hit with a thumb. 44px is the
-   * usual minimum comfortable touch target. */
-  .toolbar button,
-  .panel-header {
-    min-height: 40px;
-  }
-  input[type="range"] {
-    height: 30px;
-  }
-
-  /* The status bar is the least useful thing on a small screen. */
-  .status-bar .status-mode { display: none; }
-}
-
-/* Tap-outside-to-close for the mobile drawers. Sits above everything except
- * the drawer itself, which is why the drawer is z-60 and this is z-55. */
-.drawer-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 55;
-  background: rgba(4, 3, 8, 0.5);
-  -webkit-tap-highlight-color: transparent;
-}
-
 /* Landscape phone: only ~412px of HEIGHT, and the toolbar plus status bar
  * were eating a fifth of it. Claw that back for the view. */
 @media (pointer: coarse) and (max-height: 500px) {
@@ -448,4 +371,161 @@ input[type="color"] {
   .toolbar button kbd,
   .toolbar .shortcut-hint { display: none; }
   .status-bar { display: none; }
+}
+
+/* === MOBILE-FIRST SHELL ===
+ *
+ * Used by MobileShell, which replaces the three-column layout on phones
+ * rather than hiding it behind handles. The query must stay identical to
+ * MOBILE_LAYOUT_QUERY in core/platform.ts.
+ *
+ * The organising idea: the viewport is the screen. Nothing is allowed to
+ * shrink it — controls either float on top of it or slide over its lower
+ * half, and both get out of the way on a tap. Cramming the desktop rails
+ * into drawers put a scrolling column over three quarters of the display
+ * and left the town as a thumbnail inside a menu.
+ */
+@media (max-width: 900px), (pointer: coarse) and (max-width: 1180px) {
+  .mobile-shell {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    /* Room for the tab bar plus the gesture area on a modern Android. */
+    padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mobile-viewport {
+    position: relative;
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  /* Floating 2D/3D switch — top right, clear of the FPS readout. */
+  .mobile-viewswitch {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 12;
+    display: flex;
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: rgba(12, 8, 16, 0.82);
+    backdrop-filter: blur(6px);
+  }
+  .mobile-viewswitch button {
+    min-width: 52px;
+    min-height: 38px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    font-weight: 700;
+    font-size: var(--fs-sm);
+  }
+  .mobile-viewswitch button.active {
+    background: linear-gradient(180deg, rgba(240, 184, 64, 0.9), rgba(210, 150, 40, 0.9));
+    color: #24170a;
+  }
+
+  /* Only covers the area above the sheet, so it can never swallow a tap
+   * meant for the controls. */
+  .mobile-sheet-scrim {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--sheet-h) + var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+    z-index: 62;
+    background: rgba(4, 3, 8, 0.35);
+  }
+
+  .mobile-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+    height: var(--sheet-h);
+    z-index: 64;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, rgba(26, 18, 29, 0.99), rgba(14, 10, 18, 0.995));
+    border-top: 1px solid var(--border);
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -14px 40px rgba(0, 0, 0, 0.6);
+  }
+  .mobile-sheet-grip {
+    flex: 0 0 auto;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mobile-sheet-grip::before {
+    content: '';
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(240, 184, 64, 0.4);
+  }
+  .mobile-sheet-body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding-bottom: 12px;
+  }
+
+  .mobile-tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 68;
+    display: flex;
+    height: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: linear-gradient(180deg, rgba(30, 20, 26, 0.98), rgba(12, 8, 14, 0.99));
+    border-top: 1px solid var(--border);
+  }
+  .mobile-tabbar button {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mobile-tabbar button.active { color: var(--accent); }
+  .mobile-tabbar button.active .mobile-tab-glyph {
+    text-shadow: 0 0 10px rgba(240, 184, 64, 0.55);
+  }
+  .mobile-tab-glyph { font-size: 17px; line-height: 1; }
+  .mobile-tab-label { font-size: 10px; letter-spacing: 0.4px; }
+
+  /* The desktop toolbar and status bar are redundant here: the tab bar
+   * carries navigation and the floating switch carries 2D/3D. */
+  .toolbar, .status-bar { display: none; }
+}
+
+:root {
+  --tabbar-h: 56px;
+  --sheet-h: min(56vh, 460px);
+}
+
+/* Landscape phone: barely 412px of height, so the sheet takes a bigger
+ * share of it and the tab bar slims down. */
+@media (pointer: coarse) and (max-height: 500px) {
+  :root {
+    --tabbar-h: 46px;
+    --sheet-h: min(72vh, 300px);
+  }
+  .mobile-tab-label { display: none; }
 }

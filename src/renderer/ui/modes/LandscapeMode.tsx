@@ -14,6 +14,7 @@ import { LayerPanel } from '../panels/LayerPanel'
 import { PropertyInspector } from '../panels/PropertyInspector'
 import { ManifestPanel } from '../panels/ManifestPanel'
 import { isMobileLayout, MOBILE_LAYOUT_QUERY } from '../../core/platform'
+import { MobileShell } from './MobileShell'
 
 export function LandscapeMode() {
   // Both rails start collapsed on a phone. At 232px each they consume 464px
@@ -32,8 +33,7 @@ export function LandscapeMode() {
       setNarrow(e.matches)
       // Entering the phone layout closes both rails so the viewport is not
       // left covered by two drawers the user never opened.
-      if (e.matches) { setLeftCollapsed(true); setRightCollapsed(true) }
-      else { setLeftCollapsed(false); setRightCollapsed(false) }
+      if (!e.matches) { setLeftCollapsed(false); setRightCollapsed(false) }
     }
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
@@ -43,17 +43,12 @@ export function LandscapeMode() {
   const [rightCollapsed, setRightCollapsed] = useState(narrow)
   const view3D = useAppStore((s) => s.view3D)
 
-  // An open drawer covers its own handle at 80vw, so without this there is
-  // no way to close it again on a phone. Tap-outside-to-close is the standard
-  // drawer affordance and costs one element.
-  const scrim = (close: () => void) => (
-    <div className="drawer-scrim" onClick={close} onTouchStart={close} />
-  )
+  // Phones get a different shell entirely, not this one with the rails
+  // hidden — see MobileShell for why that distinction matters.
+  if (narrow) return <MobileShell />
 
   return (
     <div className="app-body">
-      {narrow && !leftCollapsed && scrim(() => setLeftCollapsed(true))}
-      {narrow && !rightCollapsed && scrim(() => setRightCollapsed(true))}
       {!leftCollapsed && (
         <div className="left-panel">
           <GenerationPanel />

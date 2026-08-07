@@ -356,8 +356,19 @@ xvfb-run -a node tools/webshot.mjs --mobile   # Pixel-sized preview, no device
   no-op there.
 - Touch: left half of the 3D canvas is a drag-anywhere virtual stick, right
   half looks. There is no pointer lock and no keyboard on a phone.
-- Layout: below 820px the two side rails become slide-over drawers with a
-  tap-outside scrim, because 2x232px of rail does not fit a 412px screen.
+- Layout: phones do NOT get the desktop shell. `LandscapeMode` hands off to
+  `ui/modes/MobileShell.tsx` — full-bleed viewport, a floating 2D/3D switch,
+  and four bottom tabs (Build / Objects / World / Render) that open a sheet
+  over the lower half. It reuses the same panel components, so nothing can
+  drift from desktop behaviour. Sliding the desktop rails in from the side
+  was tried first and is not a mobile layout: opening one covered three
+  quarters of the screen and left the town as a thumbnail inside a menu.
+- The phone breakpoint is `MOBILE_LAYOUT_QUERY` in core/platform.ts, mirrored
+  verbatim in App.css. **Width alone does not identify a phone** — a Pixel is
+  412px in portrait and 915px in landscape, so a width-only rule shipped an
+  APK that reverted to the desktop layout the moment it was rotated.
+- `tools/webshot.mjs --device=` has presets (pixel, pixel-land, pixel-pro,
+  fold, tablet). Testing one shape is what let that through; check landscape.
 - Toolchain needed for the APK: JDK 21, Android SDK platform 34 +
   build-tools 34.0.0 (`sdkmanager "platforms;android-34" "build-tools;34.0.0"`),
   and `android/local.properties` pointing `sdk.dir` at the SDK.
