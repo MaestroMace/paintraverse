@@ -974,6 +974,27 @@ export function pickMassing(input: PickMassingInput): MassingResult {
     volumes = options[Math.min(idx, options.length - 1)](ctx)
   }
 
+  // A flat volume with nothing stacked on top of it is an open box against
+  // the sky — it reads as a half-built house. roofFromStyle returns 'flat' for
+  // 65% of low-pitch styles, and while most flats are structural and hidden
+  // (the body under a jetty, the block beneath a step-back penthouse), 14-16
+  // per town were exposed. Give those a real roof, staying low-pitch so the
+  // building keeps the character its style vector asked for.
+  for (const v of volumes) {
+    if (v.role === 'chimneyVol') continue // a chimney is meant to be open-topped
+    const isFlat = v.roofStyle === 'flat' || v.roofStyle === 'none' || v.roofHeight <= 0
+    if (!isFlat || v.height < 2.0) continue
+    const covered = volumes.some(o =>
+      o !== v && o.bottomY >= v.bottomY + v.height - 0.05 &&
+      Math.abs(o.offsetX - v.offsetX) < (o.width + v.width) / 2 &&
+      Math.abs(o.offsetZ - v.offsetZ) < (o.depth + v.depth) / 2)
+    if (covered) continue
+    const style: RoofStyle = rand01(input.hash, 907) < 0.5 ? 'hipped' : 'mansard'
+    v.roofStyle = style
+    v.roofHeight = roofHeightFor(style, v.height, ctx.sv)
+    v.roofAxis = roofAxisFor(v.width, v.depth)
+  }
+
   // Roof heights are derived from wall height, so a slim volume could carry a
   // roof many times its own width. Clamp on the Volume itself — not just at
   // draw time — so every consumer of v.roofHeight (ridge caps, finials,

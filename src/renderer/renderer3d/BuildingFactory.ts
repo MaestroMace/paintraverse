@@ -167,6 +167,11 @@ export interface BuildingDiagnostics {
   totalMs: number
   /** Total ornament emit count (sum of batch.count just before build()). */
   ornamentFragments: number
+  /** How many volumes ended up with each roof style, and how many of those
+   *  are tall enough to read as a tower. A flat-topped tower looks like an
+   *  unfinished building, so this makes that measurable. */
+  roofStyles: Record<string, number>
+  flatToppedTallVolumes: number
 }
 
 const FAILURE_LOG_CAP = 30
@@ -178,6 +183,8 @@ let _lastDiagnostics: BuildingDiagnostics = {
   wallMeshesAfterCoalesce: 0,
   totalMs: 0,
   ornamentFragments: 0,
+  roofStyles: {},
+  flatToppedTallVolumes: 0,
 }
 
 export function getBuildingDiagnostics(): BuildingDiagnostics {
@@ -193,6 +200,8 @@ export function buildBuildingMeshes(
   const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
   const wallMeshes: THREE.Mesh[] = []
   const tops: BuildingTop[] = []
+  const roofStyles: Record<string, number> = {}
+  let flatToppedTallVolumes = 0
   const roofBatch = new BatchedMeshBuilder()
   const detailBatch = new BatchedMeshBuilder()
   const ornamentBatch = new BatchedMeshBuilder()
@@ -510,6 +519,25 @@ export function buildBuildingMeshes(
     for (const v of massing.volumes) {
       const t = v.bottomY + v.height + v.roofHeight
       if (t > apexLocalY) apexLocalY = t
+    }
+    // Roof-style census. A volume taller than ~4m with no roof reads as an
+    // unfinished building from the street, so count those separately.
+    for (const v of massing.volumes) {
+      if (v.role === 'chimneyVol') continue
+      roofStyles[v.roofStyle] = (roofStyles[v.roofStyle] ?? 0) + 1
+      // Most flat volumes are structural and hidden — the lower body under a
+      // jetty, the main block under a step-back penthouse. What reads as an
+      // unfinished building is a flat volume that is the TOP of its building
+      // with nothing stacked above it.
+      const isFlatTop = v.roofStyle === 'flat' || v.roofStyle === 'none' || v.roofHeight <= 0
+      // "Nothing stacked on THIS volume" — not "is the building's apex". A
+      // flat-topped tower on a building that has a taller spire elsewhere is
+      // still an open box against the sky.
+      const covered = massing.volumes.some(o =>
+        o !== v && o.bottomY >= v.bottomY + v.height - 0.05 &&
+        Math.abs(o.offsetX - v.offsetX) < (o.width + v.width) / 2 &&
+        Math.abs(o.offsetZ - v.offsetZ) < (o.depth + v.depth) / 2)
+      if (isFlatTop && !covered && v.height >= 2.0) flatToppedTallVolumes++
     }
     tops.push({
       id: obj.id,
@@ -1505,6 +1533,8 @@ export function buildBuildingMeshes(
     wallMeshesAfterCoalesce: mergedWalls.length,
     totalMs: t1 - t0,
     ornamentFragments,
+    roofStyles,
+    flatToppedTallVolumes,
   }
   if (failed > 0) {
     console.error(`[BuildingFactory] ${failed} of ${attempted} buildings failed to emit (succeeded=${succeeded}). See getBuildingDiagnostics() for details.`)
