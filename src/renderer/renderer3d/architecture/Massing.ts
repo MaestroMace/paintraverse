@@ -1145,6 +1145,28 @@ export function pickMassing(input: PickMassingInput): MassingResult {
     }
   }
 
+  // === NO OPEN BOXES AGAINST THE SKY ===
+  //
+  // A flat top is a legitimate style when something sits on it. Exposed, it
+  // reads as a building someone stopped working on — the other thing "half
+  // built roofs" can mean. tools/roofcheck.mjs counts these; raising the
+  // habitable minimum above pushed 50-odd per town past its 2m reporting
+  // threshold, which did not create them, only revealed them.
+  for (const v of volumes) {
+    const isFlatTop = v.roofStyle === 'flat' || v.roofStyle === 'none' || v.roofHeight <= 0
+    if (!isFlatTop || v.height < 2.0) continue
+    const covered = volumes.some((o) =>
+      o !== v && o.bottomY >= v.bottomY + v.height - 0.05 &&
+      Math.abs(o.offsetX - v.offsetX) < (o.width + v.width) / 2 &&
+      Math.abs(o.offsetZ - v.offsetZ) < (o.depth + v.depth) / 2)
+    if (covered) continue
+    // A shallow hip keeps the low-pitch look the style vector asked for while
+    // closing the box. ensureRoofPitch below gives it a real rise.
+    v.roofStyle = 'hipped'
+    v.roofHeight = Math.min(v.width, v.depth) * 0.35
+    v.roofAxis = roofAxisFor(v.width, v.depth)
+  }
+
   // Roof heights are derived from wall height, so a slim volume could carry a
   // roof many times its own width. Clamp on the Volume itself — not just at
   // draw time — so every consumer of v.roofHeight (ridge caps, finials,

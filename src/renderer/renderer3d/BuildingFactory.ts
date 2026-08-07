@@ -12,7 +12,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
-import { BatchedMeshBuilder } from './BatchedMeshBuilder'
+import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
 import { pickMassing, volumeFloors } from './architecture/Massing'
@@ -553,6 +553,29 @@ export function buildBuildingMeshes(
       const darkStones  = [0xd0c2a4, 0xc0b094, 0xb8aa90, 0xa89880]   // light stones
       const palette_ = lightWall ? lightStones : darkStones
       groundFloorColor = palette_[hash % palette_.length]
+    }
+
+    // Tell the batch builder where this building ends, so any piece that
+    // reaches past it is measurable instead of merely noticeable. Generous by
+    // design — footprint plus a metre, apex plus a metre — because the point
+    // is to catch geometry in the SKY, not to police a cornice.
+    //
+    // The apex is derived from the volumes right here rather than from
+    // apexLocalY, which is declared further down: reaching forward to it threw
+    // a TDZ error on every building, and since the per-building try/catch
+    // swallows it the only symptom was a town with one house in it.
+    {
+      let envApex = 0
+      for (const v of massing.volumes) {
+        const t = v.bottomY + v.height + v.roofHeight
+        if (t > envApex) envApex = t
+      }
+      setBuildEnvelope({
+        minX: wx - fp.w / 2 - 1.0, maxX: wx + fp.w / 2 + 1.0,
+        minZ: wz - fp.h / 2 - 1.0, maxZ: wz + fp.h / 2 + 1.0,
+        minY: wy - 1.0, maxY: wy + envApex + 1.0,
+        label: obj.definitionId,
+      })
     }
 
     const emitCtx = {

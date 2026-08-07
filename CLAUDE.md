@@ -446,7 +446,27 @@ boundary, so every tool keeps speaking grid cells.
 In the reporter's words. All seven root causes are now identified; the first
 six are fixed and pushed.
 
-0. **See-through roofs / floating timbers (the real one)** — FIXED. The gable
+0. **See-through roofs AND "wild crossed timbers" — ONE bug, finally measured.**
+   `tools/roofwinding.mjs` builds every roof style x axis x sag and checks each
+   triangle's normal against the direction from the solid's centroid. First
+   run: **136 inward-facing triangles**. Mansard was 18 of 18 — completely
+   invisible. Hipped was 10 of 12, in every axis. Gabled and steep with
+   `axis === 'z'` lost half the roof.
+   With the roof surface culled away, all that renders is the roof's TRIM —
+   bargeboards, ridge caps, finials — which are closed boxes and survive. Dark
+   lines crossing in mid-air, on almost every building. **That is what the
+   "wild crossed timbers" were.** Both complaints, one cause, and the
+   protrusion audit confirms it: 0 pieces of building geometry stick out past
+   their own envelope, so there were never any stray beams to find.
+   Winding is no longer hand-maintained. `enforceOutwardWinding` runs the same
+   centroid test the audit runs, as a repair, on every hand-written roof — so
+   the audit cannot fail on anything that goes through it. Hand-written winding
+   had been wrong in this file four separate times.
+   **The older entry below is left in place because its fix was real but its
+   verification was not** — it corrected one of the four cases and declared the
+   class closed on the strength of a DoubleSide test taken from vantages that
+   could not see the defect.
+0b. **See-through roofs, first pass (incomplete)** — FIXED for one case only. The gable
    END TRIANGLES were wound backwards for `axis === 'x'`, which is most
    buildings (`roofAxisFor` returns 'x' whenever w >= d). Their normals pointed
    INTO the roof cavity, so backface culling removed them and you looked
@@ -602,6 +622,12 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   emitted it plus a world position, and optionally photographed. A batched mesh
   otherwise gives you no way to ask which line drew a triangle, which is why
   that defect survived several rounds of staring at screenshots.
+- `node tools/roofwinding.mjs` — **every roof triangle checked for OUTWARD
+  winding, exhaustively, with no camera.** The batched material is FrontSide,
+  so an inward-facing triangle is DELETED, not mis-lit — and you cannot
+  photograph a face that is not drawn, which is why camera checks produced a
+  confident false negative on this exact bug. Must read 0. Run after touching
+  any roof builder.
 - `node tools/humanscale.mjs [seeds...] [--by-type]` — **the scale audit.** Every
   building's dimensions in METRES against what that thing measures in the real
   world, as a DISTRIBUTION. A median cannot see "some buildings are tiny and

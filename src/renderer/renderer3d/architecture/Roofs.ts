@@ -210,6 +210,53 @@ export function buildRoof(
 /* Gable / hip prism                                                  */
 /* ------------------------------------------------------------------ */
 
+
+/**
+ * Force every triangle in a CONVEX solid to face outward.
+ *
+ * Roof vertex lists are written by hand, and hand-written winding has been
+ * wrong in this file four separate times — the gable ends for one axis, the
+ * slopes for the other, all four hipped slopes plus its top cap, and every
+ * triangle of the mansard. Each one is invisible rather than merely mis-lit,
+ * because the batched material is FrontSide, and each survived review because
+ * you cannot see a face that is not drawn.
+ *
+ * So winding stops being something a person maintains. For a convex solid the
+ * outward direction at a triangle is simply "away from the solid's centroid",
+ * which is exactly the test tools/roofwinding.mjs applies — running the same
+ * test as a repair means the audit cannot fail on anything that goes through
+ * here. Every roof shape in this file is convex.
+ */
+function enforceOutwardWinding(geo: THREE.BufferGeometry): THREE.BufferGeometry {
+  const src = geo.index ? geo.toNonIndexed() : geo
+  const pos = src.getAttribute('position') as THREE.BufferAttribute
+  const a = pos.array as Float32Array
+  let gx = 0, gy = 0, gz = 0
+  for (let i = 0; i < pos.count; i++) { gx += a[i * 3]; gy += a[i * 3 + 1]; gz += a[i * 3 + 2] }
+  gx /= pos.count; gy /= pos.count; gz /= pos.count
+  for (let t = 0; t + 2 < pos.count; t += 3) {
+    const o = t * 3
+    const ax = a[o], ay = a[o + 1], az = a[o + 2]
+    const bx = a[o + 3], by = a[o + 4], bz = a[o + 5]
+    const cx = a[o + 6], cy = a[o + 7], cz = a[o + 8]
+    const e1x = bx - ax, e1y = by - ay, e1z = bz - az
+    const e2x = cx - ax, e2y = cy - ay, e2z = cz - az
+    const nx = e1y * e2z - e1z * e2y
+    const ny = e1z * e2x - e1x * e2z
+    const nz = e1x * e2y - e1y * e2x
+    const dx = (ax + bx + cx) / 3 - gx
+    const dy = (ay + by + cy) / 3 - gy
+    const dz = (az + bz + cz) / 3 - gz
+    if (nx * dx + ny * dy + nz * dz < 0) {
+      // Swap the last two vertices — the minimal edit that reverses a winding.
+      a[o + 3] = cx; a[o + 4] = cy; a[o + 5] = cz
+      a[o + 6] = bx; a[o + 7] = by; a[o + 8] = bz
+    }
+  }
+  pos.needsUpdate = true
+  return src
+}
+
 function buildGablePrism(w: number, d: number, h: number, axis: RoofAxis, hipped: boolean, sag: number = 0): THREE.BufferGeometry {
   const hw = w / 2, hd = d / 2
   // Eave projection — see EAVE_PROJ_* constants for rationale.
@@ -344,7 +391,7 @@ function buildGablePrism(w: number, d: number, h: number, axis: RoofAxis, hipped
 
   const geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3))
-  return geo
+  return enforceOutwardWinding(geo)
 }
 
 /* ------------------------------------------------------------------ */
@@ -399,7 +446,86 @@ function buildMansard(w: number, d: number, h: number, axis: RoofAxis): THREE.Bu
   push(-hw + insetTopX, h, -hd + insetTopZ,  hw - insetTopX, h, -hd + insetTopZ,  hw - insetTopX, h, hd - insetTopZ)
   push(-hw + insetTopX, h, -hd + insetTopZ,  hw - insetTopX, h,  hd - insetTopZ, -hw + insetTopX, h, hd - insetTopZ)
 
+  // Mansard had every one of its 18 triangles wound inward, so the whole roof
+  // was invisible. Same enforcement as the prism — it also needs a soffit,
+  // since like the prism it is an open shell whose eave projects.
+  v.push(
+    -hw, 0, -hd,   hw, 0, -hd,   hw, 0,  hd,
+    -hw, 0, -hd,   hw, 0,  hd,  -hw, 0,  hd,
+  )
   const geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(v), 3))
-  return geo
+  return enforceOutwardWinding(geo)
+}
+
+/* ------------------------------------------------------------------ */
+/* Winding audit                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Exhaustive check that every roof triangle faces OUTWARD.
+ *
+ * The batched material is FrontSide, so a triangle wound the wrong way is not
+ * merely mis-lit — it is deleted. "Half the roof is invisible from every
+ * angle" is exactly what a set of inward-facing triangles looks like, and no
+ * screenshot can tell you which ones they are: you cannot photograph a face
+ * that is not drawn. Camera-based verification already produced one confident
+ * false negative here.
+ *
+ * So this asks the question directly and without a camera. For each roof shape
+ * it builds the geometry, then for every triangle compares the face normal
+ * against the direction from the solid's centroid out to that triangle. On a
+ * convex solid — which every one of these is — outward faces score positive.
+ * Anything negative is a face the player can never see.
+ */
+export function auditRoofWinding(): Array<{
+  style: RoofStyle; axis: RoofAxis; sag: number
+  triangles: number; inward: number; inwardCentroids: string[]
+}> {
+  const out: ReturnType<typeof auditRoofWinding> = []
+  const styles: RoofStyle[] = ['gabled', 'hipped', 'steep', 'mansard', 'pointed', 'spire', 'dome']
+  for (const style of styles) {
+    for (const axis of ['x', 'z'] as RoofAxis[]) {
+      for (const sag of [0, 0.08]) {
+        // Deliberately asymmetric w/d so an axis mix-up cannot cancel out.
+        const geo = buildRoof(7, 4.5, 3.2, style, axis, sag)
+        if (!geo) continue
+        const src = geo.index ? geo.toNonIndexed() : geo
+        const pos = src.getAttribute('position')
+        const n = pos.count / 3
+        // Solid centroid: mean of all vertices. Good enough for a convex prism
+        // or cone, and it is the reference the sign test needs.
+        let gx = 0, gy = 0, gz = 0
+        for (let i = 0; i < pos.count; i++) { gx += pos.getX(i); gy += pos.getY(i); gz += pos.getZ(i) }
+        gx /= pos.count; gy /= pos.count; gz /= pos.count
+        let inward = 0
+        const bad: string[] = []
+        for (let t = 0; t < n; t++) {
+          const i0 = t * 3, i1 = i0 + 1, i2 = i0 + 2
+          const ax = pos.getX(i0), ay = pos.getY(i0), az = pos.getZ(i0)
+          const bx = pos.getX(i1), by = pos.getY(i1), bz = pos.getZ(i1)
+          const cx2 = pos.getX(i2), cy2 = pos.getY(i2), cz2 = pos.getZ(i2)
+          const e1x = bx - ax, e1y = by - ay, e1z = bz - az
+          const e2x = cx2 - ax, e2y = cy2 - ay, e2z = cz2 - az
+          const nx = e1y * e2z - e1z * e2y
+          const ny = e1z * e2x - e1x * e2z
+          const nz = e1x * e2y - e1y * e2x
+          const tcx = (ax + bx + cx2) / 3 - gx
+          const tcy = (ay + by + cy2) / 3 - gy
+          const tcz = (az + bz + cz2) / 3 - gz
+          const dot = nx * tcx + ny * tcy + nz * tcz
+          // Degenerate triangles have a zero normal and no facing at all.
+          if (nx * nx + ny * ny + nz * nz < 1e-12) continue
+          if (dot < 0) {
+            inward++
+            if (bad.length < 4) {
+              bad.push(`(${tcx.toFixed(1)},${tcy.toFixed(1)},${tcz.toFixed(1)})`)
+            }
+          }
+        }
+        out.push({ style, axis, sag, triangles: n, inward, inwardCentroids: bad })
+      }
+    }
+  }
+  return out
 }

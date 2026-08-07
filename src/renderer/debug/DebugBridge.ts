@@ -20,6 +20,7 @@ import { useAppStore } from '../app/store'
 import { auditMapGeometry } from '../renderer3d/GeometryAudit'
 import { setFragmentAudit, getFragmentAudit, setSliverAudit, getSliverAudit } from '../renderer3d/BatchedMeshBuilder'
 import { overhangClamps, resetOverhangClamps } from '../renderer3d/architecture/Massing'
+import { auditRoofWinding } from '../renderer3d/architecture/Roofs'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
 import { TILE } from '../renderer3d/scale'
 
@@ -40,6 +41,11 @@ export function installDebugBridge(): void {
     /** Fragment-size audit of batched geometry. Turn on, regenerate the map,
      *  then read: shows how much geometry is too small to resolve on screen. */
     fragmentAudit: { enable: setFragmentAudit, read: getFragmentAudit },
+
+    /** Every roof triangle checked for OUTWARD winding. The batched material
+     *  is FrontSide, so an inward face is deleted, not just mis-lit — and you
+     *  cannot photograph a face that is not drawn. */
+    roofWinding: auditRoofWinding,
 
     /** Long thin batched geometry — the "giant floating timber" class — keyed
      *  by the SOURCE LINE that emitted it, with a world position to fly to.

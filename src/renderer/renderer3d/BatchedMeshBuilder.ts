@@ -148,6 +148,24 @@ function recordFragment(geo: THREE.BufferGeometry, colorHex: number): void {
 // emitting source line, not another guess.
 let _sliverAudit = false
 let _sliverMinLen = 4
+
+/**
+ * The envelope of the building currently being emitted, in world units.
+ *
+ * "Is this piece long and thin?" was the wrong question — a cornice on a 12m
+ * hall is long and thin and entirely correct, so legitimate trim drowned the
+ * signal. The question the screenshots actually pose is "is this sticking out
+ * past the building it belongs to?", and only the factory knows where the
+ * building ends. So it says, here, once per building.
+ */
+interface BuildEnvelope {
+  minX: number; maxX: number
+  minZ: number; maxZ: number
+  minY: number; maxY: number
+  label: string
+}
+let _envelope: BuildEnvelope | null = null
+export function setBuildEnvelope(e: BuildEnvelope | null): void { _envelope = e }
 interface SliverBucket {
   count: number
   maxLen: number
@@ -199,14 +217,20 @@ function recordSliver(geo: THREE.BufferGeometry): void {
   geo.computeBoundingBox()
   const bb = geo.boundingBox
   if (!bb) return
-  const dx = bb.max.x - bb.min.x, dy = bb.max.y - bb.min.y, dz = bb.max.z - bb.min.z
-  const maxDim = Math.max(dx, dy, dz)
-  if (maxDim < _sliverMinLen) return
-  // Only flag it if the OTHER two axes are thin. A wall is legitimately metres
-  // across in two directions; a beam is not.
-  const others = [dx, dy, dz].filter((d) => d !== maxDim)
-  if (Math.max(...others) > 0.7) return
+  // PROTRUSION, not length. How far does this piece reach past the envelope of
+  // the building that is emitting it? Trim that hugs its building scores zero
+  // however long it is; a beam hanging in the sky scores metres.
+  let over = 0
+  if (_envelope) {
+    over = Math.max(
+      _envelope.minX - bb.min.x, bb.max.x - _envelope.maxX,
+      _envelope.minZ - bb.min.z, bb.max.z - _envelope.maxZ,
+      _envelope.minY - bb.min.y, bb.max.y - _envelope.maxY,
+    )
+  }
+  if (over < _sliverMinLen) return
   const site = callSite()
+  const maxDim = over
   const cx = (bb.max.x + bb.min.x) / 2
   const cy = (bb.max.y + bb.min.y) / 2
   const cz = (bb.max.z + bb.min.z) / 2
