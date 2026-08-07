@@ -8,7 +8,9 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
-    "shot": "node tools/screenshot.mjs"
+    "shot": "node tools/screenshot.mjs",
+    "build:web": "vite build --config vite.config.web.ts",
+    "preview:web": "vite preview --config vite.config.web.ts --port 4173"
   },
   "dependencies": {
     "immer": "^10.1.1",

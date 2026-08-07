@@ -5,6 +5,7 @@ import { mapStyle } from '../../inspiration/StyleMapper'
 import { describeStyle, getApiKey, setApiKey, hasApiKey } from '../../inspiration/AIDescriber'
 import { PALETTES, registerPalette } from '../../renderer3d/PaletteQuantizer'
 import type { StyleDescription } from '../../inspiration/AIDescriber'
+import { platform } from '../../core/platform'
 
 export function InspirationPanel() {
   const [collapsed, setCollapsed] = useState(false)
@@ -26,10 +27,9 @@ export function InspirationPanel() {
 
   // Load image via Electron file picker
   const handlePickImage = useCallback(async () => {
-    if (!window.electronAPI) return
-    const path = await window.electronAPI.openImageDialog()
+    const path = await platform.openImageDialog()
     if (!path) return
-    const dataURL = await window.electronAPI.readImageAsDataURL(path)
+    const dataURL = await platform.readImageAsDataURL(path)
     setInspirationImage(dataURL)
     setError(null)
     setAiDescription(null)

@@ -8,23 +8,9 @@ import { SparkleField } from '../ui/effects/SparkleField'
 // Ensure generators are registered
 import '../generation/GeneratorRegistry'
 import { useAppStore } from './store'
+import { platform } from '../core/platform'
 import './App.css'
 import './kh1-theme.css'
-
-// Declare the Electron API type on window
-declare global {
-  interface Window {
-    electronAPI?: {
-      saveDialog: (defaultPath?: string) => Promise<string | null>
-      openDialog: () => Promise<string | null>
-      openImageDialog: () => Promise<string | null>
-      writeFile: (path: string, data: string) => Promise<boolean>
-      readFile: (path: string) => Promise<string>
-      readImageAsDataURL: (path: string) => Promise<string>
-      onMenuAction: (callback: (action: string) => void) => void
-    }
-  }
-}
 
 export function App() {
   const projectName = useAppStore((s) => s.projectName)
@@ -47,9 +33,10 @@ export function App() {
 
   // Wire up menu actions from Electron
   useEffect(() => {
-    if (!window.electronAPI) return
-
-    window.electronAPI.onMenuAction(async (action) => {
+    // Menus only exist under Electron; platform.onMenuAction is a no-op
+    // elsewhere, and the handlers below go through the shim so Save/Open
+    // work in the browser and the Android WebView too.
+    platform.onMenuAction(async (action) => {
       const store = useAppStore.getState()
 
       switch (action) {
@@ -65,9 +52,9 @@ export function App() {
         }
 
         case 'open': {
-          const path = await window.electronAPI!.openDialog()
+          const path = await platform.openDialog()
           if (path) {
-            const data = await window.electronAPI!.readFile(path)
+            const data = await platform.readFile(path)
             store.loadFromJSON(data)
             store.setProjectPath(path)
           }
@@ -77,10 +64,10 @@ export function App() {
         case 'save': {
           let path = store.projectPath
           if (!path) {
-            path = await window.electronAPI!.saveDialog()
+            path = await platform.saveDialog()
           }
           if (path) {
-            await window.electronAPI!.writeFile(path, store.toJSON())
+            await platform.writeFile(path, store.toJSON())
             store.setProjectPath(path)
             store.setDirty(false)
           }
@@ -88,9 +75,9 @@ export function App() {
         }
 
         case 'save-as': {
-          const path = await window.electronAPI!.saveDialog(store.projectPath || undefined)
+          const path = await platform.saveDialog(store.projectPath || undefined)
           if (path) {
-            await window.electronAPI!.writeFile(path, store.toJSON())
+            await platform.writeFile(path, store.toJSON())
             store.setProjectPath(path)
             store.setDirty(false)
           }
