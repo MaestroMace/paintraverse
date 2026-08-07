@@ -264,6 +264,17 @@ Verified against the code; if you change one, change it here too.
   fix for the first is arithmetic; the fix for the second is more geometry, not
   less — studs at a 1.7m bay pitch and corner braces, so a wider building grows
   more frame instead of a longer stick.
+- **Test the hypothesis from the angle the bug appears at, or you will rule
+  out the right answer.** Inverted gable winding was tested with DoubleSide,
+  showed no change, and was dismissed — but every shot in the harness pointed
+  level or down, and a roof with missing gable ends looks perfect from above.
+  The harness now has an up-looking shot. A negative result is only as good as
+  the vantage it was taken from.
+- **An open shell is invisible until something projects.** The roof prism never
+  had an underside. That is free and correct right up until the eave overhangs
+  the wall, at which point the player standing in the street looks up into an
+  open box and sees sky — and the only geometry left is the trim, which reads
+  as beams floating in mid-air. Two reported defects, one missing face.
 - **A ratio to the wrong quantity flattens silently.** Roof rise came from
   wallH, which did not change, while the span it crosses tripled — so every
   pitch in the town dropped by about a third and a 40-degree gable became 23.
@@ -394,15 +405,35 @@ boundary, so every tool keeps speaking grid cells.
 In the reporter's words. All seven root causes are now identified; the first
 six are fixed and pushed.
 
-0. **Half built roofs** — FIXED, and it was scale coupling again, not missing
-   geometry. `roofHeightFor` derives the rise from wallH, which did not change,
+0. **See-through roofs / floating timbers (the real one)** — FIXED. The gable
+   END TRIANGLES were wound backwards for `axis === 'x'`, which is most
+   buildings (`roofAxisFor` returns 'x' whenever w >= d). Their normals pointed
+   INTO the roof cavity, so backface culling removed them and you looked
+   straight through the gable to the sky. The `axis === 'z'` gables were
+   correct all along, which is why it looked fine in some shots.
+   Compounding it: the prism had **no underside at all** — two slopes and two
+   gable ends, an open shell. The eave PROJECTS past the wall, so from the
+   street you look up into it, the slopes' undersides are backfaces and get
+   culled, and the roof vanishes. What is left drawn is the trim, which is
+   closed boxes — a set of dark lines hanging in mid-air. **That is what the
+   "giant floating accent timbers" actually were.** Both symptoms, one cause.
+   `buildGablePrism` now closes with a soffit wound to face -Y.
+   **The verification lesson matters more than the fix**: an earlier pass
+   tested this exact hypothesis with DoubleSide, saw no change, and ruled
+   winding out — because every shot in the harness pointed level or DOWN. From
+   above a roof looks complete. `walkshots.mjs` now carries a `gable-up` shot
+   that looks UP from eye level, which is the angle every phone screenshot that
+   reported this was taken from.
+1. **Half built roofs (shallow pitch)** — also fixed, and a separate scale
+   coupling. `roofHeightFor` derives the rise from wallH, which did not change,
    while the span the roof crosses tripled. Every pitch flattened by a third —
    a 40-degree gable became 23 degrees, and a shallow slab on a wide building
    reads as unfinished. `ensureRoofPitch` (Roofs.ts) now floors the rise
    against the span. Checked first and ruled out: flipped winding (roofs render
    identically under DoubleSide) and open-topped volumes (`tools/roofcheck.mjs`
    reports 1 across 3 seeds).
-1. **Giant floating accent timbers** — FIXED. The exposed half-timber frame
+2. **Half-timber frame floating off the wall** — FIXED, and a real second
+   cause once the roofs stopped hiding it. The exposed half-timber frame
    pushed every horizontal member out by `projOut`, the POST's outward shift:
    a post is 13cm deep and needs 5.9cm to seat, but the beams are 4.5cm deep,
    so they hung with a ~6cm slit behind them. Invisible on a 2m wall,

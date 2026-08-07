@@ -67,6 +67,13 @@ const SHOTS = [
   { name: 'street',    x: 24, z: 24, up: 1.6, yaw: 0.0, pitch: -0.05 },
   { name: 'street-alt', x: 16, z: 30, up: 1.6, yaw: Math.PI / 2, pitch: 0.0 },
   { name: 'rooftops',  x: 24, z: 30, up: 30, yaw: -Math.PI / 2, pitch: -0.45 },
+  // LOOKING UP. Every other shot here points level or down, and that blind
+  // spot is what let inverted gable-end triangles and an open roof underside
+  // survive: from above a roof looks complete, and from the street with the
+  // camera level you see wall, not eave. The defects only appear silhouetted
+  // against a bright sky from below — which is the angle every phone
+  // screenshot that reported them was taken from.
+  { name: 'gable-up', x: 24, z: 27, up: 1.6, yaw: -Math.PI / 2, pitch: 0.45 },
 ]
 
 for (const s of SHOTS) {

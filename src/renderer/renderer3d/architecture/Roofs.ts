@@ -261,10 +261,13 @@ function buildGablePrism(w: number, d: number, h: number, axis: RoofAxis, hipped
         // -Z slope, right half: B → (-ow,0,-od) → (-ow,h,0) → M
          0, 0, -od,   -ow, 0, -od,  -ow, h, 0,
          0, 0, -od,   -ow, h, 0,    0, my, 0,
-        // +X gable (peak unchanged, sits at full h)
-         ow, 0, -od,   ow, 0,  od,   ow, h, 0,
+        // +X gable (peak unchanged, sits at full h). Winding runs
+        // (0,od)->(0,-od)->peak so the normal points OUT along +X; the
+        // reverse order left the triangle facing into the roof cavity,
+        // which culls it and lets you see the sky through the gable.
+         ow, 0,  od,   ow, 0, -od,   ow, h, 0,
         // -X gable
-        -ow, 0,  od,  -ow, 0, -od,  -ow, h, 0,
+        -ow, 0, -od,  -ow, 0,  od,  -ow, h, 0,
       ]
     } else {
       // Ridge along Z with midpoint M=(0, my, 0). Eave midpoints F=(ow,0,0)
@@ -299,10 +302,11 @@ function buildGablePrism(w: number, d: number, h: number, axis: RoofAxis, hipped
         // -Z slope
          ow, 0, -od,  -ow, 0, -od,  -ow, h, 0,
          ow, 0, -od,  -ow, h, 0,    ow, h, 0,
-        // +X gable
-         ow, 0, -od,   ow, 0,  od,   ow, h, 0,
+        // +X gable — outward normal must be +X, so the base edge runs
+        // +od -> -od before the peak. See the note on the sagged variant.
+         ow, 0,  od,   ow, 0, -od,   ow, h, 0,
         // -X gable
-        -ow, 0,  od,  -ow, 0, -od,  -ow, h, 0,
+        -ow, 0, -od,  -ow, 0,  od,  -ow, h, 0,
       ]
     } else {
       // Ridge along Z, gables face ±X
@@ -320,6 +324,23 @@ function buildGablePrism(w: number, d: number, h: number, axis: RoofAxis, hipped
       ]
     }
   }
+
+  // SOFFIT — the roof's underside, closing the prism into a solid.
+  //
+  // Without it the roof is an open shell: two slopes and two gable ends. That
+  // is invisible from above, and from the street it is the defect, because the
+  // eave PROJECTS past the wall. Standing under a 4m eave and looking up, the
+  // slopes' undersides are backfaces and get culled, so you see straight
+  // through the roof to the sky — and the only thing left drawn is the trim,
+  // which is closed boxes and so survives as a set of dark lines hanging in
+  // mid-air. That is what "floating accent timbers" looked like once the
+  // gables stopped covering for it.
+  //
+  // Wound to face -Y so it is the outside of the solid, not the inside.
+  verts.push(
+    -ow, 0, -od,   ow, 0, -od,   ow, 0,  od,
+    -ow, 0, -od,   ow, 0,  od,  -ow, 0,  od,
+  )
 
   const geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3))
