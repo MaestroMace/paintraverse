@@ -789,7 +789,12 @@ export class TownGenerator implements IMapGenerator {
       // down: the town previously had NO narrow tier at all — every ordinary
       // street was 3 wide and ~25 of them overlapped into open expanses, so
       // 48% of the map was circulation and the streets read as plazas.
-      const boulWidth = (d.type === 'temple' || d.type === 'noble') ? 4 : 3
+      // Widths are TILES, and a tile is 3 metres (renderer3d/scale.ts). The
+      // urban-form audit measured 27m facade to facade against 4-10m for a
+      // real town, so these were carving 9-12m of carriageway before any
+      // setback. A ceremonial approach at 3 tiles is 9m — still grand — and an
+      // ordinary boulevard at 2 is 6m, which is a street you can shout across.
+      const boulWidth = (d.type === 'temple' || d.type === 'noble') ? 3 : 2
       const curviness = d.type === 'temple' ? 0.05 : 0.1 // Temples get straighter, more formal approaches
       this.carveRoad(roadMap, terrain, center.x, center.y, d.center.x, d.center.y,
         w, h, boulWidth, curviness, noise, rng, waterMap)
@@ -801,7 +806,7 @@ export class TownGenerator implements IMapGenerator {
       const angle = (i / numMain) * Math.PI * 2 + (rng() - 0.5) * 0.3
       const length = Math.floor(w * 0.3 + rng() * w * 0.2)
       this.carveOrganicPath(roadMap, terrain, center.x, center.y, angle,
-        w, h, length, 3, 0.15, noise, rng, waterMap)
+        w, h, length, 2, 0.15, noise, rng, waterMap)
     }
 
     // LANES: Connect districts to each other (width 2 — side streets)

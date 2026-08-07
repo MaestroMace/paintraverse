@@ -541,6 +541,37 @@ six are fixed and pushed.
    tile, and on the far side of the same tile you stopped a full tile early.
    The player is now a disc of `PLAYER_RADIUS = 0.35`.
 
+## URBAN FORM — the measurement that reframed the rework
+
+`tools/urbanform.mjs` measures the SPACE BETWEEN buildings rather than the
+buildings, which is the thing every earlier metric could not see. Four numbers,
+against what a real walled town runs:
+
+| metric | real town | measured |
+|---|---|---|
+| frontage with a building against it | 85-95% | **76%** |
+| buildings sharing a party wall | 60-80% | **91%** |
+| built coverage of non-street land | 50-70% | **49%** |
+| **street width, facade to facade** | **4-10m** | **24m** |
+
+This inverted the assumption the rework was built on. Buildings already touch
+each other MORE than a real town does, and coverage is nearly in range. The
+town does not read as scatter because the buildings are badly arranged — it
+reads as scatter because **the space between them is three times too wide.**
+At 24m facade to facade with ~10m buildings, the height-to-width ratio is 0.4
+against a comfortable 0.5-1.5. That is a field with things around the edge,
+which is precisely how it was described.
+
+Narrowing the carved roads (boulevards 4/3 -> 3/2 tiles, main streets 3 -> 2)
+moved it only 27m -> 24m, and that is the second finding: **road width is not
+the dominant term.** A 2-tile road is 6m, so ~18m of the 24m is unbuilt SETBACK
+between the road edge and the nearest building. The buildings are not pulled up
+to their frontage. That is what the plot system has to fix, and it is worth
+more than any amount of prop scatter.
+
+Cheap side effect of the narrowing, worth keeping: ~+9 buildings per town and
+coverage 48% -> 49%, because narrower streets return land to the blocks.
+
 ## THE GENERATION REWORK (next arc — read before adding more props)
 
 Reported plainly: "it still reads as random scatter across big open spaces
@@ -659,6 +690,11 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   emitted it plus a world position, and optionally photographed. A batched mesh
   otherwise gives you no way to ask which line drew a triangle, which is why
   that defect survived several rounds of staring at screenshots.
+- `node tools/urbanform.mjs [seeds...]` — **frontage occupancy, party walls,
+  built coverage and facade-to-facade street width.** The only tool that
+  measures the space BETWEEN buildings, which is what decides whether a town
+  reads as a town. It is the gate for the plot system: street width should fall
+  toward 8-12m and frontage occupancy toward 90%.
 - `node tools/emptiness.mjs [seeds...]` — distance from every walkable tile to
   the nearest prop or building frontage, as a distribution, split street vs
   plaza. "A ton of empty space" is a real complaint and a vague one; this makes
