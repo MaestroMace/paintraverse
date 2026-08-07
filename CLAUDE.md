@@ -337,3 +337,29 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   TS `private` is compile-time only, so `__pt.renderer().buildingGroup` etc.
   are reachable — hiding groups/meshes at runtime is the fastest way to
   bisect "what is that artifact?".
+
+## Android / mobile build
+
+The renderer runs as a plain web app, which is what makes an APK possible —
+Electron has no Android port, so the phone build is the web bundle inside a
+Capacitor WebView.
+
+```bash
+npm run build:web     # dist-web/ — standalone, no Electron
+npm run android:apk   # -> android/app/build/outputs/apk/debug/app-debug.apk
+xvfb-run -a node tools/webshot.mjs --mobile   # Pixel-sized preview, no device
+```
+
+- `src/renderer/core/platform.ts` is the one place that knows which host it is
+  on. Never call `window.electronAPI` directly again — it does not exist in
+  the browser or the APK, and the old direct calls made Save/Open silently
+  no-op there.
+- Touch: left half of the 3D canvas is a drag-anywhere virtual stick, right
+  half looks. There is no pointer lock and no keyboard on a phone.
+- Layout: below 820px the two side rails become slide-over drawers with a
+  tap-outside scrim, because 2x232px of rail does not fit a 412px screen.
+- Toolchain needed for the APK: JDK 21, Android SDK platform 34 +
+  build-tools 34.0.0 (`sdkmanager "platforms;android-34" "build-tools;34.0.0"`),
+  and `android/local.properties` pointing `sdk.dir` at the SDK.
+- The debug APK is signed with the throwaway debug key, so it installs only
+  with "install unknown apps" enabled. A release build needs a real keystore.

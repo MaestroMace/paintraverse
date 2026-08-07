@@ -1,0 +1,12 @@
+{
+  "appId": "com.maestromace.paintraverse",
+  "appName": "PainTraverse",
+  "webDir": "dist-web",
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": true
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

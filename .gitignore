@@ -8,3 +8,12 @@ Thumbs.db
 debug-dumps/*.html
 debug-dumps/*.png
 debug-dumps/*.json
+
+# Web build output (regenerate with `npm run build:web`)
+dist-web/
+# Android: the native project IS committed, its build products are not.
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/
