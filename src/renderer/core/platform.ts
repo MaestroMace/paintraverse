@@ -42,6 +42,30 @@ export const isTouchDevice = (): boolean =>
   (('ontouchstart' in window) || navigator.maxTouchPoints > 0) &&
   !window.matchMedia('(pointer: fine)').matches
 
+/**
+ * When to use the phone layout (rails become drawers, viewport goes
+ * full-bleed). This string is duplicated verbatim in App.css — keep them in
+ * step, since a mismatch means React thinks the rails are drawers while CSS
+ * still lays them out as columns, or the reverse.
+ *
+ * Width alone is not enough, and getting that wrong is what shipped a broken
+ * first APK. The original rule was `max-width: 820px`, which a Pixel in
+ * PORTRAIT satisfies at 412px — so emulation looked perfect. Rotate the same
+ * phone and it is 915px wide, falls through to the desktop three-column
+ * layout, and the 3D view collapses into a narrow middle column between two
+ * rails. A Fold is 841px even unrotated.
+ *
+ * So: narrow by width, OR a coarse pointer on anything up to a large tablet.
+ * The width ceiling on the coarse branch keeps a touchscreen laptop on the
+ * desktop layout, where it belongs.
+ */
+export const MOBILE_LAYOUT_QUERY =
+  '(max-width: 900px), (pointer: coarse) and (max-width: 1180px)'
+
+/** Evaluate the phone-layout query right now. */
+export const isMobileLayout = (): boolean =>
+  typeof window !== 'undefined' && window.matchMedia(MOBILE_LAYOUT_QUERY).matches
+
 // === Browser file helpers ===
 
 /** Prompt a download. The browser owns where it lands; we only pick a name. */

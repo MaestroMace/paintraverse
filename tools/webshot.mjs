@@ -21,7 +21,28 @@ import { extname, join, normalize } from 'path'
 import { mkdirSync } from 'fs'
 
 const argv = process.argv.slice(2)
-const MOBILE = argv.includes('--mobile')
+
+// Device presets. The first mobile pass only ever tested a Pixel in PORTRAIT
+// at 412px, which is exactly why the 820px breakpoint looked fine and then
+// failed on a real phone: a Pixel in landscape is 915px wide and a Fold is
+// 840+ even folded shut, so both fell through to the desktop three-column
+// layout and the 3D view became a narrow middle column.
+const DEVICES = {
+  desktop:        { width: 1400, height: 900,  dsf: 1,     touch: false },
+  pixel:          { width: 412,  height: 915,  dsf: 2.625, touch: true },
+  'pixel-land':   { width: 915,  height: 412,  dsf: 2.625, touch: true },
+  'pixel-pro':    { width: 448,  height: 998,  dsf: 3,     touch: true },
+  fold:           { width: 841,  height: 1080, dsf: 2.5,   touch: true },
+  tablet:         { width: 1024, height: 1366, dsf: 2,     touch: true },
+}
+const devArg = argv.find((a) => a.startsWith('--device='))
+const DEVICE = devArg ? devArg.split('=')[1] : (argv.includes('--mobile') ? 'pixel' : 'desktop')
+if (!DEVICES[DEVICE]) {
+  console.error(`unknown device "${DEVICE}" — one of: ${Object.keys(DEVICES).join(', ')}`)
+  process.exit(1)
+}
+const DEV = DEVICES[DEVICE]
+const MOBILE = DEV.touch
 const seedArg = argv.find((a) => a.startsWith('--seed='))
 const SEED = seedArg ? seedArg.split('=')[1] : '4242'
 mkdirSync('.shots', { recursive: true })
@@ -48,13 +69,12 @@ const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium',
   args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader'],
 })
-const ctx = await browser.newContext(
-  MOBILE
-    // Pixel 8 logical viewport. hasTouch drives the app's touch detection,
-    // so this exercises the same code path the phone will.
-    ? { viewport: { width: 412, height: 915 }, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true }
-    : { viewport: { width: 1400, height: 900 } }
-)
+const ctx = await browser.newContext({
+  viewport: { width: DEV.width, height: DEV.height },
+  deviceScaleFactor: DEV.dsf,
+  isMobile: DEV.touch,
+  hasTouch: DEV.touch,
+})
 const page = await ctx.newPage()
 
 const errors = []
@@ -64,7 +84,7 @@ page.on('console', (m) => { if (m.type() === 'error') console.log('CONSOLE ERROR
 await page.goto('http://127.0.0.1:4178/', { waitUntil: 'domcontentloaded' })
 await page.waitForTimeout(2500)
 
-const tag = MOBILE ? 'mobile' : 'desktop'
+const tag = DEVICE
 await page.screenshot({ path: `.shots/web-${tag}-01-menu.png` })
 console.log(`✓ .shots/web-${tag}-01-menu.png`)
 
@@ -98,7 +118,11 @@ try {
   // Close the drawer again so the 3D shot shows what the player sees.
   // The handle is under the open drawer, so tap the scrim like a user.
   if (MOBILE) {
-    await page.locator('.drawer-scrim').click({ position: { x: 380, y: 700 } })
+    // Tap near the right edge, vertically centred — a fixed y of 700 fell
+    // outside the viewport entirely on a landscape phone (412px tall).
+    await page.locator('.drawer-scrim').click({
+      position: { x: Math.round(DEV.width * 0.92), y: Math.round(DEV.height * 0.5) },
+    })
     await page.waitForTimeout(500)
   }
   await page.getByRole('button', { name: '3D', exact: true }).click()

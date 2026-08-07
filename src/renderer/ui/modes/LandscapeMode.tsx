@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore } from '../../app/store'
 import { EditorCanvas } from '../../editor/EditorCanvas'
 import { ThreeViewport } from '../components/ThreeViewport'
@@ -13,13 +13,32 @@ import { EnvironmentPanel } from '../panels/EnvironmentPanel'
 import { LayerPanel } from '../panels/LayerPanel'
 import { PropertyInspector } from '../panels/PropertyInspector'
 import { ManifestPanel } from '../panels/ManifestPanel'
+import { isMobileLayout, MOBILE_LAYOUT_QUERY } from '../../core/platform'
 
 export function LandscapeMode() {
   // Both rails start collapsed on a phone. At 232px each they consume 464px
-  // of a 412px screen, so the viewport — the entire point of the app — was
-  // squeezed to nothing. On narrow screens they become slide-over drawers
-  // (see the media query in App.css) rather than layout columns.
-  const narrow = typeof window !== 'undefined' && window.innerWidth < 820
+  // of a 412px screen, so the viewport — the entire point of the app — is
+  // squeezed to nothing. On phones they become slide-over drawers (see the
+  // matching media query in App.css) rather than layout columns.
+  //
+  // This MUST be live, not read once at mount. It was `window.innerWidth <
+  // 820` evaluated on first render, so rotating the phone kept whatever
+  // layout it booted with — and since a Pixel is 915px wide in landscape, it
+  // did not consider itself a phone at all.
+  const [narrow, setNarrow] = useState(isMobileLayout)
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_LAYOUT_QUERY)
+    const onChange = (e: MediaQueryListEvent) => {
+      setNarrow(e.matches)
+      // Entering the phone layout closes both rails so the viewport is not
+      // left covered by two drawers the user never opened.
+      if (e.matches) { setLeftCollapsed(true); setRightCollapsed(true) }
+      else { setLeftCollapsed(false); setRightCollapsed(false) }
+    }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
   const [leftCollapsed, setLeftCollapsed] = useState(narrow)
   const [rightCollapsed, setRightCollapsed] = useState(narrow)
   const view3D = useAppStore((s) => s.view3D)
