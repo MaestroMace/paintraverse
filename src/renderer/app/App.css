@@ -347,3 +347,77 @@ input[type="color"] {
 .left-toggle {
   left: 0;
 }
+
+.right-toggle {
+  right: 0;
+  border-radius: var(--radius) 0 0 var(--radius);
+  border-right: none;
+}
+
+/* === PHONE / NARROW LAYOUT ===
+ *
+ * The desktop layout is three columns: a 232px rail, the viewport, another
+ * 232px rail. On a Pixel that is 464px of chrome inside a 412px screen, so
+ * the viewport — the whole point of the app — collapsed to nothing and the
+ * toolbar overflowed off the side.
+ *
+ * Below 820px the rails stop being columns and become slide-over drawers, so
+ * the viewport always owns the full screen and a rail is something you pull
+ * out when you need it. Both start closed (see LandscapeMode).
+ */
+@media (max-width: 820px) {
+  .left-panel, .right-panel {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: min(80vw, 320px);
+    z-index: 60;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.7);
+    /* Momentum scrolling, and room to scroll past the toolbar overlay. */
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 64px;
+  }
+  .left-panel { left: 0; }
+  .right-panel { right: 0; }
+
+  /* The toolbar has more buttons than fit; let it scroll rather than
+   * silently pushing the 2D/3D switch off the edge of the screen. */
+  .toolbar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+  .toolbar::-webkit-scrollbar { display: none; }
+  .toolbar > * { flex: 0 0 auto; }
+
+  /* Drawer handles need to be thumb-sized, not 18px wide. */
+  .panel-toggle {
+    width: 30px;
+    height: 76px;
+    font-size: 15px;
+  }
+
+  /* Controls sized for a mouse are hard to hit with a thumb. 44px is the
+   * usual minimum comfortable touch target. */
+  .toolbar button,
+  .panel-header {
+    min-height: 40px;
+  }
+  input[type="range"] {
+    height: 30px;
+  }
+
+  /* The status bar is the least useful thing on a small screen. */
+  .status-bar .status-mode { display: none; }
+}
+
+/* Tap-outside-to-close for the mobile drawers. Sits above everything except
+ * the drawer itself, which is why the drawer is z-60 and this is z-55. */
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: rgba(4, 3, 8, 0.5);
+  -webkit-tap-highlight-color: transparent;
+}

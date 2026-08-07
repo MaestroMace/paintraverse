@@ -6,6 +6,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { useAppStore } from '../../app/store'
 import { ThreeRenderer } from '../../renderer3d/ThreeRenderer'
+import { isTouchDevice } from '../../core/platform'
 
 let _activeRenderer: ThreeRenderer | null = null
 export function getActiveThreeRenderer(): ThreeRenderer | null { return _activeRenderer }
@@ -117,11 +118,22 @@ export function ThreeViewport() {
             fontFamily: 'monospace', fontSize: 13, textAlign: 'center',
             border: '1px solid rgba(255,255,255,0.15)',
           }}>
-            <div style={{ fontSize: 16, marginBottom: 6, color: '#4ade80' }}>Click to walk</div>
-            <div style={{ opacity: 0.8 }}>
-              <b>WASD</b> move &nbsp;·&nbsp; <b>mouse</b> look &nbsp;·&nbsp; <b>space</b> jump<br />
-              <b>2×space</b> fly &nbsp;·&nbsp; <b>shift</b> descend &nbsp;·&nbsp; <b>esc</b> release
-            </div>
+            {isTouchDevice() ? (
+              <>
+                <div style={{ fontSize: 16, marginBottom: 6, color: '#4ade80' }}>Drag to explore</div>
+                <div style={{ opacity: 0.8 }}>
+                  <b>left half</b> walk &nbsp;·&nbsp; <b>right half</b> look
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 16, marginBottom: 6, color: '#4ade80' }}>Click to walk</div>
+                <div style={{ opacity: 0.8 }}>
+                  <b>WASD</b> move &nbsp;·&nbsp; <b>mouse</b> look &nbsp;·&nbsp; <b>space</b> jump<br />
+                  <b>2×space</b> fly &nbsp;·&nbsp; <b>shift</b> descend &nbsp;·&nbsp; <b>esc</b> release
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

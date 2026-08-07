@@ -15,11 +15,26 @@ import { PropertyInspector } from '../panels/PropertyInspector'
 import { ManifestPanel } from '../panels/ManifestPanel'
 
 export function LandscapeMode() {
-  const [leftCollapsed, setLeftCollapsed] = useState(false)
+  // Both rails start collapsed on a phone. At 232px each they consume 464px
+  // of a 412px screen, so the viewport — the entire point of the app — was
+  // squeezed to nothing. On narrow screens they become slide-over drawers
+  // (see the media query in App.css) rather than layout columns.
+  const narrow = typeof window !== 'undefined' && window.innerWidth < 820
+  const [leftCollapsed, setLeftCollapsed] = useState(narrow)
+  const [rightCollapsed, setRightCollapsed] = useState(narrow)
   const view3D = useAppStore((s) => s.view3D)
+
+  // An open drawer covers its own handle at 80vw, so without this there is
+  // no way to close it again on a phone. Tap-outside-to-close is the standard
+  // drawer affordance and costs one element.
+  const scrim = (close: () => void) => (
+    <div className="drawer-scrim" onClick={close} onTouchStart={close} />
+  )
 
   return (
     <div className="app-body">
+      {narrow && !leftCollapsed && scrim(() => setLeftCollapsed(true))}
+      {narrow && !rightCollapsed && scrim(() => setRightCollapsed(true))}
       {!leftCollapsed && (
         <div className="left-panel">
           <GenerationPanel />
@@ -38,8 +53,16 @@ export function LandscapeMode() {
         >
           {leftCollapsed ? '\u25B6' : '\u25C0'}
         </button>
+        <button
+          onClick={() => setRightCollapsed(!rightCollapsed)}
+          className="panel-toggle right-toggle"
+          title={rightCollapsed ? 'Show render panel' : 'Hide render panel'}
+        >
+          {rightCollapsed ? '\u25C0' : '\u25B6'}
+        </button>
         {view3D ? <ThreeViewport /> : <EditorCanvas />}
       </div>
+      {!rightCollapsed && (
       <div className="right-panel">
         <RenderPanel />
         <EnvironmentPanel />
@@ -47,6 +70,7 @@ export function LandscapeMode() {
         <PropertyInspector />
         <ManifestPanel />
       </div>
+      )}
     </div>
   )
 }

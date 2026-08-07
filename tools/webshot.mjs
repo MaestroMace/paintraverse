@@ -72,6 +72,15 @@ try {
   await page.getByText('Landscape', { exact: false }).first().click()
   await page.waitForTimeout(1500)
 
+  // On a narrow screen both rails start closed, so the seed field and
+  // Generate live behind the left drawer handle — open it like a user would.
+  if (MOBILE) {
+    await page.locator('.panel-toggle.left-toggle').click()
+    await page.waitForTimeout(600)
+    await page.screenshot({ path: `.shots/web-${tag}-01b-drawer.png` })
+    console.log(`✓ .shots/web-${tag}-01b-drawer.png`)
+  }
+
   await page.evaluate((s) => {
     const inp = [...document.querySelectorAll('input')]
       .find((i) => i.type !== 'range' && /^\d+$/.test(i.value))
@@ -86,6 +95,12 @@ try {
   await page.screenshot({ path: `.shots/web-${tag}-02-plan.png` })
   console.log(`✓ .shots/web-${tag}-02-plan.png`)
 
+  // Close the drawer again so the 3D shot shows what the player sees.
+  // The handle is under the open drawer, so tap the scrim like a user.
+  if (MOBILE) {
+    await page.locator('.drawer-scrim').click({ position: { x: 380, y: 700 } })
+    await page.waitForTimeout(500)
+  }
   await page.getByRole('button', { name: '3D', exact: true }).click()
   await page.waitForTimeout(7000)
   await page.screenshot({ path: `.shots/web-${tag}-03-3d.png` })

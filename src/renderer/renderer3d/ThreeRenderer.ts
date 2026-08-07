@@ -197,6 +197,22 @@ export class ThreeRenderer {
   private buildingGroup = new THREE.Group()
   private propGroup = new THREE.Group()
   private particleGroup = new THREE.Group()
+  // Touch input state. Split so the walk stick and the look drag are
+  // independent fingers — the standard mobile FPS scheme, and the only one
+  // that works here since a phone has neither pointer lock nor WASD.
+  private _touchMoveX = 0        // -1..1, strafe
+  private _touchMoveY = 0        // -1..1, forward is negative (screen up)
+  private _touchThrottle = 0     // 0..1 analog magnitude
+  private _moveTouchId: number | null = null
+  private _lookTouchId: number | null = null
+  private _moveOriginX = 0
+  private _moveOriginY = 0
+  private _lookLastX = 0
+  private _lookLastY = 0
+  private _onTouchStart?: (e: TouchEvent) => void
+  private _onTouchMove?: (e: TouchEvent) => void
+  private _onTouchEnd?: (e: TouchEvent) => void
+
   private sunLight: THREE.DirectionalLight
   private ambientLight: THREE.AmbientLight
   private hemiLight: THREE.HemisphereLight
@@ -490,6 +506,82 @@ export class ThreeRenderer {
     }
     document.addEventListener('mousemove', this._onMouseMove)
     canvas.addEventListener('contextmenu', (e) => e.preventDefault())
+
+    // === TOUCH ===
+    // A phone has no pointer lock and no keyboard, so the walkaround was
+    // simply unreachable there. Left half of the screen is a virtual stick
+    // (drag from wherever the thumb lands — a fixed on-screen pad is worse,
+    // because the thumb cannot see itself); right half drags the camera.
+    // Tracked by identifier so the two work simultaneously.
+    const STICK_RADIUS = 90       // px to reach full throttle
+    const STICK_DEADZONE = 8      // px of slop before movement starts
+    const TOUCH_LOOK_SENS = 0.005
+
+    this._onTouchStart = (e: TouchEvent) => {
+      const rect = canvas.getBoundingClientRect()
+      for (const t of Array.from(e.changedTouches)) {
+        const localX = t.clientX - rect.left
+        if (localX < rect.width * 0.5) {
+          if (this._moveTouchId !== null) continue
+          this._moveTouchId = t.identifier
+          this._moveOriginX = t.clientX
+          this._moveOriginY = t.clientY
+        } else {
+          if (this._lookTouchId !== null) continue
+          this._lookTouchId = t.identifier
+          this._lookLastX = t.clientX
+          this._lookLastY = t.clientY
+        }
+      }
+      // Stop the browser treating this as a scroll/zoom gesture on the page.
+      if (e.cancelable) e.preventDefault()
+    }
+
+    this._onTouchMove = (e: TouchEvent) => {
+      for (const t of Array.from(e.changedTouches)) {
+        if (t.identifier === this._moveTouchId) {
+          const ox = t.clientX - this._moveOriginX
+          const oy = t.clientY - this._moveOriginY
+          const dist = Math.hypot(ox, oy)
+          if (dist < STICK_DEADZONE) {
+            this._touchMoveX = 0; this._touchMoveY = 0; this._touchThrottle = 0
+          } else {
+            const clamped = Math.min(dist, STICK_RADIUS)
+            this._touchMoveX = ox / dist
+            this._touchMoveY = oy / dist
+            this._touchThrottle = clamped / STICK_RADIUS
+          }
+        } else if (t.identifier === this._lookTouchId) {
+          this.cameraYaw += (t.clientX - this._lookLastX) * TOUCH_LOOK_SENS
+          this.cameraPitch = Math.max(
+            -Math.PI / 2 + 0.01,
+            Math.min(Math.PI / 2 - 0.01,
+              this.cameraPitch - (t.clientY - this._lookLastY) * TOUCH_LOOK_SENS),
+          )
+          this._lookLastX = t.clientX
+          this._lookLastY = t.clientY
+        }
+      }
+      if (e.cancelable) e.preventDefault()
+    }
+
+    this._onTouchEnd = (e: TouchEvent) => {
+      for (const t of Array.from(e.changedTouches)) {
+        if (t.identifier === this._moveTouchId) {
+          this._moveTouchId = null
+          this._touchMoveX = 0; this._touchMoveY = 0; this._touchThrottle = 0
+        } else if (t.identifier === this._lookTouchId) {
+          this._lookTouchId = null
+        }
+      }
+    }
+
+    // passive:false because these calls preventDefault — without it the
+    // browser ignores it and the whole page pans while you try to walk.
+    canvas.addEventListener('touchstart', this._onTouchStart, { passive: false })
+    canvas.addEventListener('touchmove', this._onTouchMove, { passive: false })
+    canvas.addEventListener('touchend', this._onTouchEnd)
+    canvas.addEventListener('touchcancel', this._onTouchEnd)
 
     // Resize (render at RENDER_SCALE, CSS fills container)
     this._resizeObserver = new ResizeObserver(() => {
@@ -1469,11 +1561,21 @@ export class ThreeRenderer {
     if (this.keysHeld.has('KeyS')) { dx -= fwdX; dz -= fwdZ }
     if (this.keysHeld.has('KeyA')) { dx -= rightX; dz -= rightZ }
     if (this.keysHeld.has('KeyD')) { dx += rightX; dz += rightZ }
+    // Touch stick, in the same frame as the keys so both can drive movement
+    // and neither needs to know about the other. It is analog, so a small
+    // thumb offset walks slowly — but `mag` below normalises the direction,
+    // which would throw that away, so the magnitude is applied separately.
+    if (this._touchMoveX !== 0 || this._touchMoveY !== 0) {
+      dx += fwdX * -this._touchMoveY + rightX * this._touchMoveX
+      dz += fwdZ * -this._touchMoveY + rightZ * this._touchMoveX
+    }
     // Normalize diagonal movement so strafing isn't faster.
     const mag = Math.hypot(dx, dz)
     if (mag > 0) {
-      const stepX = (dx / mag) * moveSpeed
-      const stepZ = (dz / mag) * moveSpeed
+      // Analog throttle from the touch stick; 1.0 for keyboard input.
+      const throttle = this._touchThrottle > 0 ? this._touchThrottle : 1
+      const stepX = (dx / mag) * moveSpeed * throttle
+      const stepZ = (dz / mag) * moveSpeed * throttle
       // Fly mode and "no map loaded" bypass collision — walk-mode does
       // a 3-try axis-slide: full move → X-only → Z-only → stay put.
       // Probe ~0.3 units ahead along each axis so we stop just before the
@@ -1674,6 +1776,15 @@ export class ThreeRenderer {
     if (this._onKeyUp) window.removeEventListener('keyup', this._onKeyUp)
     if (this._onMouseMove) document.removeEventListener('mousemove', this._onMouseMove)
     if (this._onPointerLockChange) document.removeEventListener('pointerlockchange', this._onPointerLockChange)
+    const cv = this.renderer?.domElement
+    if (cv) {
+      if (this._onTouchStart) cv.removeEventListener('touchstart', this._onTouchStart)
+      if (this._onTouchMove) cv.removeEventListener('touchmove', this._onTouchMove)
+      if (this._onTouchEnd) {
+        cv.removeEventListener('touchend', this._onTouchEnd)
+        cv.removeEventListener('touchcancel', this._onTouchEnd)
+      }
+    }
     if (document.pointerLockElement) document.exitPointerLock()
     this._resizeObserver?.disconnect()
 
