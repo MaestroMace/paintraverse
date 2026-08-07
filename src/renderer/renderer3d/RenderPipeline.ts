@@ -76,12 +76,19 @@ export function renderPixelArt(
   const isNight = tod < 5 || tod >= 19
   const isDusk = tod >= 17 && tod < 19
 
-  let lightMapData: ImageData | null = null
+  let lightMapData: Float32Array | null = null
   if (!isPreview && (isNight || isDusk) && sceneResult.lights.length > 0) {
     lightMapData = renderLightMap(sceneResult.lights, outputWidth, outputHeight)
   }
 
-  const darkFactor = isNight ? 0.55 : isDusk ? 0.75 : 1.0
+  // The shading model already dims for the hour — at 18:30 it runs ambient
+  // 0.275 of a near-black ambient colour. Multiplying by another 0.75 here
+  // double-dips, and it pushed the dark end of the scene under DB32's black
+  // point: a brown roof has roughly a third the albedo of a cream wall, so
+  // spires quantised to pure #000000 while the tower right below them stayed
+  // legible. Post-process now only nudges the exposure; the hour is the
+  // shader's job.
+  const darkFactor = isNight ? 0.8 : isDusk ? 0.95 : 1.0
   const needsGrade = isNight || isDusk || (tod >= 15 && tod < 17) || (tod >= 5 && tod < 7)
   const needsBloom = !isPreview
   const needsAnyPostProcess = darkFactor < 1.0 || needsGrade || needsBloom || lightMapData !== null
@@ -148,13 +155,13 @@ function ensureBloomBuffers(pixels: number): void {
 }
 
 function applyMergedPostProcess(
-  imageData: ImageData, lightMap: ImageData | null,
+  imageData: ImageData, lightMap: Float32Array | null,
   darkFactor: number, timeOfDay: number,
   nightApplied: boolean, needsGrade: boolean, needsBloom: boolean,
   _width: number
 ): void {
   const d = imageData.data
-  const ld = lightMap?.data ?? null
+  const ld = lightMap ?? null
   const bright = needsBloom ? _bloomBright! : null
 
   // Pre-compute grading constants outside the loop
@@ -179,11 +186,15 @@ function applyMergedPostProcess(
     // Night darken (multiply)
     if (applyDark) { r *= darkFactor; g *= darkFactor; b *= darkFactor }
 
-    // Additive light map composite
+    // Screen-blend the tone-mapped light map. Screen is bounded by
+    // construction (it approaches 255, never exceeds it), so a heavily lit
+    // street brightens toward the lamp colour instead of clipping to flat
+    // white the way straight addition did.
     if (ld) {
-      r += ld[i]; if (r > 255) r = 255
-      g += ld[i + 1]; if (g > 255) g = 255
-      b += ld[i + 2]; if (b > 255) b = 255
+      const li = (i >> 2) * 3
+      r = 255 - (255 - r) * (1 - ld[li])
+      g = 255 - (255 - g) * (1 - ld[li + 1])
+      b = 255 - (255 - b) * (1 - ld[li + 2])
     }
 
     // Color grading (inlined)
@@ -305,42 +316,76 @@ function boxBlurHalf(src: Float32Array, width: number, height: number): Float32A
 // === Light Map Rendering ===
 
 // Cached light map canvas to avoid allocating a new one every frame
-let _lightMapCanvas: HTMLCanvasElement | null = null
-let _lightMapCtx: CanvasRenderingContext2D | null = null
+/**
+ * Accumulate every light into a float buffer, then tone-map it.
+ *
+ * This used to draw radial gradients onto a canvas with
+ * globalCompositeOperation = 'lighter'. That is unbounded addition into 8-bit
+ * channels, so it clips at 255 during accumulation and the information above
+ * that is gone. It looked fine when a town had nine lamps. It does not
+ * survive density: a dusk town now emits roughly two window lights per
+ * building plus one per lamppost — several hundred overlapping sources — and
+ * the light map saturated to solid white across the whole settlement. The
+ * pixel-art render came out as a white blob with black spires poking through
+ * it, the spires being the only geometry the blowout did not reach.
+ *
+ * Accumulating in float keeps the total, and 1 - exp(-L) maps any total into
+ * [0, 1) smoothly: near-linear for one or two lights, rolling off instead of
+ * clipping where fifty overlap. The result is independent of how many lights
+ * the generator decides to place, which is the property the old version was
+ * missing.
+ *
+ * Returns interleaved RGB in 0..1, three floats per pixel.
+ */
+let _lightAccum: Float32Array | null = null
+let _lightAccumSize = 0
 
-function renderLightMap(lights: LightSource[], width: number, height: number): ImageData {
-  if (!_lightMapCanvas || _lightMapCanvas.width !== width || _lightMapCanvas.height !== height) {
-    _lightMapCanvas = document.createElement('canvas')
-    _lightMapCanvas.width = width
-    _lightMapCanvas.height = height
-    _lightMapCtx = _lightMapCanvas.getContext('2d')!
+function renderLightMap(lights: LightSource[], width: number, height: number): Float32Array {
+  const size = width * height * 3
+  if (_lightAccumSize !== size || !_lightAccum) {
+    _lightAccum = new Float32Array(size)
+    _lightAccumSize = size
   }
-  const lc = _lightMapCanvas
-  const lctx = _lightMapCtx!
-  lctx.clearRect(0, 0, width, height)
-
-  // Additive blending: each light adds warm glow
-  lctx.globalCompositeOperation = 'lighter'
+  const acc = _lightAccum
+  acc.fill(0)
 
   for (const light of lights) {
-    const r = (light.color >> 16) & 0xff
-    const g = (light.color >> 8) & 0xff
-    const b = light.color & 0xff
-    const grad = lctx.createRadialGradient(
-      light.sx, light.sy, 0,
-      light.sx, light.sy, light.radius
-    )
-    grad.addColorStop(0, `rgba(${r},${g},${b},${light.intensity})`)
-    grad.addColorStop(0.3, `rgba(${r},${g},${b},${light.intensity * 0.5})`)
-    grad.addColorStop(0.7, `rgba(${r},${g},${b},${light.intensity * 0.15})`)
-    grad.addColorStop(1, `rgba(${r},${g},${b},0)`)
-    lctx.fillStyle = grad
-    lctx.beginPath()
-    lctx.arc(light.sx, light.sy, light.radius, 0, Math.PI * 2)
-    lctx.fill()
+    const lr = ((light.color >> 16) & 0xff) / 255
+    const lg = ((light.color >> 8) & 0xff) / 255
+    const lb = (light.color & 0xff) / 255
+    const rad = light.radius
+    if (rad <= 0) continue
+    const inv = 1 / rad
+
+    // Only touch the light's own bounding box.
+    const x0 = Math.max(0, Math.floor(light.sx - rad))
+    const x1 = Math.min(width - 1, Math.ceil(light.sx + rad))
+    const y0 = Math.max(0, Math.floor(light.sy - rad))
+    const y1 = Math.min(height - 1, Math.ceil(light.sy + rad))
+
+    for (let y = y0; y <= y1; y++) {
+      const dy = y - light.sy
+      const rowBase = y * width
+      for (let x = x0; x <= x1; x++) {
+        const dx = x - light.sx
+        const t = Math.sqrt(dx * dx + dy * dy) * inv
+        if (t >= 1) continue
+        // (1-t)^2 — matches the old gradient's shape closely enough that the
+        // look is unchanged for a lamp standing on its own.
+        const f = (1 - t) * (1 - t) * light.intensity
+        const i = (rowBase + x) * 3
+        acc[i] += lr * f
+        acc[i + 1] += lg * f
+        acc[i + 2] += lb * f
+      }
+    }
   }
 
-  return lctx.getImageData(0, 0, width, height)
+  // Tone-map the accumulated total into 0..1.
+  for (let i = 0; i < size; i++) {
+    acc[i] = 1 - Math.exp(-acc[i])
+  }
+  return acc
 }
 
 // === Water Reflections (wave LUT eliminates per-pixel trig) ===

@@ -96,6 +96,9 @@ interface Vec3 { x: number; y: number; z: number }
 interface Projected { sx: number; sy: number; depth: number }
 interface Lighting {
   ambientR: number; ambientG: number; ambientB: number
+  /** Hemisphere skylight, pre-multiplied by intensity. Up-facing surfaces
+   *  receive it in full, vertical ones half, undersides none. */
+  skyR: number; skyG: number; skyB: number
   sunDirX: number; sunDirY: number; sunDirZ: number
   sunR: number; sunG: number; sunB: number
   skyColor: number
@@ -873,8 +876,14 @@ function addBuildingDrawables(
   if ((lighting.isNight || lighting.isDusk) && screenH > 3) {
     // Approximate: one light per visible face, centered at window height
     const windowY = height * 0.5
-    const lightR = 15 + screenH * 0.6
-    const lightI = lighting.isNight ? 0.5 : 0.3
+    // A lit window is a small local glow, not a street light. These were
+    // emitted at nearly the lamppost's strength and radius, up to two per
+    // building — so a 200-building town threw ~400 street-lamp-sized sources
+    // into the light map against 28 actual lamps. Even tone-mapped, that pile
+    // of overlapping light saturated the town centre and clipped every
+    // pale-walled tower to flat white.
+    const lightR = 8 + screenH * 0.3
+    const lightI = lighting.isNight ? 0.16 : 0.1
     if (showFront) {
       const fp = project(x0 + fw / 2, windowY, z0)
       if (fp) lights.push({ sx: fp.sx, sy: fp.sy, radius: lightR, color: 0xffcc66, intensity: lightI })
@@ -3748,6 +3757,10 @@ function computeLighting(env: EnvironmentState): Lighting {
     skyColor = 0x0c0a20
   }
 
+  const isNightPhase = t < 5 || t >= 19
+  const isDuskPhase = t >= 17 && t < 19
+  const isDawnPhase = t >= 5 && t < 7
+
   const sunAngleRad = (env.celestial.sunAngle * Math.PI) / 180
   // Sun Y component varies by time: low at dawn/dusk (long shadows), high at noon
   let sunElevation: number
@@ -3772,6 +3785,18 @@ function computeLighting(env: EnvironmentState): Lighting {
   const sg = ((sunColor >> 8) & 0xff) / 255 * sunIntensity
   const sb = (sunColor & 0xff) / 255 * sunIntensity
 
+  // Skylight. After sunset the sky IS the light source, and without a term
+  // for it every up-facing surface at dusk came out near-black: a roof gets
+  // ambient 0.09 plus a low sun it barely faces, which quantises to pure
+  // black. The render only looked lit at all because the lamp light map was
+  // painting over the top of it, so anything a lamp did not reach — every
+  // spire and tower — read as a silhouette. Derived from skyColor so it is
+  // warm at dusk, blue at night and bright at noon without further tuning.
+  const skyIntensity = isDuskPhase ? 1.0 : isNightPhase ? 0.4 : isDawnPhase ? 0.8 : 0.3
+  const kr = ((skyColor >> 16) & 0xff) / 255 * skyIntensity
+  const kg = ((skyColor >> 8) & 0xff) / 255 * skyIntensity
+  const kb = (skyColor & 0xff) / 255 * skyIntensity
+
   const isNight = t < 5 || t >= 19
   const isDusk = t >= 17 && t < 19
   let fogDensity = 0
@@ -3781,6 +3806,7 @@ function computeLighting(env: EnvironmentState): Lighting {
 
   return {
     ambientR: ar, ambientG: ag, ambientB: ab,
+    skyR: kr, skyG: kg, skyB: kb,
     sunDirX: sdx / sdLen, sunDirY: sdy / sdLen, sunDirZ: sdz / sdLen,
     sunR: sr, sunG: sg, sunB: sb,
     skyColor,
@@ -3792,6 +3818,25 @@ function computeLighting(env: EnvironmentState): Lighting {
 
 // ── Shading ──
 
+/**
+ * Roll exposure off toward 1 instead of clamping at it.
+ *
+ * Shading was `Math.min(1, base * light)`, which is a cliff: at midday the
+ * ambient plus sun term reaches ~1.7, so every warm paving tile — cobbled
+ * street, plaza flagstone, the entire circulation network — hit the ceiling
+ * on all three channels at once and the town centre rendered as a flat white
+ * sheet. Nothing above the clip survived, so no amount of palette work could
+ * bring the detail back.
+ *
+ * 1 - exp(-x) is near-linear where the old code already behaved (so dusk is
+ * left alone) and compresses smoothly above it, which keeps highlight
+ * separation instead of fusing it into white. The 1.15 gain holds midtones
+ * roughly where they were so this is not a global darkening.
+ */
+function toneMap(x: number): number {
+  return 1 - Math.exp(-x * 1.15)
+}
+
 function shadeFace(baseColor: number, nx: number, ny: number, nz: number, lighting: Lighting): number {
   const br = ((baseColor >> 16) & 0xff) / 255
   const bg = ((baseColor >> 8) & 0xff) / 255
@@ -3799,10 +3844,12 @@ function shadeFace(baseColor: number, nx: number, ny: number, nz: number, lighti
 
   // Lambertian diffuse
   const dot = Math.max(0, nx * lighting.sunDirX + ny * lighting.sunDirY + nz * lighting.sunDirZ)
+  // Hemisphere skylight: 1 straight up, 0.5 on a vertical wall, 0 underneath.
+  const hemi = 0.5 + 0.5 * ny
 
-  const r = Math.min(1, br * (lighting.ambientR + lighting.sunR * dot))
-  const g = Math.min(1, bg * (lighting.ambientG + lighting.sunG * dot))
-  const b = Math.min(1, bb * (lighting.ambientB + lighting.sunB * dot))
+  const r = toneMap(br * (lighting.ambientR + lighting.sunR * dot + lighting.skyR * hemi))
+  const g = toneMap(bg * (lighting.ambientG + lighting.sunG * dot + lighting.skyG * hemi))
+  const b = toneMap(bb * (lighting.ambientB + lighting.sunB * dot + lighting.skyB * hemi))
 
   return (Math.floor(r * 255) << 16) | (Math.floor(g * 255) << 8) | Math.floor(b * 255)
 }
