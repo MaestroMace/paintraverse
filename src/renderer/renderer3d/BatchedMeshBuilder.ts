@@ -86,6 +86,65 @@ export function getSharedLambertVC(): THREE.MeshLambertMaterial {
   return _lambertVC
 }
 
+
+// === Fragment size audit ===
+// Ornament geometry is emitted as hundreds of small pieces. Anything whose
+// smallest dimension is a couple of centimetres cannot resolve at the
+// renderer's 0.4 internal scale beyond a few metres — it costs memory and
+// aliases into speckle. Enable via setFragmentAudit(true) and read with
+// getFragmentAudit(); off by default so normal builds pay nothing.
+let _sizeAudit = false
+interface FragBucket { count: number; verts: number; colors: Record<string, number> }
+const _fragBuckets = new Map<string, FragBucket>()
+
+export function setFragmentAudit(on: boolean): void {
+  _sizeAudit = on
+  if (on) _fragBuckets.clear()
+}
+
+export function getFragmentAudit(): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of [..._fragBuckets.entries()].sort()) {
+    const top = Object.entries(v.colors).sort((a, b) => b[1] - a[1]).slice(0, 4)
+    out[k] = { count: v.count, verts: v.verts, topColors: top.map(([c, n]) => c + ':' + n) }
+  }
+  return out
+}
+
+function recordFragment(geo: THREE.BufferGeometry, colorHex: number): void {
+  geo.computeBoundingBox()
+  const bb = geo.boundingBox
+  if (!bb) return
+  const dx = bb.max.x - bb.min.x, dy = bb.max.y - bb.min.y, dz = bb.max.z - bb.min.z
+  // Bucket on the LARGEST dimension. A thin-but-long piece (a bargeboard is
+  // 5cm x 2m) still reads as a line on screen; what cannot be seen is a
+  // fragment that is small in every axis.
+  const maxDim = Math.max(dx, dy, dz)
+  const bucket =
+    maxDim < 0.06 ? 'a_under6cm' :
+    maxDim < 0.10 ? 'b_6to10cm' :
+    maxDim < 0.16 ? 'c_10to16cm' :
+    maxDim < 0.30 ? 'd_16to30cm' : 'e_over30cm'
+  let e = _fragBuckets.get(bucket)
+  if (!e) { e = { count: 0, verts: 0, colors: {} }; _fragBuckets.set(bucket, e) }
+  e.count++
+  e.verts += geo.getAttribute('position').count
+  const key = '#' + colorHex.toString(16).padStart(6, '0')
+  e.colors[key] = (e.colors[key] ?? 0) + 1
+}
+
+
+/** True when a fragment is smaller than MIN_VISIBLE_SIZE in every axis. */
+const MIN_VISIBLE_SIZE = 0.05
+function isSubPixelFragment(geo: THREE.BufferGeometry): boolean {
+  geo.computeBoundingBox()
+  const bb = geo.boundingBox
+  if (!bb) return false
+  return (bb.max.x - bb.min.x) < MIN_VISIBLE_SIZE &&
+         (bb.max.y - bb.min.y) < MIN_VISIBLE_SIZE &&
+         (bb.max.z - bb.min.z) < MIN_VISIBLE_SIZE
+}
+
 export class BatchedMeshBuilder {
   private geos: THREE.BufferGeometry[] = []
 
@@ -101,6 +160,13 @@ export class BatchedMeshBuilder {
   addPositioned(geo: THREE.BufferGeometry, colorHex: number): void {
     const clone = normalizeForMerge(geo.clone())
     bakeVertexColor(clone, new THREE.Color(colorHex))
+    if (_sizeAudit) recordFragment(clone, colorHex)
+    // Drop detail too small to ever resolve. At the renderer's 0.4 internal
+    // scale a feature subtends one pixel at roughly 340x its own size, so
+    // anything under ~5cm in EVERY axis is gone by 17m and only contributes
+    // shimmer. Nothing in the current town trips this — it is a standing
+    // guard so future ornaments can't quietly add invisible geometry.
+    if (isSubPixelFragment(clone)) return
     this.geos.push(clone)
   }
 

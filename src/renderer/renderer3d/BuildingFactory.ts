@@ -745,7 +745,12 @@ export function buildBuildingMeshes(
             [v.offsetX - halfW, v.offsetZ + halfD],
             [v.offsetX - halfW, v.offsetZ - halfD],
           ]
-          const stackCount = Math.min(7, Math.max(3, Math.floor(v.height / 0.55)))
+          // Quoins were the single largest consumer of batched geometry:
+          // 4 corners x up to 7 courses on every eligible volume came to
+          // ~2,400 boxes and ~87k verts, a quarter of ALL building geometry.
+          // Five courses read identically — the alternating in/out rhythm is
+          // what sells a quoined corner, not the exact course count.
+          const stackCount = Math.min(5, Math.max(3, Math.floor(v.height / 0.7)))
           const stackPitch = (v.height * 0.86) / stackCount
           for (const [cornerX, cornerZ] of corners) {
             const xSign = Math.sign(cornerX - v.offsetX) || 1

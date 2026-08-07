@@ -18,6 +18,7 @@
 
 import { useAppStore } from '../app/store'
 import { auditMapGeometry } from '../renderer3d/GeometryAudit'
+import { setFragmentAudit, getFragmentAudit } from '../renderer3d/BatchedMeshBuilder'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
 
 export function installDebugBridge(): void {
@@ -33,6 +34,10 @@ export function installDebugBridge(): void {
     },
 
     debugInfo: () => getActiveThreeRenderer()?.getDebugInfo() ?? null,
+
+    /** Fragment-size audit of batched geometry. Turn on, regenerate the map,
+     *  then read: shows how much geometry is too small to resolve on screen. */
+    fragmentAudit: { enable: setFragmentAudit, read: getFragmentAudit },
 
     /** Vertical extent of the built scene — catches runaway spire geometry. */
     sceneStats: () => getActiveThreeRenderer()?.debugSceneStats() ?? null,
