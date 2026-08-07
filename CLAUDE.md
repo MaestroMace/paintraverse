@@ -541,6 +541,43 @@ six are fixed and pushed.
    tile, and on the far side of the same tile you stopped a full tile early.
    The player is now a disc of `PLAYER_RADIUS = 0.35`.
 
+## THE GENERATION REWORK (next arc — read before adding more props)
+
+Reported plainly: "it still reads as random scatter across big open spaces
+with pseudo-random building assets dropped around." That is correct, and no
+amount of placement hygiene fixes it. Everything up to here — denser plazas,
+kerbside clutter, a distance metric — is **scatter with better rules, which is
+still scatter.** The generator has no concept of a PLACE.
+
+What it has today: districts (a zone with a type), roads, buildings placed by
+walking road EDGES one at a time with a gap and a rotation wobble, and props
+scattered by a global distance metric. Nothing owns anything. A building does
+not belong to a block; a barrel does not belong to a tavern.
+
+What makes a town read as a town, roughly in order of payoff:
+
+1. **Blocks and plots.** The land between streets is a BLOCK. Subdivide each
+   block's street frontage into PLOTS, give each plot to exactly one building,
+   and make the building fill its plot's frontage. Terraces then share party
+   walls and the street gets a continuous wall instead of detached objects with
+   gaps. This is the single biggest difference between "assets on ground" and
+   "a town", and it replaces the current Phase B road-edge walk.
+2. **Back-of-block space becomes courtyards and gardens**, enclosed by the
+   terrace, instead of the current leftover void. Enclosure is what makes a
+   town feel built rather than placed.
+3. **Props are OWNED.** A prop should be emitted by its parcel with a role —
+   barrels at the tavern's side door, a bench under the front window, a cart in
+   the yard, a well in the courtyard — not sprinkled by a global metric. The
+   metric answers "is this spot bare"; ownership answers "why is this here",
+   and only the second one reads as sensical.
+4. **Composition.** Landmarks should terminate street vistas rather than land
+   wherever they fit; a market square should be surrounded by trade frontages.
+
+The step already taken (see below) is only 1a: buildings that know their road
+are now square to it. Do NOT add more scatter passes before the plot system —
+`dressEmptyStreets` is a stopgap and should end up mostly redundant once
+parcels own their frontage.
+
 ## What's still open / what to push on next
 
 The whole device problem list is fixed. What is left:

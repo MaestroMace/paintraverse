@@ -317,8 +317,13 @@ export function buildBuildingMeshes(
     // the object id hash, so regenerating the same seed is stable.
     const jitter = !NO_JITTER.has(obj.definitionId)
     const hScale = jitter ? 0.85 + rand01(hash, 1) * 0.3 : 1.0          // 0.85–1.15
-    const jitterDX = jitter ? (rand01(hash, 2) - 0.5) * 0.35 : 0         // ±0.175 tile
-    const jitterDZ = jitter ? (rand01(hash, 3) - 0.5) * 0.35 : 0
+    // Positional jitter, in TILES. Cut from +/-0.175 (half a metre of slide at
+    // TILE = 3) to +/-0.05, about 15cm. A terrace steps back and forward a
+    // little; it does not slide sideways out of its own row. Same reasoning as
+    // the rotation above — the variety has to come from the buildings, not
+    // from scattering them.
+    const jitterDX = jitter ? (rand01(hash, 2) - 0.5) * 0.10 : 0
+    const jitterDZ = jitter ? (rand01(hash, 3) - 0.5) * 0.10 : 0
 
     const wallH = floors * FLOOR_HEIGHT * heightMult * hScale
 
@@ -388,10 +393,24 @@ export function buildBuildingMeshes(
       // buildings the generator didn't tag).
       const hasAlignment = roadSide && (roadSide === 'N' || roadSide === 'S' ||
         ((roadSide === 'E' || roadSide === 'W') && isSquareish))
-      const maxWobble = hasAlignment ? 0.26 * aspect : 0.5 * aspect  // ~15° vs ~28° for square
+      // === STREET WALL ===
+      //
+      // A building that knows which street it fronts should be SQUARE to that
+      // street. This was +/-15 degrees for aligned buildings and +/-28 for the
+      // rest, and a row of terraced houses each turned fifteen degrees from
+      // its neighbour cannot read as a street — it reads as assets dropped on
+      // the ground, which is exactly how it was described.
+      //
+      // Character does not come from rotation. It comes from varied heights,
+      // frontages, roof styles, colours and the organic lean below. Those all
+      // survive; only the spin goes. 3 degrees is enough that the row is not
+      // machined, and small enough that the eye still reads one continuous
+      // frontage. Buildings with no known road keep more freedom, since there
+      // is no street for them to be square to.
+      const maxWobble = hasAlignment ? 0.05 * aspect : 0.21 * aspect  // ~3° vs ~12°
       const wobble = (rand01(hash, 6) - 0.5) * 2 * maxWobble
       rotationY = baseRot + wobble
-      if (rand01(hash, 7) < 0.25) rotationY = baseRot           // 25% stay perfectly aligned
+      if (rand01(hash, 7) < 0.45) rotationY = baseRot           // 45% dead square
     }
 
     // Organic lean — small tilts that pivot around the building base, so
