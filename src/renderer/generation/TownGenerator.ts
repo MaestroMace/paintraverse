@@ -289,7 +289,7 @@ export class TownGenerator implements IMapGenerator {
     const streetFurniture = this.placeStreetFurniture(
       width, height, roadMap, waterMap,
       [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls, ...props, ...lights],
-      districtMap, districts, density, rng
+      districtMap, districts, density, rng, terrainTiles
     )
 
     // 15. Plaza features (fountain, market stalls, statues)
@@ -1949,7 +1949,11 @@ export class TownGenerator implements IMapGenerator {
   private placeStreetFurniture(
     w: number, h: number, roadMap: boolean[][], waterMap: boolean[][],
     existingObjs: PlacedObject[], districtMap: number[][], districts: District[],
-    density: number, rng: () => number
+    density: number, rng: () => number,
+    /** Terrain, so plaza/courtyard flagstone (14) counts as walkable open
+     *  space. Squares are not in roadMap — carvePlaza only paints tiles — so
+     *  without this every market square stayed completely bare. */
+    terrain?: number[][],
   ): PlacedObject[] {
     const furniture: PlacedObject[] = []
     // Occupancy from objects and water only — NOT roads. Roads are 48% of a
@@ -1977,12 +1981,17 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
+    // Walkable = streets, alleys, and plaza/courtyard flagstone.
+    const walkable = (x: number, y: number): boolean =>
+      !!roadMap[y]?.[x] || terrain?.[y]?.[x] === 14
+
     for (let y = 1; y < h - 1; y++) {
       for (let x = 1; x < w - 1; x++) {
-        if (!roadMap[y][x] || covered[y][x] || occupied[y][x]) continue
-        // Only kerb tiles: a road tile with at least one non-road neighbour.
+        if (!walkable(x, y) || covered[y][x] || occupied[y][x]) continue
+        // Only kerb tiles: a walkable tile with at least one non-walkable
+        // neighbour, so dressing hugs the edges and the middle stays clear.
         const edges = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const)
-          .filter(([ex, ey]) => !roadMap[y + ey]?.[x + ex])
+          .filter(([ex, ey]) => !walkable(x + ex, y + ey))
         if (edges.length === 0) continue
         {
           const [ex, ey] = edges[Math.floor(rng() * edges.length)]
