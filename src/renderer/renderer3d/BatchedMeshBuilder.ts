@@ -134,6 +134,91 @@ function recordFragment(geo: THREE.BufferGeometry, colorHex: number): void {
 }
 
 
+// === Oversize sliver audit ===
+//
+// The opposite question from the fragment audit above, and the one that was
+// missing. A piece metres long in one axis and centimetres in the others is a
+// BEAM, and a beam nobody meant to emit is the "giant floating accent timber"
+// class of defect — reported repeatedly from the device and never once found
+// by staring at screenshots, because a batched mesh gives you no way to ask
+// which line drew a particular triangle.
+//
+// So this one captures a stack. That is far too expensive for a normal build,
+// which is exactly why it is off by default: when you turn it on you get the
+// emitting source line, not another guess.
+let _sliverAudit = false
+let _sliverMinLen = 4
+interface SliverBucket {
+  count: number
+  maxLen: number
+  /** World position of the longest example, so it can be flown to. */
+  at: [number, number, number]
+}
+const _sliverBuckets = new Map<string, SliverBucket>()
+
+export function setSliverAudit(on: boolean, minLen = 4): void {
+  _sliverAudit = on
+  _sliverMinLen = minLen
+  if (on) _sliverBuckets.clear()
+}
+
+export function getSliverAudit(): Record<string, unknown> {
+  const rows = [..._sliverBuckets.entries()].sort((a, b) => b[1].maxLen - a[1].maxLen)
+  const out: Record<string, unknown> = {}
+  for (const [site, v] of rows) {
+    out[site] = {
+      count: v.count,
+      maxLen: +v.maxLen.toFixed(2),
+      at: v.at.map((n) => +n.toFixed(1)),
+    }
+  }
+  return out
+}
+
+/**
+ * First stack frame outside this builder — the code that actually emitted the
+ * piece. Filtering has to be by FUNCTION NAME, not by filename: in a bundled
+ * build every module shares one `index-<hash>.js`, so a filename filter skips
+ * nothing and you get this file's own line back. Rollup keeps top-level
+ * function names even when minifying locals, so the names survive.
+ */
+const _builderFrames = /(recordSliver|recordFragment|callSite|addPositionedNoised|addPositioned|normalizeForMerge|bakeVertexColor)/
+function callSite(): string {
+  const lines = (new Error().stack ?? '').split('\n').slice(1)
+  for (const l of lines) {
+    if (_builderFrames.test(l)) continue
+    // "    at buildRoof (file:///…/index-abc.js:1234:56)" → "buildRoof@1234"
+    const fn = l.match(/at\s+(?:new\s+)?([\w$.<>]+)\s*\(/)
+    const loc = l.match(/:(\d+):\d+\)?\s*$/)
+    if (fn || loc) return `${fn ? fn[1] : 'anon'}@${loc ? loc[1] : '?'}`
+  }
+  return 'unknown'
+}
+
+function recordSliver(geo: THREE.BufferGeometry): void {
+  geo.computeBoundingBox()
+  const bb = geo.boundingBox
+  if (!bb) return
+  const dx = bb.max.x - bb.min.x, dy = bb.max.y - bb.min.y, dz = bb.max.z - bb.min.z
+  const maxDim = Math.max(dx, dy, dz)
+  if (maxDim < _sliverMinLen) return
+  // Only flag it if the OTHER two axes are thin. A wall is legitimately metres
+  // across in two directions; a beam is not.
+  const others = [dx, dy, dz].filter((d) => d !== maxDim)
+  if (Math.max(...others) > 0.7) return
+  const site = callSite()
+  const cx = (bb.max.x + bb.min.x) / 2
+  const cy = (bb.max.y + bb.min.y) / 2
+  const cz = (bb.max.z + bb.min.z) / 2
+  const e = _sliverBuckets.get(site)
+  if (!e) {
+    _sliverBuckets.set(site, { count: 1, maxLen: maxDim, at: [cx, cy, cz] })
+  } else {
+    e.count++
+    if (maxDim > e.maxLen) { e.maxLen = maxDim; e.at = [cx, cy, cz] }
+  }
+}
+
 /** True when a fragment is smaller than MIN_VISIBLE_SIZE in every axis. */
 const MIN_VISIBLE_SIZE = 0.05
 function isSubPixelFragment(geo: THREE.BufferGeometry): boolean {
@@ -161,6 +246,7 @@ export class BatchedMeshBuilder {
     const clone = normalizeForMerge(geo.clone())
     bakeVertexColor(clone, new THREE.Color(colorHex))
     if (_sizeAudit) recordFragment(clone, colorHex)
+    if (_sliverAudit) recordSliver(clone)
     // Drop detail too small to ever resolve. At the renderer's 0.4 internal
     // scale a feature subtends one pixel at roughly 340x its own size, so
     // anything under ~5cm in EVERY axis is gone by 17m and only contributes

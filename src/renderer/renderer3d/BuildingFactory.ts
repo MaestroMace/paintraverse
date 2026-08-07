@@ -722,8 +722,10 @@ export function buildBuildingMeshes(
     const cornerableRoles = new Set(['mainBody', 'wing', 'upperFloor', 'transept', 'penthouse', 'tower'])
 
     if (wantsTimberPosts || wantsQuoins) {
+      // Member thickness grows a little with the building so a 12m guild hall
+      // is not framed in the same matchsticks as a 3m cottage — but stays
+      // pinned near a real timber section, not scaled proportionally.
       const postT = 0.13
-      const projOut = postT * 0.45  // post outward shift so it rests ON the wall face
       const quoinW = 0.22, quoinH = 0.34, quoinProj = 0.05
 
       for (const v of massing.volumes) {
@@ -740,58 +742,133 @@ export function buildBuildingMeshes(
         const baseLocalY = v.bottomY
 
         if (wantsTimberPosts) {
+          // === EXPOSED TIMBER FRAME ===
+          //
+          // This is the "giant floating accent timbers" reported from the
+          // device, and it was two separate mistakes compounding.
+          //
+          // 1. FLOATING. Every horizontal member was pushed out by `projOut`,
+          //    which is the POST's outward shift — a post is postT (13cm)
+          //    deep, so it needs 5.9cm to rest its inner face on the wall. But
+          //    the beams are only 4.5cm deep, so the same shift left them
+          //    hanging with a ~6cm slit of daylight behind. Invisible on a 2m
+          //    wall; unmistakable on a 12m one silhouetted against a dusk sky,
+          //    which is exactly the shot it was reported from.
+          //
+          // 2. TOO LONG TO BE A FRAME. The members are sized in metres and
+          //    LENGTHED by the volume, which tripled. A head plate spanning
+          //    `v.width + postT * 2` used to be a 2m beam between two corner
+          //    posts and is now a 12m stick with nothing under it. Real
+          //    framing subdivides: posts every bay, not just at the corners.
+          //
+          // So each member now seats its own inner face on the wall, and a
+          // wide wall gets studs at a real bay pitch plus corner braces. The
+          // wider the building, the more frame it grows.
           const postH = v.height
-          const corners: Array<[number, number]> = [
-            [v.offsetX + halfW + projOut, v.offsetZ + halfD + projOut],
-            [v.offsetX + halfW + projOut, v.offsetZ - halfD - projOut],
-            [v.offsetX - halfW - projOut, v.offsetZ + halfD + projOut],
-            [v.offsetX - halfW - projOut, v.offsetZ - halfD - projOut],
-          ]
-          for (const [px, pz] of corners) {
-            const post = new THREE.BoxGeometry(postT, postH, postT)
-            post.translate(0, postH / 2, 0)
-            localToWorld(post, px, baseLocalY, pz, leanX, leanZ, rotationY, wx, wy, wz)
-            ornamentBatch.addPositioned(post, 0x3a2418) // dark oak
+          // Members sit with their inner face ON the wall plane, 1cm proud so
+          // they never tie with the wall's own quad in the depth buffer.
+          const SEAT = 0.01
+          const seatZ = (memberDepth: number) => halfD + memberDepth / 2 + SEAT
+          const seatX = (memberDepth: number) => halfW + memberDepth / 2 + SEAT
+
+          // Corner posts, aligned so their outer edge meets the wall corner
+          // rather than hanging past it.
+          const cornerX = halfW - postT / 2
+          for (const sx of [-1, 1]) {
+            for (const sz of [-1, 1]) {
+              const post = new THREE.BoxGeometry(postT, postH, postT)
+              post.translate(0, postH / 2, 0)
+              localToWorld(post, v.offsetX + sx * cornerX, baseLocalY,
+                v.offsetZ + sz * seatZ(postT) - sz * postT / 2,
+                leanX, leanZ, rotationY, wx, wy, wz)
+              ornamentBatch.addPositioned(post, 0x3a2418) // dark oak
+            }
           }
-          // Head-plate beam wrapping the front+back of this volume just below
+
+          // Intermediate studs on the street-facing pair of walls, at a bay
+          // pitch a carpenter would recognise. This is what turns one long
+          // beam into a framed facade — and it scales itself, so a wider
+          // building simply gets more bays instead of a longer stick.
+          const BAY = 1.7
+          const studT = postT * 0.62
+          const bays = Math.max(1, Math.round((v.width - postT) / BAY))
+          const studDepth = studT
+          if (bays >= 2) {
+            const step = (v.width - postT) / bays
+            for (let b = 1; b < bays; b++) {
+              const studX = v.offsetX - (v.width - postT) / 2 + b * step
+              for (const sz of [-1, 1]) {
+                const stud = new THREE.BoxGeometry(studT, postH, studDepth)
+                stud.translate(0, postH / 2, 0)
+                localToWorld(stud, studX, baseLocalY,
+                  v.offsetZ + sz * seatZ(studDepth),
+                  leanX, leanZ, rotationY, wx, wy, wz)
+                ornamentBatch.addPositioned(stud, 0x3a2418)
+              }
+            }
+          }
+
+          // Head-plate beam across the front+back of this volume just below
           // the cornice. Skip if a heavy cornice will paint over it.
           const beamY = baseLocalY + postH - 0.08 - postT / 2
           const beamCovered = v.cornice && (v.role === 'tower' || v.role === 'spire')
           if (!beamCovered) {
-            const beamProj = postT * 0.35
-            const beamFront = new THREE.BoxGeometry(v.width + postT * 2, 0.10, beamProj)
-            localToWorld(beamFront, v.offsetX, beamY,
-              v.offsetZ + halfD + beamProj / 2 + projOut,
-              leanX, leanZ, rotationY, wx, wy, wz)
-            ornamentBatch.addPositioned(beamFront, 0x3a2418)
-            const beamBack = new THREE.BoxGeometry(v.width + postT * 2, 0.10, beamProj)
-            localToWorld(beamBack, v.offsetX, beamY,
-              v.offsetZ - halfD - beamProj / 2 - projOut,
-              leanX, leanZ, rotationY, wx, wy, wz)
-            ornamentBatch.addPositioned(beamBack, 0x3a2418)
+            const beamProj = postT * 0.45
+            for (const sz of [-1, 1]) {
+              const beam = new THREE.BoxGeometry(v.width, 0.10, beamProj)
+              localToWorld(beam, v.offsetX, beamY, v.offsetZ + sz * seatZ(beamProj),
+                leanX, leanZ, rotationY, wx, wy, wz)
+              ornamentBatch.addPositioned(beam, 0x3a2418)
+            }
+            // Return the plate along the side walls so the frame closes at the
+            // corners instead of stopping dead — the gap read as two beams
+            // stuck on a box rather than a frame wrapping a building.
+            for (const sx of [-1, 1]) {
+              const ret = new THREE.BoxGeometry(beamProj, 0.10, v.depth)
+              localToWorld(ret, v.offsetX + sx * seatX(beamProj), beamY, v.offsetZ,
+                leanX, leanZ, rotationY, wx, wy, wz)
+              ornamentBatch.addPositioned(ret, 0x3a2418)
+            }
           }
-          // Mid-floor floor-line beams. For multi-floor Tudor buildings we
-          // emit a thinner horizontal band at each interior floor line — the
-          // post-and-beam frame's floor-joist headers. With corner posts +
-          // head plate + floor lines, the visible structure now reads as
-          // an actual timber frame rather than just decorative trim.
+
+          // Mid-floor floor-line beams — the frame's floor-joist headers.
           const volFloors = volumeFloors(v)
+          const floorH = v.height / Math.max(1, volFloors)
           if (volFloors >= 2) {
             const flBeamH = 0.08
-            const flBeamProj = postT * 0.30
-            const floorH = v.height / volFloors
+            const flBeamProj = postT * 0.38
             for (let f = 1; f < volFloors; f++) {
               const flBeamY = baseLocalY + f * floorH
-              const flFront = new THREE.BoxGeometry(v.width + postT * 2, flBeamH, flBeamProj)
-              localToWorld(flFront, v.offsetX, flBeamY,
-                v.offsetZ + halfD + flBeamProj / 2 + projOut,
-                leanX, leanZ, rotationY, wx, wy, wz)
-              ornamentBatch.addPositioned(flFront, 0x3a2418)
-              const flBack = new THREE.BoxGeometry(v.width + postT * 2, flBeamH, flBeamProj)
-              localToWorld(flBack, v.offsetX, flBeamY,
-                v.offsetZ - halfD - flBeamProj / 2 - projOut,
-                leanX, leanZ, rotationY, wx, wy, wz)
-              ornamentBatch.addPositioned(flBack, 0x3a2418)
+              for (const sz of [-1, 1]) {
+                const fl = new THREE.BoxGeometry(v.width, flBeamH, flBeamProj)
+                localToWorld(fl, v.offsetX, flBeamY, v.offsetZ + sz * seatZ(flBeamProj),
+                  leanX, leanZ, rotationY, wx, wy, wz)
+                ornamentBatch.addPositioned(fl, 0x3a2418)
+              }
+            }
+          }
+
+          // Corner braces — the diagonal that makes a frame read as Tudor
+          // rather than as a grid. One per end bay of the ground storey, angled
+          // up and inward from the corner post.
+          if (bays >= 2 && floorH > 1.2) {
+            const braceT = studT * 0.9
+            const braceRun = Math.min((v.width - postT) / bays, floorH * 0.8)
+            const braceLen = Math.hypot(braceRun, braceRun)
+            for (const sx of [-1, 1]) {
+              for (const sz of [-1, 1]) {
+                const brace = new THREE.BoxGeometry(braceLen, braceT, braceT)
+                // Rotate in the wall plane: 45 degrees, leaning toward the
+                // centre of the wall so both ends read as one A-brace pair.
+                brace.rotateZ(sx * Math.PI / 4)
+                localToWorld(
+                  brace,
+                  v.offsetX + sx * (cornerX - braceRun / 2),
+                  baseLocalY + floorH - braceRun / 2,
+                  v.offsetZ + sz * seatZ(braceT),
+                  leanX, leanZ, rotationY, wx, wy, wz)
+                ornamentBatch.addPositioned(brace, 0x3a2418)
+              }
             }
           }
         } else {

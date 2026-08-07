@@ -18,7 +18,7 @@
 
 import { useAppStore } from '../app/store'
 import { auditMapGeometry } from '../renderer3d/GeometryAudit'
-import { setFragmentAudit, getFragmentAudit } from '../renderer3d/BatchedMeshBuilder'
+import { setFragmentAudit, getFragmentAudit, setSliverAudit, getSliverAudit } from '../renderer3d/BatchedMeshBuilder'
 import { overhangClamps, resetOverhangClamps } from '../renderer3d/architecture/Massing'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
 import { TILE } from '../renderer3d/scale'
@@ -40,6 +40,11 @@ export function installDebugBridge(): void {
     /** Fragment-size audit of batched geometry. Turn on, regenerate the map,
      *  then read: shows how much geometry is too small to resolve on screen. */
     fragmentAudit: { enable: setFragmentAudit, read: getFragmentAudit },
+
+    /** Long thin batched geometry — the "giant floating timber" class — keyed
+     *  by the SOURCE LINE that emitted it, with a world position to fly to.
+     *  Enable, regenerate the map, then read. */
+    slivers: { enable: setSliverAudit, read: getSliverAudit },
 
     /** Volumes trimmed by the footprint-overhang cap, by definitionId:role.
      *  Non-empty means some template is throwing geometry at its neighbours. */

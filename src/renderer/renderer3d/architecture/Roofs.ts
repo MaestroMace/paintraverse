@@ -117,6 +117,43 @@ const MAX_ROOF_SPAN_RATIO: Record<RoofStyle, number> = {
 }
 
 /**
+ * The other half of the same question: how SHALLOW may a roof get?
+ *
+ * roofHeightFor() in Massing derives the rise from wallH alone. That was fine
+ * while a roof spanned one or two world units, and stopped being fine the
+ * moment a tile became three metres: the rise stayed put while the span it
+ * crosses tripled, so every pitch in the town flattened by roughly a third. A
+ * 40-degree gable became a 23-degree one, and a shallow slab on a wide
+ * building does not read as a roof — it reads as a building someone stopped
+ * working on. That is the "half built roofs" in the reports.
+ *
+ * These are rise / half-span, i.e. tan(pitch), expressed against the span the
+ * roof actually crosses so they cannot drift with the tile factor again:
+ *   hipped 35 deg · gabled 40 · steep 55 · pointed 63 · spire 72
+ */
+const MIN_ROOF_SPAN_RATIO: Record<RoofStyle, number> = {
+  none: 0, flat: 0,
+  hipped: 0.35, gabled: 0.42, mansard: 0.32, dome: 0.40,
+  steep: 0.71, pointed: 0.98, spire: 1.54,
+}
+
+/**
+ * Raise a roof to at least an architectural pitch for its span. Always applied
+ * BEFORE clampRoofHeight, which owns the ceiling — the minimum is strictly
+ * below the maximum for every style, so the two can never fight.
+ */
+export function ensureRoofPitch(
+  w: number, d: number, h: number, style: RoofStyle
+): number {
+  const ratio = MIN_ROOF_SPAN_RATIO[style]
+  if (ratio <= 0) return h
+  // A prism roof crosses its SHORT dimension; using the short side for the
+  // symmetric styles too just makes this conservative rather than wrong.
+  const span = Math.min(w, d)
+  return Math.max(h, span * ratio)
+}
+
+/**
  * Clamp a roof height to stay proportional to its own base span. Applied to
  * the Volume in pickMassing so that ridge caps, finials, weather vanes,
  * dormers and attic windows — all of which position against v.roofHeight —

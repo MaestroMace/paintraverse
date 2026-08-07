@@ -250,6 +250,27 @@ Verified against the code; if you change one, change it here too.
 - **Hiding scene groups one at a time beats staring at the picture.**
   `tools/bisect.mjs` attributed the floating ornaments in one run after two
   rounds of guessing had failed.
+- **A batch hides its authors, so make it name them.** "Giant floating accent
+  timbers" survived several rounds of guessing because a merged mesh cannot
+  tell you which line drew a triangle. `tools/slivers.mjs` captures a stack in
+  BatchedMeshBuilder and prints emitter -> length -> position; it found the
+  real cause in one run. Note the frame filter has to match on FUNCTION NAME,
+  not filename — in a bundle every module shares one `index-<hash>.js`, so a
+  filename filter skips nothing and hands you back the audit's own line.
+- **Two things were called "the timbers" and only one was a bug.** The frame's
+  members were both floating (pushed out by the POST's 5.9cm shift while being
+  4.5cm deep, leaving a slit of daylight behind a 12m beam) AND too long to be
+  framing (a head plate spanning the whole volume, with nothing under it). The
+  fix for the first is arithmetic; the fix for the second is more geometry, not
+  less — studs at a 1.7m bay pitch and corner braces, so a wider building grows
+  more frame instead of a longer stick.
+- **A ratio to the wrong quantity flattens silently.** Roof rise came from
+  wallH, which did not change, while the span it crosses tripled — so every
+  pitch in the town dropped by about a third and a 40-degree gable became 23.
+  A shallow slab on a wide building reads as a building someone stopped working
+  on: this was "half built roofs". `ensureRoofPitch` now floors the rise
+  against the SPAN (tan of the intended pitch), with `clampRoofHeight` still
+  owning the ceiling — floor first, cap last.
 
 ### Drift and blind-spot lessons (the plan-view / pixel-art arc)
 
@@ -373,7 +394,23 @@ boundary, so every tool keeps speaking grid cells.
 In the reporter's words. All seven root causes are now identified; the first
 six are fixed and pushed.
 
-1. **Scale** — FIXED. See above.
+0. **Half built roofs** — FIXED, and it was scale coupling again, not missing
+   geometry. `roofHeightFor` derives the rise from wallH, which did not change,
+   while the span the roof crosses tripled. Every pitch flattened by a third —
+   a 40-degree gable became 23 degrees, and a shallow slab on a wide building
+   reads as unfinished. `ensureRoofPitch` (Roofs.ts) now floors the rise
+   against the span. Checked first and ruled out: flipped winding (roofs render
+   identically under DoubleSide) and open-topped volumes (`tools/roofcheck.mjs`
+   reports 1 across 3 seeds).
+1. **Giant floating accent timbers** — FIXED. The exposed half-timber frame
+   pushed every horizontal member out by `projOut`, the POST's outward shift:
+   a post is 13cm deep and needs 5.9cm to seat, but the beams are 4.5cm deep,
+   so they hung with a ~6cm slit behind them. Invisible on a 2m wall,
+   unmistakable on a 12m one against a dusk sky. Members now seat their own
+   inner face on the wall, and the frame subdivides — studs at a 1.7m bay
+   pitch, plate returns around the corners, diagonal corner braces — so a wide
+   building grows more frame rather than one longer beam.
+2. **Scale** — FIXED. See above.
 2. **Signs floating** — FIXED, and it was a whole family, not one bug. Shop
    signs, awnings, stoops, benches, doorsteps, hitching posts, colonnades,
    balconies and wall lanterns all hung off `fp.h / 2`: the edge of the
@@ -488,7 +525,14 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   so a building can pass every invariant and still throw geometry through its
   neighbour; this is the only thing looking at mesh extents. Should trend to
   zero — non-zero means a massing template overhangs.
-- `node tools/bisect.mjs [seed] [--x= --z= --up= --yaw= --pitch=]` — screenshot
+- `node tools/slivers.mjs [seeds...] [--min=4] [--shoot=N]` — long thin batched
+  geometry (the "giant floating timber" class), keyed by the SOURCE LINE that
+  emitted it plus a world position, and optionally photographed. A batched mesh
+  otherwise gives you no way to ask which line drew a triangle, which is why
+  that defect survived several rounds of staring at screenshots.
+- `node tools/roofcheck.mjs [seeds...]` — volumes whose top is flat with
+  nothing stacked on them, i.e. open boxes against the sky. Should stay near 0.
+- `node tools/bisect.mjs [seed] [--x= --z= --up= --yaw= --pitch=] [--mesh]` — screenshot
   one vantage point with each top-level scene group hidden in turn, so "what IS
   that artifact?" is a diff instead of a guess. TS `private` is compile-time
   only, so the groups are reachable through the bridge. This is what found the

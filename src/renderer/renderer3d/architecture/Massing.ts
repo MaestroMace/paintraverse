@@ -11,7 +11,7 @@
 import type { StyleVector } from './StyleVector'
 import type { ArchetypeId } from './Archetypes'
 import type { RoofStyle, RoofAxis } from './Roofs'
-import { clampRoofHeight } from './Roofs'
+import { clampRoofHeight, ensureRoofPitch } from './Roofs'
 
 export type VolumeRole =
   | 'mainBody' | 'tower' | 'wing' | 'upperFloor' | 'spire'
@@ -1117,6 +1117,10 @@ export function pickMassing(input: PickMassingInput): MassingResult {
   // old apex — which is why spires had ornaments hanging in the air above
   // their tips. clampRoofHeight is idempotent, so doing it last is safe.
   for (const v of volumes) {
+    // Floor first (pitch for the span), ceiling second (span cap). The
+    // minimum is strictly below the maximum for every style, so ordering
+    // them this way cannot produce a roof that violates either.
+    v.roofHeight = ensureRoofPitch(v.width, v.depth, v.roofHeight, v.roofStyle)
     v.roofHeight = clampRoofHeight(v.width, v.depth, v.roofHeight, v.roofStyle)
   }
 

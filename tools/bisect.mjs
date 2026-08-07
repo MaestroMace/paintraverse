@@ -56,6 +56,12 @@ await win.addStyleTag({ content: '.walk-hint { display: none !important; }' })
 // stray geometry to whichever pass built it.
 const GROUPS = ['buildingGroup', 'propGroup', 'terrainGroup', 'particleGroup']
 
+// --mesh drills one level further: hide each CHILD mesh of the geometry groups
+// in turn. Buildings emit into a handful of batches (walls, roofs, details,
+// ornaments), so this narrows a stray piece from "some building code" to one
+// batch — which is a handful of call sites instead of a thousand lines.
+const PER_MESH = args.includes('--mesh')
+
 const shoot = async (label) => {
   const path = `.shots/bisect-${seed}-${label}.png`
   await win.screenshot({ path })
@@ -82,6 +88,28 @@ for (const g of GROUPS) {
   await win.waitForTimeout(700)
   await shoot(`no-${g}`)
   await win.evaluate((name) => { window.__pt.renderer()[name].visible = true }, g)
+}
+
+if (PER_MESH) {
+  for (const g of ['buildingGroup', 'propGroup']) {
+    const n = await win.evaluate((name) => window.__pt.renderer()?.[name]?.children.length ?? 0, g)
+    console.log(`${g}: ${n} children`)
+    for (let i = 0; i < n; i++) {
+      const info = await win.evaluate(([name, idx]) => {
+        const c = window.__pt.renderer()[name].children[idx]
+        c.visible = false
+        const tris = c.geometry?.index
+          ? c.geometry.index.count / 3
+          : (c.geometry?.attributes?.position?.count ?? 0) / 3
+        return { type: c.type, tris: Math.round(tris) }
+      }, [g, i])
+      await win.waitForTimeout(350)
+      await shoot(`no-${g}-${String(i).padStart(2, '0')}-${info.tris}tri`)
+      await win.evaluate(([name, idx]) => {
+        window.__pt.renderer()[name].children[idx].visible = true
+      }, [g, i])
+    }
+  }
 }
 
 await app.close()
