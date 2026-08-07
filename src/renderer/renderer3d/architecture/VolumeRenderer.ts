@@ -619,12 +619,21 @@ export function emitVolume(
         const midPerp = slopeSign * perpExtent / 2
         const midY = wallTopY + slopeRiseY / 2
         const board = new THREE.BoxGeometry(boardThk, slopeLen, boardW)
+        // The board is built with its long axis along Y — VERTICAL. Laying it
+        // down along the slope is therefore a rotation of (90 deg - slopeAngle)
+        // from vertical, not of slopeAngle. Rotating by slopeAngle left every
+        // bargeboard standing near-upright out of the roof's mid-slope, and
+        // since there are four per volume — two gable ends by two slopes —
+        // they radiated from the apex as a fan of long thin bars. That is the
+        // "wild crossed timbers extending out comically", on every gabled and
+        // steep roof in the town.
+        const layDown = Math.PI / 2 - slopeAngle
         if (ridgeOnX) {
-          board.rotateX(-slopeAngle * slopeSign)
+          board.rotateX(-layDown * slopeSign)
           localToWorld(board, lx + gableLocalAxisVal, midY, lz + midPerp,
             leanX, leanZ, rot, cx, cy, cz)
         } else {
-          board.rotateZ(slopeAngle * slopeSign)
+          board.rotateZ(layDown * slopeSign)
           localToWorld(board, lx + midPerp, midY, lz + gableLocalAxisVal,
             leanX, leanZ, rot, cx, cy, cz)
         }

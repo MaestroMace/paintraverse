@@ -220,8 +220,19 @@ function recordSliver(geo: THREE.BufferGeometry): void {
   // PROTRUSION, not length. How far does this piece reach past the envelope of
   // the building that is emitting it? Trim that hugs its building scores zero
   // however long it is; a beam hanging in the sky scores metres.
+  // No envelope means nobody told us which building this belongs to, and
+  // scoring it 0 is how this audit returned a confident "nothing found" while
+  // metres-long beams were visible on screen. Attribute it explicitly instead.
   let over = 0
-  if (_envelope) {
+  if (!_envelope) {
+    const e = _sliverBuckets.get('NO-ENVELOPE:' + callSite())
+    if (e) { e.count++ } else {
+      _sliverBuckets.set('NO-ENVELOPE:' + callSite(),
+        { count: 1, maxLen: 0, at: [bb.min.x, bb.min.y, bb.min.z] })
+    }
+    return
+  }
+  {
     over = Math.max(
       _envelope.minX - bb.min.x, bb.max.x - _envelope.maxX,
       _envelope.minZ - bb.min.z, bb.max.z - _envelope.maxZ,
@@ -262,6 +273,8 @@ export class BatchedMeshBuilder {
     const clone = normalizeForMerge(geo.clone())
     clone.translate(x, y, z)
     bakeVertexColor(clone, new THREE.Color(colorHex))
+    if (_sizeAudit) recordFragment(clone, colorHex)
+    if (_sliverAudit) recordSliver(clone)
     this.geos.push(clone)
   }
 
@@ -325,6 +338,8 @@ export class BatchedMeshBuilder {
       }
     }
     clone.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    if (_sizeAudit) recordFragment(clone, colorHex)
+    if (_sliverAudit) recordSliver(clone)
     this.geos.push(clone)
   }
 

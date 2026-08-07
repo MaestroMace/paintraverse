@@ -565,15 +565,27 @@ export function buildBuildingMeshes(
     // a TDZ error on every building, and since the per-building try/catch
     // swallows it the only symptom was a town with one house in it.
     {
-      let envApex = 0
+      // The envelope is the union of the actual VOLUMES, not the footprint.
+      // Footprint + 1m was far too loose to be useful: a 3-tile building got
+      // an 11m-wide box, so a 5m beam radiating off its roof scored zero and
+      // the audit reported "nothing found" while the beams were plainly
+      // visible on screen. Volumes + a small trim allowance is the envelope
+      // that actually asks "is this attached to the building?".
+      const TRIM = 0.45
+      let eMinX = Infinity, eMaxX = -Infinity
+      let eMinZ = Infinity, eMaxZ = -Infinity, envApex = 0
       for (const v of massing.volumes) {
-        const t = v.bottomY + v.height + v.roofHeight
-        if (t > envApex) envApex = t
+        // Volumes are in the building's local frame; yaw can swing a corner
+        // out to the diagonal, so bound by the half-diagonal.
+        const r = Math.hypot(v.width, v.depth) / 2
+        eMinX = Math.min(eMinX, v.offsetX - r); eMaxX = Math.max(eMaxX, v.offsetX + r)
+        eMinZ = Math.min(eMinZ, v.offsetZ - r); eMaxZ = Math.max(eMaxZ, v.offsetZ + r)
+        envApex = Math.max(envApex, v.bottomY + v.height + v.roofHeight)
       }
       setBuildEnvelope({
-        minX: wx - fp.w / 2 - 1.0, maxX: wx + fp.w / 2 + 1.0,
-        minZ: wz - fp.h / 2 - 1.0, maxZ: wz + fp.h / 2 + 1.0,
-        minY: wy - 1.0, maxY: wy + envApex + 1.0,
+        minX: wx + eMinX - TRIM, maxX: wx + eMaxX + TRIM,
+        minZ: wz + eMinZ - TRIM, maxZ: wz + eMaxZ + TRIM,
+        minY: wy - TRIM, maxY: wy + envApex + TRIM,
         label: obj.definitionId,
       })
     }
