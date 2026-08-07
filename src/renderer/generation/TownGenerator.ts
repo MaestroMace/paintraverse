@@ -138,6 +138,25 @@ const DISTRICT_PROPS: Record<DistrictType, string[]> = {
   cemetery: ['gravestone', 'iron_fence', 'potted_plant', 'tree', 'wall_lantern', 'bench', 'cemetery_cross', 'cemetery_cross'],
 }
 
+// Street-edge furniture per district. Deliberately a narrower list than
+// DISTRICT_PROPS: only small ground clutter that belongs at the kerb, so no
+// fountains, docks, trees or wall-mounted pieces. Placed by
+// placeStreetFurniture, which walks the road network rather than clustering
+// on buildings.
+const STREET_FURNITURE: Record<DistrictType, string[]> = {
+  market: ['crate', 'barrel', 'crate_stack', 'cart', 'market_stall', 'hay_bale', 'sign'],
+  residential: ['bench', 'potted_plant', 'flower_box', 'rain_barrel', 'woodpile', 'planter_box'],
+  artisan: ['barrel', 'crate', 'barrel_stack', 'woodpile', 'cart', 'crate_stack'],
+  noble: ['bench', 'potted_plant', 'planter_box', 'flower_box', 'column'],
+  waterfront: ['barrel', 'crate', 'rope_coil', 'crate_stack', 'horse_post', 'bench'],
+  temple: ['potted_plant', 'column', 'bench', 'prayer_flags'],
+  slum: ['barrel', 'crate', 'rubble_pile', 'woodpile', 'rain_barrel'],
+  garden: ['bench', 'potted_plant', 'planter_box', 'flower_bed', 'flower_box'],
+  harbor: ['barrel', 'crate', 'crate_stack', 'rope_coil', 'fish_rack', 'horse_post'],
+  fortress: ['barrel', 'crate', 'iron_fence', 'woodpile'],
+  cemetery: ['iron_fence', 'potted_plant', 'bench', 'gravestone'],
+}
+
 // District density multipliers
 const DISTRICT_DENSITY: Record<DistrictType, number> = {
   market: 1.1, residential: 0.9, artisan: 1.0, noble: 0.7,
@@ -263,20 +282,27 @@ export class TownGenerator implements IMapGenerator {
     )
 
     // 14. Lampposts along all streets
-    const lights = this.placeLights(width, height, roadMap,
+    const lights = this.placeLights(width, height, roadMap, waterMap,
       [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls, ...props], rng, density)
+
+    // 14b. Street furniture along the walkable network itself
+    const streetFurniture = this.placeStreetFurniture(
+      width, height, roadMap, waterMap,
+      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls, ...props, ...lights],
+      districtMap, districts, density, rng
+    )
 
     // 15. Plaza features (fountain, market stalls, statues)
     const plazaProps = this.placePlazaFeatures(
       width, height, mainCenter, plazaRadius, districts,
-      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls, ...props, ...lights], density, rng,
+      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls, ...props, ...lights, ...streetFurniture], density, rng,
       roadMap, waterMap,
     )
 
     // 16. Vegetation with district awareness + species variety
     const vegetation = this.placeVegetation(
       width, height, roadMap, waterMap,
-      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls, ...props, ...lights, ...plazaProps],
+      [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls, ...props, ...lights, ...streetFurniture, ...plazaProps],
       districtMap, districts, density, rng, noise, heightMap
     )
 
@@ -285,7 +311,7 @@ export class TownGenerator implements IMapGenerator {
       width, height, roadMap, waterMap, heightMap,
       [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls],
       districtMap, districts,
-      [...props, ...lights, ...plazaProps, ...vegetation],
+      [...props, ...lights, ...streetFurniture, ...plazaProps, ...vegetation],
       terrainTiles, rng, noise
     )
 
@@ -300,8 +326,20 @@ export class TownGenerator implements IMapGenerator {
       [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls], gates, noise, rng
     )
 
+    // Safety net: drop anything whose footprint hangs off the grid. Every
+    // placer is supposed to bounds-check (most use areaFree), but a stray
+    // 2x2 fountain anchored on the last row still slipped through, and an
+    // object partly outside the map renders half-clipped. Enforce the
+    // invariant once, here, rather than trusting a dozen call sites.
+    const inBounds = (o: PlacedObject): boolean => {
+      const ofp = this.getFootprint(o.definitionId)
+      return o.x >= 0 && o.y >= 0 && o.x + ofp.w <= width && o.y + ofp.h <= height
+    }
+
     const allStructures = [...buildings, ...landmarks, ...gates, ...bridges, ...townWalls]
-    const allProps = [...props, ...lights, ...plazaProps, ...vegetation, ...hiddenCourtyards, ...gardens, ...courtyardProps, ...countrysideProps]
+      .filter(inBounds)
+    const allProps = [...props, ...lights, ...streetFurniture, ...plazaProps, ...vegetation, ...hiddenCourtyards, ...gardens, ...courtyardProps, ...countrysideProps]
+      .filter(inBounds)
 
     const terrainLayer: MapLayer = {
       id: uuid(), name: 'Terrain', type: 'terrain',
@@ -1651,9 +1689,18 @@ export class TownGenerator implements IMapGenerator {
     this.markObjects(occupied, blockers, w, h)
 
     const place = (defId: string, x: number, y: number) => {
-      if (x < 0 || x >= w || y < 0 || y >= h || occupied[y][x]) return false
+      // Check the WHOLE footprint, not just the anchor tile. Multi-tile props
+      // (a 2x2 fountain, a 3x2 wagon) could previously be anchored one tile
+      // inside the grid edge and hang off the map, or overlap a neighbour.
+      const pfp = this.getFootprint(defId)
+      if (x < 0 || y < 0 || x + pfp.w > w || y + pfp.h > h) return false
+      for (let oy = 0; oy < pfp.h; oy++) {
+        for (let ox = 0; ox < pfp.w; ox++) if (occupied[y + oy][x + ox]) return false
+      }
       props.push(this.createObj(defId, x, y))
-      occupied[y][x] = true
+      for (let oy = 0; oy < pfp.h; oy++) {
+        for (let ox = 0; ox < pfp.w; ox++) occupied[y + oy][x + ox] = true
+      }
       return true
     }
 
@@ -1677,6 +1724,18 @@ export class TownGenerator implements IMapGenerator {
       )
       if (validSpots.length === 0) continue
 
+      // Prefer the frontage the player actually walks past. Drawing uniformly
+      // from the whole perimeter scattered dressing onto the backs and sides
+      // of buildings too — about half of every town's props ended up on a
+      // tile that touches no street, i.e. spent where nobody ever sees them.
+      // Back spots stay as the fallback so buildings hemmed in by neighbours
+      // still get dressed.
+      const touchesStreet = (s: { x: number; y: number }): boolean =>
+        !!(roadMap[s.y - 1]?.[s.x] || roadMap[s.y + 1]?.[s.x] ||
+           roadMap[s.y]?.[s.x - 1] || roadMap[s.y]?.[s.x + 1])
+      const streetSpots = validSpots.filter(touchesStreet)
+      const backSpots = validSpots.filter(sp => !touchesStreet(sp))
+
       const numProps = Math.min(validSpots.length, 2 + Math.floor(rng() * 3 * density))
       const dId = districtMap[b.y]?.[b.x] ?? -1
       const district = districts.find(d => d.id === dId)
@@ -1689,8 +1748,10 @@ export class TownGenerator implements IMapGenerator {
       const bcx = b.x + fp.w / 2, bcy = b.y + fp.h / 2
 
       for (let i = 0; i < numProps; i++) {
-        const idx = Math.floor(rng() * validSpots.length)
-        const spot = validSpots.splice(idx, 1)[0]
+        const pool = streetSpots.length > 0 ? streetSpots : backSpots
+        if (pool.length === 0) break
+        const idx = Math.floor(rng() * pool.length)
+        const spot = pool.splice(idx, 1)[0]
         if (spot) {
           const propId = i < buildingSpecificProps.length
             ? buildingSpecificProps[i]
@@ -1806,11 +1867,16 @@ export class TownGenerator implements IMapGenerator {
 
   // === LIGHTS ===
   private placeLights(
-    w: number, h: number, roadMap: boolean[][],
+    w: number, h: number, roadMap: boolean[][], waterMap: boolean[][],
     existingObjs: PlacedObject[], rng: () => number, density: number
   ): PlacedObject[] {
     const lights: PlacedObject[] = []
     const occupied = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
+    // Water was never marked here. With 9 lamps per town that almost never
+    // showed; once lamps followed every street it put 15 of them in the river.
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) if (waterMap[y][x]) occupied[y][x] = true
+    }
     this.markObjects(occupied, existingObjs, w, h)
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
@@ -1869,6 +1935,89 @@ export class TownGenerator implements IMapGenerator {
     }
 
     return lights
+  }
+
+  // === STREET FURNITURE ===
+  /**
+   * Dress the WALKABLE network rather than the buildings. placeProps clusters
+   * against building perimeters, which left the streets themselves bare: a
+   * 48x48 town had 1,099 road tiles and only a quarter of them had any prop
+   * within one tile, so the space the player actually moves through read as
+   * empty pavement. This walks the roads and drops small kerbside clutter on
+   * free tiles beside them, spaced so it punctuates rather than clutters.
+   */
+  private placeStreetFurniture(
+    w: number, h: number, roadMap: boolean[][], waterMap: boolean[][],
+    existingObjs: PlacedObject[], districtMap: number[][], districts: District[],
+    density: number, rng: () => number
+  ): PlacedObject[] {
+    const furniture: PlacedObject[] = []
+    // Occupancy from objects and water only — NOT roads. Roads are 48% of a
+    // town's tiles, so almost every tile beside a street is another street:
+    // restricting furniture to non-road tiles yielded ~17 pieces town-wide.
+    // Furniture goes on the KERB instead (a road tile that touches a non-road
+    // edge), which dresses the street sides and leaves the middle clear.
+    // Props are not in the collision mask (only structures and water are), so
+    // this cannot block the player.
+    const occupied = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) if (waterMap[y][x]) occupied[y][x] = true
+    }
+    this.markObjects(occupied, existingObjs, w, h)
+
+    // Coverage radius: how far a placed piece "satisfies" the street around it.
+    const gap = Math.max(2, Math.round(4 - density * 2))
+    const covered = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
+    const markCovered = (cx: number, cy: number) => {
+      for (let dy = -gap; dy <= gap; dy++) {
+        for (let dx = -gap; dx <= gap; dx++) {
+          const nx = cx + dx, ny = cy + dy
+          if (nx >= 0 && nx < w && ny >= 0 && ny < h) covered[ny][nx] = true
+        }
+      }
+    }
+
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        if (!roadMap[y][x] || covered[y][x] || occupied[y][x]) continue
+        // Only kerb tiles: a road tile with at least one non-road neighbour.
+        const edges = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const)
+          .filter(([ex, ey]) => !roadMap[y + ey]?.[x + ex])
+        if (edges.length === 0) continue
+        {
+          const [ex, ey] = edges[Math.floor(rng() * edges.length)]
+          const fx = x, fy = y
+          const dId = districtMap[fy]?.[fx] ?? -1
+          const district = districts.find(d => d.id === dId)
+          const palette = district
+            ? (STREET_FURNITURE[district.type] ?? STREET_FURNITURE.residential)
+            : STREET_FURNITURE.residential
+          const defId = palette[Math.floor(rng() * palette.length)]
+          // Multi-tile pieces (cart, market_stall) need their whole footprint.
+          const ffp = this.getFootprint(defId)
+          let fits = true
+          for (let oy = 0; oy < ffp.h && fits; oy++) {
+            for (let ox = 0; ox < ffp.w && fits; ox++) {
+              const tx = fx + ox, ty = fy + oy
+              if (tx >= w || ty >= h || occupied[ty][tx]) fits = false
+            }
+          }
+          if (!fits) continue
+          const obj = this.createObj(defId, fx, fy)
+          // Turn its back to the wall/edge it stands against.
+          obj.properties.facingY = Math.atan2(-ey, -ex)
+          furniture.push(obj)
+          for (let oy = 0; oy < ffp.h; oy++) {
+            for (let ox = 0; ox < ffp.w; ox++) {
+              if (fy + oy < h && fx + ox < w) occupied[fy + oy][fx + ox] = true
+            }
+          }
+          markCovered(x, y)
+          break
+        }
+      }
+    }
+    return furniture
   }
 
   // === PLAZA FEATURES ===
