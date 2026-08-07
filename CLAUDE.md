@@ -220,7 +220,19 @@ Verified against the code; if you change one, change it here too.
 - **Compare two times of day to split a lighting bug from a draw bug.** The
   black spires looked like broken geometry. Rendering the same seed at noon
   showed them perfectly coloured, which localised it to dusk exposure in one
-  step. `tools/pixelart.mjs --time=12`.
+  step. `tools/pixelart.mjs --time=12`. The same trick then found the 3D
+  path's missing hemisphere light: a wall that is still pure black at NOON
+  under a blue sky cannot be explained by the hour.
+- **AmbientLight is not skylight.** It adds the same value to a face whether
+  it points at the sky or the ground, so anything the sun and shadow map miss
+  gets one flat number and reads as a black slab. Both renderers now carry a
+  hemisphere term keyed to the sky colour they are actually under. If a
+  surface looks like a void, check orientation-dependent light before
+  suspecting the geometry.
+- **Measure before "fixing" a distribution, then measure again after.** The
+  DISTRICT_BUILDINGS weights look wrong and the obvious repairs make them
+  worse; `tools/typemix.mjs` caught that within one build each time. Two
+  changes were written, measured, and reverted on the evidence.
 
 ## Current state summary (as of last commit)
 
@@ -307,6 +319,16 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   see because the result lands in an `<img>`, not a canvas. `--time` renders
   a different hour; comparing dusk against noon is the fastest way to tell a
   lighting bug from a draw bug.
+- `node tools/walkshots.mjs [seed] [--time=12]` — flies the 3D camera through
+  five fixed vantage points (overview, skyline, two street-level, rooftops)
+  and prints scene extent + draw calls. `tools/screenshot.mjs` only ever sees
+  the player spawn, which is usually pressed against a wall. Also hides the
+  "Click to walk" hint (`.walk-hint`), which otherwise sits dead centre of
+  every shot.
+- `node tools/typemix.mjs [seeds...]` — what building types actually get
+  placed, and at what footprint size. Read the note in `placeBuildings`
+  before trying to change the mix; the obvious fixes were tried and measured
+  and they made it worse.
 - `node tools/inspect.mjs <seed> <issue-kind>` — flies the camera to flagged
   objects and screenshots them.
 - `window.__pt` (see `debug/DebugBridge.ts`) — from devtools or

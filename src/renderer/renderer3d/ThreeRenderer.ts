@@ -199,6 +199,7 @@ export class ThreeRenderer {
   private particleGroup = new THREE.Group()
   private sunLight: THREE.DirectionalLight
   private ambientLight: THREE.AmbientLight
+  private hemiLight: THREE.HemisphereLight
 
   // Sky dome
   private skyMesh: THREE.Mesh | null = null
@@ -300,8 +301,21 @@ export class ThreeRenderer {
     this.scene.add(this.sunLight)
     this.scene.add(this.sunLight.target)
 
-    this.ambientLight = new THREE.AmbientLight(0x606880, 0.6)
+    this.ambientLight = new THREE.AmbientLight(0x606880, 0.45)
     this.scene.add(this.ambientLight)
+
+    // Skylight. AmbientLight is uniform — it adds the same amount to a wall
+    // whether it faces the sky or the ground — so any surface the sun and
+    // shadow map miss got one flat value and read as a black slab. A wall in
+    // shadow at NOON, under a blue sky, was still pure black; that is what
+    // gave it away, since no time-of-day change could account for it.
+    // Hemisphere light is orientation-dependent, so it gives those surfaces
+    // form back. Colours are set per time-of-day from the same zenith and
+    // horizon the sky shader uses, so the bounce always agrees with the sky
+    // the scene is actually under. Part of the old ambient was moved into it
+    // rather than added on top, to keep overall exposure close.
+    this.hemiLight = new THREE.HemisphereLight(0xd0e0f0, 0x5a5240, 0.5)
+    this.scene.add(this.hemiLight)
 
     // Create sky dome
     this.createSkyDome()
@@ -938,8 +952,11 @@ export class ThreeRenderer {
       this.sunLight.intensity = 0.15
       this.sunLight.color.setHex(0x4466aa)
       this.sunLight.position.set(this.townCenterX, 40, sunZ) // moonlight from above
-      this.ambientLight.intensity = 0.35
+      this.ambientLight.intensity = 0.26
       this.ambientLight.color.setHex(0x2a3858)
+      this.hemiLight.color.setHex(0x101830)
+      this.hemiLight.groundColor.setHex(0x14100c)
+      this.hemiLight.intensity = 0.26
       this._fog.color.setHex(0x101830); this._fog.density = 0.008
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x0a0e2a)
@@ -959,8 +976,11 @@ export class ThreeRenderer {
       this.sunLight.intensity = 0.8
       this.sunLight.color.setHex(0xffaa66)
       this.sunLight.position.set(sunX, Math.max(5, sunY), sunZ)
-      this.ambientLight.intensity = 0.4
+      this.ambientLight.intensity = 0.28
       this.ambientLight.color.setHex(0x604838)
+      this.hemiLight.color.setHex(0xffaa88)
+      this.hemiLight.groundColor.setHex(0x3a2a18)
+      this.hemiLight.intensity = 0.42
       this._fog.color.setHex(0xffaa88); this._fog.density = 0.004
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0xcc6633)
@@ -983,8 +1003,11 @@ export class ThreeRenderer {
       this.sunLight.intensity = 1.0
       this.sunLight.color.setHex(0xffe8c0)
       this.sunLight.position.set(sunX, sunY, sunZ)
-      this.ambientLight.intensity = 0.5
+      this.ambientLight.intensity = 0.36
       this.ambientLight.color.setHex(0x706050)
+      this.hemiLight.color.setHex(0xe8d8c8)
+      this.hemiLight.groundColor.setHex(0x50442e)
+      this.hemiLight.intensity = 0.40
       this._fog.color.setHex(0xe8d8c8); this._fog.density = 0.004
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x5588bb)
@@ -1006,8 +1029,11 @@ export class ThreeRenderer {
       this.sunLight.intensity = 1.2
       this.sunLight.color.setHex(0xfff4e0)
       this.sunLight.position.set(sunX, sunY, sunZ)
-      this.ambientLight.intensity = 0.6
+      this.ambientLight.intensity = 0.42
       this.ambientLight.color.setHex(0x606880)
+      this.hemiLight.color.setHex(0xd0e0f0)
+      this.hemiLight.groundColor.setHex(0x5a5240)
+      this.hemiLight.intensity = 0.52
       this._fog.color.setHex(0xd0e0f0); this._fog.density = 0.004
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x4488cc)

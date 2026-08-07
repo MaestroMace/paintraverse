@@ -104,7 +104,9 @@ export function ThreeViewport() {
           Clear signal that the viewport needs to be clicked to start
           walking around. pointerEvents:none so the click passes to canvas. */}
       {!locked && (
-        <div style={{
+        // Named so headless capture can hide it — it sits dead centre of
+        // every 3D screenshot otherwise, over exactly what you want to see.
+        <div className="walk-hint" style={{
           position: 'absolute', inset: 0, display: 'flex',
           alignItems: 'center', justifyContent: 'center',
           pointerEvents: 'none', zIndex: 2,
