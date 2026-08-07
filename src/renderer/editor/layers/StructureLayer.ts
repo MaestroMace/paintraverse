@@ -78,9 +78,15 @@ export class StructureLayer {
       const y = obj.y * tileSize
       const w = def.footprint.w * tileSize
       const h = def.footprint.h * tileSize
-      // Tint toward the building's ROLE. Without this the 34 building types
-      // occupy a 30-degree band of brown and the plan cannot be read at all.
-      const color = structureTint(def.color || '#808080', def.tags)
+      // Tint toward the building's ROLE — its type first, then the district
+      // it serves. Without this the 34 building types occupy a 30-degree
+      // band of brown and the plan cannot be read at all.
+      const color = structureTint(
+        def.color || '#808080',
+        def.tags,
+        obj.definitionId,
+        typeof obj.properties?.district === 'string' ? obj.properties.district : undefined,
+      )
 
       // Building body
       ctx.fillStyle = color

@@ -1078,7 +1078,30 @@ export class TownGenerator implements IMapGenerator {
       // Growth ring character: core gets bigger, taller buildings
       const ringChar = distNorm < 0.25 ? 'core' : distNorm < 0.5 ? 'middle' : 'outer'
 
-      // Weighted random building type (bias toward larger buildings in core)
+      // Weighted random building type (bias toward larger buildings in core).
+      //
+      // NOTE — measured, and do not "fix" this the obvious way. The weights
+      // do NOT produce the counts they look like they should: over six seeds
+      // (1180 structures) row_house is 40% of everything, while mansion (the
+      // highest weight in noble districts) and half_timber (weight 4 in
+      // residential) land once each. Three effects stack up:
+      //   1. A type's real odds are its weight TIMES how often it fits, and a
+      //      1x2 fits nearly everywhere while a 4x3 almost nowhere.
+      //   2. The ROW STREAK below copies the winning type up to 4 more times
+      //      in each direction, so the anchor roll is amplified ~9x.
+      //   3. Streaks of a large type need a lot of contiguous space, so they
+      //      succeed far less often than streaks of small ones.
+      //
+      // Filtering the roll to types that fit here was tried and made it
+      // WORSE (row_house 468 -> 575, archway 7 -> 82): positions that used to
+      // be abandoned when a large type lost the fit test started getting
+      // filled with small types instead. Scaling weights by footprint area on
+      // top of that did not recover it either. Leaving the roll alone and
+      // abandoning on a miss is measurably the best of the three, and a town
+      // that is mostly terraced row houses is the correct look anyway — the
+      // real problem was only ever that MARKETS did not read as markets, and
+      // that is handled at the render layer, where a row house in a market
+      // district is already drawn as a shopfront.
       const totalWeight = types.reduce((s, t) => {
         let w = t.weight
         if (ringChar === 'core' && t.w >= 3) w *= 1.5

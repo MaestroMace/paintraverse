@@ -117,10 +117,61 @@ function roleFor(tags: string[] | undefined, table: [string, string][]): string 
   return null
 }
 
+/**
+ * The district a building stands in, when that says more than its type does.
+ *
+ * A generated town is ~40% row houses by design — a medieval town IS mostly
+ * terraced housing, and the placement measurements say the weight tables
+ * cannot move that without wrecking the terraced rows (see the note in
+ * TownGenerator.placeBuildings). So a market district is largely row houses,
+ * and colouring purely by definition made every district look residential.
+ *
+ * But those row houses are not residential. The 3D renderer already draws a
+ * row house on a trading street as a SHOPFRONT, with a hanging sign and an
+ * awning — the building serves a commercial role, only its definition id
+ * does not say so. The plan now reads the district the generator recorded on
+ * the object and tints generic housing toward it, so markets read as markets
+ * for the same reason they do in the walkaround.
+ *
+ * Buildings whose own type is already specific — a chapel, a mansion, a
+ * guild hall — keep their type colour; a definite type outranks its address.
+ */
+const DISTRICT_ROLES: Record<string, string> = {
+  market: '#d69a4a',      // amber, same as commercial
+  artisan: '#c0803a',     // deeper amber-brown — workshops
+  harbor: '#5f8fa8',      // sea blue-grey
+  waterfront: '#5f8fa8',
+  noble: '#c8a6cf',
+  temple: '#8f7fb8',
+  garden: '#6f9a55',
+  cemetery: '#8a8a96',
+  slum: '#7a6a5c',
+  fortress: '#6f7d92',
+}
+
+/** Tags that mean "this type is generic housing" — safe to tint by district. */
+const GENERIC_HOUSING = new Set([
+  'building_small', 'building_medium', 'building_large', 'row_house',
+  'narrow_house', 'half_timber', 'balcony_house', 'corner_building',
+])
+
 /** Blend a definition's own colour toward the hue of its structural role. */
-export function structureTint(color: string, tags?: string[]): string {
+export function structureTint(
+  color: string,
+  tags?: string[],
+  definitionId?: string,
+  district?: string,
+): string {
   const role = roleFor(tags, STRUCTURE_ROLES)
-  return role ? mixCSS(color, role, 0.34) : color
+  let out = role ? mixCSS(color, role, 0.34) : color
+
+  if (district && definitionId && GENERIC_HOUSING.has(definitionId)) {
+    const dh = DISTRICT_ROLES[district]
+    // Residential districts are the baseline, so leave those alone entirely
+    // rather than tinting them toward themselves.
+    if (dh && district !== 'residential') out = mixCSS(out, dh, 0.4)
+  }
+  return out
 }
 
 /** Same for props, but lighter-handed: prop colours are already varied. */
