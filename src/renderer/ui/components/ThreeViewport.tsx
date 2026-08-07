@@ -66,6 +66,20 @@ export function ThreeViewport() {
   // short string.
   const fpsTextRef = useRef<HTMLDivElement>(null)
   const [locked, setLocked] = useState(false)
+
+  // On desktop the hint disappears when pointer lock engages. Touch devices
+  // have no pointer lock, so `locked` is permanently false and the hint sat
+  // in the middle of the screen forever — over exactly the view it is telling
+  // you to explore. Dismiss on the first touch instead, and stay dismissed.
+  const [hintDismissed, setHintDismissed] = useState(false)
+  useEffect(() => {
+    if (!isTouchDevice()) return
+    const el = containerRef.current
+    if (!el) return
+    const dismiss = () => setHintDismissed(true)
+    el.addEventListener('touchstart', dismiss, { once: true, passive: true })
+    return () => el.removeEventListener('touchstart', dismiss)
+  }, [])
   useEffect(() => {
     const iv = setInterval(() => {
       const el = fpsTextRef.current
@@ -104,7 +118,7 @@ export function ThreeViewport() {
       {/* "Click to enter" overlay — shown only when pointer is NOT locked.
           Clear signal that the viewport needs to be clicked to start
           walking around. pointerEvents:none so the click passes to canvas. */}
-      {!locked && (
+      {!locked && !hintDismissed && (
         // Named so headless capture can hide it — it sits dead centre of
         // every 3D screenshot otherwise, over exactly what you want to see.
         <div className="walk-hint" style={{

@@ -229,6 +229,12 @@ Verified against the code; if you change one, change it here too.
   hemisphere term keyed to the sky colour they are actually under. If a
   surface looks like a void, check orientation-dependent light before
   suspecting the geometry.
+- **A footprint invariant is not a geometry invariant.** The audit was clean at
+  0 errors while ~3 buildings per town threw wing volumes outside their own
+  footprint and through the neighbours — reported from a phone as "crossed
+  timbers jutting out of houses". `MAX_OVERHANG` in Massing caps it and
+  tools/overhang.mjs counts it. The windmill was the worst case at three tiles
+  of overhang per side, but ordinary row houses did it too.
 - **Measure before "fixing" a distribution, then measure again after.** The
   DISTRICT_BUILDINGS weights look wrong and the obvious repairs make them
   worse; `tools/typemix.mjs` caught that within one build each time. Two
@@ -325,6 +331,11 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   the player spawn, which is usually pressed against a wall. Also hides the
   "Click to walk" hint (`.walk-hint`), which otherwise sits dead centre of
   every shot.
+- `node tools/overhang.mjs [seeds...]` — volumes trimmed by the footprint
+  overhang cap, by `definitionId:role`. The placement audit checks FOOTPRINTS,
+  so a building can pass every invariant and still throw geometry through its
+  neighbour; this is the only thing looking at mesh extents. Should trend to
+  zero — non-zero means a massing template overhangs.
 - `node tools/typemix.mjs [seeds...]` — what building types actually get
   placed, and at what footprint size. Read the note in `placeBuildings`
   before trying to change the mix; the obvious fixes were tried and measured

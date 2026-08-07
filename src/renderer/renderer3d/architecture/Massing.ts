@@ -104,6 +104,19 @@ function roofAxisFor(w: number, d: number): RoofAxis {
  * so clamp there; ordinary buildings never approach the cap.
  * (buildRoof applies the matching cap to the roof cone on top.)
  */
+/** How far, in tiles, a volume may extend beyond its building's footprint.
+ *  Generous — jetties and deep eaves are wanted; three-tile sails are not. */
+const MAX_OVERHANG = 0.9
+
+/** How many volumes the overhang cap has trimmed since the last reset, by
+ *  template role. Exposed through the debug bridge: if a template starts
+ *  throwing geometry through the neighbours, this is where it shows up as a
+ *  number instead of as something you happen to notice in a screenshot. */
+export const overhangClamps: Record<string, number> = {}
+export function resetOverhangClamps(): void {
+  for (const k of Object.keys(overhangClamps)) delete overhangClamps[k]
+}
+
 const MAX_TOWER_ASPECT = 9
 function towerHeightFor(raw: number, width: number): number {
   return Math.min(raw, width * MAX_TOWER_ASPECT)
@@ -813,27 +826,42 @@ function tmplWindmill(ctx: MassingContext): Volume[] {
     circular: true,
     floors: Math.max(3, Math.round(bodyH / 0.9)),
   }]
-  // Four cross arms — thin long boxes as sail representation at upper body.
-  const armLen = diameter * 2.2
-  const armT = 0.14
-  const armY = bodyH * 0.88
-  const arms: Array<[number, number, boolean]> = [
-    [armLen / 2, 0, true], [-armLen / 2, 0, true],
-    [0, armLen / 2, false], [0, -armLen / 2, false],
-  ]
-  for (const [ox, oz, isX] of arms) {
-    volumes.push({
-      role: 'wing',
-      offsetX: ox, offsetZ: oz,
-      width: isX ? armLen : armT,
-      depth: isX ? armT : armLen,
-      bottomY: armY, height: armT,
-      roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
-      wallColor: 0x5a4030, roofColor: 0x5a4030,
-      textured: false, cornice: false,
-      floors: 1,
-    })
-  }
+  // Sails.
+  //
+  // These used to be four HORIZONTAL bars, each `armLen` long and offset by
+  // half its own length, so the cross spanned 2 x armLen = diameter x 4.4 —
+  // over nine tiles on a three-tile building. Flat, at roof height, radiating
+  // three tiles past the walls in every direction and straight through the
+  // neighbours: the "crossed timbers jutting out of houses" in the reports.
+  // It was not even the right shape; a windmill's sails stand in a VERTICAL
+  // plane on the front face, they do not lie flat like a weather vane.
+  //
+  // Now a vertical cross on the front face, sized off the tower rather than
+  // an arbitrary multiple, so the silhouette reads as a windmill and stays
+  // near its own footprint.
+  const armLen = Math.min(diameter * 1.6, bodyH * 0.75)
+  const armT = 0.16
+  const hubY = bodyH * 0.82
+  const faceZ = -(diameter / 2 + armT)
+  // Horizontal blade and vertical blade, crossing at the hub.
+  volumes.push({
+    role: 'wing',
+    offsetX: 0, offsetZ: faceZ,
+    width: armLen, depth: armT,
+    bottomY: hubY - armT / 2, height: armT,
+    roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+    wallColor: 0x5a4030, roofColor: 0x5a4030,
+    textured: false, cornice: false, floors: 1,
+  })
+  volumes.push({
+    role: 'wing',
+    offsetX: 0, offsetZ: faceZ,
+    width: armT, depth: armT,
+    bottomY: hubY - armLen / 2, height: armLen,
+    roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+    wallColor: 0x5a4030, roofColor: 0x5a4030,
+    textured: false, cornice: false, floors: 1,
+  })
   return volumes
 }
 
@@ -1002,6 +1030,38 @@ export function pickMassing(input: PickMassingInput): MassingResult {
   // actually rendered instead of floating above a clipped cone.
   for (const v of volumes) {
     v.roofHeight = clampRoofHeight(v.width, v.depth, v.roofHeight, v.roofStyle)
+  }
+
+  // Nothing may hang far outside the footprint the placer reserved.
+  //
+  // The audit checks FOOTPRINTS, so a building can pass every placement
+  // invariant and still throw geometry through its neighbour — which is
+  // exactly what the windmill's sails did for as long as they existed, at
+  // three tiles of overhang per side. Jetties and eaves legitimately
+  // overhang, so this is a generous ceiling meant to catch the runaway case,
+  // not to tighten the style. Same idea as MAX_ROOF_SPAN_RATIO and
+  // MAX_TOWER_ASPECT: cap a derived dimension against the thing it belongs to.
+  const halfW = ctx.footW / 2 + MAX_OVERHANG
+  const halfD = ctx.footD / 2 + MAX_OVERHANG
+  for (const v of volumes) {
+    // chimneyVol is anchored to a roof slope and is small by construction.
+    if (v.role === 'chimneyVol') continue
+    const loX = v.offsetX - v.width / 2, hiX = v.offsetX + v.width / 2
+    const loZ = v.offsetZ - v.depth / 2, hiZ = v.offsetZ + v.depth / 2
+    // CLIP to the allowed box rather than shrinking symmetrically. Shrinking
+    // width by the overhang pulls BOTH edges in, which walks a wing away from
+    // the wall it is attached to and leaves it floating. Recomputing the
+    // extents and the offset from them moves only the edge that was outside.
+    const nLoX = Math.max(loX, -halfW), nHiX = Math.min(hiX, halfW)
+    const nLoZ = Math.max(loZ, -halfD), nHiZ = Math.min(hiZ, halfD)
+    if (nLoX > loX || nHiX < hiX || nLoZ > loZ || nHiZ < hiZ) {
+      const key = `${input.definitionId}:${v.role}`
+      overhangClamps[key] = (overhangClamps[key] ?? 0) + 1
+      v.width = Math.max(0.1, nHiX - nLoX)
+      v.offsetX = (nLoX + nHiX) / 2
+      v.depth = Math.max(0.1, nHiZ - nLoZ)
+      v.offsetZ = (nLoZ + nHiZ) / 2
+    }
   }
 
   return { volumes, primaryFace: 'z+' }

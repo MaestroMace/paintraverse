@@ -19,6 +19,7 @@
 import { useAppStore } from '../app/store'
 import { auditMapGeometry } from '../renderer3d/GeometryAudit'
 import { setFragmentAudit, getFragmentAudit } from '../renderer3d/BatchedMeshBuilder'
+import { overhangClamps, resetOverhangClamps } from '../renderer3d/architecture/Massing'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
 
 export function installDebugBridge(): void {
@@ -38,6 +39,10 @@ export function installDebugBridge(): void {
     /** Fragment-size audit of batched geometry. Turn on, regenerate the map,
      *  then read: shows how much geometry is too small to resolve on screen. */
     fragmentAudit: { enable: setFragmentAudit, read: getFragmentAudit },
+
+    /** Volumes trimmed by the footprint-overhang cap, by definitionId:role.
+     *  Non-empty means some template is throwing geometry at its neighbours. */
+    overhangs: { read: () => ({ ...overhangClamps }), reset: resetOverhangClamps },
 
     /** Vertical extent of the built scene — catches runaway spire geometry. */
     sceneStats: () => getActiveThreeRenderer()?.debugSceneStats() ?? null,
