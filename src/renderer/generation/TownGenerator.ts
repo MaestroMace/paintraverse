@@ -1821,9 +1821,30 @@ export class TownGenerator implements IMapGenerator {
     const spacing = Math.max(3, Math.floor(5 - density * 2))
     let count = 0
 
-    for (let y = 1; y < h - 1; y += spacing) {
-      for (let x = 1; x < w - 1; x += spacing) {
+    // Walk EVERY road tile and light any stretch that isn't already covered.
+    // This used to sample a coarse `spacing`-step lattice and require the
+    // lattice point itself to land on a road, so the vast majority of the
+    // street network was never even considered — a 48x48 town got 9 lamps
+    // total and the streets read as unlit at dusk, with none of the ground
+    // light pools the design leans on.
+    const lit = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
+    // Coverage radius is deliberately smaller than `spacing`: marking a full
+    // spacing-square also suppresses lamps on parallel streets a few tiles
+    // over, which left whole blocks dark.
+    const litR = Math.max(2, spacing - 1)
+    const markLit = (cx: number, cy: number) => {
+      for (let dy = -litR; dy <= litR; dy++) {
+        for (let dx = -litR; dx <= litR; dx++) {
+          const nx = cx + dx, ny = cy + dy
+          if (nx >= 0 && nx < w && ny >= 0 && ny < h) lit[ny][nx] = true
+        }
+      }
+    }
+
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
         if (!roadMap[y]?.[x]) continue
+        if (lit[y][x]) continue // this stretch of street already has a lamp
         // Place light on adjacent non-road tile.
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
           const lx = x + dx, ly = y + dy
@@ -1839,6 +1860,7 @@ export class TownGenerator implements IMapGenerator {
             if (tangent !== null) obj.properties.facingY = tangent + Math.PI / 2
             lights.push(obj)
             occupied[ly][lx] = true
+            markLit(x, y)
             count++
             break
           }

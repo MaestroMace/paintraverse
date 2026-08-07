@@ -143,6 +143,7 @@ export function buildPropMeshes(
   // Geometry for emissive lamp bulbs, accumulated per-lamppost with lamppost
   // position+rotation baked in. Merged into one mesh at the end.
   const lampEmissiveGeos: THREE.BufferGeometry[] = []
+  const lampPoolGeos: THREE.BufferGeometry[] = []
   let pointLightCount = 0
 
   for (const obj of objects) {
@@ -411,10 +412,12 @@ export function buildPropMeshes(
       // an elongated ellipse of warm light on the cobblestones — the classic
       // streetlamp ground pool. Shared material + geometry singletons so
       // setLampPoolOpacity() dims every pool at once from updateLighting.
-      const pool = new THREE.Mesh(_lampPoolGeo, _lampPoolMat)
-      pool.position.y = 0.06  // tiny hover above ground so it doesn't z-fight
-      pool.renderOrder = -0.5 // render before opaque geometry so fog blend is fine
-      lampGroup.add(pool)
+      // Ground light pool. Collected and merged into ONE mesh at the end
+      // instead of one mesh per lamp — with lamps now placed along every
+      // street that would otherwise have been a draw call each.
+      const poolGeo = _lampPoolGeo.clone()
+      poolGeo.translate(px, elev + 0.06, pz) // hover so it doesn't z-fight
+      lampPoolGeos.push(poolGeo)
 
       lampGroup.traverse(c => { c.matrixAutoUpdate = false; c.updateMatrix() })
       lampposts.push(lampGroup)
@@ -1627,6 +1630,25 @@ export function buildPropMeshes(
       bulbs.castShadow = false
       bulbs.receiveShadow = false
       batched.push(bulbs)
+    }
+  }
+
+  // All ground light pools as a single mesh sharing _lampPoolMat, so
+  // setLampPoolOpacity still dims every pool at once from updateLighting
+  // but the whole town's pools cost one draw call rather than one each.
+  if (lampPoolGeos.length > 0) {
+    const mergedPools = lampPoolGeos.length === 1
+      ? lampPoolGeos[0]
+      : mergeGeometries(lampPoolGeos, false)
+    if (lampPoolGeos.length > 1) for (const g of lampPoolGeos) g.dispose()
+    if (mergedPools) {
+      const pools = new THREE.Mesh(mergedPools, _lampPoolMat)
+      pools.matrixAutoUpdate = false
+      pools.updateMatrix()
+      pools.castShadow = false
+      pools.receiveShadow = false
+      pools.renderOrder = 2 // after opaque ground so the additive blend shows
+      batched.push(pools)
     }
   }
 
