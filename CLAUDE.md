@@ -79,6 +79,9 @@ Then `Read` the extracted PNG to see the scene. The diagnostic JSON shows:
 ### Shared vocabulary (import these, never re-declare)
 - `src/renderer/core/terrain.ts` — tile ids, colours, names, `isCirculation()`.
   All three renderers read this one table.
+- `src/renderer/renderer3d/scale.ts` — `TILE = 3.0`, the horizontal tile ->
+  world factor for the 3D walkaround, and the rule for when to apply it.
+  **Read this before touching any 3D coordinate.**
 
 ### Rendering (3D)
 - `src/renderer/renderer3d/ThreeRenderer.ts` — main renderer, scene, loop
@@ -125,18 +128,31 @@ Then `Read` the extracted PNG to see the scene. The diagnostic JSON shows:
 
 Verified against the code; if you change one, change it here too.
 
+- `TILE = 3.0` (scale.ts) — one map tile is 3 metres across, horizontally.
+  World units ARE metres; the player's eye is at 1.6 of them.
 - `FLOOR_HEIGHT = 1.8` (BuildingFactory) — 1.05 was the "kaiju" scale bug
 - `TERRAIN_WORLD_SCALE = 1.8` (TerrainMesh) — raw height unit → world
 - `EYE_HEIGHT = 1.6` (ThreeRenderer) — player camera height
 - `RENDER_SCALE = 0.4` (ThreeRenderer) — renders at 40% then CSS-upscales.
   This is why thin geometry aliases: a feature spans one pixel at ~340× its
   own size, so anything under ~5cm is invisible past ~17m.
-- `SHADOW_RADIUS = 28m` (ThreeRenderer.updateShadowCamera) — follows player
-- Shadow map **256²** with PCF, manual updates (not per-frame)
+- `PLAYER_RADIUS = 0.35` (ThreeRenderer) — the player's collision disc. Before
+  this existed the player was a point in tile space.
+- `SHADOW_RADIUS = 30m` (ThreeRenderer) — follows the player, and also sizes
+  `shadow.normalBias`. Ten tiles: the street you are in plus both sides of it.
+  Every caster inside it is a shadow-pass draw call, so it is a frame-time
+  lever and the phone is the machine that cares.
+- Shadow map **512²** with PCF, manual updates (not per-frame)
+- Tone mapping: **ACESFilmic, exposure 1.15**. Without it the light sum clips
+  at 1.0 and midday paving fuses into a white sheet.
 - Composer/bloom is **disabled** (`_useComposer = false`)
-- `MAX_ROOF_SPAN_RATIO` (Roofs) / `MAX_TOWER_ASPECT = 9` (Massing) — roofs and
+- `MAX_ROOF_SPAN_RATIO` (Roofs) / `MAX_TOWER_ASPECT = 4` (Massing) — roofs and
   tower bodies are capped against their own width. Without these, spires
-  reached 74m needles.
+  reached 74m needles. The aspect cap was 9 when width was a tile count; 4 is
+  the faithful translation now that it is metres.
+- `MAX_OVERHANG = 0.6` (Massing) — how far a volume may leave its footprint, in
+  METRES. Pinned to a physical jetty, not translated proportionally: 0.9 tiles
+  would now be 2.7m, which is the sail this cap exists to prevent.
 - Lantern strings max 25 per map, 2.6–5.0 tiles apart, hung above the higher
   building's **eaves** (not a fixed height above ground)
 - Birds: max 15, dusk-only. Smoke: 2 × 16 chimneys = 32. Fireflies: 36.
@@ -195,6 +211,45 @@ Verified against the code; if you change one, change it here too.
   heights for smoke/birds; that copy kept a stale 1.05 FLOOR_HEIGHT long
   after the real one became 1.8. BuildingFactory now reports `BuildingTop`
   and there is one calculation.
+
+### Scale-coupling lessons (the tile -> world arc)
+
+- **A constant expressed against a quantity you change is a bug you just
+  wrote.** Every one of `MAX_OVERHANG`, `MAX_TOWER_ASPECT`, the lantern pair
+  filter, the cobble UV scale, `SHADOW_RADIUS` and the door-surround's 0.4
+  tolerance was tuned against something that tripled. Some needed the factor
+  applied (lantern distances, UVs), some needed pinning to a physical number
+  instead (overhang, jetty), and one needed rewriting into a scale-free
+  question entirely: "is the main body flush with the footprint edge, within
+  0.4?" became "is anything sticking out in front of the main body?", which is
+  what the comment above it always claimed it asked.
+- **The footprint is not the building, and everything that forgot that broke
+  in the same way.** The massing volume is inset inside its reserved footprint
+  and then multiplied by wealthScale, so `fp.h / 2` is a per-building distance
+  in front of the actual wall. Signs, awnings, stoops, benches, doorsteps,
+  posts, colonnades, balconies, wall lanterns and chimneys were all anchored
+  there. Every one was already wrong; the rescale only made the error metres
+  wide instead of centimetres. **`BuildingTop` now reports the main body's
+  centre, half-extents and yaw** for the same reason it already reported
+  heights: so nothing has to re-derive where a wall is.
+- **Order matters between two clamps on the same value.** `clampRoofHeight`
+  ran before the overhang clip, so a volume clipped narrower kept the roof
+  height computed for its original span; `buildRoof` re-clamped against the
+  real width and drew a shorter cone while the finial stayed at the old apex.
+  Ornaments hung in the air above every clipped spire. Moving the roof clamp
+  after the clip fixed it — it is idempotent, so last is safe.
+- **Two coincident faces is a bug even when the geometry is "correct".** The
+  corner tower and the L-wing put a side face on exactly the main body's plane.
+  Nothing is wrong with either volume; the pair is a depth-buffer tie that
+  resolves per pixel per frame. This was the reported flickering.
+- **Interpolating and then flooring throws the interpolation away.**
+  `sampleGroundY` called `Math.floor` on the camera position before handing it
+  to a function whose whole purpose is sub-tile interpolation — with a comment
+  explaining that this made the contract "explicit". It made the player's eye
+  step by the full tile rise.
+- **Hiding scene groups one at a time beats staring at the picture.**
+  `tools/bisect.mjs` attributed the floating ornaments in one run after two
+  rounds of guessing had failed.
 
 ### Drift and blind-spot lessons (the plan-view / pixel-art arc)
 
@@ -261,66 +316,112 @@ Verified against the code; if you change one, change it here too.
 - Debug dump exposes honest FPS, draw calls, frame time split
 - Street network narrowed (circulation 48% → 39-43% of tiles), which turned
   the freed land into ~40 more buildings: ~165-222 structures per town
+- **Scale fixed: `TILE = 3.0`.** A 1x2 row house is 3m x 6m x ~7m instead of
+  1m x 2m x 7m. Median building top 8.1 against a 1.6 eye height.
+- Player has a collision radius; ground follow interpolates instead of stepping
+- Water seams with its banks over an opaque bed; cobbles are ~24cm setts
+- ACES tone mapping, 512² shadow map at 30m, texel-derived normalBias
 - Placement audit is at **0 errors AND 0 warnings across 16 seeds**
 - Plan view reads: role-tinted buildings, prop glyphs, labels that fit
 - Pixel-art export works at every hour (see tools/pixelart.mjs)
 
-## THE SCALE BUG (diagnosed, NOT yet fixed — read before touching FLOOR_HEIGHT)
+## THE SCALE FACTOR (fixed — read before touching FLOOR_HEIGHT or TILE)
 
 Reported from the phone as "houses the size of cars with windows as big as
-inches". Measured, the diagnosis is the opposite of what it sounds like.
+inches". Measured, the diagnosis was the opposite of what it sounded like.
 
-- `BuildingFactory` passes `footW: fp.w` — footprint TILES straight through as
-  world units. One tile = one world unit, and `EYE_HEIGHT = 1.6`.
-- Median building top is **6.96 units**, so ~4.3x eye height. A real two-storey
-  house is ~4.1x a standing eye. **Heights are approximately correct.**
-- But 60% of all structures are 2-tile footprints, mostly `row_house` at 1x2.
-  The typical building is therefore **1 wide x 2 deep x ~6 tall — a 6:1
-  tower**. A real row house is nearer 1.8:1.
+- Median building top was **6.96 units** against `EYE_HEIGHT = 1.6` — ~4.3x eye
+  height, and a real two-storey house is ~4.1x. **Heights were already right.**
+- But 60% of structures have a 1- or 2-tile footprint, mostly `row_house` at
+  1x2, and the 3D scene passed footprint TILES straight through as world units.
+  The typical building was **1m wide x 2m deep x ~7m tall — a 7:1 tower**. A
+  1m facade can only fit inch-wide windows, so that complaint was literal.
 
-So buildings are not too short. They are **~3x too NARROW for their height**,
-which is also why windows must be tiny to fit on a one-unit-wide facade, and
-why a two-tile lane reads as an alley.
+**This is why raising FLOOR_HEIGHT 1.05 -> 1.8 did not fix it.** That treated a
+horizontal problem with a vertical lever: it stopped buildings being squat and
+made them needles. Do not reach for FLOOR_HEIGHT again — lowering it brings
+kaiju scale straight back.
 
-**This is why raising FLOOR_HEIGHT 1.05 -> 1.8 did not fix it.** That change
-was made to cure "kaiju scale" and it treated a horizontal problem with a
-vertical lever — it stopped buildings being squat and made them into towers
-instead. Do not reach for FLOOR_HEIGHT again; lowering it brings kaiju scale
-straight back.
+The fix is `src/renderer/renderer3d/scale.ts`: **`TILE = 3.0`**, the horizontal
+tile -> world factor. Read that file before touching any of this; the rule is:
 
-The real fix is a horizontal **tile -> world factor** (a tile should be ~3
-units, not 1) applied consistently to: building footprints AND positions,
-terrain mesh, prop positions, the collision mask's tile indexing, lantern
-string anchors, shadow radius, and camera speeds. Buildings get 3x wider AND
-3x further apart, so placement stays valid and only the proportions change.
-It is invasive and deserves its own session; a partial application will put
-buildings on top of each other.
+> Multiply by TILE when converting a **tile coordinate or a footprint extent**
+> into world space. Do NOT multiply anything already expressed in metres.
 
-## Known problems, reported from the device (unfixed)
+Nearly every hardcoded number in the geometry code — a 0.4m chimney, a 0.9m
+door, a 0.08m doorstep lip — was already metric and correct, and only looked
+wrong because the buildings around it were too small. Vertical is untouched:
+`TERRAIN_WORLD_SCALE` still maps raw height units to world height and
+`FLOOR_HEIGHT` is still metres per storey.
 
-In the reporter's words, with what is known so far:
+Both factories keep the two footprints side by side and the distinction is
+load-bearing:
 
-1. **Scale** — see above. Root cause identified, fix not started.
-2. **Signs floating** — not investigated.
-3. **Buildings colliding / flickering overlapping textures** — z-fighting from
-   coincident volume faces. Related to the overhang work (MAX_OVERHANG) but
-   that only clipped geometry leaving its own footprint, not two volumes
-   sharing a plane.
-4. **Shading glitches** — not investigated.
-5. **Props hovering or oddly placed** — suspect terrain height sampling; note
-   `getTerrainHeight` interpolates on the same triangle the mesh renders, so
-   check prop Y against that rather than a tile centre.
-6. **Jagged water tiles** — not investigated.
-7. **Collision feels random** — CONFIRMED cause: `isBlocked(x, z)` floors to a
-   tile index and tests a per-tile `collisionMask`. The player has no radius
-   at all, so it is a point in tile space: you can stand half inside a wall on
-   one side of a tile and be stopped a full tile away on the other.
+- `fpT` — footprint in TILES. Anything that indexes the map: terrain sampling,
+  per-tile loops, and "is this building wide enough for a stoop?" gates.
+- `fp` — the same footprint in WORLD units. Every geometry dimension and local
+  offset, which is nearly all of them.
+
+`getTerrainHeight()` takes TILE coordinates; `groundYAtWorld()` takes world.
+They used to be interchangeable and are not — mixing them silently samples the
+height map at a third of the intended place. The `window.__pt` bridge takes
+TILE coordinates horizontally and METRES vertically, and converts at the
+boundary, so every tool keeps speaking grid cells.
+
+## Known problems, reported from the device
+
+In the reporter's words. All seven root causes are now identified; the first
+six are fixed and pushed.
+
+1. **Scale** — FIXED. See above.
+2. **Signs floating** — FIXED, and it was a whole family, not one bug. Shop
+   signs, awnings, stoops, benches, doorsteps, hitching posts, colonnades,
+   balconies and wall lanterns all hung off `fp.h / 2`: the edge of the
+   footprint RECTANGLE. The massing volume is inset inside its footprint and
+   then multiplied by wealthScale, so that anchor is some nonzero,
+   per-building distance in FRONT of the actual wall. Everything front-attached
+   now hangs off `frontWallZ` / `frontWallHalfW`, derived from the main volume.
+3. **Buildings colliding / flickering overlapping textures** — FIXED. The
+   corner-tower template sits at `footW/2 - towerW/2` and the L-shape wing at
+   `wingSide * (footW/2 - wingW/2)`; both put a side face on exactly `footW/2`,
+   the same plane as the main body's. Two coplanar same-facing quads is a
+   depth-buffer tie. pickMassing nudges the attached volume 2cm proud.
+4. **Shading glitches** — FIXED, two causes. (a) No tone mapping, so a surface
+   facing the noon sky took sun 1.2 + ambient 0.42 + hemisphere 0.40 and
+   everything over 1.0 was thrown away. ACES filmic at 1.15 exposure now. (b)
+   `normalBias` was 0.04 against a 14cm shadow texel, so big sunlit walls
+   self-shadowed at grazing sun — which is the dusk this scene is tuned for.
+   It is derived from the texel size now.
+5. **Props hovering or oddly placed** — FIXED for the causes found:
+   `sampleGroundY` floored the camera position before sampling, throwing away
+   the interpolation and snapping to a tile corner; chimneys offset by a
+   fraction of the FOOTPRINT could clear the roof edge and stand on air beside
+   the building; elevated walkways sat at 1.2m with their supports buried
+   inside the buildings at each end. Wide props on steep slopes still sample at
+   their centre — inherent to point sampling, and 3x less visible now that a
+   bench spans a third of a tile instead of a whole one.
+6. **Jagged water tiles** — FIXED. Water drew ONE flat quad per tile (the exact
+   stair-step bug corner-shared heights fixed for the ground) into a hole in a
+   sloped ground mesh, 0.08 BELOW the terrain — and the ground mesh skips water
+   tiles entirely. What showed through was a ragged outline of whatever ground
+   happened to be lower. It now uses corner-shared heights and the same quad
+   diagonal as the ground, over an opaque bed.
+7. **Collision feels random** — FIXED. `isBlocked` floored to one tile index
+   and tested that single cell, so the player was a dimensionless point:
+   standing with your nose in a wall was legal if your centre was on the open
+   tile, and on the far side of the same tile you stopped a full tile early.
+   The player is now a disc of `PLAYER_RADIUS = 0.35`.
 
 ## What's still open / what to push on next
 
-Everything on the previous list except perf has been done and verified.
-Current state:
+The whole device problem list is fixed. What is left:
 
+0. **Verify on real hardware.** The scale change is the largest single edit
+   this project has taken and every screenshot of it is SwiftShader software
+   rendering. Get a debug dump from the phone. Specifically watch draw calls:
+   the shadow frustum went from covering six tiles to ten, and every caster
+   inside it is a shadow-pass draw. The last real-hardware number was 104 FPS
+   at 202 draws, before that change.
 1. **Ground-level life is thin.** Streets are lit and kerb-dressed now, but
    the walkable space could still carry more. Highest aesthetic payoff.
 2. **Only ~7 of ~200 buildings are trade types**, and market districts are
@@ -387,6 +488,11 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   so a building can pass every invariant and still throw geometry through its
   neighbour; this is the only thing looking at mesh extents. Should trend to
   zero — non-zero means a massing template overhangs.
+- `node tools/bisect.mjs [seed] [--x= --z= --up= --yaw= --pitch=]` — screenshot
+  one vantage point with each top-level scene group hidden in turn, so "what IS
+  that artifact?" is a diff instead of a guess. TS `private` is compile-time
+  only, so the groups are reachable through the bridge. This is what found the
+  finials floating above the spire tips.
 - `node tools/typemix.mjs [seeds...]` — what building types actually get
   placed, and at what footprint size. Read the note in `placeBuildings`
   before trying to change the mix; the obvious fixes were tried and measured

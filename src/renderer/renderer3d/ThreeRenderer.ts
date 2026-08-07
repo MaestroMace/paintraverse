@@ -25,8 +25,15 @@ const FLY_SPEED = 24.0
 
 /** How far from the player the sun's shadow map covers, in metres. Also sizes
  *  the shadow normalBias — the two have to agree or the map either self-shadows
- *  or peter-pans. */
-const SHADOW_RADIUS = 40
+ *  or peter-pans.
+ *
+ *  Every caster inside this frustum is a draw call in the shadow pass, so the
+ *  radius is a direct frame-time lever and the phone is the machine that cares.
+ *  30m is ten tiles around the player: the street you are standing in plus the
+ *  buildings down both sides of it. It was 18 when a tile was a metre — six
+ *  tiles once it was not, which had quietly shrunk the shadowed area to the
+ *  ground immediately under your feet. */
+const SHADOW_RADIUS = 30
 
 /** Player's horizontal half-width, in metres. Used by isBlocked so the player
  *  is a disc rather than the dimensionless point it used to be. */
