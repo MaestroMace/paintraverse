@@ -623,6 +623,54 @@ already in place to grade it.
 Cheap side effect of the narrowing, worth keeping: ~+9 buildings per town and
 coverage 48% -> 49%, because narrower streets return land to the blocks.
 
+## STATE OF THE ENGINE — measured, all seeds, current main
+
+Run these before believing anything about where the project is.
+
+| audit | tool | reading | verdict |
+|---|---|---|---|
+| placement invariants | audit.mjs | 0 err / 0 warn, 8 seeds | clean |
+| roof winding | roofwinding.mjs | 0 inward triangles | clean |
+| geometry protrusion | slivers.mjs | 0 pieces outside envelope | clean |
+| open-topped volumes | roofcheck.mjs | ~6 per town | near-clean |
+| human scale | humanscale.mjs | door 2.05m, window 1.35m, storey 2.90m, 0% sub-human | clean |
+| street emptiness | emptiness.mjs | median 3m, 0% over 12m | clean |
+| **urban form** | **urbanform.mjs** | **street width 24m vs 4-10m** | **THE outlier** |
+
+Everything except urban form is in or near range. The one that is not is off by
+a factor of three, and it is not a tuning problem.
+
+### The architectural debt behind four failed attempts
+
+Four separate attempts to change how a building occupies space have failed the
+same way, and the cause is structural: **`PlacedObject` does not carry its own
+footprint.** It stores only `definitionId`, and TEN files independently look
+the rectangle up from that id — store.ts, BuildingFactory, Canvas2DRenderer,
+Massing, GeometryAudit, TownGenerator, LanternStrings, PlaceTool, ThreeRenderer,
+StructureLayer.
+
+So any change to what rectangle a building occupies has to be threaded through
+all ten, and missing one is silent: the generator reserves h x w, a consumer
+reads w x h, and you get props buried inside buildings or meshes drawn through
+neighbours. The plot system will hit this wall on its first day.
+
+**Do the enabling refactor first.** Give `PlacedObject` an explicit reserved
+footprint written at placement time, and make every consumer read it instead of
+looking it up. It is mechanical, the placement audit is a complete test for it
+(it must stay 0/0), and it turns the plot system from a ten-file change into a
+one-file change.
+
+### A lesson about the metrics themselves
+
+`emptiness.mjs` reached 0% of tiles more than 12m from anything, and the town
+still read as "random scatter across big open spaces". The metric was
+SATISFIABLE BY SCATTER — adding props moved it without changing the structure.
+`urbanform.mjs` is the first metric that is not: you cannot fake frontage
+occupancy or facade-to-facade street width with props, only with buildings in
+the right places. Prefer metrics that can only be satisfied by the structure
+you actually want; a metric that scatter can satisfy will be satisfied by
+scatter.
+
 ## THE GENERATION REWORK (next arc — read before adding more props)
 
 Reported plainly: "it still reads as random scatter across big open spaces
