@@ -740,12 +740,17 @@ Run these before believing anything about where the project is.
 | enclosure (to a WALL) | streets.mjs | median 3m, 0% over 15m | clean |
 | corridor width | streets.mjs | 4% of road over-wide, was 58% | clean |
 | street width | urbanform.mjs | 12m facade to facade vs 4-10m | near range |
-| built coverage | urbanform.mjs | 47% vs 50-70% | near range |
-| **frontage occupancy** | **urbanform.mjs** | **70% vs 85-95%, split 34/40 vs 58/52 by axis** | **THE outlier** |
+| built coverage | urbanform.mjs | 53% vs 50-70% | clean |
+| party walls | urbanform.mjs | 93% vs 60-80% | above range, deliberately |
+| **frontage occupancy** | **urbanform.mjs** | **73% vs 85-95%, split 43/42 vs 56/53 by axis** | **nearest outlier** |
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 
-Everything except frontage occupancy is in or near range, and that one has a
-named cause (plot orientation, below) rather than being a tuning problem.
+Everything except frontage occupancy is in range, and that one is 12 points
+short with a residual axis gap of 13 points rather than the 24 it carried for
+the life of the project. Part of the remaining 27% is legitimately unbuildable
+— river banks, park edges, the skirt of a square — so 85-95% may not be a fair
+target for a town with water and gardens in it. Measure what the unoccupied
+frontage actually IS before tuning against it.
 
 **`emptiness.mjs` is kept but do not trust it as an enclosure metric.** It
 seeds its BFS from props as well as buildings, and props are scattered
@@ -772,7 +777,39 @@ a building occupies space are now safe.
 the only rule. Anything reading `def.footprint` directly is a bug waiting for
 the next structural change.
 
-### Plot orientation: removed once, and now the thing to do next
+### THE PLOT PROBLEM IS SOLVED — fifth attempt, and it was the anchor
+
+**Built coverage 47% -> 53%, inside the 50-70% a real walled town runs.**
+Frontage on the structurally-broken side 34% -> 43%; the axis gap narrowed
+from 24 points to 13; party walls 93%; frontage occupancy 73%.
+
+It was never about which way a building FACES. A footprint grows +X/+Y from
+its origin, and the origin was always the road-edge tile, so a plot whose
+street lies SOUTH grew into that street and was rejected — and the tile that
+would have worked (origin one row north, south wall on the kerb) is not
+adjacent to any road, so it is not in `roadEdges` and was never tried. Half of
+every town was structurally unbuildable. The x-axis only showed a mild version
+because a 1-wide row house cannot overlap an eastern road.
+
+`placeBuildings` now sets `ox`/`oy` so the building ENDS at the road edge when
+the street is south or east, and every consumer inside the loop reads the
+anchored rectangle: road-side detection, terrain height, style noise, the
+object, the occupancy marking, and the row streak's step origin. **Keep the
+lower-bound guard** — the previous attempt indexed `occupied[-1]` and threw.
+
+Two things that are NOT in that diff had to land first, which is the whole
+lesson: `PlacedObject` had to carry its own footprint, and generation failures
+had to reach the console instead of a UI state variable. Four attempts failed
+against those two absences, not against the placement logic.
+
+Measured and reverted on the way: making the row streak's length a distance in
+tiles rather than a count of buildings. A 1x2 house steps 1 tile along an
+east-west street and 2 along a north-south one, so a fixed count builds twice
+the wall on one axis — a clean-looking explanation for the asymmetry, worth
+0.5 points when measured, and coverage went slightly down. It was a real
+mechanism that was not the cause; those are the expensive ones.
+
+### Plot orientation (short-side-to-street): still measured at zero
 
 Short-side-to-the-street is architecturally correct, is what makes a terrace a
 terrace, and with the refactor it is audit-clean. It was measured twice and
