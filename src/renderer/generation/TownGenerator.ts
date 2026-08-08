@@ -1354,22 +1354,42 @@ export class TownGenerator implements IMapGenerator {
         if (roll <= 0) { type = t; break }
       }
 
-      // Footprint as authored. Plot ORIENTATION — short side on the street —
-      // was implemented here and measured twice: it is audit-clean now that
-      // objects carry their own footprint, but it moves frontage occupancy by
-      // side from 38/45/59/58 to 39/47/61/58, i.e. not at all. The axis
-      // asymmetry is real and is not what makes the town read as scatter. The
-      // dominant term is the ~18m of unbuilt SETBACK between road edge and
-      // building — WHERE buildings sit, not which way they face. Removed
-      // rather than shipped, since complexity for a measured zero is a cost.
       const bw = type.w, bh = type.h
-      if (rx + bw > w - 1 || ry + bh > h - 1) { rejected('offGrid'); continue }
+
+      // ANCHOR THE PLOT AWAY FROM ITS STREET.
+      //
+      // A footprint grows +X/+Y from its origin, and the origin was always the
+      // road-edge tile itself. So a plot whose street lies to the SOUTH grew
+      // straight into that street: for a 1x2 row house, origin (x,y) with road
+      // at (x,y+1) covers y and y+1, the second of which is carriageway, and
+      // the placement is rejected. The tile that WOULD work — origin (x,y-1),
+      // putting the house's south wall on the kerb — is not adjacent to any
+      // road, so it is not in roadEdges and is never even tried.
+      //
+      // Half of every town was therefore structurally unbuildable, and the
+      // measurement says so precisely: land north of a road (i.e. with its
+      // street to the south) sits at 34% occupied against 58% for land east of
+      // one. The x-axis shows only a mild version of the same thing because
+      // row houses are 1 tile wide and a 1-wide footprint cannot overlap an
+      // eastern road.
+      //
+      // So anchor the far corner instead: when the street is south or east,
+      // place the origin so the building ENDS at the road edge. The lower
+      // bound guard is not decoration — an earlier attempt at this indexed
+      // occupied[-1] and threw, and back then the exception was swallowed into
+      // UI state, giving "43 buildings placed" and a map containing none.
+      let ox = rx, oy = ry
+      if (roadMap[ry + 1]?.[rx]) oy = ry - (bh - 1)
+      if (roadMap[ry]?.[rx + 1]) ox = rx - (bw - 1)
+      if (ox < 1 || oy < 1 || ox + bw > w - 1 || oy + bh > h - 1) {
+        rejected('offGrid'); continue
+      }
 
       // Check if area is free
       let free = true
       for (let dy = 0; dy < bh && free; dy++) {
         for (let dx = 0; dx < bw && free; dx++) {
-          if (occupied[ry + dy]?.[rx + dx]) free = false
+          if (occupied[oy + dy]?.[ox + dx]) free = false
         }
       }
       if (!free) { rejected('occupied'); continue }
@@ -1382,12 +1402,12 @@ export class TownGenerator implements IMapGenerator {
       let roadSide: 'N' | 'S' | 'E' | 'W' | null = null
       let nN = 0, nS = 0, nE = 0, nW = 0
       for (let dx = 0; dx < bw; dx++) {
-        if (roadMap[ry - 1]?.[rx + dx]) nN++
-        if (roadMap[ry + bh]?.[rx + dx]) nS++
+        if (roadMap[oy - 1]?.[ox + dx]) nN++
+        if (roadMap[oy + bh]?.[ox + dx]) nS++
       }
       for (let dy = 0; dy < bh; dy++) {
-        if (roadMap[ry + dy]?.[rx - 1]) nW++
-        if (roadMap[ry + dy]?.[rx + bw]) nE++
+        if (roadMap[oy + dy]?.[ox - 1]) nW++
+        if (roadMap[oy + dy]?.[ox + bw]) nE++
       }
       const best = Math.max(nN, nS, nE, nW)
       if (best > 0) {
@@ -1398,7 +1418,7 @@ export class TownGenerator implements IMapGenerator {
       }
 
       // Growth-ring-aware floor count
-      const heightVal = heightMap[ry]?.[rx] ?? 0
+      const heightVal = heightMap[oy]?.[ox] ?? 0
       let baseFloors: number
       switch (dType) {
         case 'noble':   baseFloors = 2 + Math.floor(rng() * 3); break  // 2–4
@@ -1425,7 +1445,7 @@ export class TownGenerator implements IMapGenerator {
       // Micro-variation: each building subtly unique
       const scaleJitter = 0.92 + rng() * 0.16
       const scaleY = 0.94 + rng() * 0.12
-      const styleNoise = noise.noise2D(rx * 0.2, ry * 0.2)
+      const styleNoise = noise.noise2D(ox * 0.2, oy * 0.2)
       const style = styleNoise > 0.3 ? 'ornate'
         : styleNoise > -0.1 ? 'standard'
         : dType === 'slum' ? 'weathered' : 'rustic'
@@ -1433,7 +1453,7 @@ export class TownGenerator implements IMapGenerator {
       buildings.push({
         id: uuid(),
         definitionId: type.id,
-        x: rx, y: ry,
+        x: ox, y: oy,
         rotation: 0, scaleX: scaleJitter, scaleY,
         elevation,
         footprint: { w: bw, h: bh },
@@ -1451,7 +1471,7 @@ export class TownGenerator implements IMapGenerator {
 
       for (let dy = 0; dy < bh; dy++) {
         for (let dx = 0; dx < bw; dx++) {
-          if (ry + dy < h && rx + dx < w) occupied[ry + dy][rx + dx] = true
+          if (oy + dy < h && ox + dx < w) occupied[oy + dy][ox + dx] = true
         }
       }
       placed++
@@ -1461,10 +1481,10 @@ export class TownGenerator implements IMapGenerator {
       // isolated plots. Sample 2–4 more buildings along each tangent
       // side with varied floor counts (±1 from baseline) for organic
       // height rhythm. This is the core of "500 years of ad-hoc growth".
-      const roadW = roadMap[ry]?.[rx - 1] ? true : false
-      const roadE = roadMap[ry]?.[rx + 1] ? true : false
-      const roadN = roadMap[ry - 1]?.[rx] ? true : false
-      const roadS = roadMap[ry + 1]?.[rx] ? true : false
+      const roadW = roadMap[oy]?.[ox - 1] ? true : false
+      const roadE = roadMap[oy]?.[ox + bw] ? true : false
+      const roadN = roadMap[oy - 1]?.[ox] ? true : false
+      const roadS = roadMap[oy + bh]?.[ox] ? true : false
       // Tangent runs perpendicular to the road side. If road to W or E,
       // tangent is along Y; if road to N or S, tangent is along X.
       const tanX = (roadN || roadS) ? 1 : 0
@@ -1472,8 +1492,8 @@ export class TownGenerator implements IMapGenerator {
       if (tanX !== 0 || tanY !== 0) {
         for (const sign of [1, -1]) {
           const maxStreak = 2 + Math.floor(rng() * 3)   // 2–4 more in this direction
-          let curX = rx + sign * tanX * bw
-          let curY = ry + sign * tanY * bh
+          let curX = ox + sign * tanX * bw
+          let curY = oy + sign * tanY * bh
           for (let k = 0; k < maxStreak && placed < maxBuildings; k++) {
             if (curX < 1 || curY < 1 || curX + bw > w - 1 || curY + bh > h - 1) break
             // Footprint must be free and NOT on a road/water.
