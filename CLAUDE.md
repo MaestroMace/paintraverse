@@ -744,6 +744,8 @@ Run these before believing anything about where the project is.
 | party walls | urbanform.mjs | 93% vs 60-80% | above range, deliberately |
 | **frontage occupancy** | **urbanform.mjs** | **73% vs 85-95%, split 43/42 vs 56/53 by axis** | **nearest outlier** |
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
+| vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
+| prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
 
 Everything except frontage occupancy is in range, and that one is 12 points
 short with a residual axis gap of 13 points rather than the 24 it carried for
@@ -882,6 +884,41 @@ and it happens to agree with the only failing metric.
 So the aesthetic references, the Imagineering rulebook and the measurement all
 name the same next move, which is reassuring: **close the street wall.**
 
+## COMPOSITION AND TENANCY — the arc after urban form
+
+With the streets fixed, the two rework items that were blocked on them landed.
+Both are "measure from where the player stands", which is the through-line.
+
+**Vista termination 6% -> 18%** (`tools/vistas.mjs`). Landmarks were placed
+AFTER buildings, so by the time a cathedral looked for somewhere to stand,
+every spot that closed a street was a row house. Composition has to be decided
+before the infill — which is also the ordinary way round for a town. The
+single largest term was not the cathedral though: **the gate cap was four,
+keyed on compass side**, while the carver radiates ~9 main streets outward, so
+every exit after the first on each edge was silently discarded. Gates dedupe
+by distance now; town_gate went from terminating 42 views to 120.
+
+**Prop tenancy 35% -> 46% explained** (`tools/tenancy.mjs`). 90% of props
+already touched a building; only 29% touched one that explained them, because
+`getBuildingSpecificProps` returns `[]` for every ordinary dwelling and row
+houses are 40% of the town. `propForRole` gives dwellings a vocabulary split
+by WHICH SIDE the spot is on — flower box to the street, woodpile and rain
+barrel round the back. The placer already knew the side; it just wasn't using
+the fact for anything but position.
+
+Two lessons from this arc, both about grading your own work:
+
+- **A fix and a metric that share a wrong assumption agree perfectly and are
+  both wrong.** The vista pass and the vista metric both stopped a view at a
+  change of ground material. A pass that placed 40 buildings moved the number
+  by exactly zero, and the byte-identical output was the only reason it got
+  caught. Correcting the model collapsed a whole 35% category to 0%.
+- **If you change the tool and the code in the same session, A/B the tool
+  separately.** Tenancy read 29% -> 46%, but 29 -> 35 was the metric being
+  corrected (it graded domestic props against prop ids the game does not
+  define) and only 35 -> 46 was the change. Run the new tool against the old
+  build before claiming the delta.
+
 ## THE GENERATION REWORK (next arc — read before adding more props)
 
 Reported plainly: "it still reads as random scatter across big open spaces
@@ -1017,6 +1054,22 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   single width figure has two owners and was misread for months as being all
   setback. Also splits frontage occupancy by which side of the road the land
   is on, which is where the remaining asymmetry shows.
+- `node tools/vistas.mjs [seeds...]` — **what you SEE looking down a street.**
+  The first metric here that grades the town from INSIDE rather than from
+  above: stand on every road tile, look along the corridor, record what stops
+  the view — a landmark, an ordinary building, the horizon, or the map edge.
+  This is the Imagineering "weenie" made countable. Read the note in the file
+  about what terminates a view: an early version stopped at a change of FLOOR
+  MATERIAL and reported 35% of long views as dissolving into open ground,
+  which is not something a player can see. Cobble turning to grass does not
+  end a view; a building does.
+- `node tools/tenancy.mjs [seeds...]` — **does anything belong to anything?**
+  For every prop: is it on a building's perimeter, and would that building
+  plausibly own it? Adjacency was never the problem (90%); MEANING was (29%).
+  Civic and natural props are excluded — a lamppost belongs to the street and
+  a tree to the ground, and counting them as tenancy failures makes the number
+  say nothing. Prefer this over emptiness.mjs when asking whether the town
+  reads as inhabited.
 - `node tools/streets.mjs [seeds...]` — **the road network on its own terms.**
   Tile histogram; corridor width per road tile against what the carver
   authorises; connected road components; ground colour families; and
