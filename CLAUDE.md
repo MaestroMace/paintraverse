@@ -283,6 +283,57 @@ Verified against the code; if you change one, change it here too.
   against the SPAN (tan of the intended pitch), with `clampRoofHeight` still
   owning the ceiling — floor first, cap last.
 
+### Measurement lessons (the street-network arc)
+
+- **A number that is a SUM of terms with different owners will be assigned to
+  the wrong owner.** Facade-to-facade street width is carriageway plus two
+  setbacks. It was measured as one figure, the road was ASSUMED to be 6m, and
+  the remaining 18m was recorded in this file as setback and treated as the
+  project's top priority. The real split was 12m of carriageway and 0m of
+  setback with 56% of walls already flush against the kerb. Four attempts at a
+  plot system were aimed at a term that was already zero. Decompose before you
+  attribute, and never subtract an assumed term from a measured total.
+- **A scan has to know what it is scanning.** The width scan ran both axes at
+  every road tile regardless of the road's direction, so half its samples
+  measured street LENGTH, and out-of-bounds hits near the map edge made those
+  look like legitimate 12-tile widths. The obvious fix — "is there road beside
+  me?" — then called every tile of a 2-lane street a junction and silently
+  narrowed the sample to 1-wide alleys, 220 across three seeds, reporting a
+  comfortable 6m. **Watch the sample count when you change a filter**; a metric
+  that suddenly agrees with you on a tenth of the data has not agreed with you.
+- **The union of narrow things is not narrow.** Every road tier is 1-3 tiles.
+  58% of road tiles were in a corridor wider than 3, one component covered a
+  quarter of the map, and the widest run was 33 tiles. Nine main streets from
+  one origin, a dozen random scribbles, and a disc at every district centre
+  compose into a lake. This is why narrowing the carver moved 27m to 24m and
+  stopped: **the thing being measured was never drawn by the thing being
+  tuned.** When a fix at the source barely moves the number, ask whether the
+  source is the author.
+- **A proxy agrees with its target right up until you change the target.** The
+  road painter called anything with fewer than 7 road neighbours an alley.
+  That tracked the tier hierarchy only because ordinary streets were fat; the
+  moment corridors were capped at 3, a 2-wide street had 6 neighbours and the
+  entire town painted as dark alley in one step. Record the real quantity at
+  the point that knows it — the carver knows its own tier.
+- **Relabelling is not a change, and only a perceptual metric catches it.**
+  Narrowing the streets turned the lake into 37% plaza; unpaving the yards cut
+  hard paving 57% -> 43% and moved the way the ground READS by five points,
+  because dirt, sand, gravel, stone, flagstone and street cobble are all warm
+  tan. Both times the tile histogram looked like progress. Measuring the map
+  by COLOUR FAMILY, off the app's own palette, is what said 65% of the ground
+  was one surface however many ids it had.
+- **An erosion needs a topology guard, not a heuristic.** Removing only simple
+  points — where the road in the 8-neighbourhood forms exactly one connected
+  run — provably cannot disconnect the network or open a hole, and it has to
+  be re-tested against the LIVE map between removals: two tiles can each be
+  individually removable and jointly cut the street.
+- **A cap expressed against a quantity you just changed is the same bug as a
+  constant expressed against one.** `maxBuildings` was ~155, tuned when a
+  third of the map was road. Freeing a quarter of the town did not build a
+  single extra house; coverage FELL from 49% to 43% as the land grew, because
+  the cap pocketed the gain. It is derived from the free tile count now.
+  (Compare the scale-coupling lessons: same mistake, different axis.)
+
 ### Drift and blind-spot lessons (the plan-view / pixel-art arc)
 
 - **Hand-threaded argument lists are a bug generator.** Six prop placers each
@@ -354,6 +405,12 @@ Verified against the code; if you change one, change it here too.
 - Water seams with its banks over an opaque bed; cobbles are ~24cm setts
 - ACES tone mapping, 512² shadow map at 30m, texel-derived normalBias
 - Placement audit is at **0 errors AND 0 warnings across 16 seeds**
+- **Street network narrowed for real.** `narrowRoadSwathes` erodes merged road
+  swathes back to 3 tiles; over-wide corridors 58% -> 4%, facade-to-facade
+  21m -> 12m, height-to-width 0.49 -> 0.89. Designed squares are spared via a
+  `squareMap`, road hierarchy comes from a `tierMap` the carver writes, and
+  `softenBackOfBlock` unpaves the land behind the terraces into gardens, grass
+  and mud. ~250 structures per town.
 - Plan view reads: role-tinted buildings, prop glyphs, labels that fit
 - Pixel-art export works at every hour (see tools/pixelart.mjs)
 
@@ -563,21 +620,66 @@ against a comfortable 0.5-1.5. That is a field with things around the edge,
 which is precisely how it was described.
 
 Narrowing the carved roads (boulevards 4/3 -> 3/2 tiles, main streets 3 -> 2)
-moved it only 27m -> 24m, and that is the second finding: **road width is not
-the dominant term.** A 2-tile road is 6m, so ~18m of the 24m is unbuilt SETBACK
-between the road edge and the nearest building. The buildings are not pulled up
-to their frontage. That is what the plot system has to fix, and it is worth
-more than any amount of prop scatter.
+moved it only 27m -> 24m, and that was read as the second finding: road width
+is not the dominant term, so ~18m of the 24m must be unbuilt SETBACK and the
+buildings must not be pulled up to their frontage.
 
-### The setback has a specific, measurable cause
+### THAT WAS WRONG, AND THE ERROR WAS ARITHMETIC ON AN UNVERIFIED TERM
+
+**FIXED — street width is 12m now, and the setback was never the problem.**
+
+The 18m came from subtracting an ASSUMED 6m road from a measured 24m total. It
+was never measured. Split the width into the two terms that produce it — they
+have different owners, the carriageway belonging to the road carver and the
+setback to the placer — and the diagnosis inverts:
+
+| term | assumed | measured |
+|---|---|---|
+| carriageway | 6m | **12m median, 33m at p90** |
+| setback per side | ~9m | **0m median; 56% of walls flush against the kerb** |
+
+The buildings were already where they should be. **The road was three times too
+wide**, and every plan to pull frontages forward was aimed at a term that was
+already zero. Four attempts at plot systems failed against a 9m target that
+did not exist.
+
+Two bugs in the measurement had to be fixed before it could say this, and both
+are the same kind of mistake — a scan that does not know what it is scanning:
+
+- It ran BOTH the `[1,0]` and `[0,1]` axes at every road tile regardless of
+  which way the road ran, so half of every sample measured the LENGTH of the
+  street. Near the map edge the out-of-bounds hit dressed that up as a
+  legitimate 12-tile "width".
+- Recovering the road's direction from "is there road beside me" then
+  classified every tile of a 2-lane street as a junction and left only 1-wide
+  alleys in the sample — 220 of them across three seeds, reporting a
+  comfortable 6m. A run-length estimate tolerates width and keeps 3426.
+
+**No single carve drew the wide road.** Nine main streets radiate from one
+point, ~12 secondary streets land at random angles on the same 48x48 grid, and
+every district centre gets a disc of road on top. Each is 1-3 tiles; their
+UNION had 58% of road tiles in a corridor wider than 3 and one connected
+component covering a quarter of the map. That is why narrowing the carver
+moved 27m -> 24m and stopped — **the carver never drew it.**
+`narrowRoadSwathes` erodes over-wide corridors from the shoreline inward,
+sparing designed squares and removing only simple points (the standard 2D
+thinning criterion, which provably cannot disconnect the network). Over-wide
+58% -> 4%; largest road component 535 -> 155 tiles; facade to facade 21m ->
+12m; height-to-width 0.49 -> 0.89.
+
+### The frontage asymmetry — still open, and now the largest term
 
 `urbanform.mjs` also splits frontage occupancy by which side of the road the
 land is on, and the split is not random:
 
-    land N of the road: 38%      land E of the road: 59%
-    land S of the road: 45%      land W of the road: 58%
+    land N of the road: 34%      land E of the road: 58%
+    land S of the road: 40%      land W of the road: 52%
 
-North-south streets are served half again as well as east-west ones. The cause
+North-south streets are served half again as well as east-west ones. With the
+carriageway fixed this is now the LARGEST remaining term in frontage
+occupancy, which sits at 70% against 85-95%. It was previously measured, found
+to move the by-side split by ~1 point, and set aside — correctly, because the
+carriageway was swamping it. That reason has gone. The cause
 is in `placeBuildings`: `const bw = type.w, bh = type.h` takes the footprint
 as authored, whatever direction the street runs. A 1x2 row house therefore
 presents a TWO tile face to a north-south street and a ONE tile face to an
@@ -634,11 +736,23 @@ Run these before believing anything about where the project is.
 | geometry protrusion | slivers.mjs | 0 pieces outside envelope | clean |
 | open-topped volumes | roofcheck.mjs | ~6 per town | near-clean |
 | human scale | humanscale.mjs | door 2.05m, window 1.35m, storey 2.90m, 0% sub-human | clean |
-| street emptiness | emptiness.mjs | median 3m, 0% over 12m | clean |
-| **urban form** | **urbanform.mjs** | **street width 24m vs 4-10m** | **THE outlier** |
+| street emptiness | emptiness.mjs | median 3m, 0% over 12m | satisfiable by scatter — see below |
+| enclosure (to a WALL) | streets.mjs | median 3m, 0% over 15m | clean |
+| corridor width | streets.mjs | 4% of road over-wide, was 58% | clean |
+| street width | urbanform.mjs | 12m facade to facade vs 4-10m | near range |
+| built coverage | urbanform.mjs | 47% vs 50-70% | near range |
+| **frontage occupancy** | **urbanform.mjs** | **70% vs 85-95%, split 34/40 vs 58/52 by axis** | **THE outlier** |
+| ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 
-Everything except urban form is in or near range. The one that is not is off by
-a factor of three, and it is not a tuning problem.
+Everything except frontage occupancy is in or near range, and that one has a
+named cause (plot orientation, below) rather than being a tuning problem.
+
+**`emptiness.mjs` is kept but do not trust it as an enclosure metric.** It
+seeds its BFS from props as well as buildings, and props are scattered
+everywhere by construction, so it can be satisfied by scattering harder — it
+read a comfortable median while the town was still a lake. `streets.mjs`
+measures distance to the nearest BUILDING, because only a building makes a
+wall. Prefer metrics that can only be satisfied by the structure you want.
 
 ### The enabling refactor is DONE (and proved itself)
 
@@ -658,13 +772,19 @@ a building occupies space are now safe.
 the only rule. Anything reading `def.footprint` directly is a bug waiting for
 the next structural change.
 
-### Plot orientation: implemented, measured twice, removed
+### Plot orientation: removed once, and now the thing to do next
 
-Short-side-to-the-street is architecturally correct and is what makes a terrace
-a terrace, and with the refactor it is audit-clean. It also does nothing:
-frontage occupancy by side went 38/45/59/58 to 39/47/61/58. The axis asymmetry
-is real and is NOT what makes the town read as scatter. Do not re-attempt it
-expecting a win; the dominant term is the setback.
+Short-side-to-the-street is architecturally correct, is what makes a terrace a
+terrace, and with the refactor it is audit-clean. It was measured twice and
+removed because it moved frontage occupancy by side only 38/45/59/58 ->
+39/47/61/58.
+
+**That verdict has expired.** It was measured while the carriageway was three
+times too wide, which swamped everything else; the roads are 6m now and the
+axis asymmetry is the largest remaining term in the one metric still out of
+range. Re-attempt it. The notes below on HOW it failed are still accurate and
+still the place to start — in particular, anchoring the far corner is the half
+that matters, and the swallowed exception is the thing to chase.
 
 ### The architectural debt behind four failed attempts (historical)
 
@@ -854,10 +974,18 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   otherwise gives you no way to ask which line drew a triangle, which is why
   that defect survived several rounds of staring at screenshots.
 - `node tools/urbanform.mjs [seeds...]` — **frontage occupancy, party walls,
-  built coverage and facade-to-facade street width.** The only tool that
-  measures the space BETWEEN buildings, which is what decides whether a town
-  reads as a town. It is the gate for the plot system: street width should fall
-  toward 8-12m and frontage occupancy toward 90%.
+  built coverage, and street width DECOMPOSED into carriageway + setback.**
+  The only tool that measures the space BETWEEN buildings, which is what
+  decides whether a town reads as a town. The decomposition is the point: a
+  single width figure has two owners and was misread for months as being all
+  setback. Also splits frontage occupancy by which side of the road the land
+  is on, which is where the remaining asymmetry shows.
+- `node tools/streets.mjs [seeds...]` — **the road network on its own terms.**
+  Tile histogram; corridor width per road tile against what the carver
+  authorises; connected road components; ground colour families; and
+  ENCLOSURE as distance to the nearest building. This is the tool that found
+  the merged lake — the carver only ever draws 1-3 tiles, so anything wider is
+  roads that overlapped, and no amount of narrowing the carver touches it.
 - `node tools/emptiness.mjs [seeds...]` — distance from every walkable tile to
   the nearest prop or building frontage, as a distribution, split street vs
   plaza. "A ton of empty space" is a real complaint and a vague one; this makes
