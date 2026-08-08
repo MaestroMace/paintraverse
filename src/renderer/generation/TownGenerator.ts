@@ -267,20 +267,32 @@ export class TownGenerator implements IMapGenerator {
     // 8. Place bridges over water where roads cross
     const bridges = this.placeBridges(width, height, roadMap, waterMap, rng)
 
-    // 9. Place buildings with district awareness
-    const buildings = this.placeBuildings(
-      width, height, roadMap, waterMap, heightMap, districtMap, districts,
-      complexity, density, rng, mainCenter, terrainTiles, noise,
-      bridges // already placed — don't build through them
-    )
-
-    // 10. Place landmarks
+    // 9. Place landmarks FIRST, so they get first pick of the vistas.
+    //
+    // This used to run after the buildings, and that ordering is why the town
+    // had no weenies. `placeBuildings` walks every road edge and fills it, so
+    // by the time a cathedral went looking for somewhere to stand, every spot
+    // that closed a street was already a row house and all that was left was
+    // the leftovers behind them. Measured: of 244 long looks down a street,
+    // FOUR ended on a landmark. Ranking the landmark search by vista score
+    // barely helped for the same reason — you cannot rank spots that are gone.
+    //
+    // Composition has to be decided before the infill, which is the ordinary
+    // way round for a town: the cathedral and the gate were there first and
+    // the houses grew up against them.
     const landmarks = this.placeLandmarks(
       // Bridges are laid down before landmarks and are pure occupancy here —
       // without them a staircase could be dropped on top of a bridge.
       width, height, roadMap, waterMap, districts, districtMap,
-      [...buildings, ...bridges], heightMap,
-      complexity, rng, mainCenter
+      bridges, heightMap,
+      complexity, rng, mainCenter, terrainTiles
+    )
+
+    // 10. Place buildings with district awareness, around the landmarks.
+    const buildings = this.placeBuildings(
+      width, height, roadMap, waterMap, heightMap, districtMap, districts,
+      complexity, density, rng, mainCenter, terrainTiles, noise,
+      [...bridges, ...landmarks] // already placed — don't build through them
     )
 
     // Running accumulators of what is already on the ground.
@@ -1218,6 +1230,17 @@ export class TownGenerator implements IMapGenerator {
     const buildings: PlacedObject[] = []
     for (const k of Object.keys(placeStats)) delete placeStats[k]
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
+    // Count the town's buildable LAND before the blockers are stamped in.
+    // The building budget below is derived from this, and blockers are mostly
+    // landmarks — which are themselves structures. Counting after them charges
+    // their footprint to the budget twice: once as land the budget no longer
+    // sees, and again as houses that never get built to replace them. When
+    // landmarks moved ahead of buildings in the pipeline that cost 5 points of
+    // built coverage, 53% -> 48%, purely as an accounting artifact.
+    let freeTiles = 0
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) if (!occupied[y][x]) freeTiles++
+    }
     this.markObjects(occupied, blockers, w, h)
     const maxDist = Math.sqrt(w * w + h * h) / 2
 
@@ -1258,11 +1281,12 @@ export class TownGenerator implements IMapGenerator {
     // occupancy from 76% to 67%. A cap expressed against a quantity you just
     // changed is the same bug as a constant expressed against one — it stops
     // meaning what it meant. Count the land instead.
-    let freeTiles = 0
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) if (!occupied[y][x]) freeTiles++
-    }
     const maxBuildings = Math.floor(freeTiles * 0.14 * (0.9 + density * 0.9))
+    // Surfaced because a budget that binds and a budget that never binds look
+    // identical from the outside, and "raise the cap" is the kind of fix that
+    // gets applied for a whole session before anyone checks it was the cap.
+    placeStats._freeTiles = freeTiles
+    placeStats._maxBuildings = maxBuildings
     let placed = 0
 
     // Phase B: Walk edges, placing buildings with continuity bonus
@@ -1307,8 +1331,8 @@ export class TownGenerator implements IMapGenerator {
       // against the 85-95% of a real walled town. Shallower falloff, higher
       // base: the core still builds first and densest, the edge still thins,
       // but a lane out there now gets a wall rather than a coin flip.
-      const reach = 0.55 + density * 0.65
-      const acceptChance = distDensity * (1.0 - distNorm * 0.35) * reach + continuityBonus
+      const reach = 0.75 + density * 0.75
+      const acceptChance = distDensity * (1.0 - distNorm * 0.25) * reach + continuityBonus
       if (rng() > acceptChance) { rejected('acceptChance'); continue }
 
       // Growth ring character: core gets bigger, taller buildings
@@ -1475,6 +1499,7 @@ export class TownGenerator implements IMapGenerator {
         }
       }
       placed++
+      placeStats._placedPhaseB = placed
 
       // ROW STREAK — extend this placement along the road tangent so
       // the block reads as a terraced row of houses sharing walls, not
@@ -1679,16 +1704,21 @@ export class TownGenerator implements IMapGenerator {
     districts: District[], districtMap: number[][],
     buildings: PlacedObject[], heightMap: number[][],
     complexity: number, rng: () => number,
-    center: { x: number; y: number }
+    center: { x: number; y: number },
+    terrain: number[][]
   ): PlacedObject[] {
     const landmarks: PlacedObject[] = []
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
     this.markBuildings(occupied, buildings, w, h)
+    // Where would a building close a long look down a street? Landmarks are
+    // ranked against this instead of taking the first free rectangle near a
+    // district centre, which is how four of 244 long views ended on one.
+    const vista = this.computeVistaScores(roadMap, terrain, w, h)
 
     // Clock tower in noble/temple district + mandatory props around it
     for (const d of districts) {
       if (d.type === 'noble' || d.type === 'temple') {
-        const spot = this.findFreeSpot(occupied, d.center.x, d.center.y, 3, 3, w, h, 8)
+        const spot = this.findVistaSpot(occupied, vista, d.center.x, d.center.y, 3, 3, w, h, 8)
         if (spot) {
           landmarks.push(this.createObj('clock_tower', spot.x, spot.y, 2))
           this.markArea(occupied, spot.x, spot.y, 3, 3, w, h)
@@ -1713,7 +1743,7 @@ export class TownGenerator implements IMapGenerator {
     // Tavern in EVERY market and waterfront district (not just one)
     for (const d of districts) {
       if (d.type === 'market' || d.type === 'waterfront') {
-        const spot = this.findFreeSpot(occupied, d.center.x, d.center.y, 4, 3, w, h, 10)
+        const spot = this.findVistaSpot(occupied, vista, d.center.x, d.center.y, 4, 3, w, h, 10)
         if (spot) {
           landmarks.push(this.createObj('tavern', spot.x, spot.y, 0.5))
           this.markArea(occupied, spot.x, spot.y, 4, 3, w, h)
@@ -1750,7 +1780,7 @@ export class TownGenerator implements IMapGenerator {
     // Extra towers in temple district centers
     for (const d of districts) {
       if (d.type !== 'temple') continue
-      const spot = this.findFreeSpot(occupied, d.center.x + 3, d.center.y, 2, 2, w, h, 6)
+      const spot = this.findVistaSpot(occupied, vista, d.center.x + 3, d.center.y, 2, 2, w, h, 6)
       if (spot) {
         landmarks.push(this.createObj('tower', spot.x, spot.y, 1.5))
         this.markArea(occupied, spot.x, spot.y, 2, 2, w, h)
@@ -1760,12 +1790,19 @@ export class TownGenerator implements IMapGenerator {
     // Cathedral as a major landmark — prefer temple district, but every
     // town should get at least one signature skyline building. Falls back
     // to noble district, then to the biggest district by radius.
+    // Gated on the town having a real street network rather than on how many
+    // houses exist, because landmarks are now placed BEFORE the houses and
+    // `buildings` is empty here. The gate was only ever guarding against
+    // dropping a cathedral into a map too small to be a town; road extent
+    // answers that question and is available at this point.
+    let roadTiles = 0
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (roadMap[y][x]) roadTiles++
     let cathedralPlaced = false
-    if (buildings.length > 8) {
+    if (roadTiles > 60) {
       const tryInDistrict = (type: DistrictType): boolean => {
         for (const d of districts) {
           if (d.type !== type) continue
-          const spot = this.findFreeSpot(occupied, d.center.x, d.center.y, 5, 6, w, h, 12)
+          const spot = this.findVistaSpot(occupied, vista, d.center.x, d.center.y, 5, 6, w, h, 12)
           if (spot) {
             landmarks.push(this.createObj('cathedral', spot.x, spot.y, 2))
             this.markArea(occupied, spot.x, spot.y, 5, 6, w, h)
@@ -1780,7 +1817,7 @@ export class TownGenerator implements IMapGenerator {
       if (!cathedralPlaced) {
         const byRadius = [...districts].sort((a, b) => b.radius - a.radius)
         for (const d of byRadius) {
-          const spot = this.findFreeSpot(occupied, d.center.x, d.center.y, 5, 6, w, h, 14)
+          const spot = this.findVistaSpot(occupied, vista, d.center.x, d.center.y, 5, 6, w, h, 14)
           if (spot) {
             landmarks.push(this.createObj('cathedral', spot.x, spot.y, 2))
             this.markArea(occupied, spot.x, spot.y, 5, 6, w, h)
@@ -1794,7 +1831,7 @@ export class TownGenerator implements IMapGenerator {
     // secondary skyline anchor, so there's never just one tall thing.
     for (const d of districts) {
       if (d.type !== 'noble' && d.type !== 'market') continue
-      const spot = this.findFreeSpot(occupied, d.center.x + 4, d.center.y + 4, 3, 3, w, h, 10)
+      const spot = this.findVistaSpot(occupied, vista, d.center.x + 4, d.center.y + 4, 3, 3, w, h, 10)
       if (spot) {
         landmarks.push(this.createObj('bell_tower_tall', spot.x, spot.y, 1.5))
         this.markArea(occupied, spot.x, spot.y, 3, 3, w, h)
@@ -1932,24 +1969,47 @@ export class TownGenerator implements IMapGenerator {
       if (roadMap[y]?.[w - 1] || roadMap[y]?.[w - 2]) edges.push({ x: w - 4, y, side: 'right' })
     }
 
-    // Place a gate at each exit (max 4)
-    const placed = new Set<string>()
+    // A gate at every road out of town, not one per compass side.
+    //
+    // The cap used to be four, keyed on 'top'/'bottom'/'left'/'right', which
+    // silently discarded every exit after the first on each edge. The carver
+    // radiates roughly nine main streets outward from the centre plus a dozen
+    // secondary ones, so a 48x48 town has far more than four ways out and was
+    // getting a gatehouse on at most four of them.
+    //
+    // It shows up in the vista audit as the largest single failure: 22% of
+    // every long look down a street runs off the map edge and terminates on
+    // nothing at all — 102 views across three seeds, against 38 that find a
+    // landmark. A road leaving a walled town through a gate is both the
+    // correct thing for the town to have and, from inside, the weenie that
+    // closes the street.
+    //
+    // Dedupe by DISTANCE rather than by side: two exits 20 tiles apart on the
+    // same edge are two different roads and want two different gates, while
+    // adjacent tiles of one 3-wide road are one exit.
+    const MIN_GATE_SPACING = 6
+    const MAX_GATES = 8
     for (const edge of edges) {
-      if (gates.length >= 4) break
-      const key = edge.side
-      if (placed.has(key)) continue
+      if (gates.length >= MAX_GATES) break
+      let tooClose = false
+      for (const g of gates) {
+        if (Math.abs(g.x - edge.x) + Math.abs(g.y - edge.y) < MIN_GATE_SPACING) {
+          tooClose = true; break
+        }
+      }
+      if (tooClose) continue
       // town_gate is 3x1 — every tile it covers must be clear.
       const gfp = this.getFootprint('town_gate')
       let clear = true
       for (let dy = 0; dy < gfp.h && clear; dy++) {
         for (let dx = 0; dx < gfp.w && clear; dx++) {
           const gx = edge.x + dx, gy = edge.y + dy
-          if (blocked.has(`${gx},${gy}`)) clear = false
-          if (waterMap?.[gy]?.[gx]) clear = false
+          if (gx < 0 || gy < 0 || gx >= w || gy >= h) clear = false
+          else if (blocked.has(`${gx},${gy}`)) clear = false
+          else if (waterMap?.[gy]?.[gx]) clear = false
         }
       }
       if (!clear) continue
-      placed.add(key)
       gates.push(this.createObj('town_gate', edge.x, edge.y))
     }
 
@@ -3964,6 +4024,107 @@ export class TownGenerator implements IMapGenerator {
       }
     }
     return true
+  }
+
+  /**
+   * Score every tile by how much STREET VIEW it would close.
+   *
+   * The Imagineering name for what this is for is a weenie: a visual magnet
+   * that terminates a vista and pulls you toward it. Main Street's whole trick
+   * is the castle at the end of it — without that it is an arcade, with it, it
+   * is somewhere you are walking to. Every reference in DESIGN.md does this:
+   * Diagon Alley bends so Gringotts closes the view, Gion frames the pagoda at
+   * the top of the hill.
+   *
+   * Measured, the town had none of it. Of 244 long looks down a street, FOUR
+   * ended on a landmark and half ended on nothing at all — 39% dissolved into
+   * open ground and 11% ran off the map edge. Landmarks were placed by
+   * `findFreeSpot` near a district centre, i.e. wherever there happened to be
+   * room, which is exactly the "assets dropped around" complaint applied to
+   * the buildings that matter most.
+   *
+   * So: stand on every road tile, look along the street, and find where the
+   * paving stops. That tile is where a building would close the view, and the
+   * score it earns is how far the view ran to get there — a 30m corridor is
+   * worth more than a 9m one, because the eye has time to ask what it is
+   * walking toward.
+   */
+  private computeVistaScores(
+    roadMap: boolean[][], terrain: number[][], w: number, h: number
+  ): number[][] {
+    /** A look worth closing, in tiles. 8 tiles is 24m of open street. */
+    const LONG_VIEW = 8
+    const score = Array.from({ length: h }, () => Array.from({ length: w }, () => 0))
+    const isRoad = (x: number, y: number): boolean =>
+      x >= 0 && y >= 0 && x < w && y < h && roadMap[y][x]
+    /** A view carries across a square, not just along a carriageway. */
+    const open = (x: number, y: number): boolean => {
+      if (x < 0 || y < 0 || x >= w || y >= h) return false
+      const t = terrain[y][x]
+      return roadMap[y][x] || t === 2 || t === 14 || t === 15 || t === 16
+    }
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (!roadMap[y][x]) continue
+        // Which way does the street run? Same run-length estimate the audits
+        // use: a neighbour test calls every tile of a 2-lane street a junction.
+        const run = (dx: number, dy: number): number => {
+          let n = 1
+          for (let k = 1; k <= 40 && isRoad(x + dx * k, y + dy * k); k++) n++
+          for (let k = 1; k <= 40 && isRoad(x - dx * k, y - dy * k); k++) n++
+          return n
+        }
+        const runX = run(1, 0), runY = run(0, 1)
+        if (Math.abs(runX - runY) < 2) continue    // a square, not a corridor
+        const ax = runX > runY ? 1 : 0, ay = runX > runY ? 0 : 1
+        for (const sign of [1, -1]) {
+          const dx = ax * sign, dy = ay * sign
+          for (let k = 1; k <= 40; k++) {
+            const px = x + dx * k, py = y + dy * k
+            if (px < 1 || py < 1 || px >= w - 1 || py >= h - 1) break
+            if (open(px, py)) continue
+            // Paving stops here. This is the tile that closes the view.
+            if (k >= LONG_VIEW) score[py][px] += k
+            break
+          }
+        }
+      }
+    }
+    return score
+  }
+
+  /**
+   * The free spot near (cx, cy) that closes the most street view.
+   *
+   * `findFreeSpot` returns the FIRST free rectangle in an outward ring scan,
+   * which for a landmark means "wherever there happened to be room". This
+   * takes the same search and ranks it, so a cathedral lands at the head of a
+   * street instead of behind one.
+   */
+  private findVistaSpot(
+    occupied: boolean[][], vista: number[][], cx: number, cy: number,
+    aw: number, ah: number, w: number, h: number, searchRadius: number
+  ): { x: number; y: number } | null {
+    let best: { x: number; y: number } | null = null
+    let bestScore = -1
+    for (let dy = -searchRadius; dy <= searchRadius; dy++) {
+      for (let dx = -searchRadius; dx <= searchRadius; dx++) {
+        const x = cx + dx, y = cy + dy
+        if (!this.areaFree(occupied, x, y, aw, ah, w, h)) continue
+        // Sum the vista score the whole footprint would intercept, so a wide
+        // cathedral gets credit for closing several parallel lanes at once.
+        let s = 0
+        for (let fy = 0; fy < ah; fy++) {
+          for (let fx = 0; fx < aw; fx++) s += vista[y + fy]?.[x + fx] ?? 0
+        }
+        // Distance is the tie-breaker, not the criterion: among spots that
+        // close nothing this degrades to the old nearest-free-spot behaviour.
+        const dist = Math.abs(dx) + Math.abs(dy)
+        const ranked = s * 100 - dist
+        if (ranked > bestScore) { bestScore = ranked; best = { x, y } }
+      }
+    }
+    return best
   }
 
   private findFreeSpot(

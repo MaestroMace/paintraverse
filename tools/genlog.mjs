@@ -22,5 +22,12 @@ const rot = await win.evaluate(() => {
 })
 console.log('ORIENTATION:', rot)
 const rej = await win.evaluate(() => window.__pt.placeStats?.() ?? {})
-console.log('PLACER REJECTIONS:', JSON.stringify(rej))
+// Counters prefixed with _ are budget/throughput facts, not rejections.
+// Keeping them in the same bag but printing them apart matters: "the cap is
+// binding" and "the cap is 3x what we ever use" look identical until you can
+// see both numbers, and one of them makes "raise the cap" a wasted change.
+const budget = {}, rejects = {}
+for (const [k, v] of Object.entries(rej)) (k.startsWith('_') ? budget : rejects)[k] = v
+console.log('PLACER BUDGET:    ', JSON.stringify(budget))
+console.log('PLACER REJECTIONS:', JSON.stringify(rejects))
 await app.close()
