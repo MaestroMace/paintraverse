@@ -18,6 +18,10 @@
  */
 
 import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
+// VALUE import, deliberately separate from the type-only line above: folding it
+// in there would have it elided at build time and fail at runtime as
+// "sharedFootprintOf is not defined", which is exactly what happened once.
+import { footprintOf as sharedFootprintOf } from '../core/types'
 import { TILE_WATER, isCirculation } from '../core/terrain'
 
 export type IssueKind =
@@ -68,11 +72,9 @@ function footprintOf(
 ): { w: number; h: number } | null {
   const def = defs.get(obj.definitionId)
   if (!def) return null
-  const w = Math.max(1, def.footprint.w), h = Math.max(1, def.footprint.h)
-  // The placer turns a plot a quarter turn so its short side faces the street
-  // (plotRotated in TownGenerator). It reserved h x w, so that is what the
-  // building occupies and what every containment check must compare against.
-  return obj.properties?.plotRotated ? { w: h, h: w } : { w, h }
+  // What the placer RESERVED, falling back to the definition. See
+  // core/types.footprintOf for why this must never be a bare def lookup.
+  return sharedFootprintOf(obj, def)
 }
 
 export function auditMapGeometry(

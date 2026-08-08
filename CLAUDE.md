@@ -640,7 +640,33 @@ Run these before believing anything about where the project is.
 Everything except urban form is in or near range. The one that is not is off by
 a factor of three, and it is not a tuning problem.
 
-### The architectural debt behind four failed attempts
+### The enabling refactor is DONE (and proved itself)
+
+`PlacedObject` now carries `footprint` — the tile rectangle actually reserved
+at placement — and `core/types.footprintOf(obj, def)` is the one way to ask,
+preferring the reserved rectangle and falling back to the definition so old
+maps still load. GeometryAudit, BuildingFactory and the generator's own
+`markObjects` all read it.
+
+Proof it worked: plot orientation, the change that had failed four times and
+last produced **118 placement errors**, was re-applied afterwards as a
+**one-file change** and the audit stayed at **0 errors / 0 warnings**. Then it
+was removed again — see below — but the point stands: structural changes to how
+a building occupies space are now safe.
+
+**When adding a new placement site, set `footprint` on the object.** That is
+the only rule. Anything reading `def.footprint` directly is a bug waiting for
+the next structural change.
+
+### Plot orientation: implemented, measured twice, removed
+
+Short-side-to-the-street is architecturally correct and is what makes a terrace
+a terrace, and with the refactor it is audit-clean. It also does nothing:
+frontage occupancy by side went 38/45/59/58 to 39/47/61/58. The axis asymmetry
+is real and is NOT what makes the town read as scatter. Do not re-attempt it
+expecting a win; the dominant term is the setback.
+
+### The architectural debt behind four failed attempts (historical)
 
 Four separate attempts to change how a building occupies space have failed the
 same way, and the cause is structural: **`PlacedObject` does not carry its own
@@ -670,6 +696,34 @@ occupancy or facade-to-facade street width with props, only with buildings in
 the right places. Prefer metrics that can only be satisfied by the structure
 you actually want; a metric that scatter can satisfy will be satisfied by
 scatter.
+
+## THEME-PARK DESIGN, AND WHY IT ALL POINTS AT ONE NUMBER
+
+DESIGN.md names the references; this is what they have in common mechanically,
+and it happens to agree with the only failing metric.
+
+- **Compression.** Disney's Main Street is about 10m wide against ~12m
+  facades — a height-to-width near 1.2. Diagon Alley is tighter, Gion tighter
+  still. That compression is the whole trick: it makes a modest street feel
+  like a place. **Ours is 24m wide against ~10m buildings: 0.4.** Every
+  reference in DESIGN.md is between 1.0 and 2.0. This is the single number that
+  separates "a town" from "a field with things around the edge", and it is the
+  same outlier urbanform.mjs reports.
+- **The weenie.** A visual magnet terminating a vista, pulling you forward.
+  Landmarks here land wherever they fit; they should close the end of a street.
+  Cheap to add once blocks exist, and it is what turns wandering into moving
+  toward something.
+- **Read at three distances.** Silhouette at 100ft, composition at 30ft, detail
+  at 3ft. Silhouette works (roof variety, height rhythm). Detail works now
+  (metric facades, string courses, framing). **The 30ft read is the hole** —
+  and the 30ft read IS the street wall.
+- **Cross-dissolve.** You never see two lands at once; a bend or a berm hides
+  the seam. Districts here blend arbitrarily in the open.
+- **Kinetics and patina.** Already covered by DESIGN.md pillars 4 and the
+  weather/lean system. These are in decent shape.
+
+So the aesthetic references, the Imagineering rulebook and the measurement all
+name the same next move, which is reassuring: **close the street wall.**
 
 ## THE GENERATION REWORK (next arc — read before adding more props)
 

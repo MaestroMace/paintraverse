@@ -274,7 +274,11 @@ export function buildBuildingMeshes(
     //   fp  — the same footprint in WORLD units. Use for every geometry
     //         dimension and local offset, which is nearly all of them.
     // See scale.ts for why one tile is not one metre.
-    const fpRaw = FOOTPRINTS[obj.definitionId] || { w: def.footprint.w, h: def.footprint.h }
+    // The rectangle the PLACER reserved wins. FOOTPRINTS is the renderer's own
+    // table and only existed because nothing else carried the truth; it is now
+    // a fallback for hand-authored objects that predate obj.footprint.
+    const fpRaw = obj.footprint ?? FOOTPRINTS[obj.definitionId] ??
+      { w: def.footprint.w, h: def.footprint.h }
     // A plot the generator turned a quarter turn occupies h x w. Swap here so
     // the mesh fills the rectangle that was actually reserved; the base
     // rotation below turns the building to match, so its door still faces the

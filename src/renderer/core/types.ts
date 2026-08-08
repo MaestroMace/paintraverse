@@ -41,6 +41,38 @@ export interface PlacedObject {
   scaleY: number
   elevation: number
   properties: Record<string, unknown>
+  /**
+   * The tile rectangle this object ACTUALLY reserved when it was placed.
+   *
+   * Without this, an object stores only `definitionId` and every consumer
+   * re-derives the rectangle from the definition — which ten separate files
+   * did, independently. That made any change to how a building occupies space
+   * a ten-file change where missing one is SILENT: the generator reserves
+   * h x w, a consumer reads w x h, and you get props buried inside buildings
+   * or meshes drawn through their neighbours. Four attempts at plot
+   * orientation died on exactly that.
+   *
+   * Optional so hand-authored and legacy maps still load; read it through
+   * `footprintOf()` below, which falls back to the definition.
+   */
+  footprint?: { w: number; h: number }
+}
+
+/**
+ * The tile rectangle an object occupies. THE one way to ask.
+ *
+ * Prefers what the placer actually reserved and falls back to the definition,
+ * so a map saved before footprints were recorded still renders correctly.
+ * Everything that needs to know where a building sits — the renderer, the
+ * audit, the collision mask, prop placement, the plan view — must come
+ * through here rather than reaching for `def.footprint` itself.
+ */
+export function footprintOf(
+  obj: PlacedObject,
+  def?: { footprint?: { w: number; h: number } } | null,
+): { w: number; h: number } {
+  const f = obj.footprint ?? def?.footprint
+  return { w: Math.max(1, f?.w ?? 1), h: Math.max(1, f?.h ?? 1) }
 }
 
 // === OBJECT DEFINITIONS ===

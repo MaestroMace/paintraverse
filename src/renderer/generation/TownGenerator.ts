@@ -395,7 +395,7 @@ export class TownGenerator implements IMapGenerator {
     // object partly outside the map renders half-clipped. Enforce the
     // invariant once, here, rather than trusting a dozen call sites.
     const inBounds = (o: PlacedObject): boolean => {
-      const ofp = this.getFootprint(o.definitionId)
+      const ofp = (o.footprint ?? this.getFootprint(o.definitionId))
       return o.x >= 0 && o.y >= 0 && o.x + ofp.w <= width && o.y + ofp.h <= height
     }
 
@@ -1151,6 +1151,14 @@ export class TownGenerator implements IMapGenerator {
         if (roll <= 0) { type = t; break }
       }
 
+      // Footprint as authored. Plot ORIENTATION — short side on the street —
+      // was implemented here and measured twice: it is audit-clean now that
+      // objects carry their own footprint, but it moves frontage occupancy by
+      // side from 38/45/59/58 to 39/47/61/58, i.e. not at all. The axis
+      // asymmetry is real and is not what makes the town read as scatter. The
+      // dominant term is the ~18m of unbuilt SETBACK between road edge and
+      // building — WHERE buildings sit, not which way they face. Removed
+      // rather than shipped, since complexity for a measured zero is a cost.
       const bw = type.w, bh = type.h
       if (rx + bw > w - 1 || ry + bh > h - 1) { rejected('offGrid'); continue }
 
@@ -1225,6 +1233,7 @@ export class TownGenerator implements IMapGenerator {
         x: rx, y: ry,
         rotation: 0, scaleX: scaleJitter, scaleY,
         elevation,
+        footprint: { w: bw, h: bh },
         properties: {
           floors, district: dType,
           style, growthRing: ringChar,
@@ -1286,6 +1295,7 @@ export class TownGenerator implements IMapGenerator {
               scaleX: 0.92 + rng() * 0.16,
               scaleY: 0.94 + rng() * 0.12,
               elevation,
+              footprint: { w: bw, h: bh },
               properties: {
                 floors: varyFloors, district: dType,
                 style, growthRing: ringChar,
@@ -1351,6 +1361,7 @@ export class TownGenerator implements IMapGenerator {
         x: rx, y: ry, rotation: 0,
         scaleX: 0.92 + rng() * 0.16, scaleY: 0.94 + rng() * 0.12,
         elevation,
+        footprint: { w: bw, h: bh },
         properties: { floors: 1 + Math.floor(rng() * 2), district: dType }
       })
 
@@ -1388,6 +1399,7 @@ export class TownGenerator implements IMapGenerator {
           buildings.push({
             id: uuid(), definitionId: defId,
             x, y, rotation: 0, scaleX: 1, scaleY: 1, elevation: elev,
+            footprint: { w: 2, h: 2 },
             properties: { floors: dType === 'noble' ? 2 + Math.floor(rng() * 2) : 1 + Math.floor(rng() * 2), district: dType }
           })
           occupied[y][x] = true; occupied[y][x + 1] = true
@@ -1397,6 +1409,7 @@ export class TownGenerator implements IMapGenerator {
           buildings.push({
             id: uuid(), definitionId: 'row_house',
             x, y, rotation: 0, scaleX: 1, scaleY: 1, elevation: elev,
+            footprint: { w: 1, h: 2 },
             properties: { floors: 1 + Math.floor(rng() * 2), district: dType }
           })
           occupied[y][x] = true; occupied[y + 1][x] = true
@@ -1420,6 +1433,7 @@ export class TownGenerator implements IMapGenerator {
         buildings.push({
           id: uuid(), definitionId: 'corner_building',
           x, y, rotation: 0, scaleX: 1, scaleY: 1,
+          footprint: { w: 2, h: 2 },
           elevation: Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2),
           properties: { floors: 2, district: (districts.find(d => d.id === (districtMap[y]?.[x] ?? -1)))?.type || 'residential' }
         })
@@ -1678,7 +1692,7 @@ export class TownGenerator implements IMapGenerator {
     const gates: PlacedObject[] = []
     const blocked = new Set<string>()
     for (const b of blockers) {
-      const bfp = this.getFootprint(b.definitionId)
+      const bfp = (b.footprint ?? this.getFootprint(b.definitionId))
       for (let dy = 0; dy < bfp.h; dy++) {
         for (let dx = 0; dx < bfp.w; dx++) blocked.add(`${b.x + dx},${b.y + dy}`)
       }
@@ -1724,7 +1738,7 @@ export class TownGenerator implements IMapGenerator {
   private carveAlleys(terrain: number[][], buildings: PlacedObject[], w: number, h: number): void {
     const buildingMap = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
     for (const b of buildings) {
-      const fp = this.getFootprint(b.definitionId)
+      const fp = (b.footprint ?? this.getFootprint(b.definitionId))
       for (let dy = 0; dy < fp.h; dy++) {
         for (let dx = 0; dx < fp.w; dx++) {
           const bx = b.x + dx, by = b.y + dy
@@ -1812,7 +1826,7 @@ export class TownGenerator implements IMapGenerator {
 
     // Building-adjacent props (contextual per district)
     for (const b of existingObjs) {
-      const fp = this.getFootprint(b.definitionId)
+      const fp = (b.footprint ?? this.getFootprint(b.definitionId))
       const spots: { x: number; y: number }[] = []
 
       // Gather adjacent spots
@@ -2554,7 +2568,7 @@ export class TownGenerator implements IMapGenerator {
     const courtProps: PlacedObject[] = []
     const buildingMap = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
     for (const b of buildings) {
-      const fp = this.getFootprint(b.definitionId)
+      const fp = (b.footprint ?? this.getFootprint(b.definitionId))
       for (let dy = 0; dy < fp.h; dy++) {
         for (let dx = 0; dx < fp.w; dx++) {
           const bx = b.x + dx, by = b.y + dy
@@ -2693,7 +2707,7 @@ export class TownGenerator implements IMapGenerator {
     // Find bounding box of all buildings with margin
     let minX = w, minY = h, maxX = 0, maxY = 0
     for (const b of buildings) {
-      const fp = this.getFootprint(b.definitionId)
+      const fp = (b.footprint ?? this.getFootprint(b.definitionId))
       minX = Math.min(minX, b.x)
       minY = Math.min(minY, b.y)
       maxX = Math.max(maxX, b.x + fp.w)
@@ -2724,7 +2738,7 @@ export class TownGenerator implements IMapGenerator {
     // straight through whatever stood on the perimeter — chapels, cathedrals
     // and towers were the most-overlapped objects in the whole town.
     for (const b of buildings) {
-      const bfp = this.getFootprint(b.definitionId)
+      const bfp = (b.footprint ?? this.getFootprint(b.definitionId))
       for (let dy = 0; dy < bfp.h; dy++) {
         for (let dx = 0; dx < bfp.w; dx++) occupied.add(`${b.x + dx},${b.y + dy}`)
       }
@@ -2919,7 +2933,7 @@ export class TownGenerator implements IMapGenerator {
     // Scan for enclosed open spaces surrounded by buildings on 3+ sides
     const buildingMap = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
     for (const b of buildings) {
-      const fp = this.getFootprint(b.definitionId)
+      const fp = (b.footprint ?? this.getFootprint(b.definitionId))
       for (let dy = 0; dy < fp.h; dy++) {
         for (let dx = 0; dx < fp.w; dx++) {
           const bx = b.x + dx, by = b.y + dy
@@ -3067,6 +3081,7 @@ export class TownGenerator implements IMapGenerator {
               x: bx, y: side.by,
               rotation: 0, scaleX: 1, scaleY: 1,
               elevation: elev,
+              footprint: this.getFootprint(buildingType),
               properties: {
                 floors: d.type === 'noble' ? 2 + Math.floor(rng() * 2) : 1 + Math.floor(rng() * 2),
                 district: d.type,
@@ -3240,7 +3255,7 @@ export class TownGenerator implements IMapGenerator {
 
     // For each building, check if there's open space "behind" it (away from road)
     for (const b of buildings) {
-      const fp = this.getFootprint(b.definitionId)
+      const fp = (b.footprint ?? this.getFootprint(b.definitionId))
       const dId = districtMap[b.y]?.[b.x] ?? -1
       const district = districts.find(d => d.id === dId)
       const dType = district?.type || 'residential'
@@ -3559,7 +3574,11 @@ export class TownGenerator implements IMapGenerator {
       x, y,
       rotation: 0, scaleX: 1, scaleY: 1,
       elevation,
-      properties: {}
+      properties: {},
+      // Record what was actually reserved. Every consumer reads this rather
+      // than re-deriving the rectangle from the definition — see footprintOf
+      // in core/types.
+      footprint: this.getFootprint(defId),
     }
   }
 
@@ -3575,7 +3594,9 @@ export class TownGenerator implements IMapGenerator {
 
   private markObjects(occupied: boolean[][], objs: PlacedObject[], w: number, h: number): void {
     for (const obj of objs) {
-      const fp = this.getFootprint(obj.definitionId)
+      // Reserved rectangle first — a prop placed against a definition lookup
+      // is how props ended up buried inside rotated buildings.
+      const fp = obj.footprint ?? this.getFootprint(obj.definitionId)
       for (let dy = 0; dy < fp.h; dy++) {
         for (let dx = 0; dx < fp.w; dx++) {
           const bx = obj.x + dx, by = obj.y + dy
