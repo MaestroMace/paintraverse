@@ -37,6 +37,12 @@ export function GenerationPanel() {
       setMap(map)
       setLastSeed(config.seed)
     } catch (e) {
+      // Log as well as surfacing in the UI. A generation failure used to go
+      // ONLY into this state variable, so a change that made the placer throw
+      // produced a town with zero buildings, no page error and no console
+      // output — indistinguishable from a placer that chose not to build, and
+      // it cost two sessions. Headless tools read the console, not the DOM.
+      console.error('[generate] failed:', e)
       setGenError(String(e))
     }
   }
