@@ -228,21 +228,40 @@ export class TownGenerator implements IMapGenerator {
 
     // 6. Central plaza + district plazas (sized for 3D walkability)
     const mainCenter = districts.length > 0 ? districts[0].center : { x: Math.floor(width / 2), y: Math.floor(height / 2) }
-    const plazaRadius = Math.floor(4 + complexity * 4) // larger main plaza
-    this.carvePlaza(terrainTiles, mainCenter.x, mainCenter.y, plazaRadius, width, height, 2)
+    // Plaza sizes are in TILES and a tile is 3 metres, which is the whole
+    // story here. At radius 4 + complexity*4 the main square ran to rX = 8,
+    // i.e. 48m across before the edge noise widened it by another half — a
+    // square the size of four football pitches. Every district got one too,
+    // whatever its type, and together they covered 37% OF THE MAP. Narrowing
+    // the streets only made that visible: the merged carriageway had been
+    // hiding inside an equally large expanse of flagstone.
+    //
+    // A real town square is 30-40m across. Radius 5 is an rX of 15m, so a
+    // 30m x 18m ellipse — big enough to hold a market and small enough that
+    // the buildings on the far side still read as a wall.
+    const plazaRadius = Math.floor(3 + complexity * 2)
+    const squareMap = Array.from({ length: height },
+      () => Array.from({ length: width }, () => false))
+    this.carvePlaza(terrainTiles, mainCenter.x, mainCenter.y, plazaRadius,
+      width, height, 2, squareMap)
 
     for (let i = 1; i < districts.length; i++) {
-      // District plazas: larger for noble/temple/market, smaller for residential
+      // Not every district gets a square. A residential quarter has streets
+      // and courtyards, not a civic space — giving one to all of them is how
+      // six squares ended up costing more ground than every street combined.
       const d = districts[i]
-      const dPlazaR = d.type === 'temple' || d.type === 'noble' ? Math.floor(4 + complexity * 2)
-        : d.type === 'market' || d.type === 'garden' ? Math.floor(3 + complexity * 2)
+      if (d.type !== 'temple' && d.type !== 'noble' && d.type !== 'market') continue
+      const dPlazaR = d.type === 'temple' || d.type === 'noble'
+        ? Math.floor(2 + complexity * 2)
         : Math.floor(2 + complexity * 1.5)
-      this.carvePlaza(terrainTiles, d.center.x, d.center.y, dPlazaR, width, height, 14)
+      this.carvePlaza(terrainTiles, d.center.x, d.center.y, dPlazaR,
+        width, height, 14, squareMap)
     }
 
     // 7. Street hierarchy
     const roadMap = this.generateStreetNetwork(
-      width, height, mainCenter, districts, complexity, density, rng, noise, terrainTiles, waterMap
+      width, height, mainCenter, districts, complexity, density, rng, noise,
+      terrainTiles, waterMap, squareMap
     )
 
     // 8. Place bridges over water where roads cross
@@ -297,6 +316,12 @@ export class TownGenerator implements IMapGenerator {
 
     // 11. Carve alleys between building clusters
     this.carveAlleys(terrainTiles, [...buildings, ...landmarks], width, height)
+
+    // 11b. Give the back of the block back.
+    this.softenBackOfBlock(
+      terrainTiles, squareMap, districtMap, districts,
+      [...buildings, ...landmarks], width, height, noise
+    )
 
     // 12. Place town gates at map edges where roads exit
     const gates = this.placeGates(width, height, roadMap, rng, solid(), waterMap)
@@ -741,7 +766,12 @@ export class TownGenerator implements IMapGenerator {
   // Golden ratio proportions (phi ~= 1.618) with organic asymmetric edges
   private carvePlaza(
     terrain: number[][], cx: number, cy: number, radius: number,
-    w: number, h: number, tilePrimary: number
+    w: number, h: number, tilePrimary: number,
+    /** Stamped true for every tile of the square, so the back-of-block pass
+     *  can spare designed public space. Stone and flagstone are also laid
+     *  down wholesale by paintDistrictTerrain, so the MATERIAL cannot answer
+     *  "is this a square?" — only a record of what was carved can. */
+    squareMap?: boolean[][]
   ): void {
     const PHI = 1.618
     // Elliptical plaza with golden ratio aspect ratio
@@ -760,6 +790,7 @@ export class TownGenerator implements IMapGenerator {
           + Math.sin(angle * 7 + 1.3) * 0.06
           + Math.sin(angle * 13 + 2.7) * 0.04
         if (ellDist < 1.0 + edgeNoise) {
+          if (squareMap) squareMap[y][x] = true
           if (ellDist < 0.5) {
             terrain[y][x] = tilePrimary // inner sanctum
           } else if (ellDist < 0.75) {
@@ -784,17 +815,33 @@ export class TownGenerator implements IMapGenerator {
     districts: District[],
     complexity: number, density: number,
     rng: () => number, noise: SimplexNoise,
-    terrain: number[][], waterMap: boolean[][]
+    terrain: number[][], waterMap: boolean[][],
+    squareMap: boolean[][]
   ): boolean[][] {
     const roadMap = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
+    // Which tier of the hierarchy claimed each tile — the carver's own road
+    // width. The painter below used to infer hierarchy from a neighbour count,
+    // which is only a proxy for how WIDE the tile's surroundings are; once the
+    // swathe narrowing capped every corridor at 3 tiles that proxy collapsed
+    // and painted the entire town as dark alley. A boulevard is a boulevard
+    // because of what it connects, not because it is fat.
+    const tierMap = Array.from({ length: h }, () => Array.from({ length: w }, () => 0))
 
-    // Mark plazas
-    const plazaR = Math.floor(3 + complexity * 3)
-    this.markCircle(roadMap, center.x, center.y, plazaR, w, h)
+    // Keep the centre of each square clear of buildings, and tier 3 so the
+    // ground there paves as street rather than alley — a plaza approach is a
+    // grand space, not a back lane.
+    //
+    // These radii must stay INSIDE the ellipse carvePlaza paints, not outside
+    // it. They are a separate number in a separate function, and when this
+    // disc was the larger of the two it reserved a ring of ordinary land
+    // around every square that no building could occupy and the painter then
+    // covered in street cobble — a moat of carriageway around each plaza.
+    const plazaR = Math.floor(2 + complexity * 2)
+    this.markCircle(roadMap, center.x, center.y, plazaR, w, h, tierMap, 3)
 
     for (const d of districts) {
-      const r = Math.floor(2 + complexity * 1.5)
-      this.markCircle(roadMap, d.center.x, d.center.y, r, w, h)
+      const r = Math.floor(1 + complexity)
+      this.markCircle(roadMap, d.center.x, d.center.y, r, w, h, tierMap, 3)
     }
 
     // BOULEVARDS: Connect main center to each district center
@@ -812,7 +859,7 @@ export class TownGenerator implements IMapGenerator {
       // ordinary boulevard at 2 is 6m, which is a street you can shout across.
       const boulWidth = (d.type === 'temple' || d.type === 'noble') ? 3 : 2
       const curviness = d.type === 'temple' ? 0.05 : 0.1 // Temples get straighter, more formal approaches
-      this.carveRoad(roadMap, terrain, center.x, center.y, d.center.x, d.center.y,
+      this.carveRoad(roadMap, tierMap, center.x, center.y, d.center.x, d.center.y,
         w, h, boulWidth, curviness, noise, rng, waterMap)
     }
 
@@ -821,7 +868,7 @@ export class TownGenerator implements IMapGenerator {
     for (let i = 0; i < numMain; i++) {
       const angle = (i / numMain) * Math.PI * 2 + (rng() - 0.5) * 0.3
       const length = Math.floor(w * 0.3 + rng() * w * 0.2)
-      this.carveOrganicPath(roadMap, terrain, center.x, center.y, angle,
+      this.carveOrganicPath(roadMap, tierMap, center.x, center.y, angle,
         w, h, length, 2, 0.15, noise, rng, waterMap)
     }
 
@@ -832,7 +879,7 @@ export class TownGenerator implements IMapGenerator {
         const dy = districts[i].center.y - districts[j].center.y
         const dist = Math.sqrt(dx * dx + dy * dy)
         if (dist < Math.min(w, h) * 0.5) {
-          this.carveRoad(roadMap, terrain, districts[i].center.x, districts[i].center.y,
+          this.carveRoad(roadMap, tierMap, districts[i].center.x, districts[i].center.y,
             districts[j].center.x, districts[j].center.y, w, h, 2, 0.2, noise, rng, waterMap)
         }
       }
@@ -848,7 +895,7 @@ export class TownGenerator implements IMapGenerator {
       const sy = Math.floor(h * 0.08 + rng() * h * 0.84)
       if (waterMap[sy]?.[sx]) continue
       const angle = rng() * Math.PI * 2
-      this.carveOrganicPath(roadMap, terrain, sx, sy, angle,
+      this.carveOrganicPath(roadMap, tierMap, sx, sy, angle,
         w, h, Math.floor(6 + rng() * 12), 2, 0.25, noise, rng, waterMap)
     }
 
@@ -860,13 +907,18 @@ export class TownGenerator implements IMapGenerator {
         const by = Math.floor(rng() * h)
         if (bx >= 0 && bx < w && by >= 0 && by < h && roadMap[by][bx]) {
           const angle = rng() * Math.PI * 2
-          this.carveOrganicPath(roadMap, terrain, bx, by, angle,
+          this.carveOrganicPath(roadMap, tierMap, bx, by, angle,
             w, h, Math.floor(3 + rng() * 5), 1, 0.35, noise, rng, waterMap)
         }
       }
     }
 
-    // Carve market squares — rectangular open areas in market districts
+    // Carve market squares — rectangular open areas in market districts.
+    // Painted as plaza flagstone, not left for the road painter to claim: a
+    // market square IS a square, and the difference is load-bearing. Tile 14
+    // is paving rather than circulation, so the placement audit stops calling
+    // a stall on the square "a building blocking a street", and the swathe
+    // narrowing below leaves it alone instead of eroding it into a lane.
     for (const d of districts) {
       if (d.type !== 'market') continue
       const sqSize = 4 + Math.floor(rng() * 3) // 4-6 tiles wide
@@ -877,48 +929,172 @@ export class TownGenerator implements IMapGenerator {
           const px = sqX + dx, py = sqY + dy
           if (px >= 0 && px < w && py >= 0 && py < h && !waterMap[py][px]) {
             roadMap[py][px] = true
+            terrain[py][px] = 14
+            squareMap[py][px] = true
           }
         }
       }
     }
 
-    // Paint road tiles onto terrain. Tiles in wide road clusters (>=7 road
-    // neighbors in the 3x3 around them) become main-street cobblestone (8,
-    // warm orange-grey). Thinner runs (alleys, road ends) become alley
-    // tile (9, dark brown). With the punchier palette this gives the town
-    // a visible road hierarchy instead of one uniform grey.
+    this.narrowRoadSwathes(roadMap, terrain, w, h)
+
+    // Paint road tiles onto terrain, as street cobble (8, warm orange-grey) or
+    // alley (9, dark brown), from the tier the CARVER recorded.
+    //
+    // This used to count road neighbours in the 3x3 and call anything with
+    // fewer than 7 an alley. That is not a hierarchy, it is a width
+    // measurement wearing one: it happened to agree while ordinary streets
+    // were 3 tiles and merged into open ground, and it collapsed the moment
+    // the swathe narrowing capped corridors at 3 — a 2-wide street has 6
+    // neighbours, so the whole town painted as dark alley in one step.
+    //
+    // Designed squares are left alone. The main plaza is carved as stone and
+    // district plazas as flagstone, and both are inside a marked circle, so
+    // this loop was repainting every square as street: a public square that
+    // renders as carriageway, with the placement audit then reading a stall on
+    // it as a building blocking a street. Ids 14/15/16 exist precisely to
+    // record that a tile is paved but not circulation (see core/terrain.ts).
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         if (!roadMap[y][x] || waterMap[y][x]) continue
-        let n = 0
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            const nx = x + dx, ny = y + dy
-            if (nx >= 0 && nx < w && ny >= 0 && ny < h && roadMap[ny][nx]) n++
-          }
-        }
-        terrain[y][x] = n >= 7 ? 8 : 9
+        if (terrain[y][x] === 2 || terrain[y][x] === 14) continue
+        terrain[y][x] = tierMap[y][x] >= 2 ? 8 : 9
       }
     }
 
     return roadMap
   }
 
-  private markCircle(map: boolean[][], cx: number, cy: number, r: number, w: number, h: number): void {
+  /**
+   * Erode road tiles that nobody drew.
+   *
+   * Every tier of the carver is narrow — a ceremonial approach is 3 tiles, an
+   * ordinary boulevard 2, an alley 1. Measured, the network is nothing like
+   * that: 58% of road tiles sat in a corridor wider than 3 tiles, the widest
+   * ran 33 tiles across, and ONE connected road component covered a quarter of
+   * the map. No single carve did that. Nine main streets radiate from the same
+   * point, ~12 secondary streets are dropped at random angles across the same
+   * 48x48 grid, and every district centre gets a disc of road on top. Each is
+   * narrow; their UNION is a lake.
+   *
+   * That lake is what "random scatter across big open spaces" actually is. The
+   * buildings are not scattered — 91% of them share a party wall — they are
+   * lining the shore of a puddle that covers a quarter of the town. Narrowing
+   * the carver cannot fix it, because the carver was never the thing that drew
+   * it; that was tried and moved facade-to-facade width 27m to 24m.
+   *
+   * So take the land back. Erode any road tile in an over-wide corridor from
+   * the swathe boundary inward, and stop at the authorised width. Two guards
+   * keep it honest:
+   *
+   *   - PLAZAS ARE SPARED. A tile already painted as stone or flagstone is a
+   *     square somebody designed. Squares are supposed to be open, and the
+   *     point of this pass is to tell a square apart from a puddle.
+   *   - ONLY SIMPLE POINTS ARE REMOVED. A tile is removable when the road in
+   *     its 8-neighbourhood forms exactly one connected run, which is the
+   *     standard 2D thinning criterion: removing such a tile provably cannot
+   *     disconnect the network or open a hole. Without it, erosion severs the
+   *     street network and the town becomes unwalkable.
+   *
+   * Freed tiles simply stop being road. Their terrain was already painted by
+   * the base/district pass and the road painter runs after this, so they
+   * revert to ordinary ground and the building placer — which walks road
+   * edges — sees new frontage exactly where the shoreline used to be.
+   */
+  private narrowRoadSwathes(
+    roadMap: boolean[][], terrain: number[][], w: number, h: number
+  ): void {
+    /** Widest corridor any carver tier is allowed to draw, in tiles. */
+    const MAX_CORRIDOR = 3
+    const isRoad = (x: number, y: number): boolean =>
+      x >= 0 && y >= 0 && x < w && y < h && roadMap[y][x]
+    /** Stone and flagstone are designed squares; never erode them. */
+    const isSquare = (x: number, y: number): boolean => {
+      const t = terrain[y]?.[x]
+      return t === 2 || t === 14
+    }
+    /** Contiguous road extent through this tile; the smaller axis is width. */
+    const corridorWidth = (x: number, y: number): number => {
+      const run = (dx: number, dy: number): number => {
+        let n = 1
+        for (let k = 1; k <= 48 && isRoad(x + dx * k, y + dy * k); k++) n++
+        for (let k = 1; k <= 48 && isRoad(x - dx * k, y - dy * k); k++) n++
+        return n
+      }
+      return Math.min(run(1, 0), run(0, 1))
+    }
+    // Neighbours in circular order. The number of non-road -> road transitions
+    // around this ring equals the number of 8-connected road components
+    // touching the tile, so 1 means removing it leaves them all joined.
+    const RING: ReadonlyArray<readonly [number, number]> = [
+      [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1],
+    ]
+    const isSimplePoint = (x: number, y: number): boolean => {
+      let transitions = 0
+      for (let i = 0; i < RING.length; i++) {
+        const [ax, ay] = RING[i]
+        const [bx, by] = RING[(i + 1) % RING.length]
+        if (!isRoad(x + ax, y + ay) && isRoad(x + bx, y + by)) transitions++
+      }
+      return transitions === 1
+    }
+
+    // Boundary-inward erosion. Each pass strips one layer off every over-wide
+    // swathe, so the widest (33 tiles) needs ~15; the cap is a runaway guard,
+    // and the pass stops early as soon as a sweep changes nothing.
+    for (let pass = 0; pass < 24; pass++) {
+      const doomed: Array<[number, number]> = []
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          if (!roadMap[y][x] || isSquare(x, y)) continue
+          // Only the shoreline erodes; interior tiles wait their turn.
+          let onEdge = false
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            if (!isRoad(x + dx, y + dy)) { onEdge = true; break }
+          }
+          if (!onEdge) continue
+          if (corridorWidth(x, y) <= MAX_CORRIDOR) continue
+          doomed.push([x, y])
+        }
+      }
+      if (doomed.length === 0) break
+      // Re-test connectivity against the LIVE map, not the snapshot: two
+      // neighbours can each be individually removable and jointly cut the
+      // street. Removing one at a time and re-asking is what makes that safe.
+      let removed = 0
+      for (const [x, y] of doomed) {
+        if (!roadMap[y][x]) continue
+        if (corridorWidth(x, y) <= MAX_CORRIDOR) continue
+        if (!isSimplePoint(x, y)) continue
+        roadMap[y][x] = false
+        removed++
+      }
+      if (removed === 0) break
+    }
+  }
+
+  private markCircle(
+    map: boolean[][], cx: number, cy: number, r: number, w: number, h: number,
+    tierMap?: number[][], tier = 0
+  ): void {
     for (let y = cy - r; y <= cy + r; y++) {
       for (let x = cx - r; x <= cx + r; x++) {
         if (x >= 0 && x < w && y >= 0 && y < h) {
           if (Math.sqrt((x - cx) ** 2 + (y - cy) ** 2) < r + 0.5) {
             map[y][x] = true
+            if (tierMap) tierMap[y][x] = Math.max(tierMap[y][x], tier)
           }
         }
       }
     }
   }
 
-  // Carve a road between two points with noise-driven curves
+  // Carve a road between two points with noise-driven curves.
+  // `tierMap` records the widest tier that claimed each tile, so the painter
+  // downstream can tell a boulevard from an alley. It replaces a `terrain`
+  // parameter that was threaded through both carvers and never read.
   private carveRoad(
-    roadMap: boolean[][], terrain: number[][],
+    roadMap: boolean[][], tierMap: number[][],
     x1: number, y1: number, x2: number, y2: number,
     w: number, h: number, roadWidth: number, curviness: number,
     noise: SimplexNoise, rng: () => number, waterMap: boolean[][]
@@ -939,6 +1115,7 @@ export class TownGenerator implements IMapGenerator {
           const ry = Math.floor(y) + ch - Math.floor(roadWidth / 2)
           if (rx >= 0 && rx < w && ry >= 0 && ry < h && !waterMap[ry][rx]) {
             roadMap[ry][rx] = true
+            tierMap[ry][rx] = Math.max(tierMap[ry][rx], roadWidth)
           }
         }
       }
@@ -959,7 +1136,7 @@ export class TownGenerator implements IMapGenerator {
 
   // Carve a single organic path
   private carveOrganicPath(
-    roadMap: boolean[][], terrain: number[][],
+    roadMap: boolean[][], tierMap: number[][],
     startX: number, startY: number, angle: number,
     w: number, h: number, length: number, roadWidth: number, curviness: number,
     noise: SimplexNoise, rng: () => number, waterMap: boolean[][]
@@ -972,6 +1149,7 @@ export class TownGenerator implements IMapGenerator {
           const ry = Math.floor(y) + dy
           if (rx >= 0 && rx < w && ry >= 0 && ry < h && !waterMap[ry][rx]) {
             roadMap[ry][rx] = true
+            tierMap[ry][rx] = Math.max(tierMap[ry][rx], roadWidth)
           }
         }
       }
@@ -1069,7 +1247,22 @@ export class TownGenerator implements IMapGenerator {
     // Sort center-first: core gets built first (growth rings)
     roadEdges.sort((a, b) => a.distSq - b.distSq)
 
-    const maxBuildings = Math.floor(50 + complexity * 90 + density * 60)
+    // How many buildings the town wants, from how much land there is to build
+    // on — not from a constant.
+    //
+    // This was `50 + complexity*90 + density*60`, i.e. ~155, tuned when the
+    // street network was a merged lake covering a third of the map. Narrowing
+    // the swathes handed roughly a quarter of the town back as buildable
+    // ground, and the flat cap simply pocketed it: building count barely moved
+    // while the land grew, so built coverage FELL from 49% to 43% and frontage
+    // occupancy from 76% to 67%. A cap expressed against a quantity you just
+    // changed is the same bug as a constant expressed against one — it stops
+    // meaning what it meant. Count the land instead.
+    let freeTiles = 0
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) if (!occupied[y][x]) freeTiles++
+    }
+    const maxBuildings = Math.floor(freeTiles * 0.14 * (0.9 + density * 0.9))
     let placed = 0
 
     // Phase B: Walk edges, placing buildings with continuity bonus
@@ -1735,6 +1928,119 @@ export class TownGenerator implements IMapGenerator {
 
   // === ALLEYS & INTIMATE SPACES ===
   // Creates narrow alleys, alcoves, and L-shaped nooks between building clusters
+  /**
+   * Unpave the land behind the buildings.
+   *
+   * paintDistrictTerrain paves a district by TYPE, uniformly, over the whole
+   * Voronoi cell — a temple quarter is stone from edge to edge, a market
+   * quarter cobble from edge to edge. That is defensible for the street and
+   * the square, and wrong everywhere else, because a district is not a floor
+   * surface: it is streets, squares, buildings, and the yards behind them.
+   *
+   * Measured, 51-66% of the map was hard paving while only ~20% was
+   * circulation. The remaining third is the pale expanse the town reads as —
+   * and crucially it reads that way even where the space is tightly enclosed,
+   * because a continuous floor of one material looks like one room however
+   * many walls stand on it. Narrowing the streets could never fix that; the
+   * ground behind a terrace was paved before any street was drawn.
+   *
+   * So: any hard paving more than a couple of tiles from real circulation, and
+   * not part of a designed square, becomes yard. What kind of yard depends on
+   * the district, because a noble's back garden and a slum's back lot are not
+   * the same place. This is the courtyards-and-gardens item from the rework
+   * list, arrived at from the other end.
+   */
+  private softenBackOfBlock(
+    terrain: number[][], squareMap: boolean[][],
+    districtMap: number[][], districts: District[],
+    buildings: PlacedObject[], w: number, h: number, noise: SimplexNoise
+  ): void {
+    /** How far paving may reach from the kerb, in tiles. 2 is 6m of forecourt. */
+    const APRON = 2
+    const isHardPaving = (t: number): boolean =>
+      t === 2 || t === 14 || t === 15 || t === 16
+    // Distance to the nearest real street, by BFS from circulation. Building
+    // footprints are NOT obstacles here: the apron should reach the far side
+    // of a shallow terrace, and stopping at the first wall would strand the
+    // paving in front of every doorway that faces a courtyard.
+    const INF = 1 << 20
+    const dist = Array.from({ length: h }, () => new Int32Array(w).fill(INF))
+    const queue: number[] = []
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (!isCirculation(terrain[y][x])) continue
+        dist[y][x] = 0
+        queue.push(y * w + x)
+      }
+    }
+    for (let head = 0; head < queue.length; head++) {
+      const i = queue[head], cx = i % w, cy = (i / w) | 0
+      if (dist[cy][cx] >= APRON) continue
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = cx + dx, ny = cy + dy
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+        if (dist[ny][nx] <= dist[cy][cx] + 1) continue
+        dist[ny][nx] = dist[cy][cx] + 1
+        queue.push(ny * w + nx)
+      }
+    }
+    // A building's own footprint keeps its paving: the mesh covers it, and
+    // unpaving it only shows through as a fringe of grass under the walls.
+    const built = Array.from({ length: h }, () => new Uint8Array(w))
+    for (const b of buildings) {
+      const fp = b.footprint ?? this.getFootprint(b.definitionId)
+      for (let dy = 0; dy < fp.h; dy++) {
+        for (let dx = 0; dx < fp.w; dx++) {
+          const px = b.x + dx, py = b.y + dy
+          if (px >= 0 && py >= 0 && px < w && py < h) built[py][px] = 1
+        }
+      }
+    }
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const t = terrain[y][x]
+        if (!isHardPaving(t)) continue
+        if (squareMap[y][x] || built[y][x]) continue
+        if (dist[y][x] <= APRON) continue
+        const d = districts.find((dd) => dd.id === districtMap[y]?.[x])
+        // Two octaves so a yard is not a flat colour — the same trick
+        // paintDistrictTerrain uses, at the same frequency, so the new ground
+        // sits in the same visual family as the old.
+        const n = noise.noise2D(x * 0.12, y * 0.12)
+        const n2 = noise.noise2D(x * 0.3 + 40, y * 0.3 - 40)
+        // Yards are GREEN and DARK, not tan. This mattered more than which
+        // tiles got replaced: the first version of this pass sent market and
+        // temple yards to dirt and gravel, cut hard paving from 57% to 43%,
+        // and moved the way the ground reads by almost nothing — because
+        // dirt, sand, gravel, stone, flagstone and street cobble are all warm
+        // tan, and 65% of the map stayed one colour family. Swapping a pale
+        // tile for another pale tile is relabelling, not a change. Dirt is
+        // still here, but as the exception a worked yard needs rather than the
+        // default a lazy one falls back to.
+        switch (d?.type) {
+          case 'noble':
+          case 'garden':
+            terrain[y][x] = n > 0.2 ? 12 : n > -0.3 ? 10 : 0    // wildflower / garden / grass
+            break
+          case 'temple':
+            terrain[y][x] = n > 0.45 ? 13 : n2 > -0.2 ? 10 : 5  // rare gravel path, else garden
+            break
+          case 'slum':
+            terrain[y][x] = n > 0.05 ? 11 : n2 > 0 ? 5 : 1      // mud / dark grass / dirt
+            break
+          case 'market':
+          case 'harbor':
+            // A working yard: trodden mud and scrub behind the stalls, with
+            // bare dirt only where the traffic is heaviest.
+            terrain[y][x] = n > 0.3 ? 1 : n2 > 0.1 ? 11 : 5     // dirt / mud / dark grass
+            break
+          default:
+            terrain[y][x] = n > 0.15 ? 10 : n2 > -0.25 ? 0 : 11 // garden / grass / mud
+        }
+      }
+    }
+  }
+
   private carveAlleys(terrain: number[][], buildings: PlacedObject[], w: number, h: number): void {
     const buildingMap = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
     for (const b of buildings) {

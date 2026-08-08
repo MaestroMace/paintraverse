@@ -155,35 +155,78 @@ for (const seed of seeds) {
     }
 
     // --- ENCLOSURE -----------------------------------------------------
-    // For each road tile, scan left and right perpendicular to the road until
-    // a building is hit. Enclosure = storeys / street width, the classic
-    // height-to-width ratio. A comfortable street is 0.5-1.5; below ~0.25 the
-    // space reads as a field with things around the edge.
+    // For each road tile, scan ACROSS the street until a building is hit.
+    // Enclosure = storeys / street width, the classic height-to-width ratio.
+    // A comfortable street is 0.5-1.5; below ~0.25 the space reads as a field
+    // with things around the edge.
+    //
+    // "Across" has to mean across. The first version of this scanned BOTH the
+    // [1,0] and [0,1] axes at every road tile regardless of which way the road
+    // ran, so half of every sample measured the length of the street rather
+    // than its width — and near the map edge the out-of-bounds hit turned that
+    // into a legitimate-looking 12-tile "width". The road's local direction is
+    // cheap to recover from its own neighbours, so recover it.
     const ratios = []
+    // Setback = how far the wall stands back from the road edge, per side.
+    // 0 means the building is flush against the carriageway. This is the
+    // number the street-width figure is actually made of, and it is the one a
+    // placement change moves; width also carries the road's own width, which
+    // is set by the road carver and already known.
+    const setbacks = []
+    const roadWidths = []
+    let openSides = 0, sideSamples = 0
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         if (!isRoad(x, y)) continue
-        for (const axis of [[1, 0], [0, 1]]) {
-          const [dx, dy] = axis
-          let a = 0, b = 0, hitA = -1, hitB = -1
-          for (let k = 1; k <= 12; k++) {
-            if (hitA < 0) {
-              const px = x + dx * k, py = y + dy * k
-              if (px < 0 || py < 0 || px >= W || py >= H) hitA = k
-              else if (built[py][px] >= 0) hitA = k
-              else a = k
-            }
-            if (hitB < 0) {
-              const px = x - dx * k, py = y - dy * k
-              if (px < 0 || py < 0 || px >= W || py >= H) hitB = k
-              else if (built[py][px] >= 0) hitB = k
-              else b = k
-            }
+        // Which way does the street RUN here? Not "is there road beside me" —
+        // every tile of a 2-lane street has road on both axes and that test
+        // classifies the entire street as a junction, leaving only 1-wide
+        // alleys in the sample. Measure the contiguous run in each axis
+        // instead: a 2-wide north-south street runs 2 across and 20 along, so
+        // the longer run is the street and the shorter one is its width.
+        const run = (dx, dy) => {
+          let n = 1
+          for (let k = 1; k <= 24 && isRoad(x + dx * k, y + dy * k); k++) n++
+          for (let k = 1; k <= 24 && isRoad(x - dx * k, y - dy * k); k++) n++
+          return n
+        }
+        const runX = run(1, 0), runY = run(0, 1)
+        // A square or a crossing runs the same distance both ways and is
+        // legitimately open; only measure a tile that is clearly a corridor.
+        if (Math.abs(runX - runY) < 2) continue
+        const [dx, dy] = runX > runY ? [0, 1] : [1, 0]   // perpendicular to the run
+        let hitA = -1, hitB = -1
+        for (let k = 1; k <= 12; k++) {
+          if (hitA < 0) {
+            const px = x + dx * k, py = y + dy * k
+            if (px < 0 || py < 0 || px >= W || py >= H) hitA = k
+            else if (built[py][px] >= 0) hitA = k
           }
-          if (hitA > 0 && hitB > 0 && hitA <= 12 && hitB <= 12) {
-            const widthTiles = hitA + hitB
-            ratios.push(widthTiles)
+          if (hitB < 0) {
+            const px = x - dx * k, py = y - dy * k
+            if (px < 0 || py < 0 || px >= W || py >= H) hitB = k
+            else if (built[py][px] >= 0) hitB = k
           }
+        }
+        // Setback counts only the non-road tiles between carriageway and wall,
+        // so a house flush against the kerb scores 0 whatever the road's width.
+        for (const [hit, sx, sy] of [[hitA, dx, dy], [hitB, -dx, -dy]]) {
+          sideSamples++
+          if (hit < 0) { openSides++; continue }
+          let gap = 0
+          for (let k = 1; k < hit; k++) if (!isRoad(x + sx * k, y + sy * k)) gap++
+          setbacks.push(gap)
+        }
+        if (hitA > 0 && hitB > 0) {
+          // Split the width into the two terms that produce it, because they
+          // have different owners: the carriageway belongs to the road carver
+          // and the setback to the placer. A single total cannot tell you
+          // which one to go and change.
+          let road = 0
+          for (let k = 1; k < hitA; k++) if (isRoad(x + dx * k, y + dy * k)) road++
+          for (let k = 1; k < hitB; k++) if (isRoad(x - dx * k, y - dy * k)) road++
+          roadWidths.push(road + 1)   // + the tile we are standing on
+          ratios.push(hitA + hitB)
         }
       }
     }
@@ -193,6 +236,7 @@ for (const seed of seeds) {
       touching: touches.size,
       land, landBuilt,
       widths: ratios,
+      setbacks, roadWidths, openSides, sideSamples,
       bySide,
     }
   })
@@ -224,8 +268,31 @@ for (const r of rows) {
 const all = rows.reduce((a, r) => ({
   b: a.b + r.buildings, ft: a.ft + r.frontageTotal, fb: a.fb + r.frontageBuilt,
   t: a.t + r.touching, l: a.l + r.land, lb: a.lb + r.landBuilt,
-  w: a.w.concat(r.widths),
-}), { b: 0, ft: 0, fb: 0, t: 0, l: 0, lb: 0, w: [] })
+  w: a.w.concat(r.widths), sb: a.sb.concat(r.setbacks),
+  rw: a.rw.concat(r.roadWidths),
+  open: a.open + r.openSides, sides: a.sides + r.sideSamples,
+}), { b: 0, ft: 0, fb: 0, t: 0, l: 0, lb: 0, w: [], sb: [], rw: [], open: 0, sides: 0 })
+
+// SETBACK is the term the placer owns. Street width = road width + both
+// setbacks, and the road carver already fixed the first part, so this is the
+// only half a placement change can move. Printed as a distribution because
+// "median 2" hides "a third of the town stands 5 tiles back".
+{
+  const dist = (arr, label) => {
+    const s = [...arr].sort((a, b) => a - b)
+    const q = (p) => s.length ? s[Math.min(s.length - 1, Math.round((p / 100) * (s.length - 1)))] : NaN
+    const m = (v) => (v * TILE).toFixed(1).padStart(6) + 'm'
+    console.log(`  ${label.padEnd(22)} med${m(q(50))}  p75${m(q(75))}  p90${m(q(90))}` +
+      `  max${m(s[s.length - 1] ?? 0)}`)
+  }
+  const flush = all.sb.filter((v) => v === 0).length
+  console.log('\nWHAT THE STREET WIDTH IS MADE OF (width = carriageway + both setbacks):')
+  dist(all.rw, 'carriageway')
+  dist(all.sb, 'setback, per side')
+  dist(all.w, 'facade to facade')
+  console.log(`  ${all.sb.length} side samples; flush against the kerb ` +
+    `${pct(flush, all.sb.length)}%; no wall within 12 tiles ${pct(all.open, all.sides)}%`)
+}
 
 // Frontage occupancy split by which side of the road the land is on. Roughly
 // equal means the placer is symmetric; a big N/W vs S/E gap means the

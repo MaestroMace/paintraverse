@@ -24,6 +24,7 @@ import { auditRoofWinding } from '../renderer3d/architecture/Roofs'
 import { placeStats } from '../generation/TownGenerator'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
 import { TILE } from '../renderer3d/scale'
+import { TERRAIN_COLORS, TERRAIN_NAMES } from '../core/terrain'
 
 export function installDebugBridge(): void {
   if (typeof window === 'undefined') return
@@ -47,6 +48,14 @@ export function installDebugBridge(): void {
      *  town with no buildings and no exception is otherwise indistinguishable
      *  from a placer that simply chose not to build. */
     placeStats: () => ({ ...placeStats }),
+
+    /**
+     * The terrain palette, so a tool can ask what a tile LOOKS like instead of
+     * carrying its own copy of the table. Three copies of this had already
+     * drifted into disagreeing about what tiles mean (see core/terrain.ts);
+     * a fourth living in tools/ would be the same mistake with a longer fuse.
+     */
+    terrainPalette: () => ({ colors: { ...TERRAIN_COLORS }, names: { ...TERRAIN_NAMES } }),
 
     /** Every roof triangle checked for OUTWARD winding. The batched material
      *  is FrontSide, so an inward face is deleted, not just mis-lit — and you
