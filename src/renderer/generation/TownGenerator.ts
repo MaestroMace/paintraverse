@@ -1298,7 +1298,17 @@ export class TownGenerator implements IMapGenerator {
       // / Traverse-Town / Kyoto / Paris towns read as rows sharing walls,
       // not scattered plots.
       const continuityBonus = hasBuildingNeighbor(rx, ry) ? 0.7 : 0
-      const acceptChance = distDensity * (1.0 - distNorm * 0.5) * density + continuityBonus
+      // The growth-ring falloff is deliberate — a town thins toward its edge —
+      // but it was the single biggest filter in the placer (210 rejections
+      // against 143 for "no room"), and it was tuned when there was far less
+      // frontage to fill. An isolated edge tile in the outer town had a 28%
+      // chance of starting anything, so whole lanes on the periphery got a
+      // road and no buildings, which is what holds frontage occupancy at 71%
+      // against the 85-95% of a real walled town. Shallower falloff, higher
+      // base: the core still builds first and densest, the edge still thins,
+      // but a lane out there now gets a wall rather than a coin flip.
+      const reach = 0.55 + density * 0.65
+      const acceptChance = distDensity * (1.0 - distNorm * 0.35) * reach + continuityBonus
       if (rng() > acceptChance) { rejected('acceptChance'); continue }
 
       // Growth ring character: core gets bigger, taller buildings
