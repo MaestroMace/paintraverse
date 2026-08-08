@@ -2255,7 +2255,8 @@ export class TownGenerator implements IMapGenerator {
       const numProps = Math.min(validSpots.length, 2 + Math.floor(rng() * 3 * density))
       const dId = districtMap[b.y]?.[b.x] ?? -1
       const district = districts.find(d => d.id === dId)
-      const propPalette = district ? DISTRICT_PROPS[district.type] : DISTRICT_PROPS.residential
+      const dTypeForProps: DistrictType = district ? district.type : 'residential'
+      const propPalette = DISTRICT_PROPS[dTypeForProps]
 
       // Building-type-specific mandatory props first
       const buildingSpecificProps = this.getBuildingSpecificProps(b.definitionId, rng)
@@ -2264,14 +2265,17 @@ export class TownGenerator implements IMapGenerator {
       const bcx = b.x + fp.w / 2, bcy = b.y + fp.h / 2
 
       for (let i = 0; i < numProps; i++) {
-        const pool = streetSpots.length > 0 ? streetSpots : backSpots
+        // Which side of the building this spot is on decides what goes there,
+        // so remember it rather than just which pool it came from.
+        const front = streetSpots.length > 0
+        const pool = front ? streetSpots : backSpots
         if (pool.length === 0) break
         const idx = Math.floor(rng() * pool.length)
         const spot = pool.splice(idx, 1)[0]
         if (spot) {
           const propId = i < buildingSpecificProps.length
             ? buildingSpecificProps[i]
-            : propPalette[Math.floor(rng() * propPalette.length)]
+            : this.propForRole(b.definitionId, dTypeForProps, front, propPalette, rng)
           const propFp = this.getFootprint(propId)
           // Face away from the building wall — the prop sits on the
           // building's perimeter, so the vector (spot - buildingCenter)
@@ -3293,6 +3297,73 @@ export class TownGenerator implements IMapGenerator {
     }
 
     return countryside
+  }
+
+  /**
+   * What does THIS building put on THIS side of itself?
+   *
+   * Measured, 90% of props already sat on some building's perimeter but only
+   * 29% sat on a building that would plausibly own them. Adjacency was there;
+   * meaning was not. The cause is that `getBuildingSpecificProps` returns an
+   * empty list for every ordinary dwelling — and row houses are 40% of the
+   * town — so 205 of one seed's props were drawn from the district palette at
+   * random and then parked against the nearest wall. A fountain against a
+   * cottage is still scatter; it is scatter with an alibi.
+   *
+   * Two axes decide it. WHAT the building is, and WHICH SIDE you are on: a
+   * household shows the street a flower box and a swept step, and keeps the
+   * woodpile, the rain barrel and the washing round the back. That split is
+   * most of what "lived in" means — the front is presented, the back is used
+   * — and the placer already knows which side a spot is on, because it sorts
+   * frontage spots ahead of back ones so dressing lands where players walk.
+   */
+  private propForRole(
+    defId: string, dType: DistrictType, front: boolean,
+    palette: string[], rng: () => number
+  ): string {
+    const DWELLINGS = new Set([
+      'row_house', 'building_small', 'cottage', 'half_timber',
+      'balcony_house', 'corner_building', 'building_large', 'townhouse',
+    ])
+    if (!DWELLINGS.has(defId)) {
+      return palette[Math.floor(rng() * palette.length)]
+    }
+    // Presented to the street, versus used out of sight. Weighted by
+    // repetition rather than a weight table, matching how the palettes above
+    // already express preference.
+    let list: string[]
+    if (front) {
+      switch (dType) {
+        case 'noble':
+          list = ['planter_box', 'potted_plant', 'flower_box', 'bench',
+            'wall_lantern', 'iron_fence']; break
+        case 'slum':
+          list = ['barrel', 'crate', 'woodpile', 'rain_barrel', 'rubble_pile']; break
+        case 'garden':
+          list = ['flower_box', 'flower_bed', 'planter_box', 'potted_plant',
+            'trellis_arch', 'bush']; break
+        case 'market':
+        case 'harbor':
+        case 'waterfront':
+          list = ['crate', 'barrel', 'sign', 'flower_box', 'bench']; break
+        default:
+          list = ['flower_box', 'potted_plant', 'planter_box', 'bench',
+            'wall_lantern', 'flower_box']
+      }
+    } else {
+      switch (dType) {
+        case 'noble':
+          list = ['planter_box', 'garden_arch', 'bush', 'woodpile', 'rain_barrel']; break
+        case 'slum':
+          list = ['rubble_pile', 'woodpile', 'barrel', 'crate', 'cloth_line']; break
+        case 'garden':
+          list = ['bush', 'flower_bed', 'woodpile', 'rain_barrel', 'trellis_arch']; break
+        default:
+          list = ['woodpile', 'rain_barrel', 'cloth_line', 'crate', 'barrel',
+            'fence', 'woodpile']
+      }
+    }
+    return list[Math.floor(rng() * list.length)]
   }
 
   // === BUILDING-SPECIFIC PROPS ===

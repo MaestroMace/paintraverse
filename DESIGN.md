@@ -67,9 +67,12 @@ a window-box, a taller-than-neighbors profile. The eye should never be
 able to copy-paste one silhouette onto another.
 
 ### 3. Scale feels human
-FLOOR_HEIGHT is 1.8m (a 2-story is 3.6m). Props are tuned so a 1.6m-tall
-player feels inside the architecture, not above it. "Kaiju scale" is a
-bug, not a style.
+`STOREY_HEIGHT` is 2.9m and `TILE` is 3.0m, both in `renderer3d/scale.ts`.
+Doors are 2.05m, windows 1.35m. Props are tuned so a 1.6m-tall player feels
+inside the architecture, not above it. "Kaiju scale" is a bug, not a style —
+and so is its opposite: this pillar read "FLOOR_HEIGHT is 1.8m" while the
+audit found 95% of doors were shorter than a person. Check `tools/humanscale.mjs`
+rather than this paragraph; a number in prose goes stale, a distribution does not.
 
 ### 4. Motion breathes
 Window flicker is slow (0.25–0.7 Hz) and gentle (±4%), reading as
