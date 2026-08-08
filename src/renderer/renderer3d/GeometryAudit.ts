@@ -68,7 +68,11 @@ function footprintOf(
 ): { w: number; h: number } | null {
   const def = defs.get(obj.definitionId)
   if (!def) return null
-  return { w: Math.max(1, def.footprint.w), h: Math.max(1, def.footprint.h) }
+  const w = Math.max(1, def.footprint.w), h = Math.max(1, def.footprint.h)
+  // The placer turns a plot a quarter turn so its short side faces the street
+  // (plotRotated in TownGenerator). It reserved h x w, so that is what the
+  // building occupies and what every containment check must compare against.
+  return obj.properties?.plotRotated ? { w: h, h: w } : { w, h }
 }
 
 export function auditMapGeometry(

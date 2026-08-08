@@ -585,6 +585,12 @@ east-west one, so the same building covers twice the frontage on one axis as
 on the other. Half the streets in every town are structurally worse served
 than the other half and nobody chose that.
 
+`tools/genlog.mjs` runs one generation and prints layer counts, how many plots
+rotated, any page exception, and the placer's rejection counters
+(`placeStats`). It exists because a placement change can produce a town with
+zero buildings and NO exception, which is indistinguishable from a placer that
+simply chose not to build until you can see WHICH `continue` fired.
+
 The fix is to orient the plot to its street — short side on the frontage,
 depth running away from it, which is what makes a terrace a terrace and is the
 same shape on both axes once oriented. **An attempt at this was reverted**: it
@@ -592,10 +598,27 @@ is not a local change, because `BuildingFactory` and `GeometryAudit` both look
 the footprint up by definition id, so a reserved h x w rectangle has to be
 communicated to both (a `plotRotated` property) and the building's base
 rotation turned to match. Threading all three produced a town with zero
-buildings and no exception — every candidate silently rejected — and it needs
-a session with room to bisect rather than the tail of one. Start here: it is
-the highest-value item in the rework and the measurement is already in place
-to grade it.
+buildings and no exception. A second attempt, bisected with the new rejection
+counters, got further and is worth writing down so the next one starts ahead:
+
+- Swapping bw/bh alone is SAFE — 208 buildings, audit clean. Only ~6 of 223
+  plots actually rotate, though, because a candidate whose road lies south or
+  east has its footprint grow into that road and gets rejected. The swap on its
+  own therefore buys almost nothing.
+- Anchoring the far corner (`oy = ry - (bh - 1)` when the road is south, and
+  the mirror for east) is the half that matters. With it, `placeStats` showed
+  **43 buildings PLACED and a final map containing none** — so the loop throws
+  partway through and something upstream swallows it. That is the thing to
+  chase: find the swallowing try/catch, not the placement logic.
+- The row-streak extension at the bottom of the loop reuses the anchor's
+  bw/bh but pushes its own objects, so it needs `plotRotated` too or it
+  reserves h x w while the renderer draws w x h.
+- The scaffolding is already in place and inert: `GeometryAudit.footprintOf`
+  and `BuildingFactory` both honour an `obj.properties.plotRotated` flag, and
+  nothing sets it. The next attempt is a one-file change in TownGenerator.
+
+Start here: it is the highest-value item in the rework and the measurement is
+already in place to grade it.
 
 Cheap side effect of the narrowing, worth keeping: ~+9 buildings per town and
 coverage 48% -> 49%, because narrower streets return land to the blocks.
@@ -670,7 +693,17 @@ The whole device problem list is fixed. What is left:
 ## Quick reference — where commands live
 
 - Start session: `git pull origin main`
-- Build check: `npm run typecheck && npm run build` (both must be green)
+- Build check: `npm run typecheck && npm run build`
+  **Check the build with a success marker, not `| tail -1`.** On failure the
+  last line of `npm run build` is an esbuild stack frame, not an error banner,
+  so `tail -1` reads as "something happened" either way. A failing build leaves
+  the PREVIOUS bundle in dist/, so the app keeps running old code and every
+  measurement you take afterwards is of the change you did not make. Use:
+      npm run build 2>&1 | grep -E "^✓ built in [0-9.]+s|error"
+  This cost a full debugging cycle: an esbuild "symbol has already been
+  declared" error was invisible, the bundle never updated, and the A/B looked
+  byte-identical — which reads as "the change did nothing" rather than "the
+  change was never compiled".
 - Commit: `git add -A && git commit -m "..."`
 - Push: `git push origin main`
 - Inspect latest dump: see Debug-dump workflow above

@@ -274,7 +274,13 @@ export function buildBuildingMeshes(
     //   fp  — the same footprint in WORLD units. Use for every geometry
     //         dimension and local offset, which is nearly all of them.
     // See scale.ts for why one tile is not one metre.
-    const fpT = FOOTPRINTS[obj.definitionId] || { w: def.footprint.w, h: def.footprint.h }
+    const fpRaw = FOOTPRINTS[obj.definitionId] || { w: def.footprint.w, h: def.footprint.h }
+    // A plot the generator turned a quarter turn occupies h x w. Swap here so
+    // the mesh fills the rectangle that was actually reserved; the base
+    // rotation below turns the building to match, so its door still faces the
+    // street it was oriented to.
+    const plotRotated = !!obj.properties.plotRotated
+    const fpT = plotRotated ? { w: fpRaw.h, h: fpRaw.w } : fpRaw
     const fp = { w: fpT.w * TILE, h: fpT.h * TILE }
     const hash = simpleHash(obj.id)
     const style = (obj.properties.style as string) || 'standard'

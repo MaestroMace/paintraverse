@@ -15,4 +15,12 @@ const n = await win.evaluate(() => {
   return m.layers.map((l) => `${l.type}:${l.objects?.length ?? (l.terrainTiles ? 'tiles' : 0)}`).join(' ')
 })
 console.log('LAYERS:', n)
+const rot = await win.evaluate(() => {
+  const objs = window.__pt.store.getState().map.layers.find(l=>l.type==='structure')?.objects ?? []
+  const n = objs.filter(o=>o.properties?.plotRotated).length
+  return `${n}/${objs.length} plots rotated`
+})
+console.log('ORIENTATION:', rot)
+const rej = await win.evaluate(() => window.__pt.placeStats?.() ?? {})
+console.log('PLACER REJECTIONS:', JSON.stringify(rej))
 await app.close()

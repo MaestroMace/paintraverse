@@ -6,6 +6,22 @@ import { isCirculation } from '../core/terrain'
 
 // === District System ===
 
+/**
+ * Why the building placer rejected each candidate, counted per run and read
+ * through the debug bridge by tools/genlog.mjs.
+ *
+ * The placement loop has several `continue`s and no way to see which one is
+ * firing. A change that made every candidate fail produced a town with zero
+ * buildings and NO exception — indistinguishable from "the placer ran and
+ * chose not to build". These make that distinguishable, and they are what
+ * showed that a failed plot-orientation attempt was placing 43 buildings and
+ * then losing them, rather than rejecting everything.
+ */
+export const placeStats: Record<string, number> = {}
+function rejected(reason: string): void {
+  placeStats[reason] = (placeStats[reason] ?? 0) + 1
+}
+
 type DistrictType = 'market' | 'residential' | 'artisan' | 'noble' | 'waterfront' | 'temple' | 'slum' | 'garden' | 'harbor' | 'fortress' | 'cemetery'
 
 interface District {
@@ -1022,6 +1038,7 @@ export class TownGenerator implements IMapGenerator {
     blockers: PlacedObject[] = []
   ): PlacedObject[] {
     const buildings: PlacedObject[] = []
+    for (const k of Object.keys(placeStats)) delete placeStats[k]
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
     this.markObjects(occupied, blockers, w, h)
     const maxDist = Math.sqrt(w * w + h * h) / 2
@@ -1089,7 +1106,7 @@ export class TownGenerator implements IMapGenerator {
       // not scattered plots.
       const continuityBonus = hasBuildingNeighbor(rx, ry) ? 0.7 : 0
       const acceptChance = distDensity * (1.0 - distNorm * 0.5) * density + continuityBonus
-      if (rng() > acceptChance) continue
+      if (rng() > acceptChance) { rejected('acceptChance'); continue }
 
       // Growth ring character: core gets bigger, taller buildings
       const ringChar = distNorm < 0.25 ? 'core' : distNorm < 0.5 ? 'middle' : 'outer'
@@ -1135,7 +1152,7 @@ export class TownGenerator implements IMapGenerator {
       }
 
       const bw = type.w, bh = type.h
-      if (rx + bw > w - 1 || ry + bh > h - 1) continue
+      if (rx + bw > w - 1 || ry + bh > h - 1) { rejected('offGrid'); continue }
 
       // Check if area is free
       let free = true
@@ -1144,7 +1161,7 @@ export class TownGenerator implements IMapGenerator {
           if (occupied[ry + dy]?.[rx + dx]) free = false
         }
       }
-      if (!free) continue
+      if (!free) { rejected('occupied'); continue }
 
       // Detect which side of the placed footprint faces a road. Counts road
       // tiles along each side; the side with the most wins. Ties resolve
