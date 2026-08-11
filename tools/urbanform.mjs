@@ -72,17 +72,44 @@ for (const seed of seeds) {
       const f = o.footprint ?? d?.footprint
       return f ? { w: f.w, h: f.h } : { w: 1, h: 1 }
     }
-    // built[y][x] = index of the building covering this tile, or -1
+    // A WALL IS NOT A BUILDING, and this tool counted them as one.
+    //
+    // The structure layer holds the town wall as well as the houses — roughly
+    // a hundred `stone_wall` / `crenellated_wall` segments per town, every one
+    // of them orthogonally touching the next. They were going into the same
+    // occupancy map as the buildings, which means they were counted as built
+    // coverage and, worse, as PARTY WALLS: a ring of wall segments is a
+    // hundred mutual "neighbours" and none of them is a terrace. That is very
+    // likely most of why this metric has read 93% against a 60-80% range and
+    // been written off as "above range, deliberately".
+    //
+    // Two maps now. A barrier still counts for ENCLOSURE and for fronting a
+    // street, because a churchyard wall genuinely does define the street edge
+    // — that is the whole Sitte argument for building them. It does not count
+    // as a building, because it is not one.
+    const isBarrier = (o) => {
+      const d = defs.find?.((x) => x.id === o.definitionId) ??
+        (defs[o.definitionId] ?? null)
+      return d?.category === 'infrastructure' ||
+        (d?.tags ?? []).includes('barrier')
+    }
     const built = Array.from({ length: H }, () => new Int16Array(W).fill(-1))
+    const barrier = Array.from({ length: H }, () => new Uint8Array(W))
+    let barrierCount = 0
     structs.forEach((o, idx) => {
       const f = fpOf(o)
+      const bar = isBarrier(o)
+      if (bar) barrierCount++
       for (let dy = 0; dy < f.h; dy++) {
         for (let dx = 0; dx < f.w; dx++) {
           const x = o.x + dx, y = o.y + dy
-          if (x >= 0 && y >= 0 && x < W && y < H) built[y][x] = idx
+          if (x < 0 || y < 0 || x >= W || y >= H) continue
+          if (bar) barrier[y][x] = 1
+          else built[y][x] = idx
         }
       }
     })
+    const buildingCount = structs.length - barrierCount
     const isRoad = (x, y) => {
       const t = terrain[y]?.[x]
       return t === 8 || t === 9
@@ -124,7 +151,7 @@ for (const seed of seeds) {
       }
       return false
     }
-    let frontageTotal = 0, frontageBuilt = 0
+    let frontageTotal = 0, frontageBuilt = 0, frontageWalled = 0
     const why = {}
     const bump = (k) => { why[k] = (why[k] ?? 0) + 1 }
     for (let y = 0; y < H; y++) {
@@ -135,13 +162,18 @@ for (const seed of seeds) {
           if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue
           if (isRoad(nx, ny) || isWater(nx, ny)) continue
           frontageTotal++
-          let hit = false
+          let hit = false, wallHit = false
           for (let k = 0; k < 2 && !hit; k++) {
             const px = x + dx * (k + 1), py = y + dy * (k + 1)
             if (px < 0 || py < 0 || px >= W || py >= H) break
             if (built[py][px] >= 0) hit = true
+            else if (barrier[py][px]) wallHit = true
           }
           if (hit) { frontageBuilt++; continue }
+          // A boundary wall fronts the street too — a churchyard or garden
+          // wall is exactly how a sparse quarter defines its edge. Counted
+          // separately so it can never be mistaken for a building.
+          if (wallHit) { frontageWalled++; continue }
 
           // Unbuilt. Which kind? Ordered most-defensible first, so a tile that
           // could be excused two ways is credited to the stronger excuse.
@@ -295,8 +327,8 @@ for (const seed of seeds) {
       }
     }
     return {
-      buildings: structs.length,
-      frontageTotal, frontageBuilt, why,
+      buildings: buildingCount, barriers: barrierCount,
+      frontageTotal, frontageBuilt, frontageWalled, why,
       touching: touches.size,
       land, landBuilt,
       widths: ratios,
@@ -330,12 +362,14 @@ for (const r of rows) {
 }
 
 const all = rows.reduce((a, r) => ({
-  b: a.b + r.buildings, ft: a.ft + r.frontageTotal, fb: a.fb + r.frontageBuilt,
+  b: a.b + r.buildings, bar: a.bar + r.barriers,
+  ft: a.ft + r.frontageTotal, fb: a.fb + r.frontageBuilt,
+  fw: a.fw + r.frontageWalled,
   t: a.t + r.touching, l: a.l + r.land, lb: a.lb + r.landBuilt,
   w: a.w.concat(r.widths), sb: a.sb.concat(r.setbacks),
   rw: a.rw.concat(r.roadWidths),
   open: a.open + r.openSides, sides: a.sides + r.sideSamples,
-}), { b: 0, ft: 0, fb: 0, t: 0, l: 0, lb: 0, w: [], sb: [], rw: [], open: 0, sides: 0 })
+}), { b: 0, ft: 0, fb: 0, t: 0, l: 0, lb: 0, w: [], sb: [], rw: [], open: 0, sides: 0, bar: 0, fw: 0 })
 
 // SETBACK is the term the placer owns. Street width = road width + both
 // setbacks, and the road carver already fixed the first part, so this is the
@@ -412,6 +446,8 @@ for (const k of ['N', 'S', 'E', 'W']) {
 console.log('\nWHAT A REAL WALLED TOWN LOOKS LIKE, for comparison:')
 console.log('  frontage with a building against it   ~85-95%   here: ' +
   pct(all.fb, all.ft) + '%')
+console.log(`  frontage fronted by a BOUNDARY WALL   (extra)    here: ` +
+  `${pct(all.fw, all.ft)}%  — ${all.bar} wall segments, counted separately`)
 console.log('  buildings sharing a party wall        ~60-80%   here: ' +
   pct(all.t, all.b) + '%')
 console.log('  built coverage of non-street land     ~50-70%   here: ' +

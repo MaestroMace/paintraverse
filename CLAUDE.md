@@ -926,10 +926,10 @@ Run these before believing anything about where the project is.
 | enclosure (to a WALL) | streets.mjs | median 3m, 0% over 15m | clean |
 | corridor width | streets.mjs | 4% of road over-wide, was 58% | clean |
 | street width | urbanform.mjs | 15m facade to facade vs 4-10m, was 12m | **regressed — see ledger** |
-| built coverage | urbanform.mjs | 48% vs 50-70% — see the district ledger below | slightly under |
+| built coverage | urbanform.mjs | 43% vs 50-70% (walls no longer counted as buildings) | under |
 | **district character** | **districts.mjs** | **55% of buildings distinctive to their quarter, was 26%** | **improving** |
-| party walls | urbanform.mjs | 93% vs 60-80% | above range, deliberately |
-| frontage occupancy | urbanform.mjs | **77% of ACHIEVABLE** frontage vs 85-95% (raw 67%) | near range |
+| party walls | urbanform.mjs | 89% vs 60-80% | above range, deliberately |
+| frontage occupancy | urbanform.mjs | **74% of ACHIEVABLE** frontage vs 85-95% (raw 65%) | near range |
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
 | prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
@@ -1033,6 +1033,17 @@ to re-measure, not to reason about which paths you covered.
 | achievable frontage | 82% | 77% | |
 | **street width** | **12m** | **15m** | **worse; target is 4-10m** |
 | party walls | 93% | 93% | |
+
+**Those figures all counted the town WALL as buildings.** `urbanform.mjs` read
+every structure-layer object into one occupancy map, and ~47 `stone_wall` /
+`crenellated_wall` segments per town went in with the houses — inflating built
+coverage by five points and, worse, party walls, because a ring of wall
+segments is a hundred mutual "neighbours" and not one of them is a terrace.
+Split into buildings and barriers, the same towns read **coverage 43%, party
+walls 89%, achievable frontage 74%**, with boundary walls reported on their own
+line. A barrier still counts as fronting a street — a churchyard wall really
+does define the street edge, which is the whole Sitte argument for building
+one — but it is not a building and must not be counted as one.
 
 The street-width regression is the one to take seriously — DESIGN.md calls it
 the single number separating a town from a field. It is a consequence, not a
