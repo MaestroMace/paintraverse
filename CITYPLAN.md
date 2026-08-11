@@ -163,6 +163,27 @@ about the water. Lynch's edge only works if it is legible from inside.
 *Grades: waterfront frontage occupancy; bridges per crossing; a new
 `tools/site.mjs`.*
 
+**PARTLY DONE — quay 19% -> 53% of the bank is walkable street.** `carveQuays`
+lays a lane along the bank inside the town, which does two jobs for one: it
+gives the river the hard edge Lynch's EDGE needs to be legible from inside,
+and because the building placer walks ROAD edges, the lane grows a frontage
+without touching the placer. Bridges 4 -> 10. Waterfront wall 78% -> 83%.
+
+**And a warning about that 78%.** The first cut of this metric asked "does a
+bank tile carry a building" and reported 7%, which reads as an empty riverside
+and is not one — the bank tile is normally the verge, and the building stands
+one tile back. Asking the same question urbanform asks of streets (a building
+within 2 tiles) says 78% before any change. The bank was never empty; it was
+UNWALKABLE. Two different problems, and the first metric named the wrong one.
+Note also that "buildings with their back to the water" gets WORSE as the quay
+improves, because a building fronting a quay no longer touches the river and
+drops out of the sample. A metric whose denominator your fix shrinks will lie
+to you.
+
+Still open here: the town is on the river but not OF it. There is no harbour,
+the waterfront is not a district, and nothing about the river explains why the
+town is where it is.
+
 ### 3. NODES WHERE PATHS MEET, NOT AT DISTRICT CENTRES
 
 A square belongs where roads converge, because that is where people already
