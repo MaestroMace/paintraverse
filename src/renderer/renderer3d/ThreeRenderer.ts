@@ -849,24 +849,58 @@ export class ThreeRenderer {
     // the offset spot), spiral outward to find the nearest free tile so
     // the player doesn't start wedged inside a wall.
     const cx = map.gridWidth / 2, cz = map.gridHeight / 2
-    let spawnX = cx - 10, spawnZ = cz - 10
-    if (this.collisionMask && this.isBlocked(spawnX, spawnZ)) {
+
+    // isBlocked takes WORLD units — it divides by TILE internally. Everything
+    // here is in TILES. Passing a tile coordinate to it therefore tested a
+    // point a THIRD of the way from the origin, i.e. somewhere else entirely,
+    // and the whole spawn-safety mechanism has been inoperative since the
+    // TILE = 3.0 rescale. Measured across sixteen seeds: five started the
+    // player inside a building and one in the river, and thirteen landed on
+    // the untouched default offset because the check fired, the spiral then
+    // searched the wrong neighbourhood too, found nothing in twelve rings,
+    // and fell out leaving the original blocked value in place.
+    //
+    // This is exactly the getTerrainHeight/groundYAtWorld mix-up recorded in
+    // CLAUDE.md, in a second place nobody swept. The conversion happens once,
+    // here, and every test below goes through it.
+    const freeAt = (tileX: number, tileZ: number): boolean =>
+      !this.isBlocked(tileX * TILE, tileZ * TILE)
+
+    // Test the position we will actually STAND on — the tile centre. The old
+    // code tested the corner and then spawned at the centre, which with a
+    // 0.35m collision disc covers a different set of tiles.
+    let spawnX = cx - 10 + 0.5, spawnZ = cz - 10 + 0.5
+    if (this.collisionMask && !freeAt(spawnX, spawnZ)) {
+      let found = false
       spiral:
-      for (let r = 1; r <= 12; r++) {
+      for (let r = 1; r <= 24; r++) {
         for (let dy = -r; dy <= r; dy++) {
           for (let dx = -r; dx <= r; dx++) {
             if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue // ring only
-            const sx = cx - 10 + dx, sz = cz - 10 + dy
-            if (!this.isBlocked(sx, sz)) {
-              spawnX = sx + 0.5; spawnZ = sz + 0.5
+            const sx = spawnX + dx, sz = spawnZ + dy
+            if (freeAt(sx, sz)) {
+              spawnX = sx; spawnZ = sz
+              found = true
               break spiral
             }
           }
         }
       }
-    } else {
-      // Nudge to tile center so the player starts centered on a tile.
-      spawnX += 0.5; spawnZ += 0.5
+      // A spiral that runs out of rings used to leave the player standing in
+      // whatever wall it started in. Sweep the whole map rather than give up:
+      // a town with nowhere at all to stand is a different bug, and this way
+      // it is the only way to still be stuck.
+      if (!found) {
+        let best = Infinity
+        for (let iz = 0; iz < map.gridHeight; iz++) {
+          for (let ix = 0; ix < map.gridWidth; ix++) {
+            const tx2 = ix + 0.5, tz2 = iz + 0.5
+            if (!freeAt(tx2, tz2)) continue
+            const d = (tx2 - cx) ** 2 + (tz2 - cz) ** 2
+            if (d < best) { best = d; spawnX = tx2; spawnZ = tz2 }
+          }
+        }
+      }
     }
     // spawnX/spawnZ and cx/cz are all TILE coordinates; the height map wants
     // tiles and the camera wants world, so the conversion happens right here
