@@ -784,7 +784,13 @@ export class TownGenerator implements IMapGenerator {
         // A river GATHERS: half a tile of radius at the source, two at the
         // mouth. sqrt so it broadens early and then steadies, which is how a
         // catchment actually behaves and reads better than a straight ramp.
-        const radius = 0.6 + Math.sqrt(t) * 1.7
+        // Reported from the phone as "wow, it's a grand canyon". The depth was
+        // modest (max 2.06m) — what read as a gorge was PROPORTION: a channel
+        // up to five tiles across is 15 metres of dark water at dusk with long
+        // graded ramps either side, which is a river valley, not a town river.
+        // A town sits on something you can shout across. 3.2 tiles at the
+        // mouth is ~10m, about the Cam at Cambridge.
+        const radius = 0.5 + Math.sqrt(t) * 1.1
         const ri = Math.ceil(radius)
         for (let dy = -ri; dy <= ri; dy++) {
           for (let dx = -ri; dx <= ri; dx++) {
@@ -824,8 +830,13 @@ export class TownGenerator implements IMapGenerator {
     // Height units are RAW here; TERRAIN_WORLD_SCALE (1.8) turns them into
     // metres later. 0.85 raw is ~1.5m of bank, which is the low end of a real
     // river and safely inside the 0..2.5 band generateHeightMap produces.
-    const BANK = 0.85
-    const BED = 0.45          // how far the bed drops below the waterline
+    // Halved after the "grand canyon" report. 0.42 raw is ~0.75m of bank and
+    // 0.28 is ~0.5m of bed, so the water sits ~1.25m below the land beside it
+    // — an embanked town river you could sit on the edge of, rather than a
+    // ravine. The first pass at 0.85/0.45 measured a perfectly healthy 1.14m
+    // MEDIAN, which is why the median alone was not enough to catch it.
+    const BANK = 0.42
+    const BED = 0.28          // how far the bed drops below the waterline
     const SKIRT = 3           // tiles over which the bank blends back to land
 
     // 1. A monotonically falling waterline along the course.
@@ -838,7 +849,7 @@ export class TownGenerator implements IMapGenerator {
     }
     // Guarantee a real fall even across flat ground, so the river reads as
     // going somewhere. Spread over the whole course rather than stepping.
-    const drop = 0.5
+    const drop = 0.35
     for (let i = 0; i < surface.length; i++) {
       surface[i] = Math.min(surface[i], surface[0] - (i / (surface.length - 1)) * drop)
     }
@@ -869,9 +880,17 @@ export class TownGenerator implements IMapGenerator {
           heightMap[y][x] = s - BED
           continue
         }
-        // Land near the channel: lift it to a bank, easing back to whatever
-        // the terrain already was over SKIRT tiles. Never LOWER existing
-        // ground — a river should not flatten the hill it runs past.
+        // Land near the channel is BLENDED toward the bank height — raised
+        // where the ground is low, and cut down where it is high.
+        //
+        // The first version only ever raised it, on the reasoning that a river
+        // should not flatten a hill it runs past. That is true of a landscape
+        // and false of a channel: where the course grazes high ground, leaving
+        // the land at 5.5 raw while cutting the bed to 0.5 is a slot canyon
+        // with a stream at the bottom. A real river erodes what it runs
+        // through. Blending both ways bounds the bank by construction, which
+        // is the guarantee the max-relief number could otherwise only report
+        // after the fact.
         let nearest = Infinity
         for (let dy = -SKIRT; dy <= SKIRT; dy++) {
           for (let dx = -SKIRT; dx <= SKIRT; dx++) {
@@ -882,9 +901,10 @@ export class TownGenerator implements IMapGenerator {
           }
         }
         if (!Number.isFinite(nearest)) continue
-        const ease = Math.max(0, 1 - nearest / (SKIRT + 1))
-        const bank = s + BANK * ease
-        if (bank > heightMap[y][x]) heightMap[y][x] = bank
+        // 1 at the water's edge, easing to 0 (untouched terrain) at SKIRT+1.
+        const ease = Math.max(0, Math.min(1, 1 - (nearest - 1) / SKIRT))
+        const bank = s + BANK
+        heightMap[y][x] = heightMap[y][x] * (1 - ease) + bank * ease
       }
     }
   }

@@ -254,6 +254,15 @@ for (const seed of seeds) {
       W, H, waterTiles, components: comps.length, mainLen: main.length,
       reliefMed: med(relief), reliefP90: relief.length
         ? relief.slice().sort((a, b) => a - b)[Math.floor(relief.length * 0.9)] : 0,
+      // THE MAX, because a median cannot see a canyon. The first carve read a
+      // perfectly reasonable 1.14m median and a phone screenshot came back of
+      // a gorge: where the course grazed high ground the bed was cut down and
+      // the land beside it was never cut down to meet it, so the worst tiles
+      // were many metres deep. A distribution with a fat tail and a healthy
+      // middle is exactly what one summary number hides.
+      reliefMax: relief.length ? Math.max(...relief) : 0,
+      gorgeShare: relief.length
+        ? relief.filter((v) => v > 3.5).length / relief.length : 0,
       flushShare: relief.length
         ? relief.filter((v) => v < 0.15).length / relief.length : 0,
       down, up, courseLen: maxD,
@@ -302,7 +311,10 @@ console.log(`  If the map has relief and the river does not, the channel was`)
 console.log(`  routed without consulting the height map. If NEITHER has relief,`)
 console.log(`  the terrain is flat and the river is not the thing to fix first.`)
 
-console.log(`\nBANK RELIEF     median ${f(avg('reliefMed'))}m, p90 ${f(avg('reliefP90'))}m`)
+console.log(`\nBANK RELIEF     median ${f(avg('reliefMed'))}m, p90 ${f(avg('reliefP90'))}m, ` +
+  `MAX ${f(avg('reliefMax'))}m`)
+console.log(`  ${Math.round(avg('gorgeShare') * 100)}% of water tiles sit more than 3.5m below their`)
+console.log(`  banks — that is a gorge, not a river, and the median cannot see it.`)
 console.log(`  How far the water sits BELOW the land beside it. THIS IS THE`)
 console.log(`  "painted floor" COMPLAINT. The 3D water surface is built from the`)
 console.log(`  same corner heights as the ground (TerrainMesh, deliberately, so`)

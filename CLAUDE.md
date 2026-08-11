@@ -176,6 +176,21 @@ them named `dressEmptyStreets`, so the prop did not take the plot — the plot
 was empty and the prop was sent to cover it. Same reading, opposite verdict,
 and only the pipeline order distinguishes them.
 
+**A median cannot see a canyon — report the tail of anything you carve.**
+The first river carve measured a perfectly healthy 1.14m median bank relief
+and a phone screenshot came back captioned "wow, it's a grand canyon". Adding
+the MAX to the tool showed 2.06m, and the real culprit was PROPORTION rather
+than depth: a channel five tiles across is 15m of dark water at dusk with long
+graded ramps either side. When a change reshapes terrain, one summary number
+is never enough — a fat tail and a healthy middle look identical in a median.
+
+**A clamp that only pushes one way is not a clamp.** The bank carve only ever
+RAISED land, reasoning that a river should not flatten a hill it runs past.
+True of a landscape, false of a channel: where the course grazed high ground,
+the bed was cut down and the land was left towering, which is a slot canyon
+with a stream in it. Blending both ways bounds the result by construction
+instead of reporting it afterwards.
+
 **Report the honest aggregate.** Vista termination went 3% -> 17% on seed
 4242 and 6% -> 8% across three seeds. The three-seed number is the result.
 
@@ -933,7 +948,7 @@ Run these before believing anything about where the project is.
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
 | prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
-| **the river** | **river.mjs** | **bank relief 1.14m (was 0.03m), drop +3.2m (was -0.1m)** | **fixed** |
+| **the river** | **river.mjs** | **bank relief 0.71m med / 1.23m max (was 0.03m), drop +2.9m** | **fixed** |
 | river severance | site.mjs | 0 of 5 seeds have an unreachable district, was 2 | clean |
 | **360-degree read** | **allsides.mjs** | **flank/front 0.74 / 0.51 on two seeds, was 0.42 / 0.28** | **improving** |
 
@@ -1316,12 +1331,13 @@ parcels own their frontage.
 
 The whole device problem list is fixed. What is left:
 
-0. **Verify on real hardware.** The scale change is the largest single edit
-   this project has taken and every screenshot of it is SwiftShader software
-   rendering. Get a debug dump from the phone. Specifically watch draw calls:
-   the shadow frustum went from covering six tiles to ten, and every caster
-   inside it is a shadow-pass draw. The last real-hardware number was 104 FPS
-   at 202 draws, before that change.
+0. **Real hardware: MEASURED, and it is fine.** A phone screenshot reports
+   **106 FPS at 998 draws** at dusk. That closes the question this item has
+   been asking since the tile rescale. Draw calls have gone 202 -> 998 across
+   the whole arc and the frame rate did not care, so stop treating the draw
+   count as the budget — `tools/budget.mjs` and its texture-MB line are the
+   number to watch on a phone, not draws. Note the SwiftShader figures in
+   agent screenshots (3-5 FPS) are ~30x pessimistic and mean nothing.
 1. **Ground-level life is thin.** Streets are lit and kerb-dressed now, but
    the walkable space could still carry more. Highest aesthetic payoff.
 2. **Only ~7 of ~200 buildings are trade types**, and market districts are
