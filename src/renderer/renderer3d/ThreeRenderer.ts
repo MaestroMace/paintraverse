@@ -667,7 +667,7 @@ export class ThreeRenderer {
     if (terrainLayer?.terrainTiles) {
       const terrainGroup = buildTerrainMesh(
         terrainLayer.terrainTiles, map.gridWidth, map.gridHeight, seed,
-        terrainLayer.heightMap ?? null)
+        terrainLayer.heightMap ?? null, terrainLayer.waterLevel ?? null)
       this.terrainGroup.add(terrainGroup)
       heightMap = (terrainGroup as any)._heightMap ?? null
     }

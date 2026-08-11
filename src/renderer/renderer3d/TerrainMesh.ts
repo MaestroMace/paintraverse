@@ -147,6 +147,7 @@ function cornerHeightNoise(cx: number, cy: number): number {
 export function buildTerrainMesh(
   tiles: number[][], gridWidth: number, gridHeight: number, seed: number = 0,
   suppliedHeightMap?: number[][] | null,
+  waterLevel?: number[][] | null,
 ): THREE.Group {
   const group = new THREE.Group()
   // The generator's map when the layer carries one. It is the terrain the
@@ -158,7 +159,7 @@ export function buildTerrainMesh(
 
   group.add(buildGroundWithHeight(tiles, gridWidth, gridHeight, heightMap))
   group.add(buildRetainingWalls(tiles, gridWidth, gridHeight, heightMap))
-  group.add(buildWaterMesh(tiles, gridWidth, gridHeight, heightMap))
+  group.add(buildWaterMesh(tiles, gridWidth, gridHeight, heightMap, waterLevel))
   // Road surfaces: a separate textured mesh overlaid on the ground tiles,
   // kills the tile-grid appearance by showing a continuous cobble pattern
   // across adjacent road tiles. Pucks are gone — the texture alone sells
@@ -189,18 +190,27 @@ function buildGroundWithHeight(
   for (let ty = 0; ty < gridHeight; ty++) {
     for (let tx = 0; tx < gridWidth; tx++) {
       const tileId = tiles[ty]?.[tx] ?? 0
-      if (tileId === 3) continue // water handled separately — don't advance vi
-
-      const color = new THREE.Color(TERRAIN_COLORS[tileId] ?? 0x808080)
+      // Water tiles used to be SKIPPED, leaving a hole in the terrain that the
+      // translucent surface quad covered over. That is why the shoreline had
+      // no bank: there was no geometry between the top of the land and the
+      // water, so the only thing joining them was the water quad itself, whose
+      // corners take the LAND height (terrainCornerY samples the corner's own
+      // tile). The channel existed in the height field and was invisible.
+      //
+      // Now the riverbed is drawn as ordinary ground in a silt colour. The
+      // bank falls to it as real triangles, and the water surface floats
+      // separately at its waterline. Two surfaces, which is what a river is.
+      const isBed = tileId === 3
+      const color = new THREE.Color(isBed ? 0x4a4034 : (TERRAIN_COLORS[tileId] ?? 0x808080))
       const tileH = getTerrainHeight(heightMap, tx, ty)
 
       // Elevation-based color shift: high ground gets a grey/rocky bias,
       // low ground stays saturated. Only applied to natural tiles (grass,
       // dirt, gravel, garden, wildflower); roads/cobblestone keep their
       // designed color.
-      const isNatural = tileId === 0 || tileId === 1 || tileId === 4 ||
+      const isNatural = !isBed && (tileId === 0 || tileId === 1 || tileId === 4 ||
         tileId === 5 || tileId === 6 || tileId === 7 || tileId === 10 ||
-        tileId === 11 || tileId === 12 || tileId === 13
+        tileId === 11 || tileId === 12 || tileId === 13)
       let r = color.r, g = color.g, b = color.b
       if (isNatural) {
         const normH = Math.min(1, tileH / 6) // 0 at valley, ~1 at peak
@@ -388,7 +398,7 @@ export function tickWater(time: number): void {
 
 function buildWaterMesh(
   tiles: number[][], gridWidth: number, gridHeight: number,
-  heightMap: number[][]
+  heightMap: number[][], waterLevel?: number[][] | null
 ): THREE.Mesh {
   // === WHY THIS IS NOT ONE FLAT QUAD PER TILE ===
   //
@@ -408,18 +418,54 @@ function buildWaterMesh(
   // as the ground, so it seams exactly with the banks — no step between water
   // tiles, no gap at the shoreline. A darker opaque bed sits below it so the
   // translucent surface has something to read against instead of the skybox.
+  // THE SURFACE SITS AT A WATERLINE, not on the ground.
+  //
+  // It used to be built from terrainCornerY like the ground, which was right
+  // for the crack it was fixing and wrong for everything else: that function
+  // samples the height field at the corner's OWN tile, so a water tile with a
+  // land neighbour takes the LAND height at that corner and the surface ramps
+  // up out of its channel at every shoreline. Photographed, the water met a
+  // quay at a knife edge with no bank — while the tile-centre measurement
+  // happily reported 0.71m of relief. The channel was in the data and not on
+  // the screen.
+  //
+  // `waterLevel` carries the real waterline from the carve. Where it is
+  // absent — ponds, hand-drawn water — fall back to the ground height, which
+  // is exactly the old flush behaviour, so nothing that looked right changes.
+  //
+  // Corners take the MINIMUM level of the water tiles meeting there and never
+  // consult land, so the surface is level across the channel and stops dead at
+  // the shore instead of climbing the bank. The bank itself is now real ground
+  // geometry (the bed is drawn by buildGroundWithHeight), so there is nothing
+  // to see through.
+  const levelAt = (tx: number, tz: number): number | null => {
+    if (tiles[tz]?.[tx] !== 3) return null
+    const raw = waterLevel?.[tz]?.[tx]
+    if (raw === undefined || Number.isNaN(raw)) {
+      return getTerrainHeight(heightMap, tx, tz) 
+    }
+    return raw * TERRAIN_WORLD_SCALE
+  }
+  const cornerLevel = (cx: number, cz: number): number => {
+    let best = Infinity
+    for (const [dx, dz] of [[0, 0], [-1, 0], [0, -1], [-1, -1]] as const) {
+      const v = levelAt(cx + dx, cz + dz)
+      if (v !== null && v < best) best = v
+    }
+    return Number.isFinite(best) ? best : 0
+  }
   const positions: number[] = []
   const bedPositions: number[] = []
-  const BED_DEPTH = 0.45
+  const BED_DEPTH = 0.35
   for (let ty = 0; ty < gridHeight; ty++) {
     for (let tx = 0; tx < gridWidth; tx++) {
       if (tiles[ty]?.[tx] !== 3) continue
       const cx0 = tx, cx1 = tx + 1, cz0 = ty, cz1 = ty + 1
       const x0 = cx0 * TILE, x1 = cx1 * TILE, z0 = cz0 * TILE, z1 = cz1 * TILE
-      const y00 = terrainCornerY(heightMap, cx0, cz0)
-      const y10 = terrainCornerY(heightMap, cx1, cz0)
-      const y01 = terrainCornerY(heightMap, cx0, cz1)
-      const y11 = terrainCornerY(heightMap, cx1, cz1)
+      const y00 = cornerLevel(cx0, cz0)
+      const y10 = cornerLevel(cx1, cz0)
+      const y01 = cornerLevel(cx0, cz1)
+      const y11 = cornerLevel(cx1, cz1)
       // Same diagonal as buildGroundWithHeight — (0,0)->(1,1) — so shared
       // edges are shared exactly and never crack.
       positions.push(x0, y00, z0, x1, y11, z1, x1, y10, z0)

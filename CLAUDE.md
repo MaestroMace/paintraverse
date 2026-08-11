@@ -176,6 +176,19 @@ them named `dressEmptyStreets`, so the prop did not take the plot — the plot
 was empty and the prop was sent to cover it. Same reading, opposite verdict,
 and only the pipeline order distinguishes them.
 
+**Photograph what you carve. The number and the picture were measuring
+different surfaces.** river.mjs read bank relief against `heightAt()`, which
+under a water tile is the BED — so every figure was land-to-bed, deeper than
+anything an eye can see. Worse, the SURFACE was drawn from `terrainCornerY`,
+which samples the height field at the corner's own tile: a water tile beside
+land takes the LAND height at that corner, so the water ramped up out of its
+channel at every shoreline and met the quay flush. The tool reported 0.71m of
+relief and the photograph showed a knife edge, and both were honest about the
+thing they were looking at. Anything that reshapes terrain needs a screenshot
+from standing height, and `tools/rivershot.mjs` picks a vantage that is
+actually standable because `flyTo` does not test occupancy — three attempts in
+a row landed inside a building.
+
 **A median cannot see a canyon — report the tail of anything you carve.**
 The first river carve measured a perfectly healthy 1.14m median bank relief
 and a phone screenshot came back captioned "wow, it's a grand canyon". Adding
@@ -948,7 +961,7 @@ Run these before believing anything about where the project is.
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
 | prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
-| **the river** | **river.mjs** | **bank relief 0.71m med / 1.23m max (was 0.03m), drop +2.9m** | **fixed** |
+| **the river** | **river.mjs** | **bank relief 0.67m med / 1.28m max (was 0.03m), drop +3.6m** | **fixed** |
 | river severance | site.mjs | 0 of 5 seeds have an unreachable district, was 2 | clean |
 | **360-degree read** | **allsides.mjs** | **flank/front 0.74 / 0.51 on two seeds, was 0.42 / 0.28** | **improving** |
 
@@ -1452,6 +1465,12 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   changes bytes and not one object. The seed is pinned; to A/B against another
   commit, stash `src/renderer/renderer3d/`, check the old files out, rebuild,
   and run it again on the same seed.
+- `node tools/rivershot.mjs [seed] [--time=]` — **stand on the bank and LOOK.**
+  river.mjs measures the channel; this photographs it, and both are needed:
+  the carve measured a healthy bank and the phone came back with a picture of
+  a gorge. It picks a standable vantage with clear ground between it and the
+  water, because flyTo does not test occupancy and a naive camera lands inside
+  a building.
 - `node tools/river.mjs [seeds...]` — **is the river a river, or blue paint on
   the floor?** Bank relief (how far the water sits BELOW the land beside it),
   descent from source to mouth, width profile, how many separate bodies of

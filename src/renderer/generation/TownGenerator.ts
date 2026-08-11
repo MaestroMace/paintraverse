@@ -300,7 +300,12 @@ export class TownGenerator implements IMapGenerator {
     // 3. Water channels as natural district dividers
     // heightMap goes IN, and comes back with a valley cut into it. The river
     // used to be routed without it entirely — see generateWaterChannels.
-    const waterMap = this.generateWaterChannels(width, height, noise, rng, complexity, heightMap)
+    // NaN = "no explicit waterline here", which the renderer reads as flush.
+    // Ponds keep that; the carved river fills it in.
+    const waterLevel = Array.from({ length: height },
+      () => Array.from({ length: width }, () => Number.NaN))
+    const waterMap = this.generateWaterChannels(
+      width, height, noise, rng, complexity, heightMap, waterLevel)
     this.paintWater(terrainTiles, waterMap, width, height, noise)
 
     // 3b. Natural ponds in low-lying areas (organic water bodies)
@@ -556,7 +561,7 @@ export class TownGenerator implements IMapGenerator {
       id: uuid(), name: 'Terrain', type: 'terrain',
       // heightMap travels WITH the terrain, so the renderer draws the ground
       // this generator actually planned on — including the river valley.
-      visible: true, locked: false, objects: [], terrainTiles, heightMap
+      visible: true, locked: false, objects: [], terrainTiles, heightMap, waterLevel
     }
     const structureLayer: MapLayer = {
       id: uuid(), name: 'Structures', type: 'structure',
@@ -686,7 +691,7 @@ export class TownGenerator implements IMapGenerator {
    */
   private generateWaterChannels(
     w: number, h: number, noise: SimplexNoise, rng: () => number, complexity: number,
-    heightMap: number[][]
+    heightMap: number[][], waterLevel: number[][]
   ): boolean[][] {
     const waterMap = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
     const numChannels = complexity > 0.3 ? Math.floor(1 + complexity) : 0
@@ -802,7 +807,7 @@ export class TownGenerator implements IMapGenerator {
         }
       }
 
-      this.carveRiverBed(path, waterMap, heightMap, w, h)
+      this.carveRiverBed(path, waterMap, heightMap, w, h, waterLevel)
     }
     return waterMap
   }
@@ -824,7 +829,7 @@ export class TownGenerator implements IMapGenerator {
   private carveRiverBed(
     path: { x: number; y: number }[],
     waterMap: boolean[][], heightMap: number[][],
-    w: number, h: number
+    w: number, h: number, waterLevel: number[][]
   ): void {
     if (path.length < 2) return
     // Height units are RAW here; TERRAIN_WORLD_SCALE (1.8) turns them into
@@ -835,9 +840,20 @@ export class TownGenerator implements IMapGenerator {
     // — an embanked town river you could sit on the edge of, rather than a
     // ravine. The first pass at 0.85/0.45 measured a perfectly healthy 1.14m
     // MEDIAN, which is why the median alone was not enough to catch it.
-    const BANK = 0.42
-    const BED = 0.28          // how far the bed drops below the waterline
-    const SKIRT = 3           // tiles over which the bank blends back to land
+    // Tuned against the VISIBLE waterline, which took two rounds to measure
+    // properly. river.mjs reported relief against heightAt(), and under water
+    // that is the BED — so every figure was land-to-bed, deeper than anything
+    // the eye sees. Land-to-waterline is what the complaint was about.
+    //
+    // Back-computing the version that got called a grand canyon: it had only
+    // ~0.75m of visible bank. The gorge was never depth, it was PROPORTION —
+    // fifteen metres of channel with a nine-metre graded ramp either side. So
+    // with the width already down to three tiles, the bank can be a proper
+    // quay edge again: 0.75 raw is ~1.35m, and a shorter SKIRT makes it read
+    // as an edge rather than an embankment.
+    const BANK = 0.75
+    const BED = 0.32          // how far the bed drops below the waterline
+    const SKIRT = 2           // tiles over which the bank blends back to land
 
     // 1. A monotonically falling waterline along the course.
     const surface: number[] = []
@@ -876,8 +892,12 @@ export class TownGenerator implements IMapGenerator {
         const s = level[y][x]
         if (Number.isNaN(s)) continue
         if (waterMap[y][x]) {
-          // The bed. Below the waterline so the channel has depth to read.
+          // The bed goes into the height map; the WATERLINE goes into its own
+          // map. The renderer needs both — the bed is what the bank falls to,
+          // the waterline is where the surface sits — and it cannot infer the
+          // second from the first.
           heightMap[y][x] = s - BED
+          waterLevel[y][x] = s
           continue
         }
         // Land near the channel is BLENDED toward the bank height — raised

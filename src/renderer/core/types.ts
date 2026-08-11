@@ -40,6 +40,21 @@ export interface MapLayer {
    * for maps that predate this field.
    */
   heightMap?: number[][]
+  /**
+   * The WATERLINE per tile, raw units, meaningful only where the terrain is
+   * water. Absent entries mean "flush with the ground", which is what ponds
+   * and hand-drawn water get.
+   *
+   * It has to be stored rather than derived because the renderer cannot know
+   * it: `terrainCornerY` samples the height field at the corner's own tile, so
+   * a water tile bordering land takes the LAND height at that corner and the
+   * water surface ramps up out of its own channel at every shoreline. The
+   * carve puts a real valley in the height map and the shoreline smeared it
+   * away — measured 0.71m of bank relief in the tile centres, and photographed
+   * a knife-edge flush waterline. This is the level the surface actually sits
+   * at, independent of the ground under it.
+   */
+  waterLevel?: number[][]
 }
 
 export type LayerType = 'terrain' | 'structure' | 'prop' | 'road' | 'water' | 'custom'

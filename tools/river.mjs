@@ -73,6 +73,18 @@ for (const seed of seeds) {
     if (!terrain) return null
     const H = terrain.length, W = terrain[0].length
     const isWater = (x, y) => terrain[y]?.[x] === 3
+    // THE VISIBLE waterline, not the bed. heightAt() returns the TERRAIN
+    // height, and under a water tile that is the riverbed — which the carve
+    // deliberately puts below the surface. So every relief figure this tool
+    // printed was land-to-BED, deeper than anything the eye can see. What the
+    // player looks at is land-to-WATERLINE, and the layer carries it.
+    const wl = map.layers.find((l) => l.type === 'terrain')?.waterLevel
+    const TERRAIN_WORLD_SCALE = 1.8
+    const surfaceAt = (x, y) => {
+      const raw = wl?.[y]?.[x]
+      if (raw === undefined || raw === null || Number.isNaN(raw)) return hAt(x, y)
+      return raw * TERRAIN_WORLD_SCALE
+    }
     // heightAt takes TILE coordinates and returns METRES. Sampling tile
     // centres so a value is never an interpolation between land and water.
     let heightUnavailable = false
@@ -116,7 +128,8 @@ for (const seed of seeds) {
     // is the LAND around it? Measured against the nearest non-water tiles
     // rather than a fixed ring, so a wide river is judged by its banks and
     // not by the middle of its own channel.
-    const relief = []
+    const relief = []      // land to WATERLINE — what you see
+    const bedRelief = []   // land to BED — how deep the channel is cut
     for (const [x, y] of main) {
       let best = null
       for (let rad = 1; rad <= 3 && best === null; rad++) {
@@ -132,7 +145,10 @@ for (const seed of seeds) {
         }
         if (n >= 3) best = sum / n
       }
-      if (best !== null) relief.push(best - hAt(x, y))
+      if (best !== null) {
+        relief.push(best - surfaceAt(x, y))
+        bedRelief.push(best - hAt(x, y))
+      }
     }
 
     // --- the course, ordered ---------------------------------------------
@@ -261,6 +277,7 @@ for (const seed of seeds) {
       // were many metres deep. A distribution with a fat tail and a healthy
       // middle is exactly what one summary number hides.
       reliefMax: relief.length ? Math.max(...relief) : 0,
+      bedMed: med(bedRelief), bedMax: bedRelief.length ? Math.max(...bedRelief) : 0,
       gorgeShare: relief.length
         ? relief.filter((v) => v > 3.5).length / relief.length : 0,
       flushShare: relief.length
@@ -312,7 +329,9 @@ console.log(`  routed without consulting the height map. If NEITHER has relief,`
 console.log(`  the terrain is flat and the river is not the thing to fix first.`)
 
 console.log(`\nBANK RELIEF     median ${f(avg('reliefMed'))}m, p90 ${f(avg('reliefP90'))}m, ` +
-  `MAX ${f(avg('reliefMax'))}m`)
+  `MAX ${f(avg('reliefMax'))}m   (land to WATERLINE — what you see)`)
+console.log(`CHANNEL DEPTH   median ${f(avg('bedMed'))}m, max ${f(avg('bedMax'))}m   ` +
+  `(land to BED — how deep it is cut)`)
 console.log(`  ${Math.round(avg('gorgeShare') * 100)}% of water tiles sit more than 3.5m below their`)
 console.log(`  banks — that is a gorge, not a river, and the median cannot see it.`)
 console.log(`  How far the water sits BELOW the land beside it. THIS IS THE`)
