@@ -1234,6 +1234,18 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   broken, and read a comfortable 0.79 while both flanks were flat untextured
   colour. Read its sensitivity note: it cannot grade a feature that only 4% of
   buildings carry, and the same build read 0.28 at n=14 and 0.79 at n=30.
+- `node tools/budget.mjs [seed]` — **what this build COSTS.** Meshes,
+  multi-material meshes, triangles, and live texture SURFACE in MB. Every
+  other tool grades whether the town is right; none grades what it costs to
+  draw, and the target is a phone. Written after finishing all four walls of
+  every building took facade texture surface 78.9MB -> 150MB with **no change
+  in draw calls at all** — a multi-material box costs one draw per geometry
+  group however many distinct materials the array holds, so material-count
+  regressions are invisible there. Watch the MB, not the count:
+  `info.memory.textures` counts texture OBJECTS, so authoring a face coarser
+  changes bytes and not one object. The seed is pinned; to A/B against another
+  commit, stash `src/renderer/renderer3d/`, check the old files out, rebuild,
+  and run it again on the same seed.
 - `node tools/features.mjs [seeds...]` — **a census of every gated piece of
   street dressing**, with its rate and its SPREAD across districts. Catches
   the two silent failures: a GHOST that is gated into nonexistence, and

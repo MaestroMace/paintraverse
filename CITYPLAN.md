@@ -514,9 +514,65 @@ to a rear corner** — it was 65% biased to the FRONT with the reasoning "that's
 where the player most often sees the building", which is the assumption this
 entire item is about.
 
+Those fire on 7% (outshot), 11% (chimney breast) and 1% (buttress), which is
+below what `allsides.mjs` resolves at n=30, so **no delta is claimed for
+them** — the ivy lesson, applied to my own work this time. What did the work
+was the facade, which touches every building.
+
+The gate reject-counters are the reason those rates are understood rather than
+guessed at. Tally the CLAUSE that rejected each candidate, not just the passes,
+and one census run says which one is starving the feature:
+
+- `chimneyBreast` was deriving its candidate walls by filtering the buttress's
+  list, so it inherited the buttress's stricter clearance test and its own
+  looser threshold could never take effect. 5% -> 11% once computed from
+  `sideRoom` directly. **A gate derived from another gate inherits its
+  constraints silently.**
+- `rearOutshot` reported `noRoomBehind` on 55% of eligible buildings, and
+  widening the reach to 0.45m (inside the MAX_OVERHANG budget) moved it by
+  one building. `backRoom` is ~0 for two thirds of the town. A scullery needs
+  a yard the building OWNS, so this one is genuinely **blocked on the plot
+  system** — not on a bigger overhang budget, and forcing it with one would
+  reintroduce the geometry-through-neighbours defect MAX_OVERHANG exists to
+  prevent.
+
 Still unbuilt from the original list: the external stair, and the party-wall
 gap features (washing lines between buildings) — those need a neighbour, so
-they belong with the plot work, not here.
+they belong with the plot work too.
+
+### What it cost, and the tool that found out
+
+Finishing twice as many walls is not free and nothing here was measuring it.
+`tools/budget.mjs` (new, seeded) reports meshes, multi-material meshes,
+triangles and — the number that mattered — live texture SURFACE in MB.
+
+| | before | after |
+|---|---|---|
+| building meshes | 325 | 390 |
+| building triangles | 243,892 | 251,154 |
+| **facade texture surface** | **78.9 MB** | **102.7 MB** |
+
+Two things about that which generalise:
+
+- **The draw-call count could not see it.** A BoxGeometry with a material
+  array costs one draw per geometry group — six for a box — whether the six
+  slots hold two distinct materials or four. So going from two finished walls
+  to four registered as zero in the metric everybody watches while
+  quadrupling texture objects.
+- **The obvious lever was the wrong one.** Lowering the flanks' authoring
+  resolution barely moved `info.memory.textures`, because that counts texture
+  OBJECTS and resolution changes BYTES. The tool had to be taught to walk the
+  live materials and sum actual surface before it could grade its own fix.
+
+The saving came from capping the longest canvas edge at 256px and deriving
+pixels-per-metre from it, worth 47MB alone. It costs the ordinary town
+nothing — a wall under 8m still gets the full 32 px/m, so only landmark walls
+coarsen — and it was **only possible because the window grid is fractional
+now**. While three places computed openings from pixel constants,
+pixels-per-metre was load-bearing and could not vary per building.
+
+Real-hardware verification is still open (CLAUDE.md item 0); 102.7MB is a
+desktop-measured figure and the phone is the machine that decides.
 
 *Grades: allsides.mjs FLANK/front ratio, target 0.6+. Use --n=30 or more, and
 read the usable count before believing a delta. Do not go back to a

@@ -17,7 +17,9 @@ import { volumeFloors } from './Massing'
 import { buildRoof, eaveProjFor, gableMath } from './Roofs'
 import type { BatchedMeshBuilder } from '../BatchedMeshBuilder'
 import type { FacadeConfig, FacadeFace } from '../FacadeTexture'
-import { createFacadeTexture, createEmissiveTexture, facadeOpenings } from '../FacadeTexture'
+import {
+  createFacadeTexture, createEmissiveTexture, facadeOpenings, quantizeWallM,
+} from '../FacadeTexture'
 
 function rand01(hash: number, salt: number): number {
   const n = (hash * 2654435761 + salt * 1597334677) >>> 0
@@ -345,8 +347,8 @@ export function emitVolume(
         // Both in METRES, quantised to half a metre so the texture cache stays
         // bounded. The facade lays itself out in real dimensions now, so these
         // have to be the wall's real size — not a floor count and not tiles.
-        width: Math.max(1, Math.round(v.width * 2) / 2),
-        wallH: Math.max(1.5, Math.round(v.height * 2) / 2),
+        width: quantizeWallM(v.width, 'front'),
+        wallH: quantizeWallM(v.height, 'front', 1.5),
         wallColor: v.wallColor,
         roofColor: v.roofColor,
         doorColor: ctx.palette.door,
@@ -373,7 +375,8 @@ export function emitVolume(
       // widths are metres and quantised to 0.5m to keep the cache bounded.
       const sideCfg: FacadeConfig = {
         ...cfg,
-        width: Math.max(1, Math.round(v.depth * 2) / 2),
+        width: quantizeWallM(v.depth, 'side'),
+        wallH: quantizeWallM(v.height, 'side', 1.5),
       }
       const frontMat = getFacadeMat(cfg, 'front')
       const backMat = getFacadeMat(cfg, 'back')
@@ -793,9 +796,10 @@ export function emitVolume(
       // Same quantisation the FacadeConfig applies, so the column count here
       // cannot differ from the painted one.
       const spanWorld = acrossZ ? v.width : v.depth
-      const quantW = Math.max(1, Math.round(spanWorld * 2) / 2)
-      const quantH = Math.max(1.5, Math.round(v.height * 2) / 2)
-      const cells = facadeOpenings(floors, quantW, quantH, face, wallColor)
+      const cells = facadeOpenings(floors,
+        quantizeWallM(spanWorld, face),
+        quantizeWallM(v.height, face, 1.5),
+        face, wallColor)
       if (cells.length === 0) continue
       const lowest = cells[0].floor
       for (const c of cells) {

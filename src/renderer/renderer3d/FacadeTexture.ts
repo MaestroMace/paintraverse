@@ -62,6 +62,61 @@ export type FacadeFace = 'front' | 'side' | 'back'
 
 /** Texture pixels per METRE. Both canvas axes are metric — see createFacadeTexture. */
 const TEXTURE_SCALE = 32
+
+/**
+ * Authoring resolution follows how closely a face is inspected.
+ *
+ * Finishing all four walls took the live facade surface from 78.9MB to 150MB
+ * on a seed-4242 town (tools/budget.mjs, seeded), because at 32 px/m a 6x9m
+ * wall is a 221KB RGBA surface and there are now three of them per volume
+ * instead of one. That is nothing on a desktop and it is the phone that cares
+ * — the same machine CLAUDE.md keeps pointing at for the shadow budget. With
+ * this and MAX_TEX_PX below it lands at 102.7MB: +30% for twice the walls.
+ *
+ * A front elevation is read at three feet and keeps full resolution. A back
+ * is read across a yard and a flank down an alley, so they are authored
+ * coarser: (20/32)^2 and (14/32)^2 of the memory, which is 0.39x and 0.19x.
+ *
+ * This is only safe because the window layout is expressed in FRACTIONS of
+ * the wall now — changing pixels per metre cannot move an opening. Before
+ * that refactor this constant was load-bearing for three separate hand-kept
+ * copies of the layout and could not have been touched.
+ *
+ * The other lever, cache CARDINALITY, is deliberately NOT pushed further. The
+ * flank quantises to whole metres and no coarser: the canvas is stretched
+ * over the real wall, so rounding a 3m flank up to a 4m authoring size shrinks
+ * its painted window to 0.75m. At 1m steps the worst case stays inside the
+ * 0.7-1.4m humanscale.mjs accepts; at 2m steps it does not, and that is the
+ * exact bug the metric-facade arc was fought over.
+ */
+function faceScale(face: FacadeFace): number {
+  return face === 'front' ? TEXTURE_SCALE : (face === 'back' ? 20 : 14)
+}
+
+/**
+ * Longest edge any facade canvas may have, in pixels.
+ *
+ * A fixed pixels-per-metre means a big wall gets a big texture, and the cost
+ * is quadratic: at 32 px/m a cathedral's 12x30m flank is 384x960x4 = 1.4MB
+ * for ONE wall. Measured with tools/budget.mjs, the town's live facade
+ * surface was 78.9MB before this round even with only two faces drawn — the
+ * handful of landmark walls dominate it. This cap is worth 47MB on its own
+ * (150 -> 102.7) and costs the ordinary town nothing: a wall under 8m still
+ * gets the full 32 px/m, so every row house is untouched and only the
+ * landmarks are coarsened.
+ *
+ * Capping the LONGEST EDGE and deriving pixels-per-metre from that keeps the
+ * scaling uniform, so nothing in the drawing distorts; a big wall simply gets
+ * a coarser metre. It only became possible with the fractional window grid:
+ * while three separate places computed openings from pixel constants, the
+ * pixels-per-metre figure was load-bearing and could not vary per building.
+ */
+const MAX_TEX_PX = 256
+
+/** Effective pixels per metre for this face at this size. */
+function metricScale(face: FacadeFace, wallWm: number, wallHm: number): number {
+  return Math.min(faceScale(face), MAX_TEX_PX / Math.max(wallWm, wallHm))
+}
 const STOREY_M = STOREY_HEIGHT
 const _textureCache = new Map<string, THREE.CanvasTexture>()
 
@@ -183,6 +238,27 @@ interface WinCell {
  */
 const WIN_W_M = 1.0, WIN_H_M = 1.35, SILL_M = 0.95, WIN_PITCH_M = 2.4
 
+/**
+ * Quantise a wall dimension in METRES for cache identity.
+ *
+ * Every distinct value here is another facade texture, another material, and
+ * — because coalesceWalls buckets by the material array — one less merged
+ * wall mesh. Giving the flanks their own textures cost 118 draw calls on a
+ * seed-4242 walkthrough (622 -> 740) purely in lost merges, so the flank
+ * quantises to whole metres where the front and back keep half. A flank is
+ * looked at from further away and across fewer of its openings; spending the
+ * same cache budget on it as on the composed elevation is not a trade worth
+ * making on a phone.
+ *
+ * Both the texture and the 3D window trim must quantise IDENTICALLY or the
+ * lintels land on a different column count from the painted windows — which
+ * is the drift this module has now produced three times, so it is one call.
+ */
+export function quantizeWallM(metres: number, face: FacadeFace, min = 1): number {
+  const step = face === 'side' ? 1 : 0.5
+  return Math.max(min, Math.round(metres / step) * step)
+}
+
 export function facadeOpenings(
   floors: number,
   /** Wall width in METRES — pass the same quantised value the FacadeConfig
@@ -242,9 +318,9 @@ export function facadeOpenings(
 function windowGrid(config: FacadeConfig, face: FacadeFace): {
   winW: number; winH: number; cells: Array<WinCell & { x: number; y: number }>
 } {
-  const M = TEXTURE_SCALE
   const wallWm = Math.max(1, config.width)
   const wallHm = Math.max(1.5, config.wallH)
+  const M = metricScale(face, wallWm, wallHm)
   const w = Math.round(wallWm * M)
   const h = Math.round(wallHm * M)
   const cells = facadeOpenings(config.floors, wallWm, wallHm, face, config.wallColor)
@@ -278,9 +354,9 @@ export function createFacadeTexture(config: FacadeConfig, face: FacadeFace): THR
   // the same drawing into more wall and every opening shrank. With both axes
   // metric an opening drawn at 2.05 units lands on the wall at 2.05 metres,
   // whatever the building.
-  const M = TEXTURE_SCALE
   const wallWm = Math.max(1, config.width)
   const wallHm = Math.max(1.5, config.wallH)
+  const M = metricScale(face, wallWm, wallHm)
   const w = Math.round(wallWm * M)
   const h = Math.round(wallHm * M)
   const canvas = document.createElement('canvas')
@@ -572,9 +648,9 @@ export function createEmissiveTexture(config: FacadeConfig, face: FacadeFace): T
 
   // Same metric canvas as createFacadeTexture — if these two disagree the lit
   // windows sit somewhere other than the painted ones.
-  const M = TEXTURE_SCALE
   const wallWm = Math.max(1, config.width)
   const wallHm = Math.max(1.5, config.wallH)
+  const M = metricScale(face, wallWm, wallHm)
   const w = Math.round(wallWm * M)
   const h = Math.round(wallHm * M)
   const canvas = document.createElement('canvas')
