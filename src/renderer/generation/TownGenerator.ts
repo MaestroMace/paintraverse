@@ -1433,6 +1433,28 @@ export class TownGenerator implements IMapGenerator {
       return false
     }
 
+    // MEASURED AND REVERTED: a second infill pass over roadEdges.
+    //
+    // The walk visits each road edge once, centre-first, so the obvious theory
+    // for the ~127 buildable unbuilt frontage edges a town carries was that
+    // the walk passed them BEFORE their neighbours existed and never came
+    // back. Running the identical placer a second time, once the street wall
+    // is up, tests that in one edit: gaps with neighbours would be taken by
+    // the continuity bonus, genuinely isolated plots would still face the
+    // coin flip.
+    //
+    // It placed ~11 more buildings per town and moved frontage-against-
+    // achievable by 0.7 of a point — about zero, on the same scale that got
+    // plot orientation reverted twice. And the split rejection counters say
+    // why, which is the part worth keeping: on the SECOND pass every single
+    // acceptChance rejection was still `lonely`. The remaining gaps do not
+    // have neighbours even after the town is built, so they are not holes in
+    // a terrace — they are isolated frontage out on the periphery, and
+    // filling them would manufacture exactly the scatter this whole arc
+    // exists to remove.
+    //
+    // Do not re-attempt this without a mechanism that makes those plots
+    // adjacent to something first.
     for (const edge of roadEdges) {
       if (placed >= maxBuildings) break
       const { x: rx, y: ry } = edge
@@ -1465,7 +1487,18 @@ export class TownGenerator implements IMapGenerator {
       // but a lane out there now gets a wall rather than a coin flip.
       const reach = 0.75 + density * 0.75
       const acceptChance = distDensity * (1.0 - distNorm * 0.25) * reach + continuityBonus
-      if (rng() > acceptChance) { rejected('acceptChance'); continue }
+      if (rng() > acceptChance) {
+        rejected('acceptChance')
+        // WHICH plots the coin flip is throwing away. The bare count said 61
+        // per town against ~127 buildable frontage gaps, which is the right
+        // order of magnitude to be the whole remaining shortfall — but a count
+        // cannot say whether they are honest frontier thinning or lanes that
+        // never got started, and those want opposite fixes. Splitting by ring
+        // and by whether the plot had a neighbour answers it in one run.
+        rejected(`acceptChance@${distNorm < 0.25 ? 'core' : distNorm < 0.5 ? 'middle' : 'outer'}`)
+        rejected(`acceptChance@${continuityBonus > 0 ? 'adjacent' : 'lonely'}`)
+        continue
+      }
 
       // Growth ring character: core gets bigger, taller buildings
       const ringChar = distNorm < 0.25 ? 'core' : distNorm < 0.5 ? 'middle' : 'outer'

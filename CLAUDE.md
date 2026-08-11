@@ -166,6 +166,16 @@ number could not take effect. Derive each gate from the underlying quantity.
 prints how often it disagrees with itself, because the first three versions of
 it were not repeatable and would happily have graded a change.
 
+**A classifier's categories encode a causal claim — check it against the order
+things actually happen in.** Splitting unbuilt street frontage by cause put
+"a prop stands there" at 39%, the largest category by far, and it reads like a
+perfectly good excuse. Counting it as one gave 93% against an 85-95% target
+and would have declared the project's last open metric solved. It is a
+symptom: `generate()` places buildings before every prop pass, the last of
+them named `dressEmptyStreets`, so the prop did not take the plot — the plot
+was empty and the prop was sent to cover it. Same reading, opposite verdict,
+and only the pipeline order distinguishes them.
+
 **Report the honest aggregate.** Vista termination went 3% -> 17% on seed
 4242 and 6% -> 8% across three seeds. The three-seed number is the result.
 
@@ -907,18 +917,48 @@ Run these before believing anything about where the project is.
 | street width | urbanform.mjs | 12m facade to facade vs 4-10m | near range |
 | built coverage | urbanform.mjs | 53% vs 50-70% | clean |
 | party walls | urbanform.mjs | 93% vs 60-80% | above range, deliberately |
-| **frontage occupancy** | **urbanform.mjs** | **73% vs 85-95%, split 43/42 vs 56/53 by axis** | **nearest outlier** |
+| frontage occupancy | urbanform.mjs | **82% of ACHIEVABLE** frontage vs 85-95% (raw 73%) | near range |
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
 | prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
 | **360-degree read** | **allsides.mjs** | **flank/front 0.74 / 0.51 on two seeds, was 0.42 / 0.28** | **improving** |
 
-Everything except frontage occupancy is in range, and that one is 12 points
-short with a residual axis gap of 13 points rather than the 24 it carried for
-the life of the project. Part of the remaining 27% is legitimately unbuildable
-— river banks, park edges, the skirt of a square — so 85-95% may not be a fair
-target for a town with water and gardens in it. Measure what the unoccupied
-frontage actually IS before tuning against it.
+**Every metric here is now in or near range, and the last outlier was mostly
+the denominator.** That standing instruction — measure what the unoccupied
+frontage actually IS before tuning against it — was finally carried out, and
+it moved the reading nine points without touching the generator:
+
+| why an unbuilt frontage edge is unbuilt | share |
+|---|---|
+| dressed with a prop | 37% — REAL |
+| bare buildable ground | 22% — REAL |
+| river bank | 19% |
+| square skirt (plaza paving) | 11% |
+| map edge | 10% |
+| open grass | 1% — REAL |
+
+40% of the shortfall is land nobody should build on, and the 85-95% band
+counts it. Against ACHIEVABLE frontage the town reads **82%**, three points
+under the band rather than twelve. Grade the achievable number; the raw one
+moves when the river moves.
+
+Two things fell out of that decomposition and both are load-bearing:
+
+- **"A prop stands there" is a SYMPTOM, not an excuse**, and it is the largest
+  single category. Counting it as excusable gives 93% and would have closed
+  the metric on a false reading. Which side it belongs on is settled by
+  PIPELINE ORDER — `generate()` runs `placeBuildings` before every prop pass,
+  the last named `dressEmptyStreets` — not by intuition. **A classifier's
+  categories encode a causal claim; check it against the order things happen
+  in.**
+- **The remaining real gaps are not holes in a terrace.** A second infill pass
+  over `roadEdges` was written, measured at 0.7 of a point, and reverted — and
+  the split rejection counters said why: on the second pass, with the whole
+  town already built, EVERY `acceptChance` rejection was still `lonely`. Those
+  plots have no neighbour even at the end, so they are isolated frontage on
+  the periphery and filling them would manufacture the exact scatter this arc
+  removed. Do not re-attempt without first making those plots adjacent to
+  something.
 
 **`emptiness.mjs` is kept but do not trust it as an enclosure metric.** It
 seeds its BFS from props as well as buildings, and props are scattered
