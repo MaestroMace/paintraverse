@@ -758,6 +758,7 @@ export function buildBuildingMeshes(
     // Skip entirely if massing already supplies a chimney volume.
     // Big/tall buildings (floors >= 3 or wealth archetype) get two chimneys.
     if (!massingHasChimney && hash % 5 < 2 && mainRoofH > 0) {
+      tallyIn('chimney', district)
       // Chimney stacks with deliberate whimsical variety — brick stacks on
       // small houses, the occasional tall crooked flue, the rare copper-top
       // or double-stack. Hash picks the variant so regenerating the seed
@@ -872,6 +873,7 @@ export function buildBuildingMeshes(
     const cornerableRoles = new Set(['mainBody', 'wing', 'upperFloor', 'transept', 'penthouse', 'tower'])
 
     if (wantsTimberPosts || wantsQuoins) {
+      tallyIn('timberPosts', district)
       // Member thickness grows a little with the building so a 12m guild hall
       // is not framed in the same matchsticks as a 3m cottage — but stays
       // pinned near a real timber section, not scaled proportionally.
@@ -1068,6 +1070,7 @@ export function buildBuildingMeshes(
       !mainVol.circular && !NO_JITTER.has(obj.definitionId) &&
       mainVol.height > 1.8 && rand01(hash, 901) < 0.32
     if (wantsDrainpipe) {
+      tallyIn('drainpipe', district)
       const pipeR = 0.04
       const baseLocalY = mainVol.bottomY
       // Run from ~12cm below cornice to the ground.
@@ -1102,6 +1105,7 @@ export function buildBuildingMeshes(
     // applied — the foundation slab is a ground feature; if the building
     // tips, the slab stays planted on the terrain). leanX/leanZ = 0 here.
     if (district === 'noble' || district === 'temple' || style === 'ornate') {
+      tallyIn('foundation', district)
       const geo = new THREE.BoxGeometry(fp.w + 0.1, 0.08, fp.h + 0.1)
       localToWorld(geo, 0, 0.04, 0, 0, 0, rotationY, wx, wy, wz)
       detailBatch.addPositioned(geo, 0x606060)
@@ -1121,6 +1125,7 @@ export function buildBuildingMeshes(
       mainRoofH > 0.3 &&
       rand01(hash, 1601) < 0.55
     if (wantsFlagPole) {
+      tallyIn('flagPole', district)
       // Pole anchors near the front edge of the ridge so the banner is
       // visible from the street rather than tucked behind chimneys at the
       // back. For prism roofs the ridge runs along an axis; offset the pole
@@ -1182,6 +1187,7 @@ export function buildBuildingMeshes(
       !NO_JITTER.has(obj.definitionId) &&
       rand01(hash, 1701) < 0.32
     if (wantsIvy) {
+      tallyIn('ivy', district)
       // Pick the front face (+Z) since that's the player-visible wall.
       // Emit 3-5 patches scattered along the wall, biased toward the
       // lower 60% of the wall (ivy climbs from the ground up).
@@ -1223,6 +1229,7 @@ export function buildBuildingMeshes(
     // (the bottom step is widest) so the silhouette reads as a stone
     // approach rather than a stack.
     if (fpT.w >= 2) {
+      tallyIn('doorstep', district)
       const wantsStepUp = (district === 'noble' || district === 'temple' ||
         styleVector.wealth > 0.65 || obj.definitionId === 'mansion' ||
         obj.definitionId === 'cathedral' || obj.definitionId === 'guild_hall')
@@ -1250,12 +1257,19 @@ export function buildBuildingMeshes(
     // benches don't all align on one side of every door. Skip on
     // landmarks (their architecture doesn't want sidewalks of stone) and
     // tiny buildings where it'd push past the wall edge.
-    const wantsStoop = !isLandmark && !mainVol.circular && fpT.w >= 3 &&
+    // max(w, h) >= 2, not w >= 3. This is the SAME bug the shop sign already
+    // had fixed and nobody propagated: a row_house is 1x2, so gating a
+    // front-attached feature on fpT.w alone excludes the type the ordinary
+    // town is mostly made of, and w >= 3 excludes almost everything else too.
+    // Measured, this fired on 4 buildings in 525.
+    const wantsStoop = !isLandmark && !mainVol.circular &&
+      Math.max(fpT.w, fpT.h) >= 2 &&
       !NO_JITTER.has(obj.definitionId) &&
       (district === 'residential' || district === 'market' || district === 'artisan' ||
        district === 'garden') &&
       rand01(hash, 1101) < 0.30
     if (wantsStoop) {
+      tallyIn('stoopBench', district)
       const benchW = 0.85, benchH = 0.40, benchD = 0.32
       const benchSide = rand01(hash, 1103) < 0.5 ? -1 : 1
       const benchX = benchSide * (0.45 + benchW / 2)        // beside the door area
@@ -1284,6 +1298,7 @@ export function buildBuildingMeshes(
       district !== 'market' &&
       rand01(hash, 1201) < 0.7 && fpT.w >= 3
     if (wantsHitching) {
+      tallyIn('hitchingPost', district)
       const postH = 0.88, postT = 0.09
       const postZ = frontWallZ + 0.55
       for (const xOff of [-0.6, 0.6]) {
@@ -1314,6 +1329,7 @@ export function buildBuildingMeshes(
        obj.definitionId === 'tavern' || obj.definitionId === 'inn') &&
       rand01(hash, 1301) < 0.18
     if (wantsCellar) {
+      tallyIn('cellarDoor', district)
       const cellarSide = rand01(hash, 1303) < 0.5 ? -1 : 1
       const halfW = mainVol.width / 2
       const wallLocalX = mainVol.offsetX + cellarSide * halfW
@@ -1370,6 +1386,7 @@ export function buildBuildingMeshes(
       !NO_JITTER.has(obj.definitionId) &&
       mainVol.height > 2.4
     if (wantsPlacard) {
+      tallyIn('placard', district)
       const placardW = Math.min(2.4, frontWallHalfW * 0.9)
       const placardH = 0.32
       const placardT = 0.06
@@ -1422,6 +1439,7 @@ export function buildBuildingMeshes(
       styleVector.weather > 0.55 &&
       rand01(hash, 1801) < 0.55
     if (wantsRoofMoss) {
+      tallyIn('roofMoss', district)
       const patchCount = 2 + (hash % 3)               // 2..4
       // Shared gable math — keeps moss patch positions aligned with
       // bargeboards / attic windows / ridge cap on the same volume.
@@ -1474,6 +1492,7 @@ export function buildBuildingMeshes(
       (styleVector.wealth > 0.4 || district === 'market' || district === 'noble') &&
       rand01(hash, 1401) < 0.40
     if (wantsWheelGuard) {
+      tallyIn('wheelGuard', district)
       const guardR = 0.13
       const guardH = 0.42
       const halfW = mainVol.width / 2
@@ -1524,6 +1543,7 @@ export function buildBuildingMeshes(
        district === 'noble' || district === 'temple' ||
        rand01(hash, 951) < 0.4)
     if (wantsSurround && mainVol.height > 1.5) {
+      tallyIn('doorwaySurround', district)
       const doorW = 0.32
       const doorH = Math.min(mainVol.height * 0.55, 1.4)
       const baseLocalY = mainVol.bottomY
@@ -1768,6 +1788,7 @@ export function buildBuildingMeshes(
     // Pulled through localToWorld with leanX/Z=0 (landmark buildings opt
     // out of lean) but yaw applied so columns land on the rotated +Z face.
     if ((obj.definitionId === 'temple' || obj.definitionId === 'cathedral' || obj.definitionId === 'guild_hall') && fpT.w >= 4) {
+      tallyIn('colonnade', district)
       const colH = wallH * 0.85
       // Clamped to a portico's worth. Spacing off the real wall width means a
       // 15m temple facade would otherwise take twelve columns at 1.2m centres,
@@ -1794,7 +1815,21 @@ export function buildBuildingMeshes(
     // === BALCONY → batched ===
     // Lean+yaw transformed via localToWorld so the balcony stays attached to
     // the (possibly leaning) wall.
-    if ((obj.definitionId === 'balcony_house' || obj.definitionId === 'inn') && floors >= 2) {
+    // A balcony belongs to a STREET as much as to a building type. Gated on
+    // balcony_house and inn alone it fired ONCE in 525 buildings — a feature
+    // with a building type named after it that essentially never appeared.
+    // DESIGN.md asks for exactly this: the Lisbon/Porto "500 years of organic
+    // growth" read, and pillar 2's rule that the eye should never be able to
+    // copy-paste one silhouette onto another. Balconies are one of the
+    // cheapest ways to break a terrace up.
+    const wantsBalcony = floors >= 2 && !isLandmark && !mainVol.circular &&
+      !NO_JITTER.has(obj.definitionId) && (
+        obj.definitionId === 'balcony_house' || obj.definitionId === 'inn' ||
+        ((district === 'noble' || district === 'market' || district === 'residential' ||
+          district === 'waterfront' || district === 'harbor') &&
+         rand01(hash, 1487) < (district === 'noble' ? 0.34 : 0.16)))
+    if (wantsBalcony) {
+      tallyIn('balcony', district)
       const balcW = mainVol.width * 0.5, balcD = 0.4
       const balcY = FLOOR_HEIGHT * 1.1 * heightMult
       const pg = new THREE.BoxGeometry(balcW, 0.06, balcD)

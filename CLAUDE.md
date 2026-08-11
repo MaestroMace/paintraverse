@@ -150,6 +150,35 @@ with DoubleSide, showed nothing, and was dismissed — because every shot in the
 harness pointed level or down, and a roof with missing gable ends looks
 perfect from above. A negative result is only as good as its vantage.
 
+**Census the whole vocabulary, not the feature you are looking at.** A lesson
+about one gated feature is almost always a lesson about twenty. `featureCounts`
+existed in BuildingFactory with NO CONSUMER and only two of ~20 gated features
+tallied into it, so nobody could know which of the rest fired at zero. Running
+the census found five that essentially did not exist, including a `balcony`
+that appeared ONCE in 525 buildings — for a feature with a building type named
+after it. `tools/features.mjs` is the general form; run it after touching any
+dressing.
+
+**There are two silent failures, and the second one looks like success.** A
+GHOST is content gated into nonexistence: no error, no warning, just a
+vocabulary you believe you have. WALLPAPER is content that fires at the same
+rate everywhere, which reads as a healthy number and differentiates nothing —
+shop signs were 16% of buildings town-wide and 16% in the cemetery too. A
+screenshot of one building looks fine in either case. Report rate AND spread.
+
+**When you fix a gate, sweep its siblings.** The shop sign's `fp.w >= 2` was
+fixed to `max(w, h) >= 2` because a row_house is 1x2 and the ordinary town is
+mostly row houses. The identical bug sat unfixed in `stoopBench` (`fpT.w >= 3`)
+in the same file, firing on 4 buildings in 525. A bug in a gate is a bug in a
+PATTERN; grep for the pattern before moving on.
+
+**A tool's numerator and denominator must count the same population.** The
+feature census reported a doorstep rate of 182% of a district, which is the
+tool saying its two halves disagree: BuildingFactory defaults a missing
+district to 'residential' while the tool counted only buildings carrying the
+property, so walls and gates landed in the numerator alone. Any rate above
+100% is a free bug report about the measurement.
+
 **Name your suspects once.** A component blamed repeatedly without evidence is
 noise. The windmill was accused four times for defects it had nothing to do
 with; the lantern ropes were a good hypothesis for the floating-timber class
@@ -1136,6 +1165,22 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   single width figure has two owners and was misread for months as being all
   setback. Also splits frontage occupancy by which side of the road the land
   is on, which is where the remaining asymmetry shows.
+- `node tools/features.mjs [seeds...]` — **a census of every gated piece of
+  street dressing**, with its rate and its SPREAD across districts. Catches
+  the two silent failures: a GHOST that is gated into nonexistence, and
+  WALLPAPER that fires everywhere equally and so tells the player nothing.
+  Run it after touching any dressing gate. Read the caveat it prints — a
+  feature correctly confined to a rare type looks identical to a ghost.
+- `node tools/districts.mjs [seeds...]` — **can you tell which quarter you are
+  in?** Character (are the building types distinctive), signature (do ground,
+  height and density differ), and trade dressing per district. Prints
+  within-district height spread beside the median on purpose: DESIGN.md wants
+  variation INSIDE a cluster while Lynch wants quarters to differ FROM each
+  other, and separating the medians by flattening the spread would satisfy one
+  and break the other.
+- `node tools/squares.mjs [seeds...]` — **is the open space a room or a gap?**
+  Counts squares, their minor dimension, and enclosure as LINE OF SIGHT from
+  the middle of the square. Graded against Sitte and Alexander #61.
 - `node tools/anomaly.mjs [seed] [--time=12] [--shots=N] [--hide=meshName]` —
   **the defects that only exist in PIXELS.** Every other tool grades the data
   model, which can only find what somebody already knew to ask about; the
