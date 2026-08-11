@@ -195,7 +195,25 @@ for (const seed of seeds) {
 
     // Severance: connected components of walkable ground, and how much of the
     // town is in the largest one. Bridges are what stitch them together.
-    const walk = (x, y) => x >= 0 && y >= 0 && x < W && y < H && !isWater(x, y)
+    // Model what the GAME does, not an idealisation of it. ThreeRenderer's
+    // collision mask blocks water and building footprints and CLEARS anything
+    // tagged `passage` — that is what a bridge is for. This used to model
+    // water alone, so it reported severance identically whether or not a
+    // crossing existed and could not have graded a bridge either way.
+    const crossing = Array.from({ length: H }, () => new Uint8Array(W))
+    for (const o of structs) {
+      const d = defs.find?.((x) => x.id === o.definitionId) ?? (defs[o.definitionId] ?? null)
+      if (!(d?.tags ?? []).includes('passage')) continue
+      const f = o.footprint ?? d?.footprint ?? { w: 1, h: 1 }
+      for (let dy = 0; dy < f.h; dy++) {
+        for (let dx = 0; dx < f.w; dx++) {
+          const x = o.x + dx, y = o.y + dy
+          if (x >= 0 && y >= 0 && x < W && y < H) crossing[y][x] = 1
+        }
+      }
+    }
+    const walk = (x, y) => x >= 0 && y >= 0 && x < W && y < H &&
+      (!isWater(x, y) || crossing[y][x] === 1)
     const seen = Array.from({ length: H }, () => new Uint8Array(W))
     const comps = []
     for (let y = 0; y < H; y++) {

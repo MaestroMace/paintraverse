@@ -298,7 +298,9 @@ export class TownGenerator implements IMapGenerator {
     const terrainTiles = this.generateBaseTerrain(width, height, noise)
 
     // 3. Water channels as natural district dividers
-    const waterMap = this.generateWaterChannels(width, height, noise, rng, complexity)
+    // heightMap goes IN, and comes back with a valley cut into it. The river
+    // used to be routed without it entirely — see generateWaterChannels.
+    const waterMap = this.generateWaterChannels(width, height, noise, rng, complexity, heightMap)
     this.paintWater(terrainTiles, waterMap, width, height, noise)
 
     // 3b. Natural ponds in low-lying areas (organic water bodies)
@@ -365,6 +367,11 @@ export class TownGenerator implements IMapGenerator {
 
     // 8. Place bridges over water where roads cross
     const bridges = this.placeBridges(width, height, roadMap, waterMap, rng)
+    // A continuous river severs the town unless something crosses it, and
+    // placeBridges only looks for a road heading east into water. This makes
+    // "you can walk to the whole town" an invariant instead of a hope.
+    bridges.push(...this.ensureRiverCrossings(
+      width, height, waterMap, bridges, heightMap))
 
     // 9. Place landmarks FIRST, so they get first pick of the vistas.
     //
@@ -547,7 +554,9 @@ export class TownGenerator implements IMapGenerator {
 
     const terrainLayer: MapLayer = {
       id: uuid(), name: 'Terrain', type: 'terrain',
-      visible: true, locked: false, objects: [], terrainTiles
+      // heightMap travels WITH the terrain, so the renderer draws the ground
+      // this generator actually planned on — including the river valley.
+      visible: true, locked: false, objects: [], terrainTiles, heightMap
     }
     const structureLayer: MapLayer = {
       id: uuid(), name: 'Structures', type: 'structure',
@@ -585,23 +594,37 @@ export class TownGenerator implements IMapGenerator {
 
   // === HEIGHT MAP ===
   // Piranesi-inspired dramatic terrain: clear plateaus, steep drops, terraced ridges
+  /**
+   * THE height map. Singular, now.
+   *
+   * There were two, and they were not the same landscape. This one used to be
+   * freq 0.03/0.06, amplitude x2.0, clamp 2.5 and 70% terraced, while
+   * TerrainMesh generated its own from the seed at freq 0.022/0.055/0.11,
+   * amplitude x4.4, clamp 5.5 and 10% terraced — and the renderer drew ITS
+   * one. So everything planned here against elevation was planned against a
+   * world the player never walks on: ponds sunk into low ground that is not
+   * low, staircases on slopes that are not there, and a river carved into a
+   * terrain nobody renders.
+   *
+   * The renderer's formula survived the merge because it is the better
+   * landscape and it is the one that has been looked at: a low primary
+   * frequency gives one or two broad hills across a 48-tile map instead of
+   * noise texture, and only a light terrace pull, because discrete one-tile
+   * steps read as a map bug rather than topography. The map is written onto
+   * the terrain layer so TerrainMesh consumes it instead of re-deriving it.
+   */
   private generateHeightMap(w: number, h: number, noise: SimplexNoise): number[][] {
     const map: number[][] = []
     for (let y = 0; y < h; y++) {
       const row: number[] = []
       for (let x = 0; x < w; x++) {
-        // Base terrain with two octaves for natural ridgelines
-        const n1 = noise.fbm(x * 0.03, y * 0.03, 2, 2, 0.5)
-        const n2 = noise.fbm(x * 0.06 + 50, y * 0.06 + 50, 2, 2, 0.5)
-        const raw = (n1 * 0.7 + n2 * 0.3 + 0.5) * 2.0
-
-        // Terrace quantization — snap to plateaus for dramatic stepping
-        // Creates 0, 0.5, 1.0, 1.5, 2.0 elevation bands
-        const terraced = Math.round(raw * 2) / 2
-
-        // Smooth edges slightly so transitions aren't too harsh
-        const blend = terraced * 0.7 + raw * 0.3
-        row.push(Math.max(0, Math.min(blend, 2.5)))
+        const n1 = noise.fbm(x * 0.022, y * 0.022, 3, 2, 0.5)
+        const n2 = noise.fbm(x * 0.055 + 50, y * 0.055 + 50, 2, 2, 0.5)
+        const n3 = noise.fbm(x * 0.11 + 120, y * 0.11 + 120, 1, 2, 0.5) * 0.4
+        const raw = (n1 * 0.6 + n2 * 0.3 + n3 * 0.1 + 0.5) * 4.4
+        const terraced = Math.round(raw * 1.2) / 1.2
+        const blend = terraced * 0.1 + raw * 0.9
+        row.push(Math.max(0, Math.min(blend, 5.5)))
       }
       map.push(row)
     }
@@ -630,55 +653,240 @@ export class TownGenerator implements IMapGenerator {
   }
 
   // === WATER CHANNELS ===
+  /**
+   * THE RIVER — routed by the terrain and cut into it.
+   *
+   * Reported as "the rivers seem random, like a painted floor I can't walk
+   * on", and `tools/river.mjs` says the wording was mechanically exact:
+   *
+   *   bank relief   0.03m   (88% of water tiles flush with their own banks)
+   *   descent       51% of downstream steps, total drop -0.10m
+   *   width         2.2 tiles at the source, 2.0 at the mouth
+   *
+   * The old routine never took `heightMap` as an argument. It started at a map
+   * edge, walked in a straight line clamped to +/-0.4 radians off one axis,
+   * wiggled by noise, at a constant width for its whole length — and nothing
+   * lowered the ground beneath it. So the water was a translucent quad lying
+   * exactly on the ground, crossing hills, flowing uphill half the time. The
+   * contrast that gives the game away: `generateNaturalPonds` right below DOES
+   * take heightMap and does put its ponds in low ground.
+   *
+   * What a river needs, in the order it matters:
+   *
+   * 1. A BED. Everything else is secondary — with no cut in the terrain there
+   *    is no bank, and no amount of shader work rescues a flat blue patch.
+   * 2. To flow DOWNHILL, monotonically, from a source to a mouth.
+   * 3. To GATHER — narrow at the source, widest at the mouth.
+   *
+   * Routing is a Dijkstra search from source to mouth where climbing is
+   * expensive and level ground is cheap, plus a noise term so the course
+   * meanders instead of taking the geometrically shortest line. That is
+   * deterministic, always terminates, and — unlike a greedy downhill walk —
+   * cannot strand itself in a local pit and need rescuing.
+   */
   private generateWaterChannels(
-    w: number, h: number, noise: SimplexNoise, rng: () => number, complexity: number
+    w: number, h: number, noise: SimplexNoise, rng: () => number, complexity: number,
+    heightMap: number[][]
   ): boolean[][] {
     const waterMap = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
     const numChannels = complexity > 0.3 ? Math.floor(1 + complexity) : 0
     if (numChannels === 0) return waterMap
 
+    const H = (x: number, y: number): number => heightMap[y]?.[x] ?? 0
+
     for (let c = 0; c < numChannels; c++) {
-      // Start from an edge
-      const horizontal = rng() > 0.5
-      let x: number, y: number
-      if (horizontal) {
-        x = 0
-        y = Math.floor(h * 0.25 + rng() * h * 0.5)
-      } else {
-        x = Math.floor(w * 0.25 + rng() * w * 0.5)
-        y = 0
+      // SOURCE high, MOUTH low. Both on the map edge so the river runs through
+      // rather than beginning nowhere — two of five seeds used to have a
+      // channel that simply stopped mid-map.
+      const edgeTiles: { x: number; y: number }[] = []
+      for (let x = 2; x < w - 2; x++) { edgeTiles.push({ x, y: 1 }); edgeTiles.push({ x, y: h - 2 }) }
+      for (let y = 2; y < h - 2; y++) { edgeTiles.push({ x: 1, y }); edgeTiles.push({ x: w - 2, y }) }
+      // Jitter the ranking so successive channels on the same map do not all
+      // pick the same pair of corners.
+      const score = (t: { x: number; y: number }): number =>
+        H(t.x, t.y) + noise.noise2D(t.x * 0.15 + c * 31, t.y * 0.15) * 0.25
+      const sorted = edgeTiles.slice().sort((a, b) => score(b) - score(a))
+      const source = sorted[Math.floor(rng() * Math.min(6, sorted.length))]
+      // The mouth must be far away, or the "river" is a puddle in one corner.
+      const far = sorted.filter((t) =>
+        Math.abs(t.x - source.x) + Math.abs(t.y - source.y) > (w + h) * 0.45)
+      if (far.length === 0) continue
+      const mouth = far[far.length - 1 - Math.floor(rng() * Math.min(6, far.length))]
+
+      // --- Dijkstra: climbing is dear, descending is free -----------------
+      const cost = new Float64Array(w * h).fill(Infinity)
+      const prev = new Int32Array(w * h).fill(-1)
+      const idx = (x: number, y: number): number => y * w + x
+      cost[idx(source.x, source.y)] = 0
+      // A simple binary heap keeps this near-linear; a 48x48 map is small but
+      // this runs once per channel per generation and an O(n^2) scan here was
+      // measurable.
+      const heap: { c: number; x: number; y: number }[] = [{ c: 0, x: source.x, y: source.y }]
+      const push = (n: { c: number; x: number; y: number }): void => {
+        heap.push(n)
+        let i = heap.length - 1
+        while (i > 0) {
+          const p = (i - 1) >> 1
+          if (heap[p].c <= heap[i].c) break
+          ;[heap[p], heap[i]] = [heap[i], heap[p]]; i = p
+        }
       }
+      const pop = (): { c: number; x: number; y: number } | undefined => {
+        if (heap.length === 0) return undefined
+        const top = heap[0], last = heap.pop()!
+        if (heap.length) {
+          heap[0] = last
+          let i = 0
+          for (;;) {
+            const l = i * 2 + 1, r = l + 1
+            let m = i
+            if (l < heap.length && heap[l].c < heap[m].c) m = l
+            if (r < heap.length && heap[r].c < heap[m].c) m = r
+            if (m === i) break
+            ;[heap[m], heap[i]] = [heap[i], heap[m]]; i = m
+          }
+        }
+        return top
+      }
+      while (heap.length) {
+        const cur = pop()!
+        if (cur.c > cost[idx(cur.x, cur.y)]) continue
+        if (cur.x === mouth.x && cur.y === mouth.y) break
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = cur.x + dx, ny = cur.y + dy
+          if (nx < 1 || ny < 1 || nx >= w - 1 || ny >= h - 1) continue
+          const climb = Math.max(0, H(nx, ny) - H(cur.x, cur.y))
+          // 1 = the cost of simply moving, so a route is never free; the climb
+          // term dominates it, which is what makes the course seek the valley.
+          // The noise term is what stops it being the shortest legal line —
+          // a river meanders because the ground is uneven, not because a
+          // sine wave was added to it afterwards.
+          const wiggle = (noise.noise2D(nx * 0.11 + c * 17, ny * 0.11) + 1) * 0.9
+          const nc = cur.c + 1 + climb * 26 + wiggle
+          if (nc < cost[idx(nx, ny)]) {
+            cost[idx(nx, ny)] = nc
+            prev[idx(nx, ny)] = idx(cur.x, cur.y)
+            push({ c: nc, x: nx, y: ny })
+          }
+        }
+      }
+      if (!Number.isFinite(cost[idx(mouth.x, mouth.y)])) continue
 
-      const channelWidth = 2 + Math.floor(rng() * 2)
-      let dir = horizontal ? 0 : Math.PI / 2
+      // --- walk the path back, painting a widening channel ----------------
+      const path: { x: number; y: number }[] = []
+      for (let p = idx(mouth.x, mouth.y); p !== -1; p = prev[p]) {
+        path.push({ x: p % w, y: Math.floor(p / w) })
+      }
+      path.reverse()
 
-      for (let step = 0; step < Math.max(w, h) * 1.5; step++) {
-        for (let cw = 0; cw < channelWidth; cw++) {
-          const perpX = horizontal ? 0 : cw
-          const perpY = horizontal ? cw : 0
-          const wx = Math.floor(x) + perpX
-          const wy = Math.floor(y) + perpY
-          if (wx >= 0 && wx < w && wy >= 0 && wy < h) {
+      for (let i = 0; i < path.length; i++) {
+        const t = i / Math.max(1, path.length - 1)
+        // A river GATHERS: half a tile of radius at the source, two at the
+        // mouth. sqrt so it broadens early and then steadies, which is how a
+        // catchment actually behaves and reads better than a straight ramp.
+        const radius = 0.6 + Math.sqrt(t) * 1.7
+        const ri = Math.ceil(radius)
+        for (let dy = -ri; dy <= ri; dy++) {
+          for (let dx = -ri; dx <= ri; dx++) {
+            if (Math.hypot(dx, dy) > radius) continue
+            const wx = path[i].x + dx, wy = path[i].y + dy
+            if (wx < 0 || wy < 0 || wx >= w || wy >= h) continue
             waterMap[wy][wx] = true
           }
         }
-
-        // Meander with noise
-        dir += noise.noise2D(x * 0.08, y * 0.08) * 0.2
-        if (horizontal) {
-          dir = Math.max(-0.4, Math.min(0.4, dir))
-          x += 1
-          y += Math.sin(dir) * 0.8
-        } else {
-          dir = Math.max(Math.PI / 2 - 0.4, Math.min(Math.PI / 2 + 0.4, dir))
-          x += Math.cos(dir) * 0.8
-          y += 1
-        }
-
-        if (x < -1 || x >= w + 1 || y < -1 || y >= h + 1) break
       }
+
+      this.carveRiverBed(path, waterMap, heightMap, w, h)
     }
     return waterMap
+  }
+
+  /**
+   * Cut the channel into the height map, and raise its banks.
+   *
+   * This is the half that answers "painted floor". The 3D water surface is
+   * built from the terrain's own corner heights (TerrainMesh does that
+   * deliberately, so the shoreline seams instead of cracking), which means
+   * water can only look like water if the LAND has a valley in it. Measured
+   * before this existed: 88% of water tiles sat within 15cm of their own
+   * banks.
+   *
+   * The profile is forced MONOTONIC from source to mouth before anything is
+   * cut. That is what guarantees the river flows downhill — not a tendency,
+   * an invariant — where routing alone only made it likely.
+   */
+  private carveRiverBed(
+    path: { x: number; y: number }[],
+    waterMap: boolean[][], heightMap: number[][],
+    w: number, h: number
+  ): void {
+    if (path.length < 2) return
+    // Height units are RAW here; TERRAIN_WORLD_SCALE (1.8) turns them into
+    // metres later. 0.85 raw is ~1.5m of bank, which is the low end of a real
+    // river and safely inside the 0..2.5 band generateHeightMap produces.
+    const BANK = 0.85
+    const BED = 0.45          // how far the bed drops below the waterline
+    const SKIRT = 3           // tiles over which the bank blends back to land
+
+    // 1. A monotonically falling waterline along the course.
+    const surface: number[] = []
+    let running = Infinity
+    for (const p of path) {
+      const here = heightMap[p.y]?.[p.x] ?? 0
+      running = Math.min(running, here)
+      surface.push(running)
+    }
+    // Guarantee a real fall even across flat ground, so the river reads as
+    // going somewhere. Spread over the whole course rather than stepping.
+    const drop = 0.5
+    for (let i = 0; i < surface.length; i++) {
+      surface[i] = Math.min(surface[i], surface[0] - (i / (surface.length - 1)) * drop)
+    }
+
+    // 2. Stamp the valley. Each path point owns a neighbourhood; the nearest
+    //    point on the course wins, so a wide reach and a narrow one blend.
+    const level = Array.from({ length: h }, () => new Float64Array(w).fill(NaN))
+    for (let i = 0; i < path.length; i++) {
+      const R = SKIRT + 2
+      for (let dy = -R; dy <= R; dy++) {
+        for (let dx = -R; dx <= R; dx++) {
+          const x = path[i].x + dx, y = path[i].y + dy
+          if (x < 0 || y < 0 || x >= w || y >= h) continue
+          const d = Math.hypot(dx, dy)
+          if (d > R) continue
+          const s = surface[i]
+          if (Number.isNaN(level[y][x]) || s < level[y][x]) level[y][x] = s
+        }
+      }
+    }
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const s = level[y][x]
+        if (Number.isNaN(s)) continue
+        if (waterMap[y][x]) {
+          // The bed. Below the waterline so the channel has depth to read.
+          heightMap[y][x] = s - BED
+          continue
+        }
+        // Land near the channel: lift it to a bank, easing back to whatever
+        // the terrain already was over SKIRT tiles. Never LOWER existing
+        // ground — a river should not flatten the hill it runs past.
+        let nearest = Infinity
+        for (let dy = -SKIRT; dy <= SKIRT; dy++) {
+          for (let dx = -SKIRT; dx <= SKIRT; dx++) {
+            const nx = x + dx, ny = y + dy
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+            if (!waterMap[ny][nx]) continue
+            nearest = Math.min(nearest, Math.hypot(dx, dy))
+          }
+        }
+        if (!Number.isFinite(nearest)) continue
+        const ease = Math.max(0, 1 - nearest / (SKIRT + 1))
+        const bank = s + BANK * ease
+        if (bank > heightMap[y][x]) heightMap[y][x] = bank
+      }
+    }
   }
 
   private paintWater(terrain: number[][], waterMap: boolean[][], w: number, h: number, noise: SimplexNoise): void {
@@ -1377,6 +1585,125 @@ export class TownGenerator implements IMapGenerator {
 
 
   // === BRIDGES ===
+  /**
+   * GUARANTEE YOU CAN WALK ACROSS. An invariant, not a tendency.
+   *
+   * Making the river continuous fixed one complaint and created another. The
+   * old channel came out as ~3.4 disconnected puddles, so you could stroll
+   * between them; one real river edge-to-edge severs the town unless it is
+   * bridged, and `placeBridges` only ever looks for a road running EAST into
+   * water within four tiles. Measured after the carve: seed 777 had 592 tiles
+   * — 28% of the town — unreachable, and seed 11 had 195 with no bridge at all.
+   *
+   * So: find the walkable components, and for every worthwhile island lay a
+   * deck of `footbridge` tiles along the shortest water crossing back to the
+   * mainland. BFS over WATER from the island's shore reaches the nearest point
+   * on the far bank by construction, so the crossing is always the narrowest
+   * one available rather than wherever a road happened to point.
+   */
+  private ensureRiverCrossings(
+    w: number, h: number, waterMap: boolean[][],
+    existing: PlacedObject[], heightMap: number[][]
+  ): PlacedObject[] {
+    const MIN_ISLAND = 25          // below this it is a rock, not a district
+    const out: PlacedObject[] = []
+    // Tiles already crossable: water carrying something tagged passage.
+    const deck = Array.from({ length: h }, () => new Uint8Array(w))
+    for (const o of existing) {
+      if (!/bridge/.test(o.definitionId)) continue
+      const fp = o.footprint ?? this.getFootprint(o.definitionId)
+      for (let dy = 0; dy < fp.h; dy++) {
+        for (let dx = 0; dx < fp.w; dx++) {
+          const x = o.x + dx, y = o.y + dy
+          if (x >= 0 && y >= 0 && x < w && y < h) deck[y][x] = 1
+        }
+      }
+    }
+    const walkable = (x: number, y: number): boolean =>
+      x >= 0 && y >= 0 && x < w && y < h && (!waterMap[y][x] || deck[y][x] === 1)
+
+    for (let guard = 0; guard < 8; guard++) {
+      // --- components -------------------------------------------------
+      const comp = Array.from({ length: h }, () => new Int16Array(w).fill(-1))
+      const sizes: number[] = []
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          if (!walkable(x, y) || comp[y][x] >= 0) continue
+          const id = sizes.length
+          let n = 0
+          const q: [number, number][] = [[x, y]]
+          comp[y][x] = id
+          for (let i = 0; i < q.length; i++) {
+            const [cx, cy] = q[i]; n++
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+              const nx = cx + dx, ny = cy + dy
+              if (!walkable(nx, ny) || comp[ny][nx] >= 0) continue
+              comp[ny][nx] = id
+              q.push([nx, ny])
+            }
+          }
+          sizes.push(n)
+        }
+      }
+      if (sizes.length < 2) break
+      const mainId = sizes.indexOf(Math.max(...sizes))
+      let islandId = -1
+      for (let i = 0; i < sizes.length; i++) {
+        if (i !== mainId && sizes[i] >= MIN_ISLAND) { islandId = i; break }
+      }
+      if (islandId < 0) break
+
+      // --- shortest water crossing island -> mainland ------------------
+      const prev = new Int32Array(w * h).fill(-1)
+      const seen = new Uint8Array(w * h)
+      const q: number[] = []
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          if (comp[y][x] !== islandId) continue
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            const nx = x + dx, ny = y + dy
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+            if (!waterMap[ny][nx] || seen[ny * w + nx]) continue
+            seen[ny * w + nx] = 1
+            q.push(ny * w + nx)
+          }
+        }
+      }
+      let landing = -1
+      for (let i = 0; i < q.length && landing < 0; i++) {
+        const cur = q[i], cx = cur % w, cy = Math.floor(cur / w)
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = cx + dx, ny = cy + dy
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+          if (comp[ny][nx] === mainId) { landing = cur; break }
+          if (!waterMap[ny][nx] || seen[ny * w + nx]) continue
+          seen[ny * w + nx] = 1
+          prev[ny * w + nx] = cur
+          q.push(ny * w + nx)
+        }
+      }
+      // No water route means the island is cut off by something other than
+      // the river, which a bridge cannot help. Stop rather than loop.
+      if (landing < 0) break
+
+      for (let p = landing; p !== -1; p = prev[p]) {
+        const x = p % w, y = Math.floor(p / w)
+        if (deck[y][x]) continue
+        deck[y][x] = 1
+        out.push({
+          id: uuid(),
+          definitionId: 'footbridge',
+          x, y,
+          rotation: 0, scaleX: 1, scaleY: 1,
+          elevation: Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2),
+          footprint: { w: 1, h: 1 },
+          properties: { crossing: true },
+        })
+      }
+    }
+    return out
+  }
+
   private placeBridges(
     w: number, h: number, roadMap: boolean[][], waterMap: boolean[][], rng: () => number
   ): PlacedObject[] {
@@ -4837,6 +5164,7 @@ export class TownGenerator implements IMapGenerator {
       // Small district-specific houses — see store.ts. tools/registry.mjs
       // checks these agree with the other two footprint tables.
       precinct_wall: { w: 1, h: 1 }, precinct_wall_v: { w: 1, h: 1 },
+      footbridge: { w: 1, h: 1 },
       clergy_house: { w: 2, h: 2 },
       almshouse: { w: 1, h: 3 },
       sexton_hut: { w: 1, h: 2 },

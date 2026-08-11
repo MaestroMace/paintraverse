@@ -152,11 +152,18 @@ export function auditMapGeometry(
       }
     }
 
-    if (roadTiles > 0 && !SPANS_ROAD.has(obj.definitionId)) {
+    // A `passage` object is a way THROUGH by definition — a gate, an archway,
+    // a bridge deck — so it is allowed to sit on the thing it crosses. The
+    // two sets below are lists of literals maintaining that idea by hand, and
+    // a new crossing type is exactly what they forget: `footbridge` was
+    // reported four times as a building standing in a river, which is what a
+    // bridge is. Read the tag the definition already carries.
+    const isPassage = !!defs.get(obj.definitionId)?.tags?.includes('passage')
+    if (roadTiles > 0 && !SPANS_ROAD.has(obj.definitionId) && !isPassage) {
       add('building-on-road', 'error', obj,
         `${roadTiles}/${fp.w * fp.h} footprint tiles are road/alley — building sits in the street`)
     }
-    if (waterTiles > 0 && !WATER_TOLERANT.has(obj.definitionId)) {
+    if (waterTiles > 0 && !WATER_TOLERANT.has(obj.definitionId) && !isPassage) {
       add('building-in-water', 'error', obj,
         `${waterTiles}/${fp.w * fp.h} footprint tiles are water`)
     }

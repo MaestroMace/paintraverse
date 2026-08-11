@@ -145,10 +145,16 @@ function cornerHeightNoise(cx: number, cy: number): number {
 }
 
 export function buildTerrainMesh(
-  tiles: number[][], gridWidth: number, gridHeight: number, seed: number = 0
+  tiles: number[][], gridWidth: number, gridHeight: number, seed: number = 0,
+  suppliedHeightMap?: number[][] | null,
 ): THREE.Group {
   const group = new THREE.Group()
-  const heightMap = generateHeightMap(gridWidth, gridHeight, seed)
+  // The generator's map when the layer carries one. It is the terrain the
+  // town was planned against — districts, ponds, staircases and the river
+  // valley all reference it — and re-deriving a DIFFERENT one here is what
+  // made every one of those plans invisible. The local generator survives
+  // only for maps saved before the field existed, and for hand-drawn maps.
+  const heightMap = suppliedHeightMap ?? generateHeightMap(gridWidth, gridHeight, seed)
 
   group.add(buildGroundWithHeight(tiles, gridWidth, gridHeight, heightMap))
   group.add(buildRetainingWalls(tiles, gridWidth, gridHeight, heightMap))

@@ -816,6 +816,57 @@ function tmplStackedTower(ctx: MassingContext): Volume[] {
  * Deliberately below eye level at 1.45m: you see OVER it into the precinct,
  * which is what makes a churchyard read as a churchyard rather than a yard.
  */
+/**
+ * A FOOTBRIDGE DECK — one tile of plank deck on trestles, with rails.
+ *
+ * It has to stand ON TRESTLES rather than lie flat, because a bridge tile is
+ * placed over water and the terrain there is the river BED — which the river
+ * carve deliberately puts ~0.8m below the waterline. A deck drawn at local
+ * ground height would therefore be underwater. The piers lift it clear.
+ */
+function tmplFootbridge(ctx: MassingContext): Volume[] {
+  const deckY = 1.15
+  const span = Math.max(ctx.footW, 2.4)
+  const wood = 0x7a6244
+  const vols: Volume[] = []
+  // Two trestles down into the bed.
+  for (const s of [-1, 1]) {
+    vols.push({
+      role: 'mainBody',
+      offsetX: s * (span * 0.32), offsetZ: 0,
+      width: 0.22, depth: 0.22,
+      bottomY: 0, height: deckY,
+      roofStyle: 'none', roofHeight: 0, roofAxis: 'x',
+      wallColor: 0x5a4a34, roofColor: 0x5a4a34,
+      textured: false, cornice: false, floors: 1,
+    })
+  }
+  // The deck itself, a touch proud of the tile so consecutive tiles read as
+  // one continuous run rather than a dotted line of separate planks.
+  vols.push({
+    role: 'trim',
+    offsetX: 0, offsetZ: 0,
+    width: span + 0.12, depth: ctx.footD + 0.12,
+    bottomY: deckY, height: 0.16,
+    roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+    wallColor: wood, roofColor: wood,
+    textured: false, cornice: false, floors: 1,
+  })
+  // Hand rails, so it reads as a bridge from the bank and not as a raft.
+  for (const s of [-1, 1]) {
+    vols.push({
+      role: 'trim',
+      offsetX: 0, offsetZ: s * (ctx.footD / 2),
+      width: span + 0.12, depth: 0.08,
+      bottomY: deckY + 0.16, height: 0.62,
+      roofStyle: 'none', roofHeight: 0, roofAxis: 'x',
+      wallColor: 0x6a5640, roofColor: 0x6a5640,
+      textured: false, cornice: false, floors: 1,
+    })
+  }
+  return vols
+}
+
 function tmplLowWall(ctx: MassingContext, alongX: boolean): Volume[] {
   const wallH = 1.45
   const thickness = 0.5
@@ -1034,6 +1085,7 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   gatehouse: (ctx) => tmplGatehouse(ctx),
   windmill: (ctx) => tmplWindmill(ctx),
   stone_wall: (ctx) => tmplWallSegment(ctx),
+  footbridge: (ctx) => tmplFootbridge(ctx),
   precinct_wall: (ctx) => tmplLowWall(ctx, true),
   precinct_wall_v: (ctx) => tmplLowWall(ctx, false),
   stone_wall_v: (ctx) => tmplWallSegment(ctx),

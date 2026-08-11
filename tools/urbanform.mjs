@@ -52,6 +52,13 @@ for (const seed of seeds) {
   await win.waitForTimeout(150)
   await win.getByRole('button', { name: /^generate$/i }).first().click()
   await win.waitForTimeout(2800)
+  // The frontage classifier below reads heightAt() to tell a steep bank from
+  // a plot nobody built on, and heightAt needs the 3D renderer — in 2D it
+  // returns null. Without this the 'steep bank' category was silently
+  // impossible: it never fired once, and looked exactly like "there are no
+  // steep banks". Found while writing river.mjs, which fell into the same pit.
+  await win.getByRole('button', { name: '3D', exact: true }).click()
+  await win.waitForTimeout(2600)
 
   const r = await win.evaluate(() => {
     const st = window.__pt.store.getState()
@@ -144,7 +151,12 @@ for (const seed of seeds) {
       }
     }
     // Height map, so "too steep to build on" can be told from "nobody built".
-    const heightAt = (x, y) => (window.__pt.heightAt(x + 0.5, y + 0.5) ?? 0)
+    let heightUnavailable = false
+    const heightAt = (x, y) => {
+      const v = window.__pt.heightAt(x + 0.5, y + 0.5)
+      if (v === null || v === undefined) { heightUnavailable = true; return 0 }
+      return v
+    }
     const nearWater = (x, y) => {
       for (let j = -2; j <= 2; j++) {
         for (let i = -2; i <= 2; i++) if (isWater(x + i, y + j)) return true
@@ -328,6 +340,7 @@ for (const seed of seeds) {
     }
     return {
       buildings: buildingCount, barriers: barrierCount,
+      heightUnavailable,
       frontageTotal, frontageBuilt, frontageWalled, why,
       touching: touches.size,
       land, landBuilt,

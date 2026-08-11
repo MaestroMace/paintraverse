@@ -10,6 +10,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
+import { footprintOf } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { buildTerrainMesh, getTerrainHeight, groundYAtWorld, tickWater, TERRAIN_WORLD_SCALE } from './TerrainMesh'
 import { TILE } from './scale'
@@ -664,7 +665,9 @@ export class ThreeRenderer {
     const terrainLayer = map.layers.find(l => l.type === 'terrain')
     let heightMap: number[][] | null = null
     if (terrainLayer?.terrainTiles) {
-      const terrainGroup = buildTerrainMesh(terrainLayer.terrainTiles, map.gridWidth, map.gridHeight, seed)
+      const terrainGroup = buildTerrainMesh(
+        terrainLayer.terrainTiles, map.gridWidth, map.gridHeight, seed,
+        terrainLayer.heightMap ?? null)
       this.terrainGroup.add(terrainGroup)
       heightMap = (terrainGroup as any)._heightMap ?? null
     }
@@ -683,7 +686,9 @@ export class ThreeRenderer {
     const structLayerForMask = map.layers.find(l => l.type === 'structure')
     for (const obj of structLayerForMask?.objects ?? []) {
       const def = defMap.get(obj.definitionId)
-      const fp = def?.footprint ?? { w: 1, h: 1 }
+      // The RESERVED rectangle, not the definition's — collision is exactly
+      // the place where reading the wrong one lets the player walk into a wall.
+      const fp = footprintOf(obj, def)
       for (let dy = 0; dy < fp.h; dy++) {
         for (let dx = 0; dx < fp.w; dx++) {
           const bx = obj.x + dx, by = obj.y + dy
@@ -698,6 +703,32 @@ export class ThreeRenderer {
       for (let y = 0; y < this.gridH; y++) {
         for (let x = 0; x < this.gridW; x++) {
           if (terrainTiles[y]?.[x] === 3) mask[y * this.gridW + x] = 1
+        }
+      }
+    }
+
+    // === CROSSINGS CLEAR THE MASK, and until now nothing did. ===
+    //
+    // Reported: the rivers are "like a painted floor I can't walk on". The
+    // second half of that is literal. A bridge is a structure-layer object, so
+    // the loop above SET its tiles blocked exactly like a building, and the
+    // water under it is blocked too — so a bridge has never been walkable in
+    // this project. There has never been a crossing anywhere, on any seed.
+    //
+    // The `passage` tag has been on the bridge definition the whole time and
+    // nothing had ever read it. Anything tagged `passage` is a way THROUGH:
+    // it clears both its own footprint and the water beneath it. Done last so
+    // it wins over both earlier passes regardless of object order.
+    for (const obj of structLayerForMask?.objects ?? []) {
+      const def = defMap.get(obj.definitionId)
+      if (!def?.tags?.includes('passage')) continue
+      const fp = footprintOf(obj, def)
+      for (let dy = 0; dy < fp.h; dy++) {
+        for (let dx = 0; dx < fp.w; dx++) {
+          const bx = obj.x + dx, by = obj.y + dy
+          if (bx >= 0 && bx < this.gridW && by >= 0 && by < this.gridH) {
+            mask[by * this.gridW + bx] = 0
+          }
         }
       }
     }

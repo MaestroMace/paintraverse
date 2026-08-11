@@ -575,6 +575,20 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 3, h: 3 },
     styleSetSlots: ['wall', 'roof', 'window']
   },
+  // A one-tile bridge deck. The 4x2 `bridge` cannot span a river that is now
+  // up to five tiles wide at its mouth, and it only ever got placed where a
+  // road happened to run east into water. This composes to any width along
+  // any line, which is what guaranteeing a crossing requires. `passage` is
+  // load-bearing: ThreeRenderer clears the collision mask for it.
+  {
+    id: 'footbridge',
+    name: 'Footbridge',
+    category: 'infrastructure',
+    tags: ['passage', 'water'],
+    color: '#8A7458',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
   {
     id: 'bridge',
     name: 'Bridge',

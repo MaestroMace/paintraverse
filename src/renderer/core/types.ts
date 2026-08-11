@@ -25,6 +25,21 @@ export interface MapLayer {
   locked: boolean
   objects: PlacedObject[]
   terrainTiles?: number[][] // only for terrain layers
+  /**
+   * Ground elevation per tile, raw units — TERRAIN_WORLD_SCALE turns them
+   * into metres. Terrain layers only.
+   *
+   * This exists because there were TWO height maps and they were different
+   * landscapes. TownGenerator built one (freq 0.03/0.06, x2.0, clamp 2.5, 70%
+   * terraced) and planned the whole town against it; TerrainMesh built its own
+   * from the seed (freq 0.022/0.055/0.11, x4.4, clamp 5.5, 10% terraced) and
+   * drew that. So ponds were placed in the low ground of a landscape the
+   * player never saw, and a river carved into the generator's terrain was
+   * invisible in 3D. One map now, written here by the generator and consumed
+   * by the renderer; TerrainMesh keeps its own generator only as a fallback
+   * for maps that predate this field.
+   */
+  heightMap?: number[][]
 }
 
 export type LayerType = 'terrain' | 'structure' | 'prop' | 'road' | 'water' | 'custom'

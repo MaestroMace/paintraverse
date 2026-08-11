@@ -134,7 +134,7 @@ const BUILDING_HEIGHTS: Record<string, number> = {
   // away with that by luck; a 1.45m precinct wall would have exported as a
   // slab two storeys high. Heights are metres/TILE.
   stone_wall: 2.2, stone_wall_v: 2.2, crenellated_wall: 2.2,
-  precinct_wall: 0.5, precinct_wall_v: 0.5, aqueduct: 4.0,
+  precinct_wall: 0.5, precinct_wall_v: 0.5, aqueduct: 4.0, footbridge: 0.6,
 }
 
 // Windmill gets a special roof style
@@ -162,6 +162,7 @@ const BUILDING_ROOF_STYLE: Record<string, RoofStyle> = {
   mausoleum: 'hipped', coach_house: 'gabled', potting_shed: 'gabled',
   stone_wall: 'flat', stone_wall_v: 'flat', crenellated_wall: 'flat',
   precinct_wall: 'flat', precinct_wall_v: 'flat', aqueduct: 'flat',
+  footbridge: 'flat',
 }
 
 // Which buildings have timber framing on walls

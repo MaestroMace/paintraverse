@@ -65,14 +65,33 @@ for (const seed of seeds) {
     const terrain = map.layers.find((l) => l.type === 'terrain')?.terrainTiles
     const structs = map.layers.find((l) => l.type === 'structure')?.objects ?? []
     const H = terrain.length, W = terrain[0].length
+    // Model what ThreeRenderer's collision mask does, including the part that
+    // CLEARS: anything tagged `passage` — an archway, a town gate, a bridge
+    // deck — is a way through, and the mask un-blocks it last. Without this
+    // the tool called a player standing under an archway "stuck inside a
+    // building with nowhere to go", which is a true statement about its own
+    // model and a false one about the game.
     const built = Array.from({ length: H }, () => new Uint8Array(W))
+    const passage = []
     for (const o of structs) {
       const d = defs.find?.((x) => x.id === o.definitionId) ?? defs[o.definitionId] ?? null
       const f = o.footprint ?? d?.footprint ?? { w: 1, h: 1 }
+      if ((d?.tags ?? []).includes('passage')) { passage.push([o, f]); continue }
       for (let dy = 0; dy < f.h; dy++) {
         for (let dx = 0; dx < f.w; dx++) {
           const px = o.x + dx, py = o.y + dy
           if (px >= 0 && py >= 0 && px < W && py < H) built[py][px] = 1
+        }
+      }
+    }
+    const walkway = Array.from({ length: H }, () => new Uint8Array(W))
+    for (const [o, f] of passage) {
+      for (let dy = 0; dy < f.h; dy++) {
+        for (let dx = 0; dx < f.w; dx++) {
+          const px = o.x + dx, py = o.y + dy
+          if (px >= 0 && py >= 0 && px < W && py < H) {
+            built[py][px] = 0; walkway[py][px] = 1
+          }
         }
       }
     }
@@ -82,7 +101,7 @@ for (const seed of seeds) {
     const ix = Math.floor(tx), iz = Math.floor(tz)
     const inBounds = ix >= 0 && iz >= 0 && ix < W && iz < H
     const insideBuilding = inBounds ? built[iz][ix] === 1 : false
-    const inWater = inBounds ? terrain[iz][ix] === 3 : false
+    const inWater = inBounds ? (terrain[iz][ix] === 3 && !walkway[iz][ix]) : false
 
     // Can the player go anywhere? One PLAYER step in eight directions.
     const R = 0.35 / TILE
@@ -92,6 +111,7 @@ for (const seed of seeds) {
       for (let z = z0; z <= z1; z++) {
         for (let x = x0; x <= x1; x++) {
           if (x < 0 || z < 0 || x >= W || z >= H) return true
+          if (walkway[z][x]) continue
           if (built[z][x] || terrain[z][x] === 3) return true
         }
       }

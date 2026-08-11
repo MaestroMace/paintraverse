@@ -933,6 +933,8 @@ Run these before believing anything about where the project is.
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
 | prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
+| **the river** | **river.mjs** | **bank relief 1.14m (was 0.03m), drop +3.2m (was -0.1m)** | **fixed** |
+| river severance | site.mjs | 0 of 5 seeds have an unreachable district, was 2 | clean |
 | **360-degree read** | **allsides.mjs** | **flank/front 0.74 / 0.51 on two seeds, was 0.42 / 0.28** | **improving** |
 
 **Every metric here is now in or near range, and the last outlier was mostly
@@ -1434,6 +1436,15 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   changes bytes and not one object. The seed is pinned; to A/B against another
   commit, stash `src/renderer/renderer3d/`, check the old files out, rebuild,
   and run it again on the same seed.
+- `node tools/river.mjs [seeds...]` — **is the river a river, or blue paint on
+  the floor?** Bank relief (how far the water sits BELOW the land beside it),
+  descent from source to mouth, width profile, how many separate bodies of
+  water, and crossings. `site.mjs` asks whether the TOWN acknowledges the
+  water; this asks whether the water is water. **Read bank relief first** —
+  with no channel cut into the height map the water is a translucent quad
+  lying flat on the ground and nothing else matters. It also prints the map's
+  whole height range beside the river's, because a relief of 0.00 can mean "no
+  channel" or "the tool is reading nulls", and those want opposite fixes.
 - `node tools/registry.mjs` — **is a building type actually WIRED IN?** A new
   type must be registered in SIX id-keyed tables and missing one is silent:
   a fallback footprint, a 1.8-tile height in the pixel-art export, a generic
