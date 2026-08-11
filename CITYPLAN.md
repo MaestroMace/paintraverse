@@ -184,6 +184,31 @@ Still open here: the town is on the river but not OF it. There is no harbour,
 the waterfront is not a district, and nothing about the river explains why the
 town is where it is.
 
+### 1b. A LANDMARK ONLY WORKS IF IT IS RARE
+
+**Measured: 93 towers averaging 19m against 179 row houses averaging 4.7m.**
+`round_tower` carried weight 10 in the fortress district — the heaviest weight
+of any building type anywhere — and the row streak copies its anchor's type up
+to four more times in each direction. So one roll produced a TERRACE OF
+TOWERS, which is not a thing. Meanwhile the curtain wall those towers stand on
+is 2.9m, shorter than the houses it defends.
+
+This is a Lynch failure and not merely an ugly one: a landmark orients you
+only when it is rare, and ninety-three of them are wallpaper. The vista audit
+was scoring `tower` as a weenie 97 times precisely because towers were
+everywhere, which is the metric flattering a defect.
+
+**PARTLY DONE — towers 93 -> 41.** A `NEVER_TERRACED` set stops landmark types
+streaking along a street, and the pathological weights came down. The
+structural half matters more than the weights: the streak was amplifying every
+tower roll about ninefold.
+
+Still open: a fortress district still reads as a thicket, because its whole
+palette is towers and walls. The real fix is that a citadel is a PLACE with a
+keep and a bailey, not a district whose building list happens to be military.
+And the curtain wall wants to be 6-8m so it reads as a wall with towers
+punctuating it, rather than a fence with spires behind.
+
 ### 3. NODES WHERE PATHS MEET, NOT AT DISTRICT CENTRES
 
 A square belongs where roads converge, because that is where people already

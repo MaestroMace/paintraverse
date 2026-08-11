@@ -74,7 +74,7 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'building_medium', w: 3, h: 3, weight: 3 },
     { id: 'balcony_house', w: 3, h: 2, weight: 3 },
     { id: 'guild_hall', w: 4, h: 4, weight: 2 },
-    { id: 'tower', w: 2, h: 2, weight: 2 },
+    { id: 'tower', w: 2, h: 2, weight: 1 },
     { id: 'archway', w: 3, h: 1, weight: 1 },
     { id: 'stable', w: 4, h: 3, weight: 1 },
   ],
@@ -91,7 +91,7 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
   ],
   temple: [
     { id: 'chapel', w: 3, h: 4, weight: 5 },
-    { id: 'tower', w: 2, h: 2, weight: 4 },
+    { id: 'tower', w: 2, h: 2, weight: 1 },
     { id: 'bell_tower', w: 2, h: 2, weight: 3 },
     { id: 'building_large', w: 4, h: 3, weight: 3 },
     { id: 'temple', w: 5, h: 5, weight: 2 },
@@ -126,21 +126,42 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'mill', w: 3, h: 3, weight: 5 },
   ],
   fortress: [
-    { id: 'watchtower', w: 2, h: 2, weight: 6 },
-    { id: 'tower', w: 2, h: 2, weight: 5 },
+    { id: 'watchtower', w: 2, h: 2, weight: 2 },
+    { id: 'tower', w: 2, h: 2, weight: 1 },
     { id: 'town_gate', w: 3, h: 1, weight: 3 },
     { id: 'warehouse', w: 4, h: 3, weight: 2 },
     { id: 'building_small', w: 2, h: 2, weight: 2 },
-    { id: 'round_tower', w: 2, h: 2, weight: 10 },
+    { id: 'round_tower', w: 2, h: 2, weight: 2 },
     { id: 'gatehouse', w: 4, h: 2, weight: 5 },
   ],
   cemetery: [
     { id: 'chapel', w: 3, h: 4, weight: 5 },
-    { id: 'tower', w: 2, h: 2, weight: 2 },
+    { id: 'tower', w: 2, h: 2, weight: 1 },
   ],
 }
 
 // District-specific prop palettes
+/**
+ * Types that stand ALONE and are never repeated along a street.
+ *
+ * The row streak copies its anchor's type up to four more times in each
+ * direction, which is right for a terrace and absurd for a tower: nobody
+ * builds nine identical 19m round towers in a line. Combined with a fortress
+ * district that weights `round_tower` at 10 — the heaviest weight of any
+ * building type anywhere — one unlucky roll produced a thicket, and measured
+ * that is exactly what happened: 93 towers averaging 19m tall against 179 row
+ * houses averaging 4.7m.
+ *
+ * It is also a Lynch failure rather than merely an ugly one. A LANDMARK only
+ * orients you if it is rare; ninety-three of them are wallpaper, and the vista
+ * audit was scoring towers as weenies precisely because they were everywhere.
+ */
+const NEVER_TERRACED = new Set([
+  'tower', 'round_tower', 'watchtower', 'bell_tower', 'bell_tower_tall',
+  'clock_tower', 'cathedral', 'chapel', 'temple', 'windmill', 'lighthouse',
+  'gatehouse', 'archway', 'town_gate', 'mill', 'guild_hall', 'warehouse',
+])
+
 const DISTRICT_PROPS: Record<DistrictType, string[]> = {
   market: ['market_stall', 'crate', 'crate_stack', 'barrel', 'hanging_sign', 'wagon', 'sign', 'cafe_table', 'cart', 'hay_bale', 'bunting_pole', 'bunting_pole'],
   residential: ['potted_plant', 'bench', 'well', 'fence', 'planter_box', 'flower_box', 'cloth_line', 'rain_barrel', 'woodpile'],
@@ -1591,7 +1612,7 @@ export class TownGenerator implements IMapGenerator {
       // tangent is along Y; if road to N or S, tangent is along X.
       const tanX = (roadN || roadS) ? 1 : 0
       const tanY = (roadW || roadE) ? 1 : 0
-      if (tanX !== 0 || tanY !== 0) {
+      if ((tanX !== 0 || tanY !== 0) && !NEVER_TERRACED.has(type.id)) {
         for (const sign of [1, -1]) {
           const maxStreak = 2 + Math.floor(rng() * 3)   // 2–4 more in this direction
           let curX = ox + sign * tanX * bw
