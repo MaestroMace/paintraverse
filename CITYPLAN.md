@@ -52,7 +52,7 @@ those five are distinct and reinforce one another. Score ourselves honestly:
 | paths | a hierarchy you can feel — high street, lane, alley | tiers exist in data, but every street looks alike |
 | edges | river, wall, cliff: a seam the town acknowledges | quay 53%, wall 6.5m and 76% sealed — **built** |
 | districts | recognisable from inside, with a transition | Voronoi cells; you cannot tell you crossed one |
-| nodes | where paths converge and you pause | plazas sit at district centres, not junctions |
+| nodes | where paths converge and you pause | 4 seeds in 5 have a square, 27-33m, 61-97% enclosed — **improving** |
 | landmarks | visible from far, orienting | **done** — vista termination 6% -> 18% |
 
 Landmarks are the one element we have actually built. The other four are the
@@ -253,8 +253,58 @@ are. Ours are placed at Voronoi centroids and the roads are drawn to them
 afterwards, which is backwards. Sitte's rules then apply: enter at the
 corners, keep it enclosed, monument at the edge.
 
-*Grades: share of squares with 3+ streets meeting; enclosure of square
-perimeter; vista termination.*
+*Grades: `tools/squares.mjs` — how many squares exist, their minor dimension,
+and enclosure measured as line of sight from the middle of them.*
+
+**PARTLY DONE — squares per town 1-in-5 seeds -> 4-in-5, enclosure 61-97%.**
+Three causes, and the interesting thing is that the one everybody would guess
+at (the squares are not walled) was never true.
+
+- **TWO DEFINITIONS OF WHERE A SQUARE IS.** `carvePlaza` painted an ellipse;
+  `generateStreetNetwork` separately stamped a DISC of a different radius to
+  reserve it. A comment sat above the disc warning the next person to keep the
+  two in sync — they could not be, the shapes differ. The square's outer band
+  was therefore invisible to the building placer, which finds frontage by
+  walking ROAD edges, so nothing was required to ring a square and nothing was
+  stopped from building on its edge. One definition now: the tiles carvePlaza
+  actually painted.
+- **THE GOLDEN RATIO WAS THE WRONG NUMBER.** Plazas were elliptical at 1.618,
+  which is a lovely proportion and makes every square markedly oblong — and it
+  is the MINOR dimension that decides whether a space reads as a square or as
+  a wide spot in the road. 1.3 now.
+- **THE PRINCIPAL SQUARE WAS UNDERSIZED.** Cutting it from four football
+  pitches overshot to 24m by 18m. Radius 4-6 gives ~30m by 24m.
+
+`narrowRoadSwathes` also decided "is this a square?" from the MATERIAL, and
+stone (id 2) is both a designed square and the ground of every temple and
+noble quarter — so an entire district was spared from erosion and its
+over-wide approaches never narrowed. Third time that same mistake has appeared
+(dressEmptyStreets, this, and the sky mask in anomaly.mjs): **a question about
+the PLAN cannot be answered by the material.**
+
+Still open: one seed in five has no square at all, and street mouths onto a
+square run to 5-9 where Sitte wants a few, entering at the corners.
+
+### THE METRIC HERE WAS WRONG TWICE, WHICH IS THE REAL LESSON
+
+Enclosure was first measured as "what share of the tiles just outside the
+square are buildings", which reported 29-33% and would not move however the
+town changed. That is the signature of a metric measuring its own
+construction: after the one-material-per-place change a square and its apron
+are contiguous paving, so the "boundary" fell wherever an arbitrary 3-ring
+growth stopped, usually in the middle of more paving.
+
+Re-asked as **line of sight from the middle of the square** — cast rays, count
+how many meet a facade within 27m — the same towns read 75%, and the fix took
+them to 94%. Nothing about the town changed between those two numbers. The
+first metric was answering a question about the tool.
+
+And it was hiding the real defect. "Squares are 30% enclosed" points at
+walling them; "four seeds in five contain no square at all" points somewhere
+completely different, and only the second one was true. Making the tool print
+its INGREDIENTS — open paved tiles, and how many are deep enough to stand in —
+is what showed it: the seeds with no square had MORE open paving than the seed
+that had one.
 
 ### 4. DISTRICTS YOU CAN FEEL, WITH A CROSS-DISSOLVE
 

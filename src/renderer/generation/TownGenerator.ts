@@ -260,7 +260,15 @@ export class TownGenerator implements IMapGenerator {
     // A real town square is 30-40m across. Radius 5 is an rX of 15m, so a
     // 30m x 18m ellipse — big enough to hold a market and small enough that
     // the buildings on the far side still read as a wall.
-    const plazaRadius = Math.floor(3 + complexity * 2)
+    // The town's PRINCIPAL square, and it should outrank the district ones.
+    // At radius 3-5 it came out 24m by 18m, which sounds reasonable and is
+    // not: tools/squares.mjs found no square at all in two seeds of three,
+    // because nowhere inside it was 15m clear of a building. Plenty of open
+    // paving (839 tiles in one of them, MORE than the seed that did have a
+    // square) and none of it deep enough to stand in and feel enclosed.
+    // Radius 4-6 gives roughly 30m by 24m — a market square rather than a
+    // wide spot, and still a quarter of the four-football-pitches original.
+    const plazaRadius = Math.floor(4 + complexity * 2)
     const squareMap = Array.from({ length: height },
       () => Array.from({ length: width }, () => false))
     this.carvePlaza(terrainTiles, mainCenter.x, mainCenter.y, plazaRadius,
@@ -272,9 +280,15 @@ export class TownGenerator implements IMapGenerator {
       // six squares ended up costing more ground than every street combined.
       const d = districts[i]
       if (d.type !== 'temple' && d.type !== 'noble' && d.type !== 'market') continue
+      // Overshot last round. Cutting these from "four football pitches" landed
+      // at rX 2-4, which with the golden-ratio minor axis is a 6x4 tile
+      // ellipse — 18m by 12m, a courtyard rather than a square, and small
+      // enough that tools/squares.mjs finds no square at all in two seeds out
+      // of three. Alexander #61 wants about 20m across for a square people
+      // use; this lands 24-30m by 15-18m.
       const dPlazaR = d.type === 'temple' || d.type === 'noble'
-        ? Math.floor(2 + complexity * 2)
-        : Math.floor(2 + complexity * 1.5)
+        ? Math.floor(3 + complexity * 2)
+        : Math.floor(3 + complexity * 1.5)
       this.carvePlaza(terrainTiles, d.center.x, d.center.y, dPlazaR,
         width, height, 14, squareMap)
     }
@@ -805,10 +819,20 @@ export class TownGenerator implements IMapGenerator {
      *  "is this a square?" — only a record of what was carved can. */
     squareMap?: boolean[][]
   ): void {
-    const PHI = 1.618
-    // Elliptical plaza with golden ratio aspect ratio
+    // Aspect ratio. This was the golden ratio, 1.618, which is a lovely number
+    // and the wrong one: it makes every square markedly oblong, and it is the
+    // MINOR dimension that decides whether a space reads as a square or as a
+    // wide spot in the road. Measured, four seeds in five contained no square
+    // the audit could find at all — the plazas were 30m by 18m and the 18m was
+    // mostly eaten by the rim and by buildings on the long sides.
+    //
+    // Sitte's proportion rule is about the minor dimension against the height
+    // of the facades around it, one to three times; Alexander #61 wants about
+    // 20m across for a square people use. 1.3 keeps the ellipse from reading
+    // as a circle while leaving the short axis usable.
+    const ASPECT = 1.3
     const rX = radius
-    const rY = Math.max(2, Math.round(radius / PHI))
+    const rY = Math.max(3, Math.round(radius / ASPECT))
     // Organic edge noise — multiple harmonics for natural imperfection
     for (let y = cy - rY - 2; y <= cy + rY + 2; y++) {
       for (let x = cx - rX - 2; x <= cx + rX + 2; x++) {
@@ -866,21 +890,29 @@ export class TownGenerator implements IMapGenerator {
     // because of what it connects, not because it is fat.
     const tierMap = Array.from({ length: h }, () => Array.from({ length: w }, () => 0))
 
-    // Keep the centre of each square clear of buildings, and tier 3 so the
-    // ground there paves as street rather than alley — a plaza approach is a
-    // grand space, not a back lane.
+    // ONE definition of where a square is: the tiles carvePlaza actually
+    // painted. Reserve exactly those, so nothing builds on the square and the
+    // ring immediately outside it counts as frontage.
     //
-    // These radii must stay INSIDE the ellipse carvePlaza paints, not outside
-    // it. They are a separate number in a separate function, and when this
-    // disc was the larger of the two it reserved a ring of ordinary land
-    // around every square that no building could occupy and the painter then
-    // covered in street cobble — a moat of carriageway around each plaza.
-    const plazaR = Math.floor(2 + complexity * 2)
-    this.markCircle(roadMap, center.x, center.y, plazaR, w, h, tierMap, 3)
-
-    for (const d of districts) {
-      const r = Math.floor(1 + complexity)
-      this.markCircle(roadMap, d.center.x, d.center.y, r, w, h, tierMap, 3)
+    // This used to be a DISC of radius 1-4 stamped near each plaza centre,
+    // while the painter drew an ELLIPSE up to 5 x 3 — two numbers for one
+    // thing, in two different functions, and a comment here warning the next
+    // person to keep them in sync. They were not in sync and could not be:
+    // the shapes are different. The outer band of every square was therefore
+    // invisible to the placer, which walks ROAD edges to find frontage. So
+    // nothing was required to ring a square, and nothing was stopped from
+    // building on its edge.
+    //
+    // Measured, squares came out 29% enclosed against Sitte's ~60% threshold,
+    // below which a square stops being a room and becomes a widening in the
+    // street. This is the fix for that: a square is a room made of facades,
+    // and the placer can only build the room if it can see the walls.
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (!squareMap[y][x] || waterMap[y][x]) continue
+        roadMap[y][x] = true
+        tierMap[y][x] = Math.max(tierMap[y][x], 3)
+      }
     }
 
     // BOULEVARDS: Connect main center to each district center
@@ -977,7 +1009,7 @@ export class TownGenerator implements IMapGenerator {
 
     this.carveQuays(roadMap, tierMap, terrain, waterMap, w, h, center)
 
-    this.narrowRoadSwathes(roadMap, terrain, w, h)
+    this.narrowRoadSwathes(roadMap, terrain, w, h, squareMap)
 
     // Paint road tiles onto terrain, as street cobble (8, warm orange-grey) or
     // alley (9, dark brown), from the tier the CARVER recorded.
@@ -1112,17 +1144,19 @@ export class TownGenerator implements IMapGenerator {
    * edges — sees new frontage exactly where the shoreline used to be.
    */
   private narrowRoadSwathes(
-    roadMap: boolean[][], terrain: number[][], w: number, h: number
+    roadMap: boolean[][], terrain: number[][], w: number, h: number,
+    /** The designed squares. Asking the MATERIAL "is this a square?" was
+     *  wrong for the same reason it was wrong in dressEmptyStreets: stone
+     *  (id 2) is a designed square AND the ground of every temple and noble
+     *  quarter, so an entire district was being spared from erosion and its
+     *  over-wide approaches never narrowed. Only the plan knows. */
+    squareMap: boolean[][]
   ): void {
     /** Widest corridor any carver tier is allowed to draw, in tiles. */
     const MAX_CORRIDOR = 3
     const isRoad = (x: number, y: number): boolean =>
       x >= 0 && y >= 0 && x < w && y < h && roadMap[y][x]
-    /** Stone and flagstone are designed squares; never erode them. */
-    const isSquare = (x: number, y: number): boolean => {
-      const t = terrain[y]?.[x]
-      return t === 2 || t === 14
-    }
+    const isSquare = (x: number, y: number): boolean => !!squareMap[y]?.[x]
     /** Contiguous road extent through this tile; the smaller axis is width. */
     const corridorWidth = (x: number, y: number): number => {
       const run = (dx: number, dy: number): number => {
