@@ -3541,6 +3541,22 @@ export class TownGenerator implements IMapGenerator {
           list = ['rubble_pile', 'woodpile', 'barrel', 'crate', 'cloth_line']; break
         case 'garden':
           list = ['bush', 'flower_bed', 'woodpile', 'rain_barrel', 'trellis_arch']; break
+        // A working quarter has a working back yard. These fell through to the
+        // default and it showed: `woodpile` came out top-five in the fortress,
+        // the waterfront AND the harbour, so a dockside back lane was dressed
+        // exactly like a suburban one. The front of these districts already
+        // differentiates well — nine distinct prop signatures across nine
+        // quarters — and the back was the half nobody had varied.
+        case 'harbor':
+        case 'waterfront':
+          list = ['rope_coil', 'fish_rack', 'crate_stack', 'barrel_stack',
+            'crate', 'rain_barrel']; break
+        case 'market':
+          list = ['crate_stack', 'crate', 'barrel_stack', 'barrel', 'cloth_line',
+            'rain_barrel']; break
+        case 'artisan':
+          list = ['woodpile', 'barrel_stack', 'crate', 'rubble_pile',
+            'rain_barrel', 'cart']; break
         default:
           list = ['woodpile', 'rain_barrel', 'cloth_line', 'crate', 'barrel',
             'fence', 'woodpile']

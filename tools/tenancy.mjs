@@ -150,6 +150,28 @@ for (const seed of seeds) {
       if (list && list.includes(p.definitionId)) explainedN++
     }
 
+    // WHICH PROPS ACTUALLY LAND IN WHICH DISTRICT.
+    //
+    // The dead type-lists above are only a defect if nothing else supplies
+    // the vocabulary. DISTRICT_PROPS does carry a harbour's rope coils and a
+    // market's crates, so the question that decides whether the town reads
+    // as varied is not which lists exist but whether the props on the ground
+    // actually differ from quarter to quarter. Same wallpaper test as the
+    // building features: a palette that produces the same top three
+    // everywhere is cost without information.
+    const propsByDistrict = {}
+    for (const p of props) {
+      const x = Math.round(p.x), y = Math.round(p.y)
+      const oi = owner[y]?.[x] ?? -1
+      const inn2 = inside[y]?.[x] ?? -1
+      const idx2 = oi >= 0 ? oi : inn2
+      if (idx2 < 0) continue
+      const d = structs[idx2]?.properties?.district
+      if (!d) continue
+      ;(propsByDistrict[d] ??= {})
+      propsByDistrict[d][p.definitionId] = (propsByDistrict[d][p.definitionId] ?? 0) + 1
+    }
+
     // How many buildings of each type exist, so a feature gated on a rare
     // type is visible as such rather than as an absence nobody notices.
     const typeCounts = {}
@@ -158,7 +180,7 @@ for (const seed of seeds) {
     return {
       props: props.length, structs: structs.length,
       ownedN, explainedN, orphanN, insideN, civicN,
-      orphanKinds, ownedKinds, typeCounts,
+      orphanKinds, ownedKinds, typeCounts, propsByDistrict,
     }
   })
   if (!r) { console.log(`seed ${seed}: no terrain`); continue }
@@ -202,6 +224,56 @@ if (top.length) {
 
 const tc = merge('typeCounts')
 const owners = merge('ownedKinds')
+// THE VOCABULARY CENSUS, applied to props.
+//
+// getBuildingSpecificProps carries a hand-written prop list for about twenty
+// building types — tavern, warehouse, guild_hall, covered_market, apothecary.
+// A list attached to a type that the placer almost never builds is a GHOST:
+// content that exists in the source, reads as a rich vocabulary, and never
+// reaches a screen. That is the same failure the shop signs had and the same
+// one tools/features.mjs found five more of in the building factory.
+//
+// So print the types the VOCABULARY knows about alongside how many of them
+// the town actually contains, and say plainly which lists are dead.
+{
+  const VOCAB = ['tavern', 'inn', 'shop', 'bakery', 'apothecary', 'market_stall',
+    'covered_market', 'warehouse', 'guild_hall', 'mansion', 'building_large',
+    'balcony_house', 'half_timber', 'chapel', 'temple', 'tower', 'watchtower',
+    'bell_tower', 'clock_tower', 'stable']
+  const dead = [], alive = []
+  for (const id of VOCAB) {
+    const n = tc[id] ?? 0
+    ;(n < seeds.length ? dead : alive).push(`${id} ${n}`)
+  }
+  console.log('\nPROP VOCABULARY CENSUS — lists that exist vs types that do:')
+  console.log(`  reaching the town: ${alive.join(', ') || 'none'}`)
+  console.log(`  DEAD (under one per seed): ${dead.join(', ') || 'none'}`)
+  console.log('  A hand-written prop list on a type the placer never builds is')
+  console.log('  content you believe you have. Same failure as the shop signs.')
+}
+
+{
+  const byD = {}
+  for (const r of rows) {
+    for (const [d, m] of Object.entries(r.propsByDistrict ?? {})) {
+      byD[d] ??= {}
+      for (const [k, v] of Object.entries(m)) byD[d][k] = (byD[d][k] ?? 0) + v
+    }
+  }
+  console.log('\nPROPS BY DISTRICT — do the quarters actually look different?')
+  const tops = []
+  for (const [d, m] of Object.entries(byD).sort((a, b) =>
+      Object.values(b[1]).reduce((x, y) => x + y, 0) -
+      Object.values(a[1]).reduce((x, y) => x + y, 0))) {
+    const t = Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    tops.push(t.map(([k]) => k).join('|'))
+    console.log(`  ${d.padEnd(13)} ${t.map(([k, n]) => `${k} ${n}`).join(', ')}`)
+  }
+  const distinct = new Set(tops).size
+  console.log(`  ${distinct} distinct top-5 signatures across ${tops.length} districts` +
+    ` — ${distinct <= 2 ? 'WALLPAPER: the palettes are not differentiating' : 'the quarters differ'}`)
+}
+
 console.log('\nwho actually gets dressed (building count -> props hosted):')
 for (const [id, n] of Object.entries(tc).sort((a, b) => b[1] - a[1]).slice(0, 12)) {
   const hosted = owners[id] ?? 0
