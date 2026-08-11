@@ -50,7 +50,7 @@ those five are distinct and reinforce one another. Score ourselves honestly:
 | element | what it should be | what we have |
 |---|---|---|
 | paths | a hierarchy you can feel — high street, lane, alley | tiers exist in data, but every street looks alike |
-| edges | river, wall, cliff: a seam the town acknowledges | river ignored; wall exists but is decorative |
+| edges | river, wall, cliff: a seam the town acknowledges | quay 53%, wall 6.5m and 76% sealed — **built** |
 | districts | recognisable from inside, with a transition | Voronoi cells; you cannot tell you crossed one |
 | nodes | where paths converge and you pause | plazas sit at district centres, not junctions |
 | landmarks | visible from far, orienting | **done** — vista termination 6% -> 18% |
@@ -208,6 +208,43 @@ palette is towers and walls. The real fix is that a citadel is a PLACE with a
 keep and a bailey, not a district whose building list happens to be military.
 And the curtain wall wants to be 6-8m so it reads as a wall with towers
 punctuating it, rather than a fence with spires behind.
+
+### 2b. THE WALL IS THE OTHER EDGE, AND IT WAS A FENCE
+
+**Measured: the curtain wall was 2.2m.** A storey is 2.9 and a row house is
+4.0, so the town's defensive wall was shorter than every building it defends.
+Same scale-coupling bug as the rest of that arc — a constant tuned when a
+building was one to three world units wide, left behind when `TILE` became 3.0.
+
+It is a Lynch failure, not just a silly number. EDGE is one of the five
+elements a place is legible by, and a boundary you can see over is not a
+boundary. **6.5m now**, against Carcassonne's ~8m and York's ~4m on a rampart,
+with a 1.6m thickness instead of 0.55 (a 6.5m wall 55cm thick is a sheet of
+card on edge) and merlons at a 1.5m pitch instead of 0.4 — a 6m segment was
+growing 31 merlons of 19cm each, which past a few metres is a fuzzy line and
+31 extra volumes per segment on a mesh budget that cares.
+
+Continuity: 71% -> 76% of the boundary ring sealed, 50% -> 55% by masonry.
+The gate clearance box was ±4 tiles per gate, which was survivable at four
+gates and became a third of the perimeter when the vista work raised the cap
+to eight. **A fix in one pass quietly undermining another is the hazard of a
+pipeline with no hierarchy, which is what this whole document is about.**
+
+**Read this before measuring the wall again.** The first version of the ring
+metric walked `minY/maxY/minX/maxX`, while the wall builder lays its bottom
+row at `maxY - 1` and its right column at `maxX - 1`. Two of the four sides
+were therefore one tile outside the wall, every segment on them scored as a
+gap, and the tool reported 52% sealed with "233 tiles where the placer simply
+did not build". Aligning the ring took it to 76% with nothing changed. TWO
+code changes were made chasing that phantom before the tool was made to
+explain its own gaps rather than just count them — and classifying the gaps by
+CAUSE is what exposed it in one run.
+
+And a second one: a `town_gate` is 3 tiles wide, so a symmetric ±2 clearance
+box let a wall start at `gate.x + 2` and overlap the gate's third tile. One
+placement error on seed 11. Gate footprints are marked into the occupancy set
+now; a distance heuristic standing in for a footprint test is wrong in
+whichever direction you did not picture.
 
 ### 3. NODES WHERE PATHS MEET, NOT AT DISTRICT CENTRES
 

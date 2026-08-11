@@ -798,8 +798,22 @@ function tmplStackedTower(ctx: MassingContext): Volume[] {
  *  runs along the LONGER axis. Height is fixed (2.2 world units) so the
  *  wall reads as an actual fortification, not a garden wall. */
 function tmplWallSegment(ctx: MassingContext): Volume[] {
-  const wallH = 2.2
-  const thickness = 0.55
+  // A town wall in METRES. This was 2.2, which is shorter than a single
+  // storey (2.9) and shorter than every house it is supposed to defend — the
+  // same scale-coupling bug as the rest of that arc: a constant tuned when a
+  // building was one to three world units WIDE, left behind when TILE became
+  // 3.0 and a storey became 2.9.
+  //
+  // It matters beyond looking wrong. Lynch's EDGE is one of the five elements
+  // a place is legible by, and a boundary you can see over is not a boundary
+  // — from inside the town the wall read as a garden fence with spires behind
+  // it. Carcassonne runs about 8m and York about 4m on a rampart; 6.5m reads
+  // as a fortification from the street without walling the town off from the
+  // approach view.
+  const wallH = 6.5
+  // A curtain wall is 1.5-2.5m thick. 0.55 is a partition, and at 6.5m tall
+  // it would read as a sheet of card standing on edge.
+  const thickness = 1.6
   const longAxisX = ctx.footW >= ctx.footD
   const wallW = longAxisX ? ctx.footW : thickness
   const wallD = longAxisX ? thickness : ctx.footD
@@ -816,7 +830,11 @@ function tmplWallSegment(ctx: MassingContext): Volume[] {
   }]
   // Crenellated merlons: alternating blocks along the wall's top edge.
   const runLen = longAxisX ? wallW : wallD
-  const merlonPitch = 0.4
+  // Merlons are ~0.6-1m of stone with a similar gap. At a 0.4m pitch a 6m
+  // wall grew 31 of them, each 19cm wide — which past a few metres is not
+  // crenellation, it is a fuzzy line, and it was 31 extra volumes per segment
+  // on a mesh budget that cares.
+  const merlonPitch = 1.5
   const merlonCount = Math.max(5, Math.floor(runLen / merlonPitch) * 2 + 1)
   for (let m = 0; m < merlonCount; m++) {
     if (m % 2 === 0) continue // gaps between merlons
@@ -828,7 +846,7 @@ function tmplWallSegment(ctx: MassingContext): Volume[] {
       offsetZ: longAxisX ? 0 : t * runLen,
       width: longAxisX ? merlonW : thickness,
       depth: longAxisX ? thickness : merlonW,
-      bottomY: wallH, height: 0.4,
+      bottomY: wallH, height: 0.9,
       roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
       wallColor: stoneColor, roofColor: stoneColor,
       textured: false, cornice: false,

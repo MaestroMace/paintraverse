@@ -127,6 +127,72 @@ for (const seed of seeds) {
       if (roadOnDryside) backsToWater++
     })
 
+    // THE TOWN WALL — Lynch's EDGE, and whether it is one.
+    //
+    // A wall only reads as a boundary if it is continuous and tall enough to
+    // stop the eye. The placer skips any perimeter tile carrying a road,
+    // water, paving or a building, so the ring can end up more gap than wall
+    // without anybody noticing: from inside, a wall with holes in it is not a
+    // boundary, it is scenery.
+    //
+    // Walk the same bounding box the wall builder uses and classify every
+    // tile on it. Water and a building both seal the edge as well as masonry
+    // does — what does not seal it is nothing at all.
+    const WALLISH = new Set(['stone_wall', 'stone_wall_v', 'crenellated_wall',
+      'watchtower', 'round_tower', 'town_gate', 'gatehouse', 'tower'])
+    // Derive the ring the way the wall builder does — the bounding box of the
+    // BUILDINGS plus a 2-tile margin. Taking it over every structure instead
+    // puts outlying countryside pieces (the windmill, a far bridge) in the
+    // box, so the ring runs well outside the wall and the wall scores as full
+    // of holes when it may not be. Exclude the wall objects themselves too,
+    // or the measurement defines its own answer.
+    const wallTile = Array.from({ length: H }, () => new Uint8Array(W))
+    let wallSegs = 0
+    let bMinX = W, bMinY = H, bMaxX = 0, bMaxY = 0
+    for (const o of structs) {
+      const d = defs.find?.((x) => x.id === o.definitionId) ?? defs[o.definitionId] ?? null
+      const f = o.footprint ?? d?.footprint ?? { w: 1, h: 1 }
+      if (WALLISH.has(o.definitionId)) {
+        wallSegs++
+        for (let dy = 0; dy < f.h; dy++) for (let dx = 0; dx < f.w; dx++) {
+          const px = o.x + dx, py = o.y + dy
+          if (px >= 0 && py >= 0 && px < W && py < H) wallTile[py][px] = 1
+        }
+        continue
+      }
+      if (o.definitionId === 'bridge' || o.definitionId === 'windmill') continue
+      bMinX = Math.min(bMinX, o.x); bMinY = Math.min(bMinY, o.y)
+      bMaxX = Math.max(bMaxX, o.x + f.w); bMaxY = Math.max(bMaxY, o.y + f.h)
+    }
+    bMinX = Math.max(1, bMinX - 2); bMinY = Math.max(1, bMinY - 2)
+    bMaxX = Math.min(W - 2, bMaxX + 2); bMaxY = Math.min(H - 2, bMaxY + 2)
+    // Why is each gap a gap? Guessing at this twice cost two builds — the
+    // paved() skip turned out to be redundant with the road check, and gate
+    // clearance was worth five points. Classify instead.
+    const gapWhy = {}
+    let ring = 0, sealed = 0, sealedByWall = 0
+    // The ring has to be the lines the wall builder actually walks. It lays
+    // its top row at minY and its BOTTOM at maxY-1, its left at minX and its
+    // RIGHT at maxX-1 — so a ring drawn on minY/maxY/minX/maxX is one tile
+    // outside the wall on two of its four sides, and every segment on those
+    // sides scores as a gap. That artifact read as "233 tiles where the
+    // placer simply did not build", which sent two changes chasing a
+    // continuity problem that was half measurement.
+    const edgeTiles = []
+    for (let x = bMinX; x <= bMaxX; x++) { edgeTiles.push([x, bMinY], [x, bMaxY - 1]) }
+    for (let y = bMinY; y <= bMaxY; y++) { edgeTiles.push([bMinX, y], [bMaxX - 1, y]) }
+    for (const [x, y] of edgeTiles) {
+      if (x < 0 || y < 0 || x >= W || y >= H) continue
+      ring++
+      if (wallTile[y][x]) { sealed++; sealedByWall++; continue }
+      if (isWater(x, y) || built[y][x] >= 0) { sealed++; continue }
+      const t = terrain[y]?.[x]
+      const why = isRoad(x, y) ? 'a road crosses here (wants a gate)'
+        : t === 2 || t === 14 ? 'designed square runs to the edge'
+        : 'nothing — the placer simply did not build here'
+      gapWhy[why] = (gapWhy[why] ?? 0) + 1
+    }
+
     // Severance: connected components of walkable ground, and how much of the
     // town is in the largest one. Bridges are what stitch them together.
     const walk = (x, y) => x >= 0 && y >= 0 && x < W && y < H && !isWater(x, y)
@@ -154,6 +220,7 @@ for (const seed of seeds) {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (isWater(x, y)) water++
     return {
       W, H, water, bank, bankBuilt, bankRoad, bankLined, wet, backsToWater, bridges,
+      ring, sealed, sealedByWall, wallSegs, gapWhy,
       structs: structs.length, comps: comps.slice(0, 4),
       landTotal: W * H - water,
     }
@@ -189,5 +256,20 @@ console.log(`WET BUILDINGS         ${WE} of ${S} (${pct(WE, S)}%) touch the wate
 console.log(`  ...of which ${BW} (${pct(BW, WE)}%) have their street on the DRY side,`)
 console.log(`     i.e. they face the lane and turn their back to the river.`)
 console.log(`BRIDGES               ${BR2}`)
+{
+  let R = 0, SE = 0, SW = 0, WS = 0
+  for (const r of rows) { R += r.ring; SE += r.sealed; SW += r.sealedByWall; WS += r.wallSegs }
+  console.log(`\nTOWN WALL — is the EDGE continuous?`)
+  console.log(`  ${WS} wall/tower/gate objects`)
+  console.log(`  ${pct(SE, R)}% of the town's boundary ring is sealed by something`)
+  console.log(`  ${pct(SW, R)}% of it is sealed by actual masonry (the rest is water or houses)`)
+  const why = {}
+  for (const r of rows) for (const [k, v] of Object.entries(r.gapWhy)) why[k] = (why[k] ?? 0) + v
+  console.log('  why the gaps are gaps:')
+  for (const [k, n] of Object.entries(why).sort((a, b) => b[1] - a[1])) {
+    console.log(`    ${String(n).padStart(4)}  ${k}`)
+  }
+}
+
 console.log('\nwalkable components (largest first) — a river with no crossing splits a town:')
 for (const r of rows) console.log(`  seed ${String(r.seed).padStart(6)}: ${r.comps.join(', ')}`)

@@ -3247,9 +3247,19 @@ export class TownGenerator implements IMapGenerator {
     maxY = Math.min(h - 2, maxY + 2)
 
     const gateSet = new Set(gates.map(g => `${g.x},${g.y}`))
+    // Clearance around a gate, in tiles. A town_gate is 3 wide, so 2 is
+    // enough to keep masonry off it.
+    //
+    // This was 4, which excludes a 7x7 box per gate. That was survivable when
+    // the gate cap was four; raising the cap to eight so that roads out of
+    // town terminate on a gatehouse turned it into up to a third of the whole
+    // perimeter, and the wall came out 53% gaps. A fix in one pass quietly
+    // undermining another is the hazard of a pipeline with no hierarchy —
+    // which is the thing CITYPLAN is about.
+    const GATE_CLEARANCE = 2
     const isGateNear = (x: number, y: number): boolean => {
       for (const g of gates) {
-        if (Math.abs(g.x - x) < 4 && Math.abs(g.y - y) < 4) return true
+        if (Math.abs(g.x - x) < GATE_CLEARANCE && Math.abs(g.y - y) < GATE_CLEARANCE) return true
       }
       return false
     }
@@ -3268,6 +3278,20 @@ export class TownGenerator implements IMapGenerator {
       const bfp = (b.footprint ?? this.getFootprint(b.definitionId))
       for (let dy = 0; dy < bfp.h; dy++) {
         for (let dx = 0; dx < bfp.w; dx++) occupied.add(`${b.x + dx},${b.y + dy}`)
+      }
+    }
+
+    // Gates occupy real rectangles, so test the rectangle. The clearance box
+    // below is a proxy for "don't crowd the gate" and it is not a substitute:
+    // a town_gate is 3 wide, so a symmetric +/-2 test lets a wall start at
+    // gate.x + 2 and overlap the gate's own third tile. That shipped as one
+    // placement error on seed 11, and the lesson is the usual one — a
+    // distance heuristic standing in for a footprint test will be wrong in
+    // whichever direction you did not picture.
+    for (const g of gates) {
+      const gfp = (g.footprint ?? this.getFootprint(g.definitionId))
+      for (let dy = 0; dy < gfp.h; dy++) {
+        for (let dx = 0; dx < gfp.w; dx++) occupied.add(`${g.x + dx},${g.y + dy}`)
       }
     }
 
