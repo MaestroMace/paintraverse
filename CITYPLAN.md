@@ -414,6 +414,51 @@ seen. Same lesson the gable winding taught from the other direction: a
 negative result is only as good as its vantage, so vary the vantage rather
 than trusting a clean run.
 
+## 7. EVERY SIDE IS A FRONT — the 360-degree problem
+
+Reported: "many of these assets are planned for one direction of visibility,
+and every other angle makes the world look like a back alley. Theme parks are
+interesting from every vantage point."
+
+That is structurally true here and the codebase half-admits it. Every
+front-attached detail — shop sign, awning, stoop, doorstep, bench, hitching
+post, colonnade, balcony, wall lantern — hangs off `frontWallZ` and
+`frontWallHalfW`, derived from the building's road side. There is no equivalent
+anchor for the other three walls, so the entire dressing budget is spent on one
+face by construction. The ivy emitter even carried the assumption as a comment:
+"pick the front face since that's the player-visible wall" — which is true in a
+fixed-camera game and false in a walkaround, where the player walks round the
+back of things.
+
+It is also the Imagineering rule we have not applied. Disney hides backstage
+COMPLETELY; anything a guest can walk around is finished from every angle.
+
+**Measured: median back/front detail ratio 0.28** across 30 paired buildings
+(`tools/allsides.mjs`). A typical building's far side carries under a third of
+the visual interest of its street side. The measurement is PAIRED — same
+building, both sides, same distance — because absolute wall-detail numbers are
+swamped by variation in size, colour and what stands behind.
+
+Done so far: ivy moved to the back and side walls, where it belongs both for
+this reason and because ivy takes the shaded damp wall rather than the one the
+householder sweeps. **That change is not gradeable by this tool** and the tool
+now says so: ivy is 4% of buildings, so a 14-building sample contains none of
+it and the aggregate wandered a tenth on noise.
+
+The real work is a back-of-building vocabulary at scale, since the ratio is
+set by the features that touch MOST buildings:
+- a rear door and step, external stair, lean-to, coal chute
+- shutters and small high windows on side walls
+- buttresses, chimney breasts, blocked-up openings
+- the party-wall gap: washing lines, a drainpipe on the rear corner
+
+This is the one item in this document where "should we build more assets" is
+probably YES — and the footprint constraint from the district work applies:
+whatever is built must attach to a wall, not need a plot.
+
+*Grades: allsides.mjs back/front ratio, target 0.6+. Use --n=30 or more, and
+read the usable-pair count before believing a delta.*
+
 ## Rules to hold onto while doing this
 
 - **Derive, do not decorate.** If a new pass sweeps the whole map and places

@@ -179,6 +179,22 @@ district to 'residential' while the tool counted only buildings carrying the
 property, so walls and gates landed in the numerator alone. Any rate above
 100% is a free bug report about the measurement.
 
+**A metric cannot grade a feature rarer than its sample resolves.** Moving ivy
+to the back walls was measured with `allsides.mjs` at 14 buildings and the
+aggregate went the WRONG way by a tenth — but ivy is 4% of buildings, so the
+sample contained roughly none of it and the movement was pure noise. Before
+believing a delta, ask how many of the sampled items could possibly carry the
+thing you changed. This is the sample-count lesson from the street-width scan
+in its other form: there, a filter shrank the sample; here, the feature was
+always too rare for it.
+
+**Test the first thing that happens, not just the interesting things.** No
+audit here had ever exercised the player SPAWN — the placement audit grades
+where buildings are, and every screenshot harness teleports to fixed vantages.
+Five seeds in sixteen started the player inside a wall and one in the river,
+for a year, because the code path that runs before anything else was the one
+path nothing tested.
+
 **Name your suspects once.** A component blamed repeatedly without evidence is
 noise. The windmill was accused four times for defects it had nothing to do
 with; the lantern ropes were a good hypothesis for the floating-timber class
@@ -1165,6 +1181,17 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   single width figure has two owners and was misread for months as being all
   setback. Also splits frontage occupancy by which side of the road the land
   is on, which is where the remaining asymmetry shows.
+- `node tools/spawn.mjs [seeds...]` — **does the player start somewhere they
+  can stand?** Inside a building, in water, buried below terrain, or with
+  nowhere to walk, across sixteen seeds. Nothing else here touches the spawn
+  path; it was 5-in-16 broken and invisible to every other audit.
+- `node tools/allsides.mjs [seed] [--n=30] [--save]` — **is a building worth
+  looking at from behind?** Photographs each sampled building from its road
+  side and from the opposite side and compares edge density, PAIRED so the
+  comparison cancels out size, colour and neighbours. Baseline: median ratio
+  0.28, i.e. a typical back wall carries under a third of the detail of its
+  front. Read its sensitivity note — it cannot grade a feature that only 4% of
+  buildings carry.
 - `node tools/features.mjs [seeds...]` — **a census of every gated piece of
   street dressing**, with its rate and its SPREAD across districts. Catches
   the two silent failures: a GHOST that is gated into nonexistence, and

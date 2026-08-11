@@ -1188,12 +1188,26 @@ export function buildBuildingMeshes(
       rand01(hash, 1701) < 0.32
     if (wantsIvy) {
       tallyIn('ivy', district)
-      // Pick the front face (+Z) since that's the player-visible wall.
-      // Emit 3-5 patches scattered along the wall, biased toward the
-      // lower 60% of the wall (ivy climbs from the ground up).
+      // IVY GOES ON THE BACK AND THE SIDES, not the street front.
+      //
+      // This used to read "pick the front face (+Z) since that's the
+      // player-visible wall", which is the one-direction-of-visibility
+      // assumption stated out loud — and in a WALKAROUND it is simply false,
+      // because the player walks round the back of things. Measured, the far
+      // side of a building carries about half the visual detail of its road
+      // side, and every front-attached feature in this file (signs, awnings,
+      // stoops, doorsteps, benches, balconies) makes that worse. Ivy is one
+      // of the few that can be moved at no cost.
+      //
+      // It is also more truthful. Ivy takes the shaded, damp, unswept wall —
+      // the back of the block and the gap between neighbours — not the face
+      // the householder sweeps every morning.
       const halfW = mainVol.width / 2
       const patchCount = 3 + (hash % 3)               // 3..5
-      const frontLocalZ = mainVol.offsetZ + mainVol.depth / 2
+      // 0 = back (-Z), 1 = left (-X), 2 = right (+X). Never the street face.
+      const ivyFace = hash % 3
+      const backLocalZ = mainVol.offsetZ - mainVol.depth / 2
+      const halfD = mainVol.depth / 2
       for (let p = 0; p < patchCount; p++) {
         // Patch dimensions vary per patch.
         const pW = 0.28 + rand01(hash, 1711 + p) * 0.34   // 0.28..0.62
@@ -1202,15 +1216,31 @@ export function buildBuildingMeshes(
         // X position: spread across the wall, avoiding the door area.
         const xRange = halfW * 0.9
         const localX = mainVol.offsetX + (rand01(hash, 1731 + p) - 0.5) * 2 * xRange
-        // Avoid the door zone (center ±0.4) on the lower 1.4m of the wall.
-        if (Math.abs(localX - mainVol.offsetX) < 0.4 && pH < 1.5) continue
+        // Avoid the door zone on the FRONT only. There is no door on the back
+        // or the side walls, so skipping patches there just thinned the one
+        // face this feature is now for.
+        if (ivyFace === 0 && Math.abs(localX - mainVol.offsetX) < 0.4 && pH < 1.5) continue
         // Y position: bias toward the lower 60%. Patch center range
         // [pH/2, mainVol.height * 0.6 - pH/2].
         const yMin = mainVol.bottomY + pH / 2 + 0.05
         const yMax = mainVol.bottomY + mainVol.height * 0.6 + pH / 2
         const localY = yMin + rand01(hash, 1741 + p) * Math.max(0.1, yMax - yMin)
-        const ivyGeo = new THREE.BoxGeometry(pW, pH, pT)
-        localToWorld(ivyGeo, localX, localY, frontLocalZ + pT / 2,
+        // Lay the patch onto whichever wall this building's ivy claimed. A
+        // side patch is thin in X and spread in Z, so its box swaps axes.
+        let ivyGeo: THREE.BufferGeometry
+        let gx: number, gz: number
+        if (ivyFace === 0) {
+          ivyGeo = new THREE.BoxGeometry(pW, pH, pT)
+          gx = localX
+          gz = backLocalZ - pT / 2
+        } else {
+          const sideSign = ivyFace === 1 ? -1 : 1
+          ivyGeo = new THREE.BoxGeometry(pT, pH, pW)
+          gx = mainVol.offsetX + sideSign * (mainVol.width / 2 + pT / 2)
+          // Reuse the same spread value along the DEPTH of the side wall.
+          gz = mainVol.offsetZ + (rand01(hash, 1731 + p) - 0.5) * 2 * (halfD * 0.9)
+        }
+        localToWorld(ivyGeo, gx, localY, gz,
           leanX, leanZ, rotationY, wx, wy, wz)
         // Ivy palette: a few dark mossy greens. Pick by hash + p so each
         // patch on a building can be slightly different.
