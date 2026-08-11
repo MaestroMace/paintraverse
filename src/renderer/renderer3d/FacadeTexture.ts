@@ -35,6 +35,31 @@ interface FacadeConfig {
 }
 export type { FacadeConfig }
 
+/**
+ * WHICH WALL THIS TEXTURE IS FOR.
+ *
+ * This used to be `'front' | 'side'` and `'side'` had NO CONSUMER — the only
+ * caller hardcoded `'front'`, so the whole side-wall branch was a ghost. What
+ * the renderer actually did was hand the box
+ *
+ *     [plain, plain, plain, plain, facade, facade]
+ *      +X     -X     +Y     -Y     +Z      -Z
+ *
+ * so both FLANKS of every building in the town were a single flat colour with
+ * no openings at all, and the back wall wore the front's door. That is the
+ * "every other angle looks like a back alley" report, and it was never a
+ * dressing problem.
+ *
+ * The three faces are genuinely different buildings-worth of drawing, not one
+ * drawing with bits switched off:
+ *   front — the composed elevation: full window rhythm, the main door.
+ *   back  — a working rear: same rhythm, a plainer off-centre door, no awning,
+ *           and the odd bricked-up opening.
+ *   side  — a flank: blind at ground level (that is where a neighbour abuts or
+ *           a cart passes), fewer and higher openings above.
+ */
+export type FacadeFace = 'front' | 'side' | 'back'
+
 /** Texture pixels per METRE. Both canvas axes are metric — see createFacadeTexture. */
 const TEXTURE_SCALE = 32
 const STOREY_M = STOREY_HEIGHT
@@ -61,7 +86,7 @@ function quantizeColor(c: number): number {
   return (r << 16) | (g << 8) | b
 }
 
-function facadeKey(config: FacadeConfig, face: 'front' | 'side'): string {
+function facadeKey(config: FacadeConfig, face: FacadeFace): string {
   // Cache key uses QUANTIZED colors so near-identical wallColors collapse
   // into the same texture/material, allowing coalesceWalls to merge their
   // wall meshes. The CANVAS still paints with the full-fidelity colors
@@ -101,7 +126,149 @@ function lightenColor(color: number, amount: number): number {
   return (r << 16) | (g << 8) | b
 }
 
-export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'): THREE.CanvasTexture {
+/**
+ * One window opening, expressed as FRACTIONS OF THE WALL rather than pixels
+ * or metres.
+ *
+ * That is deliberate and it is the only form all three consumers can share.
+ * The canvas is authored at the config's QUANTISED size (widths round to
+ * 0.5m so the texture cache stays bounded) and then stretched over the wall's
+ * real dimensions by the UV mapping. So a metric position on the canvas is
+ * NOT the metric position on the wall — it is off by the quantisation ratio.
+ * Anything placing real geometry against a painted opening has to apply the
+ * same stretch, and a fraction applies it for free: multiply by the real
+ * wall and you land exactly where the texture drew it.
+ */
+interface WinCell {
+  /** Centre, 0..1 across the wall from its left edge. */
+  u: number
+  /** Centre, 0..1 up the wall from its base. */
+  vCenter: number
+  /** Opening width as a fraction of wall width. */
+  uW: number
+  /** Opening height as a fraction of wall height. */
+  vH: number
+  floor: number
+  col: number
+  /** Bricked-up: the aperture, lintel and sill are still drawn but the opening
+   *  is filled. A real cue (window tax, a room subdivided, a lean-to built
+   *  against the wall) and the cheapest way to make a rear elevation read as
+   *  having a HISTORY rather than being the front with the door removed. */
+  blocked: boolean
+}
+
+/**
+ * THE WINDOW GRID — one definition, THREE consumers.
+ *
+ * `createFacadeTexture` paints the openings, `createEmissiveTexture` lights
+ * them, and `VolumeRenderer` hangs real projecting lintels and sills on them.
+ * All three used to compute the layout themselves. The emissive copy carried a
+ * comment insisting it "has to stay identical" by hand, and the geometry copy
+ * had already silently drifted an entire scale generation behind:
+ *
+ *     cols = max(1, floor(round(width) * 1.5))     // vs round(width / 2.4)
+ *     canvasH = floors * 64 + 32                   // pre-metric texture units
+ *     winWworld = (width / round(width)) * 0.22    // a 22cm window
+ *
+ * On an ordinary 2.8m row house that is FOUR 21cm stone nubs at the wrong
+ * height, projecting from a wall whose painted facade has one 1.0m window —
+ * plus, when hasFlowerBox fires, four flower boxes hanging on blank plaster.
+ * Nobody wrote that; it is what a copy becomes after the original is fixed.
+ * This is the "duplicated math drifts silently" lesson with a third instance,
+ * so the duplication is gone rather than re-synchronised.
+ *
+ * A real sash is about 1.0m x 1.35m with its sill 0.95m off the floor, and
+ * windows sit roughly every 2.4m along a facade. All of those are metres, so
+ * all of them survive any future change to the tile factor.
+ */
+const WIN_W_M = 1.0, WIN_H_M = 1.35, SILL_M = 0.95, WIN_PITCH_M = 2.4
+
+export function facadeOpenings(
+  floors: number,
+  /** Wall width in METRES — pass the same quantised value the FacadeConfig
+   *  carries, or the column count can differ from the painted one. */
+  wallWidthM: number,
+  /** Wall height in METRES, likewise quantised. */
+  wallHeightM: number,
+  face: FacadeFace,
+  /** Seeds which openings are bricked up. Pass the wall colour, which is what
+   *  the config-based callers have. */
+  seed: number
+): WinCell[] {
+  const wallWm = Math.max(1, wallWidthM)
+  const wallHm = Math.max(1.5, wallHeightM)
+  // A flank is the wall a neighbour abuts or a cart squeezes past, so it is
+  // pierced less often. The back is a working elevation, not a blank one.
+  const pitch = face === 'side' ? 3.2 : WIN_PITCH_M
+  const cols = Math.max(1, Math.round(wallWm / pitch))
+  // Storeys are laid out from the ground up at their true height, so the top
+  // floor is dropped when the wall is not tall enough to hold it rather than
+  // every floor being compressed to fit.
+  const floorsThatFit = Math.max(1, Math.min(floors, Math.floor(wallHm / STOREY_M)))
+  // Ground-floor flanks stay blind — that is where the party wall, the
+  // buttress and the lean-to go. A blind base with openings above is what
+  // makes a side wall read as a side wall rather than a second front.
+  const firstFloor = face === 'side' && floorsThatFit > 1 ? 1 : 0
+
+  // Deterministic per-face jitter: the texture is CACHED, so anything random
+  // here has to come out of the inputs or two buildings with the same config
+  // would get different walls and the cache would hand out whichever was
+  // built first.
+  let rng = (seed ^ (floors * 7919) ^ (face.length * 104729)) >>> 0
+  const next = (): number => {
+    rng = (rng * 1103515245 + 12345) & 0x7fffffff
+    return rng / 0x7fffffff
+  }
+  const blockRate = face === 'front' ? 0 : (face === 'back' ? 0.14 : 0.22)
+
+  const cells: WinCell[] = []
+  for (let floor = firstFloor; floor < floorsThatFit; floor++) {
+    for (let col = 0; col < cols; col++) {
+      cells.push({
+        u: (col + 1) / (cols + 1),
+        vCenter: (floor * STOREY_M + SILL_M + WIN_H_M / 2) / wallHm,
+        uW: WIN_W_M / wallWm,
+        vH: WIN_H_M / wallHm,
+        floor,
+        col,
+        blocked: next() < blockRate,
+      })
+    }
+  }
+  return cells
+}
+
+/** The canvas-space view of the same grid: pixel rects on this face's texture. */
+function windowGrid(config: FacadeConfig, face: FacadeFace): {
+  winW: number; winH: number; cells: Array<WinCell & { x: number; y: number }>
+} {
+  const M = TEXTURE_SCALE
+  const wallWm = Math.max(1, config.width)
+  const wallHm = Math.max(1.5, config.wallH)
+  const w = Math.round(wallWm * M)
+  const h = Math.round(wallHm * M)
+  const cells = facadeOpenings(config.floors, wallWm, wallHm, face, config.wallColor)
+    .map((c) => ({
+      ...c,
+      x: c.u * w - (c.uW * w) / 2,
+      y: h - (c.vCenter + c.vH / 2) * h,
+    }))
+  return { winW: WIN_W_M * M, winH: WIN_H_M * M, cells }
+}
+
+/** Blend a colour toward a mortar tone. Used for bricked-up openings: the
+ *  infill is never the same batch as the wall, and painting it the wall colour
+ *  exactly would make the whole point of the detail invisible. */
+const MORTAR = 0x8a7f70
+function shiftToward(color: number, amount: number): number {
+  const mix = (a: number, b: number): number => Math.round(a + (b - a) * amount)
+  const r = mix((color >> 16) & 0xff, (MORTAR >> 16) & 0xff)
+  const g = mix((color >> 8) & 0xff, (MORTAR >> 8) & 0xff)
+  const b = mix(color & 0xff, MORTAR & 0xff)
+  return (r << 16) | (g << 8) | b
+}
+
+export function createFacadeTexture(config: FacadeConfig, face: FacadeFace): THREE.CanvasTexture {
   const key = facadeKey(config, face)
   const cached = _textureCache.get(key)
   if (cached) return cached
@@ -211,26 +378,13 @@ export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'
     ctx.fillRect(0, h - Math.max(2, 0.3 * M) - Math.max(1, 0.05 * M), w, Math.max(1, 0.05 * M))
   }
 
-  // Windows — a real sash is about 1.0m x 1.35m with its sill 0.95m off the
-  // floor, and windows sit roughly every 2.4m along a facade. All four of
-  // those are metres, so all four survive any future change to the tile
-  // factor; the previous fractions-of-a-made-up-unit did not.
-  const WIN_W_M = 1.0, WIN_H_M = 1.35, SILL_M = 0.95, WIN_PITCH_M = 2.4
-  const winW = WIN_W_M * M
-  const winH = WIN_H_M * M
-  const cols = Math.max(1, Math.round(wallWm / WIN_PITCH_M))
-  const spacing = w / (cols + 1)
-  // Storeys are laid out from the ground up at their true height, so the
-  // top floor is dropped when the wall is not tall enough to hold it rather
-  // than every floor being compressed to fit.
-  const storeyPx = STOREY_M * M
-  const floorsThatFit = Math.max(1, Math.min(config.floors, Math.floor(wallHm / STOREY_M)))
-
-  for (let floor = 0; floor < floorsThatFit; floor++) {
-    const floorY = h - (floor + 1) * storeyPx
-    for (let col = 0; col < cols; col++) {
-      const wx = spacing * (col + 1) - winW / 2
-      const wy = floorY + (STOREY_M - SILL_M - WIN_H_M) * M
+  // Windows — laid out by windowGrid so the painted openings and the lit
+  // ones cannot drift apart, and so each face gets its own rhythm.
+  {
+    const { winW, winH, cells } = windowGrid(config, face)
+    for (const cell of cells) {
+      const wx = cell.x, wy = cell.y
+      const floor = cell.floor, col = cell.col
 
       // Window frame (dark)
       ctx.fillStyle = colorStr(darkenColor(config.wallColor, 0.25))
@@ -254,6 +408,33 @@ export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'
       ctx.fillStyle = trimShadow
       ctx.fillRect(wx - 5, wy + winH + 5, winW + 10, 1)
 
+      if (cell.blocked) {
+        // BRICKED UP. The frame, lintel and sill above are already drawn, so
+        // the aperture still reads as an opening — it has just been filled
+        // in, which is the whole point. Slightly off the wall colour, because
+        // nobody ever matched the render, plus a stretcher-bond hatch.
+        const fill = shiftToward(config.wallColor, 0.12)
+        ctx.fillStyle = colorStr(fill)
+        ctx.fillRect(wx, wy, winW, winH)
+        ctx.strokeStyle = colorStr(darkenColor(fill, 0.16))
+        ctx.lineWidth = 1
+        const courseH = Math.max(3, winH / 5)
+        for (let by = wy + courseH; by < wy + winH; by += courseH) {
+          ctx.beginPath(); ctx.moveTo(wx, by); ctx.lineTo(wx + winW, by); ctx.stroke()
+        }
+        let row = 0
+        for (let by = wy; by < wy + winH; by += courseH, row++) {
+          const off = (row % 2) * (winW / 4)
+          for (let bx = wx + off; bx < wx + winW; bx += winW / 2) {
+            ctx.beginPath()
+            ctx.moveTo(bx, by)
+            ctx.lineTo(bx, Math.min(by + courseH, wy + winH))
+            ctx.stroke()
+          }
+        }
+        continue
+      }
+
       // Window glass (dark blue-grey, slightly reflective)
       ctx.fillStyle = 'rgb(60,70,90)'
       ctx.fillRect(wx, wy, winW, winH)
@@ -263,16 +444,19 @@ export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'
       ctx.fillRect(wx + winW / 2 - 1, wy, 2, winH)
       ctx.fillRect(wx, wy + winH / 2 - 1, winW, 2)
 
-      // Shutters
-      if (config.hasShutters && col % 2 === 0) {
+      // Shutters. Kept off the flank: shutters are a street-facing courtesy
+      // and a blind-ish side wall wearing them reads as a second front.
+      if (config.hasShutters && face !== 'side' && col % 2 === 0) {
         const shutterColor = darkenColor(config.wallColor, 0.2)
         ctx.fillStyle = colorStr(shutterColor)
         ctx.fillRect(wx - winW * 0.35, wy, winW * 0.3, winH)
         ctx.fillRect(wx + winW + winW * 0.05, wy, winW * 0.3, winH)
       }
 
-      // Flower box
-      if (config.hasFlowerBox && floor === 0 && col % 2 === 0) {
+      // Flower box — front only. A rear elevation wearing window boxes reads
+      // as a second front, which is the exact failure mode this whole change
+      // is about: the back should be finished, not duplicated.
+      if (config.hasFlowerBox && face === 'front' && floor === 0 && col % 2 === 0) {
         ctx.fillStyle = colorStr(0x6a4a2a)
         ctx.fillRect(wx - 4, wy + winH + 2, winW + 8, 6)
         // Flowers
@@ -328,6 +512,43 @@ export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'
     }
   }
 
+  // BACK DOOR. Not the front door with the brass taken off — a different
+  // door. Narrower, shorter, plank-built rather than panelled, weathered
+  // darker, and crucially OFF THE AXIS: a rear door sits beside the stair or
+  // the scullery, never centred on the elevation. A centred rear door is the
+  // single tell that a building has been mirrored rather than finished.
+  if (face === 'back') {
+    const doorW = 0.85 * M
+    const doorH = 1.95 * M
+    // Off-centre, but deterministically so — the texture is cached.
+    const leftish = ((config.wallColor >> 4) & 1) === 0
+    const doorX = leftish ? w * 0.28 - doorW / 2 : w * 0.72 - doorW / 2
+    const doorY = h - doorH
+    const rearColor = darkenColor(config.doorColor, 0.3)
+
+    // Rough timber lining rather than a moulded frame.
+    ctx.fillStyle = colorStr(darkenColor(rearColor, 0.35))
+    ctx.fillRect(doorX - 3, doorY - 3, doorW + 6, doorH + 3)
+    ctx.fillStyle = colorStr(rearColor)
+    ctx.fillRect(doorX, doorY, doorW, doorH)
+
+    // Vertical planks with two iron ledger straps across — a batten door.
+    ctx.strokeStyle = colorStr(darkenColor(rearColor, 0.28))
+    ctx.lineWidth = 1
+    for (let p = 1; p < 4; p++) {
+      const px = doorX + (p * doorW) / 4
+      ctx.beginPath(); ctx.moveTo(px, doorY); ctx.lineTo(px, doorY + doorH); ctx.stroke()
+    }
+    ctx.fillStyle = colorStr(0x2a241e)
+    ctx.fillRect(doorX, doorY + doorH * 0.18, doorW, 3)
+    ctx.fillRect(doorX, doorY + doorH * 0.74, doorW, 3)
+
+    // Worn stone threshold under it — the one bright note on a rear wall,
+    // and it stops the door reading as floating on the base course.
+    ctx.fillStyle = colorStr(lightenColor(config.wallColor, 0.22))
+    ctx.fillRect(doorX - 5, h - 6, doorW + 10, 6)
+  }
+
   // Stone/brick base course
   ctx.fillStyle = colorStr(darkenColor(config.wallColor, 0.15))
   ctx.fillRect(0, h - 8, w, 8)
@@ -340,9 +561,12 @@ export function createFacadeTexture(config: FacadeConfig, face: 'front' | 'side'
   return texture
 }
 
-/** Create an emissive-only texture: black background, glowing window rectangles */
-export function createEmissiveTexture(config: FacadeConfig): THREE.CanvasTexture {
-  const key = `emissive_${facadeKey(config, 'front')}`
+/** Create an emissive-only texture: black background, glowing window rectangles.
+ *  Takes the face for the same reason the painted texture does — a flank has a
+ *  blind ground floor and some bricked-up openings, and lighting a window that
+ *  is not painted there puts a glowing rectangle on a blank wall. */
+export function createEmissiveTexture(config: FacadeConfig, face: FacadeFace): THREE.CanvasTexture {
+  const key = `emissive_${facadeKey(config, face)}`
   const cached = _textureCache.get(key)
   if (cached) return cached
 
@@ -362,22 +586,20 @@ export function createEmissiveTexture(config: FacadeConfig): THREE.CanvasTexture
   ctx.fillStyle = 'rgb(0,0,0)'
   ctx.fillRect(0, 0, w, h)
 
-  // Glowing windows — layout duplicated from createFacadeTexture and it has to
-  // stay identical, so the numbers come from the same named metres.
-  const winW = 1.0 * M
-  const winH = 1.35 * M
-  const cols = Math.max(1, Math.round(wallWm / 2.4))
-  const spacing = w / (cols + 1)
-  const storeyPx = STOREY_M * M
-  const floorsThatFit = Math.max(1, Math.min(config.floors, Math.floor(wallHm / STOREY_M)))
+  // Glowing windows — SAME grid the painted texture used. This was a copy of
+  // the layout with a comment insisting it stay identical by hand; it is one
+  // call now, so a face with a blind ground floor cannot end up with a lit
+  // rectangle floating on blank plaster.
+  const { winW, winH, cells } = windowGrid(config, face)
 
   // Seeded random for consistent dark windows
   let rng = config.wallColor ^ (config.floors * 7919)
   const nextRng = () => { rng = (rng * 1103515245 + 12345) & 0x7fffffff; return rng / 0x7fffffff }
 
-  for (let floor = 0; floor < floorsThatFit; floor++) {
-    const floorY = h - (floor + 1) * storeyPx
-    for (let col = 0; col < cols; col++) {
+  {
+    for (const cell of cells) {
+      // A bricked-up opening has no room behind it to light.
+      if (cell.blocked) continue
       // Per-window state with mood variety:
       //   ~25% dark (room unlit / shutters drawn)
       //   ~10% dim (a candle, low intensity)
@@ -393,8 +615,7 @@ export function createEmissiveTexture(config: FacadeConfig): THREE.CanvasTexture
       else kind = 'amber'
       if (kind === 'dark') continue
 
-      const wx = spacing * (col + 1) - winW / 2
-      const wy = floorY + (STOREY_M - 0.95 - 1.35) * M
+      const wx = cell.x, wy = cell.y
 
       const warmth = nextRng()
       let r: number, g: number, b: number

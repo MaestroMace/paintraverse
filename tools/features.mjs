@@ -99,7 +99,19 @@ console.log(`\n=== FEATURE CENSUS — ${structures} buildings over ${seeds.lengt
 console.log('feature              count   of all   per-district rate (min..max)   spread')
 console.log('-'.repeat(82))
 const ghosts = [], wallpaper = []
+// A tally whose name contains '~' is a GATE DIAGNOSTIC — "this feature did not
+// fire, and here is which clause stopped it" — not a feature. They are printed
+// in their own block and kept out of the ghost/wallpaper verdicts, because
+// "rearOutshot~lostTheDice appears on 1% of buildings" is not a finding about
+// the town, it is arithmetic about the dice.
+//
+// They exist because a RATE alone cannot tell you whether a feature is rare by
+// design, rare by an accidental gate, or rare because of a dimension nobody
+// measured. Counting bought guesses; classifying by CAUSE bought the answer in
+// one run — twice now, here and in the wall-ring gap analysis.
+const isDiag = (n) => n.includes('~')
 for (const [name, f] of feats) {
+  if (isDiag(name)) continue
   // Rate within each district that HAS buildings, so a feature confined to a
   // rare quarter is not punished for the quarter being rare.
   const rates = []
@@ -117,6 +129,21 @@ for (const [name, f] of feats) {
     `${String(Math.round(spread * 100) + 'pts').padStart(12)}`)
   if (f.total === 0 || pct(f.total, structures) < 2) ghosts.push(name)
   else if (spread < 0.12 && pct(f.total, structures) > 8) wallpaper.push(name)
+}
+
+const diags = feats.filter(([n]) => isDiag(n))
+if (diags.length) {
+  console.log(`\nGATE DIAGNOSTICS — why a feature did NOT fire, by clause.`)
+  console.log('  Read these as a breakdown of one feature\'s population, not as')
+  console.log('  features. `~wrongKind` counts every structure the feature was')
+  console.log('  never meant for, which on this map includes ~250 wall segments')
+  console.log('  per town — so use the OTHER clauses as the denominator when')
+  console.log('  asking what starved a gate.')
+  console.log('-'.repeat(82))
+  for (const [name, f] of diags) {
+    console.log(`  ${name.padEnd(32)}${String(f.total).padStart(6)}` +
+      `${String(pct(f.total, structures) + '%').padStart(8)}`)
+  }
 }
 
 console.log(`\nGHOSTS — under 2% of buildings. CHECK THE GATE BEFORE CALLING ONE A BUG:`)

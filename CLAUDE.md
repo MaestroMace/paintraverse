@@ -103,6 +103,23 @@ was still a lake. Distance to the nearest BUILDING cannot be faked, because
 only a building makes a wall. When choosing what to measure, ask what a lazy
 fix would do to the number.
 
+**A comparison can only find defects in the things it compares.** `allsides.mjs`
+photographed a building's road side against the side OPPOSITE it and read a
+comfortable 0.79 — a true number about the one pair that was fine. Both those
+walls carry the painted facade; the two FLANKS were a single flat colour with
+no openings, and the metric never pointed a camera at them. Ask what the
+sampled population EXCLUDES, not just what it includes. This is the sample-count
+lesson rotated ninety degrees: there a filter shrank the sample, here the sample
+was always aimed at the wrong members.
+
+**A parameter that is only ever passed one literal is dead code the compiler
+will not flag.** `createFacadeTexture(config, face)` took `'front' | 'side'`,
+had a whole `if (face === 'front')` branch, and exactly one call site — passing
+`'front'`. The side-wall vocabulary had a type signature, a code path and no
+existence, which is the GHOST failure wearing a disguise good enough to survive
+several censuses. When auditing for ghosts, grep the ARGUMENTS at call sites,
+not just the gates inside functions.
+
 **Prefer an exact test to a heuristic proxy.** Proxies agree with their target
 right up until you change the target. The road painter inferred hierarchy from
 a neighbour COUNT, which tracked the tiers only while streets were fat and
@@ -131,7 +148,19 @@ road direction from "is there road beside me" narrowed a 3426-sample scan to
 chasing "233 tiles where the wall placer simply did not build" before the tool
 was asked to classify gaps by CAUSE — which revealed in one run that the ring
 was drawn one tile outside the wall on two of its four sides. A counting
-metric buys you guesses; an explaining metric buys you the answer.
+metric buys you guesses; an explaining metric buys you the answer. The same
+move works on a GATE: tally the clause that rejected each candidate, not just
+the ones that passed. A rear outshot read 6% and could have been the district
+list, the height test, the dice or the geometry; one census with `~` reject
+counters said noRoomBehind on 55% of eligible buildings and closed it. Cheap
+enough to leave in — `tools/features.mjs` prints any tally containing `~` in
+its own block and keeps it out of the ghost verdict.
+
+**A gate derived from another gate inherits its constraints silently.** The
+flank chimney breast was supposed to need less clearance than a buttress, and
+it computed its candidate walls by FILTERING the buttress's list at the looser
+threshold — which can only ever narrow a set, never widen it, so the looser
+number could not take effect. Derive each gate from the underlying quantity.
 
 **State the tool's noise floor.** `anomaly.mjs` re-reads every vantage and
 prints how often it disagrees with itself, because the first three versions of
@@ -194,6 +223,15 @@ where buildings are, and every screenshot harness teleports to fixed vantages.
 Five seeds in sixteen started the player inside a wall and one in the river,
 for a year, because the code path that runs before anything else was the one
 path nothing tested.
+
+**Content goes where there is an ANCHOR to attach it to.** Every front-attached
+detail in BuildingFactory hangs off `frontWallZ` / `frontWallHalfW`. There was
+no equivalent pair for the back or the flanks, and that absence — not any
+decision about dressing — is why three walls of every building were bare. The
+fix for "this face has no content" is usually an anchor, not more content, and
+the same shape recurs: `PlacedObject.footprint` unblocked four failed plot
+attempts, `BuildingTop` unblocked the particle systems. When a whole category
+of work keeps not happening, look for the handle it would need.
 
 **Name your suspects once.** A component blamed repeatedly without evidence is
 noise. The windmill was accused four times for defects it had nothing to do
@@ -873,6 +911,7 @@ Run these before believing anything about where the project is.
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
 | prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
+| **360-degree read** | **allsides.mjs** | **flank/front 0.74 / 0.51 on two seeds, was 0.42 / 0.28** | **improving** |
 
 Everything except frontage occupancy is in range, and that one is 12 points
 short with a residual axis gap of 13 points rather than the 24 it carried for
@@ -1186,12 +1225,15 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   nowhere to walk, across sixteen seeds. Nothing else here touches the spawn
   path; it was 5-in-16 broken and invisible to every other audit.
 - `node tools/allsides.mjs [seed] [--n=30] [--save]` — **is a building worth
-  looking at from behind?** Photographs each sampled building from its road
-  side and from the opposite side and compares edge density, PAIRED so the
-  comparison cancels out size, colour and neighbours. Baseline: median ratio
-  0.28, i.e. a typical back wall carries under a third of the detail of its
-  front. Read its sensitivity note — it cannot grade a feature that only 4% of
-  buildings carry.
+  looking at from ANY side?** Photographs each sampled building from all four
+  compass directions and compares edge density, PAIRED so the comparison
+  cancels out size, colour and neighbours. Only sides the player could stand on
+  are graded: 93% of buildings share a party wall, and a flank buried against a
+  neighbour is legitimately backstage. **Watch FLANK/front, not back/front** —
+  the first version shot only front-vs-back, which is the pair that was never
+  broken, and read a comfortable 0.79 while both flanks were flat untextured
+  colour. Read its sensitivity note: it cannot grade a feature that only 4% of
+  buildings carry, and the same build read 0.28 at n=14 and 0.79 at n=30.
 - `node tools/features.mjs [seeds...]` — **a census of every gated piece of
   street dressing**, with its rate and its SPREAD across districts. Catches
   the two silent failures: a GHOST that is gated into nonexistence, and

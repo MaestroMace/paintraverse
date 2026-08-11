@@ -16,19 +16,39 @@
  * backstage COMPLETELY; anything a guest can see is finished from every angle,
  * because a guest walks round things. A player in a walkaround does the same.
  *
- * The measurement is a PAIRED comparison, which is what makes it trustworthy:
- * for each sampled building, photograph it from its own road side and from the
- * opposite side, at the same distance and eye height, and compare the visual
- * detail in the two frames. Pairing cancels out everything that varies between
- * buildings — size, colour, what happens to be behind it — and leaves only the
- * asymmetry. An absolute "how detailed is a wall" number would be swamped by
- * that variation and would tell you nothing.
+ * ── WHY THIS TOOL SHOOTS FOUR SIDES AND NOT TWO ──────────────────────────
+ *
+ * The first version photographed the road side and the OPPOSITE side only,
+ * and read a comfortable 0.79 — which is true and useless, because those are
+ * the two walls that are FINE. `emitVolume` builds each volume as a
+ * BoxGeometry with the material array
+ *
+ *     [plain, plain, plain, plain, facade, facade]
+ *      +X     -X     +Y     -Y     +Z      -Z
+ *
+ * so +Z and -Z both carry the painted facade and the two FLANKS (±X) are a
+ * single flat colour with no openings at all. A front-vs-back metric is
+ * blind to the defect by construction: it grades the pair that matches and
+ * never looks at the pair that doesn't. This is the CLAUDE.md rule about
+ * proxies in its other form — the sampled sides agreed with the target right
+ * up until you asked which sides were actually broken.
+ *
+ * ── AND WHY IT SKIPS SIDES YOU CANNOT STAND ON ───────────────────────────
+ *
+ * 93% of buildings here share a party wall. A flank buried against a
+ * neighbour is legitimately backstage — Disney's rule is that anything a
+ * guest CAN see is finished, not that every surface is. So a side is only
+ * graded when the camera position is a tile the player could actually
+ * occupy. Grading unreachable walls would swamp the number with frames that
+ * are pressed against a neighbour and read near zero whatever we build.
  *
  * DETAIL is measured as edge density: the share of pixels that differ sharply
  * from the pixel to their right. A blank wall is a flat field and scores near
- * zero; a wall with a door, a sign, a balcony and a string course scores high.
+ * zero; a wall with a door, a window row, a lintel and a string course scores
+ * high. The comparison is PAIRED per building, which cancels out size, colour
+ * and whatever happens to be standing behind it.
  *
- *   xvfb-run -a -s "-screen 0 1400x900x24" node tools/allsides.mjs [seed] [--n=14]
+ *   xvfb-run -a -s "-screen 0 1400x900x24" node tools/allsides.mjs [seed] [--n=30]
  */
 import { _electron as electron } from 'playwright-core'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -69,38 +89,79 @@ await win.evaluate(() => {
 })
 
 // Buildings that HAVE a recorded road side, spread across the town so the
-// sample is not one terrace.
+// sample is not one terrace. Each target carries the four camera stations it
+// wants shot, with the unreachable ones already dropped — that decision needs
+// the occupancy map, and the page is where the map lives.
 const targets = await win.evaluate((n) => {
   const st = window.__pt.store.getState()
   const defs = st.objectDefinitions
-  const structs = st.map.layers.find((l) => l.type === 'structure')?.objects ?? []
+  const map = st.map
+  const terrain = map.layers.find((l) => l.type === 'terrain')?.terrainTiles
+  const structs = map.layers.find((l) => l.type === 'structure')?.objects ?? []
+  const H = terrain.length, W = terrain[0].length
+  const fpOf = (o) => {
+    const d = defs.find?.((x) => x.id === o.definitionId) ?? defs[o.definitionId] ?? null
+    return o.footprint ?? d?.footprint ?? { w: 1, h: 1 }
+  }
+  const built = Array.from({ length: H }, () => new Uint8Array(W))
+  for (const o of structs) {
+    const f = fpOf(o)
+    for (let dy = 0; dy < f.h; dy++) {
+      for (let dx = 0; dx < f.w; dx++) {
+        const px = o.x + dx, py = o.y + dy
+        if (px >= 0 && py >= 0 && px < W && py < H) built[py][px] = 1
+      }
+    }
+  }
+  // A camera station is usable when a player could stand there: on the map,
+  // not inside a footprint, not in the river.
+  const standable = (tx, tz) => {
+    const ix = Math.floor(tx), iz = Math.floor(tz)
+    if (ix < 0 || iz < 0 || ix >= W || iz >= H) return false
+    return built[iz][ix] === 0 && terrain[iz][ix] !== 3
+  }
+  const SIDE_DIR = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] }
+  const OPPOSITE = { N: 'S', S: 'N', E: 'W', W: 'E' }
+
   const ok = structs.filter((o) => o.properties?.roadSide &&
     (o.properties?.floors ?? 1) >= 2)
   const step = Math.max(1, Math.floor(ok.length / n))
   const out = []
   for (let i = 0; i < ok.length && out.length < n; i += step) {
     const o = ok[i]
-    const d = defs.find?.((x) => x.id === o.definitionId) ?? defs[o.definitionId] ?? null
-    const f = o.footprint ?? d?.footprint ?? { w: 1, h: 1 }
-    out.push({ id: o.definitionId, side: o.properties.roadSide,
-      cx: o.x + f.w / 2, cz: o.y + f.h / 2,
-      reach: Math.max(f.w, f.h) })
+    const f = fpOf(o)
+    const cx = o.x + f.w / 2, cz = o.y + f.h / 2
+    const reach = Math.max(f.w, f.h)
+    const dist = 2.2 + reach * 0.6
+    const road = o.properties.roadSide
+    const stations = []
+    for (const [side, [dx, dz]] of Object.entries(SIDE_DIR)) {
+      const camX = cx + dx * dist, camZ = cz + dz * dist
+      if (!standable(camX, camZ)) continue
+      stations.push({
+        side,
+        // 'front' = the wall the road is on; 'back' = directly opposite it;
+        // 'flank' = the two walls at right angles, which is where the plain
+        // material lives.
+        role: side === road ? 'front' : (side === OPPOSITE[road] ? 'back' : 'flank'),
+        camX, camZ,
+        yaw: Math.atan2(cz - camZ, cx - camX),
+      })
+    }
+    // Only worth shooting if we can see the road side AND at least one other,
+    // otherwise there is nothing to pair against.
+    if (!stations.some((s) => s.role === 'front')) continue
+    if (stations.length < 2) continue
+    out.push({ id: o.definitionId, road, stations })
   }
   return out
 }, N)
 
-const SIDE_DIR = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] }
-
 const results = []
 for (let i = 0; i < targets.length; i++) {
   const t = targets[i]
-  const [dx, dz] = SIDE_DIR[t.side] ?? [0, -1]
-  const pair = []
-  for (const sign of [1, -1]) {          // road side, then the opposite side
-    const dist = 2.2 + t.reach * 0.6
-    const camX = t.cx + dx * sign * dist
-    const camZ = t.cz + dz * sign * dist
-    const yaw = Math.atan2(t.cz - camZ, t.cx - camX)
+  const shot = {}
+  for (const st of t.stations) {
     const r = await win.evaluate(async (a) => {
       const pt = window.__pt
       const three = pt.renderer()
@@ -134,53 +195,78 @@ for (let i = 0; i < targets.length; i++) {
       }
       return { density: total ? edges / total : 0,
         png: a.save ? c.toDataURL('image/png') : null }
-    }, { camX, camZ, yaw, save: SAVE })
+    }, { camX: st.camX, camZ: st.camZ, yaw: st.yaw, save: SAVE })
     if (!r) continue
-    pair.push(r.density)
+    // Two flanks per building; keep them both and average at the end.
+    ;(shot[st.role] ??= []).push(r.density)
     if (SAVE && r.png) {
-      writeFileSync(`.shots/allsides/${i}-${sign > 0 ? 'front' : 'back'}.png`,
+      writeFileSync(`.shots/allsides/${i}-${st.role}-${st.side}.png`,
         Buffer.from(r.png.split(',')[1], 'base64'))
     }
   }
-  if (pair.length === 2) {
-    results.push({ id: t.id, side: t.side, front: pair[0], back: pair[1] })
-  }
+  if (!shot.front) continue
+  const avg = (xs) => (xs && xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null)
+  results.push({
+    id: t.id, road: t.road,
+    front: avg(shot.front),
+    back: avg(shot.back),
+    flank: avg(shot.flank),
+    flanks: (shot.flank ?? []).length,
+  })
 }
 await app.close()
 
-console.log(`\n=== ALL SIDES — seed ${seed}, ${results.length} buildings, paired ===\n`)
-console.log('building              road side   detail: front    back    back/front')
-console.log('-'.repeat(74))
+const pct = (v) => (v === null || v === undefined ? '    —' : `${(v * 100).toFixed(1)}%`)
+const rat = (a, b) => (a === null || a === undefined || !b ? '   —' : (a / b).toFixed(2))
+
+console.log(`\n=== ALL SIDES — seed ${seed}, ${results.length} buildings, four faces each ===\n`)
+console.log('building              road   front     back    flank    back/f  flank/f')
+console.log('-'.repeat(76))
 for (const r of results) {
-  console.log(`${r.id.padEnd(21)}${r.side.padStart(6)}` +
-    `${(r.front * 100).toFixed(1).padStart(17)}%` +
-    `${(r.back * 100).toFixed(1).padStart(8)}%` +
-    `${(r.front > 0 ? (r.back / r.front) : 0).toFixed(2).padStart(14)}`)
+  console.log(`${r.id.padEnd(21)}${r.road.padStart(4)}` +
+    `${pct(r.front).padStart(9)}${pct(r.back).padStart(9)}${pct(r.flank).padStart(9)}` +
+    `${rat(r.back, r.front).padStart(10)}${rat(r.flank, r.front).padStart(9)}`)
 }
-// Only pairs where the camera actually FRAMED something. A frame that is all
-// sky, or pressed against a neighbouring wall, reads near 0% on both sides and
-// contributes a meaningless ratio — and several such pairs dragged the first
+console.log('-'.repeat(76))
+
+// Only frames where the camera actually FRAMED something. A frame that is all
+// sky, or pressed against a neighbouring wall, reads near 0% on every side and
+// contributes a meaningless ratio — several such pairs dragged the first
 // version of this aggregate around by a tenth with no code change behind it.
-const usable = results.filter((r) => Math.max(r.front, r.back) > 0.01)
-console.log('-'.repeat(74))
+const usable = results.filter((r) => r.front > 0.01)
 if (usable.length < 6) {
-  console.log(`\nONLY ${usable.length} USABLE PAIRS — too few to conclude anything.`)
-  console.log('Raise --n. A pair is usable when at least one of its two frames')
-  console.log('actually has a building in it.')
+  console.log(`\nONLY ${usable.length} USABLE BUILDINGS — too few to conclude anything.`)
+  console.log('Raise --n. A building is usable when its road-side frame actually')
+  console.log('has a building in it.')
 }
-const mf = usable.reduce((a, r) => a + r.front, 0) / (usable.length || 1)
-const mb = usable.reduce((a, r) => a + r.back, 0) / (usable.length || 1)
-const ratios = usable.map((r) => (r.front > 0 ? r.back / r.front : 0)).sort((a, b) => a - b)
-const medRatio = ratios.length ? ratios[Math.floor(ratios.length / 2)] : 0
-console.log(`\nusable pairs: ${usable.length} of ${results.length}`)
-console.log(`mean detail on the ROAD side:     ${(mf * 100).toFixed(1)}%`)
-console.log(`mean detail on the OPPOSITE side: ${(mb * 100).toFixed(1)}%`)
-console.log(`\nBACK/FRONT RATIO  mean ${(mb / (mf || 1)).toFixed(2)}   median ${medRatio.toFixed(2)}` +
-  `\n  1.00 means a building is equally worth looking at from either side.`)
+const med = (xs) => {
+  const s = xs.filter((v) => v !== null && v !== undefined).sort((a, b) => a - b)
+  return s.length ? s[Math.floor(s.length / 2)] : 0
+}
+const mean = (xs) => {
+  const s = xs.filter((v) => v !== null && v !== undefined)
+  return s.length ? s.reduce((a, b) => a + b, 0) / s.length : 0
+}
+const withBack = usable.filter((r) => r.back !== null)
+const withFlank = usable.filter((r) => r.flank !== null)
+
+console.log(`\nusable buildings: ${usable.length} of ${results.length}` +
+  `   (with a reachable back: ${withBack.length}, with a reachable flank: ${withFlank.length})`)
+console.log(`mean detail, ROAD side:   ${(mean(usable.map((r) => r.front)) * 100).toFixed(1)}%`)
+console.log(`mean detail, BACK wall:   ${(mean(withBack.map((r) => r.back)) * 100).toFixed(1)}%`)
+console.log(`mean detail, FLANK walls: ${(mean(withFlank.map((r) => r.flank)) * 100).toFixed(1)}%`)
+console.log(`\nBACK / FRONT    median ${med(withBack.map((r) => r.back / r.front)).toFixed(2)}` +
+  `    mean ${(mean(withBack.map((r) => r.back)) / (mean(withBack.map((r) => r.front)) || 1)).toFixed(2)}`)
+console.log(`FLANK / FRONT   median ${med(withFlank.map((r) => r.flank / r.front)).toFixed(2)}` +
+  `    mean ${(mean(withFlank.map((r) => r.flank)) / (mean(withFlank.map((r) => r.front)) || 1)).toFixed(2)}`)
+console.log(`  1.00 means a wall is as worth looking at as the building's front.`)
+console.log(`\nOnly walls a player could WALK TO are graded — a flank buried against`)
+console.log(`a party wall is legitimately backstage, and grading it would bury the`)
+console.log(`signal under frames that read near zero whatever we build.`)
 console.log(`\nNOTE ON SENSITIVITY: this cannot grade a rare feature. Ivy is 4% of`)
 console.log(`buildings, so a 14-building sample contains roughly none of it and the`)
 console.log(`aggregate moved a tenth on pure noise when it was moved to the back`)
-console.log(`walls. Use this for changes that touch MOST buildings, or raise --n a`)
-console.log(`lot. Watch the usable-pair count before believing a delta.`)
+console.log(`walls. The same 14-sample run read back/front 0.28 where 30 reads 0.79.`)
+console.log(`Use this for changes that touch MOST buildings, and watch the count.`)
 console.log('Theme parks finish everything a guest can walk around. A player in a')
 console.log('walkaround walks around everything.')

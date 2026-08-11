@@ -16,8 +16,8 @@ import type { Volume } from './Massing'
 import { volumeFloors } from './Massing'
 import { buildRoof, eaveProjFor, gableMath } from './Roofs'
 import type { BatchedMeshBuilder } from '../BatchedMeshBuilder'
-import type { FacadeConfig } from '../FacadeTexture'
-import { createFacadeTexture, createEmissiveTexture } from '../FacadeTexture'
+import type { FacadeConfig, FacadeFace } from '../FacadeTexture'
+import { createFacadeTexture, createEmissiveTexture, facadeOpenings } from '../FacadeTexture'
 
 function rand01(hash: number, salt: number): number {
   const n = (hash * 2654435761 + salt * 1597334677) >>> 0
@@ -44,8 +44,11 @@ function quantizeMatColor(c: number): number {
   return ((c >> 16) & 0xf0) << 16 | ((c >> 8) & 0xf0) << 8 | (c & 0xf0)
 }
 
-function facadeKey(cfg: FacadeConfig): string {
-  return `${cfg.floors}_${cfg.width}_${quantizeMatColor(cfg.wallColor).toString(16)}_${cfg.hasTimber}_${cfg.hasShutters}_${cfg.hasFlowerBox}_${cfg.style}`
+function facadeKey(cfg: FacadeConfig, face: FacadeFace): string {
+  // `face` is part of the key and has to be: a square volume produces an
+  // identical cfg for its front and its flank, and without the face in the
+  // key the cache would hand the flank the front's material — door and all.
+  return `${cfg.floors}_${cfg.width}_${cfg.wallH}_${quantizeMatColor(cfg.wallColor).toString(16)}_${cfg.hasTimber}_${cfg.hasShutters}_${cfg.hasFlowerBox}_${cfg.style}_${face}`
 }
 
 /** Per-material flicker phase so each building's windows flicker on its
@@ -65,13 +68,13 @@ function ensureFlickerState(mat: THREE.Material): FlickerState {
   return d as FlickerState
 }
 
-function getFacadeMat(cfg: FacadeConfig): THREE.MeshLambertMaterial {
-  const key = facadeKey(cfg)
+function getFacadeMat(cfg: FacadeConfig, face: FacadeFace): THREE.MeshLambertMaterial {
+  const key = facadeKey(cfg, face)
   let mat = _wallMatCache.get(key)
   if (!mat) {
     mat = new THREE.MeshLambertMaterial({
-      map: createFacadeTexture(cfg, 'front'),
-      emissiveMap: createEmissiveTexture(cfg),
+      map: createFacadeTexture(cfg, face),
+      emissiveMap: createEmissiveTexture(cfg, face),
       emissive: 0xffffff,
       emissiveIntensity: 0,
       flatShading: true,
@@ -354,9 +357,29 @@ export function emitVolume(
         style: ctx.style,
         groundFloorColor,
       }
-      const facadeMat = getFacadeMat(cfg)
+      // === ALL FOUR WALLS ===
+      //
+      // BoxGeometry's material slots are [+X, -X, +Y, -Y, +Z, -Z]. This array
+      // used to read [plain, plain, plain, plain, facade, facade], which meant
+      // BOTH FLANKS of every building in the town were one flat colour with no
+      // openings — the reported "every other angle looks like a back alley",
+      // and not a dressing problem at all. Two of four walls simply were not
+      // drawn.
+      //
+      // The flank config takes the volume's DEPTH as its width, because the ±X
+      // face spans depth, not width. Reusing the front cfg there would be the
+      // metric-facade bug over again: an opening authored for a 3m wall
+      // stretched across a 6m one lands at twice its real size. FacadeConfig
+      // widths are metres and quantised to 0.5m to keep the cache bounded.
+      const sideCfg: FacadeConfig = {
+        ...cfg,
+        width: Math.max(1, Math.round(v.depth * 2) / 2),
+      }
+      const frontMat = getFacadeMat(cfg, 'front')
+      const backMat = getFacadeMat(cfg, 'back')
+      const sideMat = getFacadeMat(sideCfg, 'side')
       const plainMat = getPlainMat(wallColor)
-      const mats = [plainMat, plainMat, plainMat, plainMat, facadeMat, facadeMat]
+      const mats = [sideMat, sideMat, plainMat, plainMat, frontMat, backMat]
       mesh = new THREE.Mesh(geo, mats)
     } else {
       mesh = new THREE.Mesh(geo, getPlainMat(wallColor))
@@ -715,29 +738,27 @@ export function emitVolume(
     for (const g of cBands) ornamentBatch.addPositioned(g, wallColor)
   }
 
-  // --- Window trim --- lintels + sills as actual geometry around the painted
-  // windows on the FacadeTexture. The window grid here MIRRORS the layout in
-  // FacadeTexture.createFacadeTexture: cols = max(1, floor(textureWidth*1.5)),
-  // floor rows at 64px-pitch on a (floors*64+32)px-tall canvas. We compute
-  // each window's local-frame position from those same parameters and project
-  // a small lintel/sill from the wall.
+  // --- Window trim --- lintels + sills as real projecting geometry around the
+  // openings the FacadeTexture painted. The positions come from
+  // `facadeOpenings`, the SAME call the texture and the emissive map use, so
+  // there is nothing left to keep in sync by hand.
   //
-  // Gated to ground floor + front (+Z) face only. Every window trimmed on
-  // every floor of every textured volume on both faces would be hundreds of
-  // boxes per building — the merge build cost dominates. Ground-floor +Z is
-  // the band the player sees walking past, where trim payoff is highest.
+  // The layout used to be re-derived here from `cols = floor(round(w) * 1.5)`
+  // and a `floors * 64 + 32` canvas — pre-metric texture units, a scale
+  // generation out of date. On an ordinary row house that put FOUR 21cm nubs
+  // at the wrong height on a wall with one 1.0m window, and hung the flower
+  // boxes on blank plaster beside it. See the note over facadeOpenings.
+  //
+  // Openings are returned as FRACTIONS of the wall, which is what makes this
+  // exact: the canvas is authored at the config's quantised size and stretched
+  // over the real wall, so multiplying a fraction by the real dimension lands
+  // on the painted opening whatever the quantisation did.
   if (
     showDetailOrnaments &&
     v.textured && !v.circular &&
     v.role !== 'chimneyVol' &&
     v.width >= 1.4 && v.height >= 1.4
   ) {
-    const textureWidth = Math.max(1, Math.round(v.width))
-    const cols = Math.max(1, Math.floor(textureWidth * 1.5))
-    const canvasH = floors * 64 + 32
-    // Window dimensions in canvas px → world:
-    const winWworld = (v.width / textureWidth) * 0.22  // ≈ 0.22m for unit width
-    const winHworld = (22.4 / canvasH) * v.height
     // Trim sizing
     const trimExtra = 0.10
     const lintelH = 0.06
@@ -746,67 +767,94 @@ export function emitVolume(
     const sillProj = 0.08
     // Color: shifted lighter than wall (limestone trim over warmer wall).
     const trimColor = shiftColor(wallColor, 0.07, 0.06, 0.04)
-
-    // Ground-floor window centers in canvas px:
-    const floor = 0
-    const floorYpx = canvasH - (floor + 1) * 64
-    const winCenterCanvasY = floorYpx + 16 + 22.4 / 2  // 27.2 px below floor top
-    const winLocalY = v.bottomY + v.height * (1 - winCenterCanvasY / canvasH)
-
-    // Flowerbox dimensions (used per-window when hasFlowerBox + col is even).
-    // These match the FacadeTexture's painted flowerbox at the bottom-edge of
-    // ground-floor windows: a wood trough wider than the window with painted
-    // flowers above. Geometry version projects forward and reads as a real
-    // box from any angle.
-    const fbW = winWworld + 0.16
     const fbH = 0.08
     const fbProj = 0.13
     const fbColor = 0x6a4a2a   // weathered wood
 
-    for (let col = 0; col < cols; col++) {
-      const winLocalX = lx + ((col + 1) / (cols + 1) - 0.5) * v.width
-      // Front (+Z) face only.
-      const faceLocalZ = lz + v.depth / 2
-      // Lintel (above window)
-      const lintelGeo = new THREE.BoxGeometry(winWworld + trimExtra, lintelH, lintelProj)
-      localToWorld(lintelGeo,
-        winLocalX,
-        winLocalY + winHworld / 2 + lintelH / 2,
-        faceLocalZ + lintelProj / 2,
-        leanX, leanZ, rot, cx, cy, cz)
-      ornamentBatch.addPositioned(lintelGeo, trimColor)
-      // Sill (below window) — projects more than the lintel.
-      const sillGeo = new THREE.BoxGeometry(winWworld + trimExtra * 1.2, sillH, sillProj)
-      localToWorld(sillGeo,
-        winLocalX,
-        winLocalY - winHworld / 2 - sillH / 2,
-        faceLocalZ + sillProj / 2,
-        leanX, leanZ, rot, cx, cy, cz)
-      ornamentBatch.addPositioned(sillGeo, trimColor)
-
-      // Flowerbox below the window when the building's painted-flowerbox
-      // flag is set. Same gating as FacadeTexture: every other column.
-      // Sits just under the sill so they read as one unit.
-      if (ctx.hasFlowerBox && col % 2 === 0) {
-        const fbCenterY = winLocalY - winHworld / 2 - sillH - fbH / 2
-        const fb = new THREE.BoxGeometry(fbW, fbH, fbProj)
-        localToWorld(fb,
-          winLocalX,
-          fbCenterY,
-          faceLocalZ + fbProj / 2,
+    // The flanks get trim too, which is the whole point of this round — but
+    // only on their LOWEST pierced floor, which for a flank is the first
+    // floor because its ground storey is deliberately blind. Trimming every
+    // opening on every face would be hundreds of boxes per building and the
+    // merge cost dominates; the lowest pierced band is what the player reads
+    // walking past, or looking up from an alley.
+    //
+    // Handedness: BoxGeometry mirrors u on the -Z and -X faces. The column
+    // set is symmetric, so the trim lands on the same positions either way —
+    // it would matter for an asymmetric feature like the back door, which is
+    // painted and not built here.
+    const faces: Array<{ face: FacadeFace; nx: number; nz: number }> = [
+      { face: 'front', nx: 0, nz: 1 },
+      { face: 'back', nx: 0, nz: -1 },
+      { face: 'side', nx: 1, nz: 0 },
+      { face: 'side', nx: -1, nz: 0 },
+    ]
+    for (const { face, nx, nz } of faces) {
+      const acrossZ = nz !== 0
+      // Same quantisation the FacadeConfig applies, so the column count here
+      // cannot differ from the painted one.
+      const spanWorld = acrossZ ? v.width : v.depth
+      const quantW = Math.max(1, Math.round(spanWorld * 2) / 2)
+      const quantH = Math.max(1.5, Math.round(v.height * 2) / 2)
+      const cells = facadeOpenings(floors, quantW, quantH, face, wallColor)
+      if (cells.length === 0) continue
+      const lowest = cells[0].floor
+      for (const c of cells) {
+        if (c.floor !== lowest) continue
+        // A bricked-up opening KEEPS its lintel and sill — that is what makes
+        // it read as a filled window rather than a patch of odd plaster.
+        const winWworld = c.uW * spanWorld
+        const winHworld = c.vH * v.height
+        const along = (c.u - 0.5) * spanWorld
+        const winLocalY = v.bottomY + c.vCenter * v.height
+        const winLocalX = acrossZ ? lx + along : lx + nx * (v.width / 2)
+        const winLocalZ = acrossZ ? lz + nz * (v.depth / 2) : lz + along
+        const outX = acrossZ ? 0 : nx
+        const outZ = acrossZ ? nz : 0
+        // Lintel (above window)
+        const lintelGeo = acrossZ
+          ? new THREE.BoxGeometry(winWworld + trimExtra, lintelH, lintelProj)
+          : new THREE.BoxGeometry(lintelProj, lintelH, winWworld + trimExtra)
+        localToWorld(lintelGeo,
+          winLocalX + outX * lintelProj / 2,
+          winLocalY + winHworld / 2 + lintelH / 2,
+          winLocalZ + outZ * lintelProj / 2,
           leanX, leanZ, rot, cx, cy, cz)
-        ornamentBatch.addPositioned(fb, fbColor)
-        // Three small flower clusters as tiny spheres along the front edge.
-        // Picks deterministically from a warm flower palette via hash + col.
-        const flowerColors = [0xc25a78, 0xd99744, 0xa074bc, 0xd44848, 0xb8c454]
-        for (let fi = 0; fi < 3; fi++) {
-          const fx = winLocalX + (fi - 1) * (fbW * 0.28)
-          const fy = fbCenterY + fbH / 2 + 0.04
-          const fz = faceLocalZ + fbProj * 0.85
-          const flower = new THREE.SphereGeometry(0.05, 4, 3)
-          localToWorld(flower, fx, fy, fz, leanX, leanZ, rot, cx, cy, cz)
-          const fc = flowerColors[(ctx.hash + col * 7 + fi * 3) % flowerColors.length]
-          ornamentBatch.addPositioned(flower, fc)
+        ornamentBatch.addPositioned(lintelGeo, trimColor)
+        // Sill (below window) — projects more than the lintel.
+        const sillGeo = acrossZ
+          ? new THREE.BoxGeometry(winWworld + trimExtra * 1.2, sillH, sillProj)
+          : new THREE.BoxGeometry(sillProj, sillH, winWworld + trimExtra * 1.2)
+        localToWorld(sillGeo,
+          winLocalX + outX * sillProj / 2,
+          winLocalY - winHworld / 2 - sillH / 2,
+          winLocalZ + outZ * sillProj / 2,
+          leanX, leanZ, rot, cx, cy, cz)
+        ornamentBatch.addPositioned(sillGeo, trimColor)
+
+        // Flowerbox below the window when the building's painted-flowerbox
+        // flag is set. FRONT ONLY and every other column, matching the
+        // texture — a rear elevation in window boxes reads as a second front,
+        // which is the failure this round exists to stop.
+        if (ctx.hasFlowerBox && face === 'front' && c.col % 2 === 0) {
+          const fbW = winWworld + 0.16
+          const fbCenterY = winLocalY - winHworld / 2 - sillH - fbH / 2
+          const fb = new THREE.BoxGeometry(fbW, fbH, fbProj)
+          localToWorld(fb, winLocalX, fbCenterY, winLocalZ + fbProj / 2,
+            leanX, leanZ, rot, cx, cy, cz)
+          ornamentBatch.addPositioned(fb, fbColor)
+          // Three small flower clusters as tiny spheres along the front edge.
+          // Picks deterministically from a warm flower palette via hash + col.
+          const flowerColors = [0xc25a78, 0xd99744, 0xa074bc, 0xd44848, 0xb8c454]
+          for (let fi = 0; fi < 3; fi++) {
+            const flower = new THREE.SphereGeometry(0.05, 4, 3)
+            localToWorld(flower,
+              winLocalX + (fi - 1) * (fbW * 0.28),
+              fbCenterY + fbH / 2 + 0.04,
+              winLocalZ + fbProj * 0.85,
+              leanX, leanZ, rot, cx, cy, cz)
+            const fc = flowerColors[(ctx.hash + c.col * 7 + fi * 3) % flowerColors.length]
+            ornamentBatch.addPositioned(flower, fc)
+          }
         }
       }
     }

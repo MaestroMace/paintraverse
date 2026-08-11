@@ -433,31 +433,95 @@ back of things.
 It is also the Imagineering rule we have not applied. Disney hides backstage
 COMPLETELY; anything a guest can walk around is finished from every angle.
 
-**Measured: median back/front detail ratio 0.28** across 30 paired buildings
-(`tools/allsides.mjs`). A typical building's far side carries under a third of
-the visual interest of its street side. The measurement is PAIRED — same
-building, both sides, same distance — because absolute wall-detail numbers are
-swamped by variation in size, colour and what stands behind.
+### The first measurement was of the wrong two walls
 
-Done so far: ivy moved to the back and side walls, where it belongs both for
-this reason and because ivy takes the shaded damp wall rather than the one the
-householder sweeps. **That change is not gradeable by this tool** and the tool
-now says so: ivy is 4% of buildings, so a 14-building sample contains none of
-it and the aggregate wandered a tenth on noise.
+`allsides.mjs` originally photographed the road side and the side OPPOSITE it,
+and reported back/front 0.28 at n=14. Both halves of that were wrong.
 
-The real work is a back-of-building vocabulary at scale, since the ratio is
-set by the features that touch MOST buildings:
-- a rear door and step, external stair, lean-to, coal chute
-- shutters and small high windows on side walls
-- buttresses, chimney breasts, blocked-up openings
-- the party-wall gap: washing lines, a drainpipe on the rear corner
+At n=30 the same build reads **0.79**. The n=14 figure was noise, and the
+tool's own sensitivity note had already warned that it would be — it was
+written about ivy and then not applied to the tool's own headline number.
 
-This is the one item in this document where "should we build more assets" is
-probably YES — and the footprint constraint from the district work applies:
-whatever is built must attach to a wall, not need a plot.
+More importantly, 0.79 is *true and useless*, because front-versus-back is the
+comparison in which nothing was broken. `emitVolume` hands each volume the
+material array
 
-*Grades: allsides.mjs back/front ratio, target 0.6+. Use --n=30 or more, and
-read the usable-pair count before believing a delta.*
+    [plain, plain, plain, plain, facade, facade]
+     +X     -X     +Y     -Y     +Z      -Z
+
+so +Z and -Z both carry the painted facade — and **both FLANKS were one flat
+colour with no openings at all**. A front-vs-back metric cannot see that; it
+grades the pair that matches and never photographs the pair that does not.
+
+The tool now shoots all four faces, and only the ones a player could actually
+walk to — 93% of buildings share a party wall, and a flank buried against a
+neighbour is legitimately backstage by Disney's own rule. That turns the
+number honest:
+
+| | seed 4242 | seed 777 |
+|---|---|---|
+| flank/front, before | 0.42 | 0.28 |
+| flank/front, after | **0.74** | **0.51** |
+| flank detail, before | 1.7% | 1.8% |
+| flank detail, after | **3.7%** | **3.2%** |
+| back/front, after | 0.86 | 0.98 |
+
+### What was actually wrong, and it was not dressing
+
+Three defects, all of them the same shape — a vocabulary believed to exist:
+
+1. **`createFacadeTexture(cfg, face)` took `'front' | 'side'` and its only
+   caller hardcoded `'front'`.** The entire side-wall branch was a ghost with
+   a type signature. A parameter that is only ever passed one literal is dead
+   code the compiler will never flag.
+2. **The back wall wore the FRONT's texture**, door and all — so a rear
+   elevation was a mirrored front rather than a finished back.
+3. **A third copy of the window layout**, in the 3D lintel/sill emitter, had
+   drifted an entire scale generation behind: `cols = floor(round(w) * 1.5)`,
+   a `floors * 64 + 32` canvas, a 0.22m window. On an ordinary 2.8m row house
+   that is four 21cm stone nubs at the wrong height on a wall whose painted
+   facade has one 1.0m window — and four flower boxes hanging on blank
+   plaster beside them.
+
+The fix is one `facadeOpenings()` returning openings as FRACTIONS of the wall,
+consumed by the painted texture, the emissive map and the geometry alike.
+Fractions rather than metres because the canvas is authored at a quantised
+size and stretched over the real wall; a fraction carries that stretch for
+free, and it was the absence of that correction that let the copies look
+plausible while disagreeing.
+
+Faces are now genuinely different elevations, not one drawing with bits
+switched off: the front composes, the back works (plainer off-centre batten
+door, no awning, no window boxes, the odd bricked-up opening), the flank is
+blind at ground level with fewer, higher openings above.
+
+### And the missing anchors
+
+`frontWallZ` / `frontWallHalfW` had no counterpart, and **that absence is the
+whole report**: a feature can only be attached where there is an anchor to
+attach it to, so every piece of dressing in BuildingFactory went on the one
+wall that had one. `backWallZ`, `sideWallX(s)` and — the load-bearing part —
+`backRoom` / `sideRoom(s)`, the gap between the massing volume and the
+building's own reserved footprint, now exist beside them. Clamping to that gap
+is what makes a rear projection provably unable to reach into a neighbour,
+which is the invariant `audit.mjs` enforces and `overhang.mjs` counts.
+
+On those anchors: a **rear outshot** (the scullery lean-to, mono-pitch roof
+shedding into the yard, its own small window so the addition is not itself a
+blank box), **flank buttresses** on tall stone walls, a **flank chimney
+breast** for the buildings the buttress pass skips, and the **drainpipe moved
+to a rear corner** — it was 65% biased to the FRONT with the reasoning "that's
+where the player most often sees the building", which is the assumption this
+entire item is about.
+
+Still unbuilt from the original list: the external stair, and the party-wall
+gap features (washing lines between buildings) — those need a neighbour, so
+they belong with the plot work, not here.
+
+*Grades: allsides.mjs FLANK/front ratio, target 0.6+. Use --n=30 or more, and
+read the usable count before believing a delta. Do not go back to a
+front-vs-back reading; it is the comparison that hid this for the life of the
+project.*
 
 ## Rules to hold onto while doing this
 

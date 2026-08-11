@@ -682,6 +682,29 @@ export function buildBuildingMeshes(
     const frontWallZ = mainVol.offsetZ + mainVol.depth / 2
     const frontWallHalfW = mainVol.width / 2
 
+    // === AND WHERE THE OTHER THREE WALLS ARE ===
+    //
+    // There was no equivalent of the pair above for the back or the flanks,
+    // and that absence IS the "every other angle looks like a back alley"
+    // report: a feature can only be attached where there is an anchor to
+    // attach it to, so every piece of dressing in this file went on the one
+    // wall that had one. The fix is not more dressing, it is the missing
+    // anchors — the same move that `PlacedObject.footprint` was for placement.
+    //
+    // `*Room` is how far a rear or flank feature may project before it leaves
+    // the building's own reserved footprint. The massing volume is inset
+    // inside that footprint (and then scaled by wealth), so this gap is real,
+    // nonzero and different for every building — it is the same gap that used
+    // to leave front-attached signs floating in mid-air, read the other way
+    // round. Clamping to it means a lean-to or a buttress can never reach
+    // into a neighbour, which is the invariant tools/audit.mjs enforces and
+    // tools/overhang.mjs counts.
+    const backWallZ = mainVol.offsetZ - mainVol.depth / 2
+    const backRoom = Math.max(0, backWallZ - (-fp.h / 2))
+    const sideWallX = (s: number): number => mainVol.offsetX + s * mainVol.width / 2
+    const sideRoom = (s: number): number => Math.max(0, fp.w / 2 - s * sideWallX(s))
+    const mainWallH = mainVol.height
+
     // Record where this building really ends up so particle systems can hang
     // off it without re-deriving its height (see BuildingTop).
     let apexLocalY = 0
@@ -1078,10 +1101,18 @@ export function buildBuildingMeshes(
       const pipeBottom = 0  // building base
       const pipeH = pipeTop - pipeBottom
       if (pipeH > 1.0) {
-        // Pick one corner — biased toward the FRONT (+Z) face since that's
-        // where the player most often sees the building.
+        // Pick one corner — biased toward the BACK (-Z). This used to be 65%
+        // FRONT, with the reasoning "that's where the player most often sees
+        // the building", which is the assumption this whole arc is about: a
+        // player in a walkaround sees every side, and putting the detail
+        // where they are assumed to be looking is what leaves the other three
+        // walls bare. A downpipe also belongs at the back on the merits —
+        // rainwater goes to the yard, not over the front step.
+        //
+        // Unlike ivy (4% of buildings, below what allsides.mjs can resolve at
+        // n=30) this fires on 21%, so the move is actually gradeable.
         const xSide = rand01(hash, 903) < 0.5 ? -1 : 1
-        const zSide = rand01(hash, 905) < 0.65 ? 1 : -1   // 65% front
+        const zSide = rand01(hash, 905) < 0.72 ? -1 : 1   // 72% back
         const cornerX = mainVol.offsetX + xSide * (mainVol.width / 2 + pipeR * 0.6)
         const cornerZ = mainVol.offsetZ + zSide * (mainVol.depth / 2 + pipeR * 0.6)
         const pipe = new THREE.CylinderGeometry(pipeR, pipeR, pipeH, 6)
@@ -1098,6 +1129,199 @@ export function buildBuildingMeshes(
           leanX, leanZ, rotationY, wx, wy, wz)
         ornamentBatch.addPositioned(collar, pipeColor)
       }
+    }
+
+    // ========================================================================
+    // === THE BACK OF THE BUILDING ===========================================
+    // ========================================================================
+    //
+    // CITYPLAN item 7. Everything above this line attaches to `frontWallZ`;
+    // what follows attaches to `backWallZ` and `sideWallX`, and it is the
+    // only dressing in this file that does.
+    //
+    // The rule these all obey, and the reason they are safe: each clamps its
+    // projection to `backRoom` / `sideRoom`, the gap between the massing
+    // volume and the building's own reserved footprint. A rear feature can
+    // therefore never reach into a neighbour, whatever the wealth scale did
+    // to the volume — which is the invariant tools/audit.mjs enforces and the
+    // failure mode tools/overhang.mjs exists to count.
+    //
+    // These are deliberately SILHOUETTE features rather than surface ones.
+    // The facade texture now finishes all four walls; what a back still
+    // lacked was depth — something that breaks the outline when you walk
+    // round the corner. A theme park's backstage is hidden completely; a
+    // walkaround has no backstage, so the back has to be built.
+
+    // --- REAR OUTSHOT (lean-to) → batched ---
+    // The single-storey scullery / washhouse / privy tacked onto the back of
+    // almost every pre-modern town house. A low mono-pitch box against the
+    // rear wall: it breaks the silhouette, casts a shadow onto the yard, and
+    // instantly reads as a building that has been LIVED IN rather than
+    // placed. Needs enough room behind the wall to be a room at all.
+    // The 0.18 is eave clearance, not slack: the mono-pitch slab below is
+    // longer than the box it covers (a slope is longer than its run) and
+    // overhangs the back face by ~13cm. Sizing the BODY to the footprint and
+    // forgetting the ROOF is precisely how MAX_OVERHANG got written.
+    //
+    // OUTSHOT_REACH is the one place a rear feature is allowed past the
+    // footprint, and it is deliberate. Clamping strictly to `backRoom`
+    // starved the feature: the gate counters below reported noRoomBehind on
+    // 55% of eligible buildings, because the inset between volume and
+    // footprint is a few tens of centimetres, not a yard. But a scullery does
+    // not stand on the building's footprint — it stands in the BACK YARD,
+    // which `softenBackOfBlock` has already unpaved into garden. Projecting
+    // there is correct; it just has to be bounded. 0.45 sits under the
+    // MAX_OVERHANG = 0.6 budget the massing templates already spend, so this
+    // introduces no reach the project had not already sanctioned, and both
+    // tools/audit.mjs and tools/overhang.mjs grade the result.
+    const OUTSHOT_REACH = 0.45
+    const outshotDepth = Math.min(1.35, backRoom + OUTSHOT_REACH - 0.18)
+    const outshotEligible = !isLandmark && !mainVol.circular &&
+      !NO_JITTER.has(obj.definitionId) &&
+      (district === 'residential' || district === 'artisan' || district === 'market' ||
+       district === 'garden' || district === 'docks')
+    const wantsOutshot = outshotEligible &&
+      mainWallH > 3.4 && mainVol.width >= 2.4 && outshotDepth >= 0.7 &&
+      rand01(hash, 1401) < 0.42
+    // WHY a gate did not fire, not just how often it did. The census reported
+    // this feature at 6% of buildings, which is below what allsides.mjs can
+    // resolve — but a rate alone cannot say whether that is the dice, the
+    // district, or the geometry, and guessing at it is what CLAUDE.md means by
+    // "make the tool explain itself". These counters cost nothing and turn one
+    // census run into the answer.
+    if (outshotEligible) {
+      if (mainWallH <= 3.4) tallyIn('rearOutshot~tooShort', district)
+      else if (mainVol.width < 2.4) tallyIn('rearOutshot~tooNarrow', district)
+      else if (outshotDepth < 0.7) tallyIn('rearOutshot~noRoomBehind', district)
+      else if (!wantsOutshot) tallyIn('rearOutshot~lostTheDice', district)
+    } else {
+      tallyIn('rearOutshot~wrongKind', district)
+    }
+    if (wantsOutshot) {
+      tallyIn('rearOutshot', district)
+      // Narrower than the wall it leans on, and offset to one side — a full
+      // width outshot reads as the building being deeper, not as an addition.
+      const outW = mainVol.width * (0.42 + rand01(hash, 1403) * 0.26)
+      const outX = mainVol.offsetX + (rand01(hash, 1405) - 0.5) * (mainVol.width - outW)
+      const outH = 1.9 + rand01(hash, 1407) * 0.5     // one low storey
+      const outZ = backWallZ - outshotDepth / 2
+      const outColor = shiftColor(palette.wall, -0.05, -0.04, -0.03)
+      const body = new THREE.BoxGeometry(outW, outH, outshotDepth)
+      localToWorld(body, outX, outH / 2, outZ, leanX, leanZ, rotationY, wx, wy, wz)
+      detailBatch.addPositioned(body, outColor)
+      // Mono-pitch roof: a thin slab tilted so it sheds AWAY from the house.
+      // Rotating about X tips the far edge down, which is the correct way for
+      // water to run off into the yard rather than against the main wall.
+      const slabT = 0.09
+      const rise = outshotDepth * 0.30
+      const slopeLen = Math.sqrt(outshotDepth * outshotDepth + rise * rise)
+      const slab = new THREE.BoxGeometry(outW + 0.14, slabT, slopeLen + 0.10)
+      slab.rotateX(-Math.atan2(rise, outshotDepth))
+      localToWorld(slab, outX, outH + rise / 2 + slabT / 2, outZ,
+        leanX, leanZ, rotationY, wx, wy, wz)
+      roofBatch.addPositioned(slab, palette.roof)
+      // A small high window on the outshot's own end wall, so the addition
+      // is not itself a blank box — the same mistake one level down.
+      if (outW > 1.5) {
+        const oWin = new THREE.BoxGeometry(0.52, 0.44, 0.05)
+        localToWorld(oWin, outX, outH * 0.62, outZ - outshotDepth / 2 - 0.02,
+          leanX, leanZ, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(oWin, 0x3c4450)
+      }
+    }
+
+    // --- FLANK BUTTRESSES → batched ---
+    // A tall stone flank wants visible support, and a pair of buttresses is
+    // the cheapest thing that turns a blank side elevation into a rhythm of
+    // light and shadow — which is what a flank actually lacks. Stone and
+    // temple/noble buildings only; a timber row house would not have them.
+    const buttressSides: number[] = []
+    for (const s of [-1, 1]) if (sideRoom(s) >= 0.34) buttressSides.push(s)
+    const wantsButtress = !mainVol.circular && buttressSides.length > 0 &&
+      mainWallH > 5.2 && mainVol.depth >= 2.6 &&
+      (district === 'temple' || district === 'noble' || district === 'fortress' ||
+       isLandmark || styleVector.wealth > 0.72) &&
+      rand01(hash, 1411) < 0.66
+    if (wantsButtress) {
+      tallyIn('buttress', district)
+      const bColor = shiftColor(palette.wall, -0.08, -0.07, -0.06)
+      for (const s of buttressSides) {
+        // 0.06 of headroom, because the sloped cap below reaches further out
+        // in X than the pier does once it is tilted.
+        const proj = Math.min(0.38, sideRoom(s) - 0.06)
+        // Two along the depth, set in from the corners so they read as
+        // structure rather than as the wall being thicker.
+        const count = mainVol.depth >= 5.5 ? 3 : 2
+        for (let i = 0; i < count; i++) {
+          const t = (i + 1) / (count + 1)
+          const bz = mainVol.offsetZ + (t - 0.5) * mainVol.depth * 0.82
+          const bh = mainWallH * (0.62 + rand01(hash, 1413 + i * 7) * 0.14)
+          const bw = 0.46
+          const pier = new THREE.BoxGeometry(proj, bh, bw)
+          localToWorld(pier, sideWallX(s) + s * proj / 2, mainVol.bottomY + bh / 2, bz,
+            leanX, leanZ, rotationY, wx, wy, wz)
+          detailBatch.addPositioned(pier, bColor)
+          // Weathered stone cap, sloped away from the wall so it sheds.
+          const cap = new THREE.BoxGeometry(proj * 0.98, 0.12, bw + 0.06)
+          cap.rotateZ(-s * 0.22)
+          localToWorld(cap, sideWallX(s) + s * proj / 2,
+            mainVol.bottomY + bh + 0.05, bz,
+            leanX, leanZ, rotationY, wx, wy, wz)
+          ornamentBatch.addPositioned(cap, shiftColor(bColor, 0.06, 0.05, 0.04))
+        }
+      }
+    }
+
+    // --- FLANK CHIMNEY BREAST → batched ---
+    // The stack carried down the OUTSIDE of a gable wall as a tapering
+    // pilaster. This is the signature back-of-a-terrace silhouette and it
+    // costs two boxes. Deliberately for the buildings the buttress pass
+    // skips, so the two together cover most tall flanks rather than
+    // doubling up on the same wealthy few.
+    // Computed from sideRoom directly, NOT filtered out of buttressSides —
+    // that list has already applied the buttress's STRICTER 0.34 test, so
+    // filtering it at 0.22 could only ever narrow the set further and the
+    // looser threshold this feature is supposed to have could never take
+    // effect. A gate derived from another gate inherits its constraints
+    // silently; this one cost the feature most of its population.
+    // 0.14, not 0.22, and the difference is most of the town. MIN_HABITABLE_W
+    // forces a volume to 2.6m inside a 1-tile (3.0m) footprint, so an ordinary
+    // row house has exactly 0.20m beside it — the gate counters put 74% of
+    // eligible buildings under the old threshold, and they were nearly all
+    // sitting just below it. A 0.18m pilaster is also what a chimney breast on
+    // a tight urban plot actually is; the previous number was not modest, it
+    // was wrong.
+    const breastSides: number[] = []
+    for (const s of [-1, 1]) if (sideRoom(s) >= 0.14) breastSides.push(s)
+    const wantsBreast = !wantsButtress && !isLandmark && !mainVol.circular &&
+      !NO_JITTER.has(obj.definitionId) &&
+      breastSides.length > 0 && mainWallH > 4.2 && mainVol.depth >= 1.8 &&
+      rand01(hash, 1421) < 0.40
+    if (!wantsButtress && !isLandmark && !mainVol.circular &&
+        !NO_JITTER.has(obj.definitionId)) {
+      if (breastSides.length === 0) tallyIn('chimneyBreast~noRoomBeside', district)
+      else if (mainWallH <= 4.2) tallyIn('chimneyBreast~tooShort', district)
+      else if (mainVol.depth < 1.8) tallyIn('chimneyBreast~tooShallow', district)
+      else if (!wantsBreast) tallyIn('chimneyBreast~lostTheDice', district)
+    }
+    if (wantsBreast) {
+      tallyIn('chimneyBreast', district)
+      const s = breastSides[hash % breastSides.length]
+      const proj = Math.min(0.30, sideRoom(s) - 0.015)
+      const breastW = Math.min(1.25, mainVol.depth * 0.42)
+      const bz = mainVol.offsetZ + (rand01(hash, 1423) - 0.5) * (mainVol.depth - breastW)
+      const lowH = mainWallH * 0.72
+      const lower = new THREE.BoxGeometry(proj, lowH, breastW)
+      localToWorld(lower, sideWallX(s) + s * proj / 2, mainVol.bottomY + lowH / 2, bz,
+        leanX, leanZ, rotationY, wx, wy, wz)
+      detailBatch.addPositioned(lower, shiftColor(palette.wall, -0.10, -0.09, -0.07))
+      // The taper: a narrower section carrying on up past the eaves.
+      const upH = mainWallH - lowH + 0.55
+      const upper = new THREE.BoxGeometry(proj * 0.72, upH, breastW * 0.66)
+      localToWorld(upper, sideWallX(s) + s * proj * 0.36,
+        mainVol.bottomY + lowH + upH / 2, bz,
+        leanX, leanZ, rotationY, wx, wy, wz)
+      detailBatch.addPositioned(upper, shiftColor(palette.wall, -0.12, -0.11, -0.09))
     }
 
     // === FOUNDATION → batched ===
