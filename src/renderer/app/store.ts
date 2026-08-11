@@ -158,6 +158,75 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 2, h: 3 },
     styleSetSlots: []
   },
+  // === SMALL DISTRICT-SPECIFIC HOUSES ===
+  //
+  // Measured need, not decoration. `tools/districts.mjs` put district
+  // character at 26% and the cause was that three fill passes hardcoded
+  // row_house / building_small into every quarter. Routing them through
+  // DISTRICT_BUILDINGS fixed the character (57%) but cost built coverage,
+  // because a census of the tables showed temple, noble and cemetery own no
+  // small ORDINARY building at all — their only entries under 3 tiles are
+  // towers, which infill correctly refuses to use. So those quarters had to
+  // choose between being dense and being themselves.
+  //
+  // These are the missing vocabulary: small, humble, and each belonging to
+  // one or two quarters, so a quarter can be filled with its OWN fabric.
+  // Every one of them is registered in all six id-keyed tables — see
+  // tools/registry.mjs, which exists because missing one is silent.
+  {
+    id: 'clergy_house',
+    name: 'Clergy House',
+    category: 'building',
+    tags: ['structure', 'religious', 'residential'],
+    color: '#9C9AA8',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  {
+    id: 'almshouse',
+    name: 'Almshouse',
+    category: 'building',
+    tags: ['structure', 'religious', 'residential', 'narrow'],
+    color: '#A79C90',
+    footprint: { w: 1, h: 3 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  {
+    id: 'sexton_hut',
+    name: "Sexton's Hut",
+    category: 'building',
+    tags: ['structure', 'functional', 'religious'],
+    color: '#8A8474',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door']
+  },
+  {
+    id: 'mausoleum',
+    name: 'Mausoleum',
+    category: 'building',
+    tags: ['structure', 'religious'],
+    color: '#B4B2AA',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door']
+  },
+  {
+    id: 'coach_house',
+    name: 'Coach House',
+    category: 'building',
+    tags: ['structure', 'noble', 'functional'],
+    color: '#A89684',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  {
+    id: 'potting_shed',
+    name: 'Potting Shed',
+    category: 'building',
+    tags: ['structure', 'functional'],
+    color: '#8F9470',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door']
+  },
   {
     id: 'row_house',
     name: 'Row House',

@@ -925,11 +925,11 @@ Run these before believing anything about where the project is.
 | street emptiness | emptiness.mjs | median 3m, 0% over 12m | satisfiable by scatter — see below |
 | enclosure (to a WALL) | streets.mjs | median 3m, 0% over 15m | clean |
 | corridor width | streets.mjs | 4% of road over-wide, was 58% | clean |
-| street width | urbanform.mjs | 12m facade to facade vs 4-10m | near range |
-| built coverage | urbanform.mjs | 47% vs 50-70% — see the district trade below | slightly under |
-| **district character** | **districts.mjs** | **57% of buildings distinctive to their quarter, was 26%** | **improving** |
+| street width | urbanform.mjs | 15m facade to facade vs 4-10m, was 12m | **regressed — see ledger** |
+| built coverage | urbanform.mjs | 48% vs 50-70% — see the district ledger below | slightly under |
+| **district character** | **districts.mjs** | **55% of buildings distinctive to their quarter, was 26%** | **improving** |
 | party walls | urbanform.mjs | 93% vs 60-80% | above range, deliberately |
-| frontage occupancy | urbanform.mjs | **75% of ACHIEVABLE** frontage vs 85-95% (raw 66%) | near range |
+| frontage occupancy | urbanform.mjs | **77% of ACHIEVABLE** frontage vs 85-95% (raw 67%) | near range |
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
 | prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
@@ -985,14 +985,64 @@ Two constraints discovered while doing it, both worth keeping:
   for types that fit 2x2 leaves a noble quarter nothing at all, because its
   smallest ordinary house is 3x2. `pickTypeForSpace` asks the occupancy map.
 
-`narrow_house` was added to the noble table as its one small ordinary type —
-every other noble entry is 3 wide or a tower. A census of the definitions
-confirmed there is nothing else to reallocate: only `clock_tower` and
-`windmill` are defined and unused, and both are 3x3 monuments. **A small
-district-specific vocabulary (a sexton's hut, a coach house, clergy lodgings)
-is the one place in this project where new building assets would clearly pay
-for themselves** — it is what would let temple and cemetery be dense AND
-distinctive instead of choosing.
+### THE SMALL DISTRICT VOCABULARY — six new types, and what they bought
+
+The note above said a small district-specific vocabulary was the one place new
+building assets would clearly pay for themselves. It was built:
+`clergy_house` 2x2 and `almshouse` 1x3 (temple), `sexton_hut` 1x2,
+`mausoleum` 2x2 and `almshouse` (cemetery), `coach_house` 2x2 (noble),
+`potting_shed` 1x2 (garden). A cemetery now reads as 10 almshouses, 5 mausolea
+and one sexton's hut instead of four buildings or seven row houses.
+
+**Register a new type in all six id-keyed tables or it is a partial ghost.**
+`store.ts` objectDefinitions, `TownGenerator.getFootprint`,
+`BuildingFactory.FOOTPRINTS`, `Canvas2DRenderer.BUILDING_HEIGHTS` and
+`BUILDING_ROOF_STYLE`, and a `DISTRICT_BUILDINGS` entry. Missing one is
+silent — a fallback footprint, a fallback 1.8-tile height in the pixel-art
+export, a generic tint in the plan. `tools/registry.mjs` checks all of it
+statically in a second, including that the THREE footprint tables agree.
+Its first run found seven landmark types absent from the export's height and
+roof tables, **including the cathedral and the lighthouse** — the two things
+the vista arc spent itself making visible down a street, exporting at the
+1.8-tile fallback.
+
+**`MAX_PER_DISTRICT` exists because giving a quarter its own small building
+immediately overshot into monoculture.** Infill picks the first weighted
+candidate that FITS, and the smallest type in a table fits most often, so it
+wins by geometry however low its weight: the cemetery came out as 21 identical
+sexton's huts out of 28 buildings, reading 100% character because a
+quarter-exclusive type is "distinctive" no matter how many you stamp. That is
+WALLPAPER at district scale and it is self-gaming, exactly like filling noble
+gaps with towers. Set a cap by asking **how many would look wrong**, not how
+many a careful person would build — the first table was written as scarcity
+(1/10/4/4/3/3) and cost three points of coverage and five of frontage for no
+gain over the honest numbers.
+
+**The cap had to be enforced in FOUR places** — the road-edge walk, the row
+streak, the fill passes, and Phase C's gap fill — and three of them were
+found only because the measured count still exceeded its cap afterwards. A
+gate enforced in three of four paths is not enforced, and the way to know is
+to re-measure, not to reason about which paths you covered.
+
+### THE HONEST LEDGER FOR THE DISTRICT ARC
+
+| metric | before | after | note |
+|---|---|---|---|
+| district character | 26% | **55%** | the point of the exercise |
+| built coverage | 50% | 48% | 2 under the 50-70% band |
+| achievable frontage | 82% | 77% | |
+| **street width** | **12m** | **15m** | **worse; target is 4-10m** |
+| party walls | 93% | 93% | |
+
+The street-width regression is the one to take seriously — DESIGN.md calls it
+the single number separating a town from a field. It is a consequence, not a
+bug: quarters that legitimately want low density now have it, and a sparser
+quarter puts its facades further apart. **The architectural answer is that a
+cathedral close, a graveyard and a garden quarter are not defined by building
+walls at all — they are defined by a BOUNDARY WALL.** `stone_wall` and
+`iron_fence` already exist as objects. Enclosing sparse quarters rather than
+building them up is the next move, and it would raise enclosure without
+undoing any of the character work.
 
 Two things fell out of that decomposition and both are load-bearing:
 
@@ -1338,6 +1388,13 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   changes bytes and not one object. The seed is pinned; to A/B against another
   commit, stash `src/renderer/renderer3d/`, check the old files out, rebuild,
   and run it again on the same seed.
+- `node tools/registry.mjs` — **is a building type actually WIRED IN?** A new
+  type must be registered in SIX id-keyed tables and missing one is silent:
+  a fallback footprint, a 1.8-tile height in the pixel-art export, a generic
+  plan tint. Also checks the THREE footprint tables agree — a disagreement
+  is the bell_tower_tall bug (reserved 2x2, drawn 3x3, clipped its
+  neighbours) and it was found by eye last time. Static parse, no Electron,
+  one second. Run it after adding or renaming any building type.
 - `node tools/features.mjs [seeds...]` — **a census of every gated piece of
   street dressing**, with its rate and its SPREAD across districts. Catches
   the two silent failures: a GHOST that is gated into nonexistence, and

@@ -77,13 +77,15 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'tower', w: 2, h: 2, weight: 1 },
     { id: 'archway', w: 3, h: 1, weight: 1 },
     { id: 'stable', w: 4, h: 3, weight: 1 },
-    // The one small ORDINARY house in this quarter, and it has to exist.
-    // Every other noble entry is 3 tiles or wider except the tower, which
+    // The small ORDINARY buildings of this quarter, and they have to exist:
+    // every other noble entry is 3 tiles or wider except the tower, which
     // infill correctly refuses to use, so the quarter could not be filled at
     // all and built coverage fell out of its band. A narrow townhouse on a
     // noble side street is also just correct — Georgian and Parisian quarters
-    // are full of them. Weighted low so the mansions still lead.
+    // are full of them — and a coach house is what stands behind a mansion.
+    // Weighted low so the mansions still lead the quarter.
     { id: 'narrow_house', w: 1, h: 3, weight: 3 },
+    { id: 'coach_house', w: 2, h: 2, weight: 3 },
   ],
   waterfront: [
     { id: 'building_small', w: 2, h: 2, weight: 4 },
@@ -106,6 +108,13 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'staircase', w: 2, h: 3, weight: 2 },
     { id: 'cathedral', w: 5, h: 6, weight: 6 },
     { id: 'bell_tower_tall', w: 2, h: 2, weight: 7 },
+    // A temple precinct is not only monuments. Its one small ordinary entry
+    // was `staircase`, so infill had almost nothing to build and the quarter
+    // halved when the fill passes stopped stamping row houses into it.
+    // Clergy lodgings and an almshouse are what actually stand round a
+    // cathedral close, and they are humble enough not to compete with it.
+    { id: 'clergy_house', w: 2, h: 2, weight: 5 },
+    { id: 'almshouse', w: 1, h: 3, weight: 4 },
   ],
   slum: [
     { id: 'row_house', w: 1, h: 2, weight: 8 },
@@ -121,6 +130,10 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'half_timber', w: 3, h: 2, weight: 3 },
     { id: 'building_small', w: 2, h: 2, weight: 2 },
     { id: 'building_large', w: 4, h: 3, weight: 1 },
+    // The garden quarter's only sub-3-tile entry was building_small, which is
+    // generic housing and reads as nothing in particular. A potting shed is
+    // small, distinctive, and exactly what a garden district is made of.
+    { id: 'potting_shed', w: 1, h: 2, weight: 4 },
   ],
   harbor: [
     { id: 'warehouse', w: 4, h: 3, weight: 8 },
@@ -144,6 +157,14 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
   cemetery: [
     { id: 'chapel', w: 3, h: 4, weight: 5 },
     { id: 'tower', w: 2, h: 2, weight: 1 },
+    // Before these, cemetery's whole table was two NEVER_TERRACED monuments,
+    // so infill could place nothing and the quarter came out at four
+    // buildings. A graveyard SHOULD be sparse, but sparse and empty are not
+    // the same thing: a sexton's hut, a row of mausolea and an almshouse on
+    // the lane are what a real burial ground has around its chapel.
+    { id: 'mausoleum', w: 2, h: 2, weight: 4 },
+    { id: 'sexton_hut', w: 1, h: 2, weight: 3 },
+    { id: 'almshouse', w: 1, h: 3, weight: 2 },
   ],
 }
 
@@ -163,6 +184,42 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
  * orients you if it is rare; ninety-three of them are wallpaper, and the vista
  * audit was scoring towers as weenies precisely because they were everywhere.
  */
+/**
+ * How many of a type ONE QUARTER may have. Absent = unlimited.
+ *
+ * Giving the starved districts their own small buildings worked and then
+ * immediately overshot: a cemetery came out with 21 sexton's huts and a
+ * garden with 11 potting sheds. There is one sexton. The character metric
+ * read 100% and was meaningless, because a type exclusive to a quarter is
+ * "distinctive" no matter how many of it you stamp — the same self-gaming
+ * that filling noble gaps with towers produced an hour earlier.
+ *
+ * This is the WALLPAPER failure from CLAUDE.md at district scale: content
+ * that fires at the same rate everywhere inside a quarter differentiates
+ * nothing, and it looks like success in every aggregate.
+ *
+ * The bias that causes it is structural, not a weighting mistake: infill
+ * picks the first weighted candidate that FITS, and the smallest type in a
+ * table fits most often. So the smallest building in a district wins by
+ * geometry however low its weight, and the only honest fix is to say out
+ * loud how many of it a place should have.
+ */
+const MAX_PER_DISTRICT: Record<string, number> = {
+  sexton_hut: 1,        // genuinely singular: there is one sexton
+  mausoleum: 14,        // a row of tombs is correct, and it IS the cemetery
+  almshouse: 10,        // an almshouse row is historically 6-12 units
+  clergy_house: 8,      // a cathedral close is a street of them
+  coach_house: 8,       // one behind each mansion
+  potting_shed: 6,
+}
+// These read 1/10/4/4/3/3 first and cost three points of built coverage and
+// five of achievable frontage, because they were written as SCARCITY when the
+// job is preventing MONOCULTURE. The failure was a cemetery of 21 identical
+// sexton's huts out of 28 buildings — one type swamping a quarter — not the
+// existence of several of something. Only the hut is truly singular; the rest
+// simply must not become the whole place. Set a cap by asking "how many would
+// look wrong", not "how many would a careful person build".
+
 const NEVER_TERRACED = new Set([
   'tower', 'round_tower', 'watchtower', 'bell_tower', 'bell_tower_tall',
   'clock_tower', 'cathedral', 'chapel', 'temple', 'windmill', 'lighthouse',
@@ -1368,6 +1425,9 @@ export class TownGenerator implements IMapGenerator {
   ): PlacedObject[] {
     const buildings: PlacedObject[] = []
     for (const k of Object.keys(placeStats)) delete placeStats[k]
+    // Per-generation, or a second Generate click inherits the first
+    // town's counts and every scarce type reads as already at its cap.
+    this._perDistrictType.clear()
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
     // Count the town's buildable LAND before the blockers are stamped in.
     // The building budget below is derived from this, and blockers are mostly
@@ -1550,6 +1610,13 @@ export class TownGenerator implements IMapGenerator {
         if (roll <= 0) { type = t; break }
       }
 
+      // Scarce types are capped per QUARTER, not per town — see
+      // MAX_PER_DISTRICT. The walk rolls its own type rather than going
+      // through pickTypeForSpace, so without this the cap would only bind on
+      // the fill passes and the main placer would spam them instead. A gate
+      // enforced in one of two paths is not enforced.
+      if (this.atDistrictCap(dId, type.id)) { rejected('districtCap'); continue }
+
       const bw = type.w, bh = type.h
 
       // ANCHOR THE PLOT AWAY FROM ITS STREET.
@@ -1668,6 +1735,7 @@ export class TownGenerator implements IMapGenerator {
         }
       }
       placed++
+      this.countDistrictType(dId, type.id)
       placeStats._placedPhaseB = placed
 
       // ROW STREAK — extend this placement along the road tangent so
@@ -1689,6 +1757,13 @@ export class TownGenerator implements IMapGenerator {
           let curX = ox + sign * tanX * bw
           let curY = oy + sign * tanY * bh
           for (let k = 0; k < maxStreak && placed < maxBuildings; k++) {
+            // The streak is the THIRD path that chooses a type, and it copies
+            // the anchor's. Without the cap here a quarter capped at one
+            // sexton's hut got four of them in a row, because the cap bound
+            // on the walk and the fills and not on this. That is the same
+            // "enforced in one of two paths is not enforced" mistake as the
+            // comment on the walk's own check, made one loop further down.
+            if (this.atDistrictCap(dId, type.id)) break
             if (curX < 1 || curY < 1 || curX + bw > w - 1 || curY + bh > h - 1) break
             // Footprint must be free and NOT on a road/water.
             let clear = true
@@ -1729,6 +1804,7 @@ export class TownGenerator implements IMapGenerator {
               }
             }
             placed++
+            this.countDistrictType(dId, type.id)
             curX += sign * tanX * bw
             curY += sign * tanY * bh
           }
@@ -1752,10 +1828,16 @@ export class TownGenerator implements IMapGenerator {
       const distNorm = distFromCenter / maxDist
       if (rng() > distDensity * (1.0 - distNorm * 0.6) * density) continue
 
-      const totalWeight = types.reduce((s, t) => s + t.weight, 0)
+      // FOURTH path that chooses a type, and it also has to honour the cap.
+      // Three were fixed before this one was noticed, each time by the count
+      // still exceeding its cap afterwards — which is the argument for having
+      // the measurement rather than reasoning about coverage of the edit.
+      const capped = types.filter((t) => !this.atDistrictCap(dId, t.id))
+      if (capped.length === 0) continue
+      const totalWeight = capped.reduce((s, t) => s + t.weight, 0)
       let roll = rng() * totalWeight
-      let type = types[0]
-      for (const t of types) { roll -= t.weight; if (roll <= 0) { type = t; break } }
+      let type = capped[0]
+      for (const t of capped) { roll -= t.weight; if (roll <= 0) { type = t; break } }
 
       const bw = type.w, bh = type.h
       if (rx + bw > w - 1 || ry + bh > h - 1) continue
@@ -1781,6 +1863,7 @@ export class TownGenerator implements IMapGenerator {
         footprint: { w: bw, h: bh },
         properties: { floors: this.districtFloors(dType, rng), district: dType }
       })
+      this.countDistrictType(dId, type.id)
 
       for (let dy = 0; dy < bh; dy++) {
         for (let dx = 0; dx < bw; dx++) {
@@ -1815,8 +1898,8 @@ export class TownGenerator implements IMapGenerator {
         // then label it with whatever quarter it landed in — see
         // pickTypeForSpace. The 0.15 roll survives as a thinning coin flip.
         const pick = rng() > 0.15
-          ? this.pickTypeForSpace(dType, x, y, occupied, w, h, rng)
-          : this.pickTypeForSpace(dType, x, y, occupied, w, h, rng, 2, 3)
+          ? this.pickTypeForSpace(dType, x, y, occupied, w, h, rng, 99, 99, dId)
+          : this.pickTypeForSpace(dType, x, y, occupied, w, h, rng, 2, 3, dId)
         // null = this quarter has nothing that fits here, so leave the gap.
         if (pick) {
           buildings.push({
@@ -1844,7 +1927,8 @@ export class TownGenerator implements IMapGenerator {
         if (!this.areaFree(occupied, x, y, 2, 2, w, h)) continue
 
         const cornerType = (districts.find(d => d.id === (districtMap[y]?.[x] ?? -1)))?.type || 'residential'
-        const cPick = this.pickTypeForSpace(cornerType, x, y, occupied, w, h, rng, 3, 3)
+        const cornerId = districtMap[y]?.[x] ?? -1
+        const cPick = this.pickTypeForSpace(cornerType, x, y, occupied, w, h, rng, 3, 3, cornerId)
         if (!cPick) continue
         buildings.push({
           id: uuid(), definitionId: cPick.id,
@@ -3659,16 +3743,34 @@ export class TownGenerator implements IMapGenerator {
    * packed with cottages, and filling it anyway is how it stopped reading as
    * a cemetery.
    */
+  /** How many of each type each district instance already holds, keyed
+   *  `${districtId}:${typeId}`. Reset per generation in placeBuildings. */
+  private _perDistrictType = new Map<string, number>()
+
+  private atDistrictCap(districtId: number, typeId: string): boolean {
+    const cap = MAX_PER_DISTRICT[typeId]
+    if (cap === undefined) return false
+    return (this._perDistrictType.get(`${districtId}:${typeId}`) ?? 0) >= cap
+  }
+
+  private countDistrictType(districtId: number, typeId: string): void {
+    if (MAX_PER_DISTRICT[typeId] === undefined) return
+    const k = `${districtId}:${typeId}`
+    this._perDistrictType.set(k, (this._perDistrictType.get(k) ?? 0) + 1)
+  }
+
   private pickTypeForSpace(
     dType: DistrictType | string,
     x: number, y: number,
     occupied: boolean[][], w: number, h: number,
     rng: () => number,
     maxW = 99, maxH = 99,
+    districtId = -1,
   ): { id: string; w: number; h: number } | null {
     const table = DISTRICT_BUILDINGS[dType as DistrictType] ?? DISTRICT_BUILDINGS.residential
     const ordinary = table.filter((t) =>
-      !NEVER_TERRACED.has(t.id) && t.w <= maxW && t.h <= maxH)
+      !NEVER_TERRACED.has(t.id) && t.w <= maxW && t.h <= maxH &&
+      !this.atDistrictCap(districtId, t.id))
     if (ordinary.length === 0) return null
     // Weighted order, then take the first that physically fits. Weighting the
     // ORDER rather than filtering by size first means a district's common
@@ -3685,6 +3787,7 @@ export class TownGenerator implements IMapGenerator {
       const t = pool[idx]
       if (x + t.w <= w - 1 && y + t.h <= h - 1 &&
           this.areaFree(occupied, x, y, t.w, t.h, w, h)) {
+        this.countDistrictType(districtId, t.id)
         return { id: t.id, w: t.w, h: t.h }
       }
       pool.splice(idx, 1)
@@ -3887,7 +3990,7 @@ export class TownGenerator implements IMapGenerator {
         // falling through to generic housing for the other nine, which is the
         // same hardcode as the fill passes wearing a nicer coat.
         const sPick = this.pickTypeForSpace(d.type, side.bx, side.by, occupied, w, h,
-          rng, side.bw, side.bh)
+          rng, side.bw, side.bh, d.id)
         if (!sPick) continue
         const buildingType = sPick.id
         const bfp = { w: sPick.w, h: sPick.h }
@@ -4617,6 +4720,14 @@ export class TownGenerator implements IMapGenerator {
 
   private getFootprint(defId: string): { w: number; h: number } {
     const footprints: Record<string, { w: number; h: number }> = {
+      // Small district-specific houses — see store.ts. tools/registry.mjs
+      // checks these agree with the other two footprint tables.
+      clergy_house: { w: 2, h: 2 },
+      almshouse: { w: 1, h: 3 },
+      sexton_hut: { w: 1, h: 2 },
+      mausoleum: { w: 2, h: 2 },
+      coach_house: { w: 2, h: 2 },
+      potting_shed: { w: 1, h: 2 },
       building_small: { w: 2, h: 2 }, building_medium: { w: 3, h: 3 },
       building_large: { w: 4, h: 3 }, tavern: { w: 4, h: 3 },
       shop: { w: 2, h: 3 }, tower: { w: 2, h: 2 },

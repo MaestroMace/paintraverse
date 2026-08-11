@@ -118,6 +118,16 @@ const BUILDING_HEIGHTS: Record<string, number> = {
   apothecary: 3.5, inn: 3.2, temple: 5.0,
   covered_market: 2.8, bell_tower: 7.0, half_timber: 3.0,
   narrow_house: 3.8, windmill: 3.5,
+  // Seven landmark types were absent from this table and silently fell back
+  // to 1.8 tiles in the pixel-art export — including the CATHEDRAL and the
+  // LIGHTHOUSE, i.e. the two things the vista work spent a whole arc making
+  // visible from down a street. Found by tools/registry.mjs; nothing else
+  // looks at this file's tables against the definition list.
+  bell_tower_tall: 9.0, cathedral: 7.0, gatehouse: 4.0, lighthouse: 8.0,
+  mill: 4.0, round_tower: 5.0, stable: 2.2,
+  // Small district-specific houses.
+  clergy_house: 2.6, almshouse: 2.4, sexton_hut: 1.6,
+  mausoleum: 1.8, coach_house: 2.2, potting_shed: 1.4,
 }
 
 // Windmill gets a special roof style
@@ -136,6 +146,13 @@ const BUILDING_ROOF_STYLE: Record<string, RoofStyle> = {
   covered_market: 'gabled', bell_tower: 'pointed', half_timber: 'gabled',
   narrow_house: 'steep',
   windmill: 'pointed',
+  bell_tower_tall: 'pointed', cathedral: 'steep', gatehouse: 'flat',
+  lighthouse: 'pointed', mill: 'pointed', round_tower: 'pointed',
+  stable: 'gabled',
+  // A mausoleum is a low stone box with a shallow lid — the flat top is the
+  // silhouette that says "tomb" rather than "cottage".
+  clergy_house: 'steep', almshouse: 'steep', sexton_hut: 'gabled',
+  mausoleum: 'hipped', coach_house: 'gabled', potting_shed: 'gabled',
 }
 
 // Which buildings have timber framing on walls
