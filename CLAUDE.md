@@ -74,6 +74,88 @@ Then `Read` the extracted PNG to see the scene. The diagnostic JSON shows:
 
 **Only use the latest dump.** Older dumps don't reflect current code.
 
+## THE METHOD — how this project actually makes progress
+
+This is the most transferable thing in the repo. Every large win below came
+from the same loop, and every expensive failure came from skipping a step in
+it. Read this before you read the findings; the findings are just what the
+loop produced.
+
+**Build the instrument before the fix.** Nearly every defect here was
+invisible to the tools that existed when it was reported. "Broken overlapping
+textures" was not a texture bug, it was six paving ids interleaved. "Scattered
+buildings" was a road network merged into a lake. In both cases the fix was
+easy and finding it was not, and what found it was a new measurement. If a
+code path produces output, build a way to look at it.
+
+**Decompose a number before you attribute it.** Facade-to-facade street width
+is carriageway plus two setbacks — different owners. It was measured as one
+figure, a 6m road was ASSUMED, and the remaining 18m was written into this
+file as setback and treated as the project's top priority. The real split was
+12m of carriageway and 0m of setback. Four attempts at a plot system aimed at
+a term that was already zero. Never subtract an assumed term from a measured
+total.
+
+**Prefer the metric that only the real structure can move.** `emptiness.mjs`
+reads a comfortable median because it seeds its search from PROPS, so it can
+be satisfied by scattering harder — and it did read comfortable while the town
+was still a lake. Distance to the nearest BUILDING cannot be faked, because
+only a building makes a wall. When choosing what to measure, ask what a lazy
+fix would do to the number.
+
+**Prefer an exact test to a heuristic proxy.** Proxies agree with their target
+right up until you change the target. The road painter inferred hierarchy from
+a neighbour COUNT, which tracked the tiers only while streets were fat and
+painted the whole town as alley the moment corridors were capped. A ±2
+clearance box stood in for a gate footprint and let a wall overlap a 3-wide
+gate. A colour-tolerance flood fill stood in for "which pixels are sky" and
+walked down a dusk facade, reporting forty floating timbers that were all
+windows. In each case the exact test was available and cheaper to trust.
+
+**Verify the edit landed.** Byte-identical output is a red flag, not a null
+result. A failing build leaves the previous bundle in `dist/`, so check with a
+success marker: `npm run build 2>&1 | grep -E "^✓ built in [0-9.]+s|error"`.
+
+**A/B the tool separately from the code.** If you improved the metric in the
+same session, run the NEW tool against the OLD build before claiming a delta.
+Tenancy read 29% -> 46%; only 35 -> 46 was the change, the rest was the metric
+being corrected. Pin the seed while you do it — an early prop A/B compared two
+different towns because the probe never set one.
+
+**Watch the sample count when you change a filter.** A metric that suddenly
+agrees with you on a tenth of the data has not agreed with you. Recovering
+road direction from "is there road beside me" narrowed a 3426-sample scan to
+220 one-wide alleys and reported a comfortable 6m.
+
+**Make the tool explain itself, not just count.** Two changes were spent
+chasing "233 tiles where the wall placer simply did not build" before the tool
+was asked to classify gaps by CAUSE — which revealed in one run that the ring
+was drawn one tile outside the wall on two of its four sides. A counting
+metric buys you guesses; an explaining metric buys you the answer.
+
+**State the tool's noise floor.** `anomaly.mjs` re-reads every vantage and
+prints how often it disagrees with itself, because the first three versions of
+it were not repeatable and would happily have graded a change.
+
+**Report the honest aggregate.** Vista termination went 3% -> 17% on seed
+4242 and 6% -> 8% across three seeds. The three-seed number is the result.
+
+**Revert what measures zero.** Plot orientation, a tile-based row streak, and
+a pass that placed 40 buildings to close vistas were each written, measured at
+about zero, and removed. Complexity for a measured zero is a cost, and a real
+mechanism that is not the cause is the expensive kind of wrong.
+
+**Test from the angle the bug appears at.** Inverted gable winding was tested
+with DoubleSide, showed nothing, and was dismissed — because every shot in the
+harness pointed level or down, and a roof with missing gable ends looks
+perfect from above. A negative result is only as good as its vantage.
+
+**Name your suspects once.** A component blamed repeatedly without evidence is
+noise. The windmill was accused four times for defects it had nothing to do
+with; the lantern ropes were a good hypothesis for the floating-timber class
+and were refuted in one A/B by hiding them and re-counting. Test the suspect,
+then either convict it or stop mentioning it.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
@@ -1054,6 +1136,21 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   single width figure has two owners and was misread for months as being all
   setback. Also splits frontage occupancy by which side of the road the land
   is on, which is where the remaining asymmetry shows.
+- `node tools/anomaly.mjs [seed] [--time=12] [--shots=N] [--hide=meshName]` —
+  **the defects that only exist in PIXELS.** Every other tool grades the data
+  model, which can only find what somebody already knew to ask about; the
+  audits sat at 0 while the phone kept sending photographs of black poles
+  sticking out of buildings, and both were true. This flies the camera around
+  the town LOOKING UP (the angle every such photo was taken from), reads the
+  framebuffer, and finds long thin dark shapes silhouetted against the sky by
+  morphological opening, plus high-frequency speckle blocks. Writes annotated
+  frames to `.shots/anomaly/`. `--hide=<meshName>` subtracts a named mesh and
+  re-counts, which turns "is that a rope or a stray beam?" into one run — that
+  is how the lantern ropes were ruled out. **Read its noise-floor line before
+  its findings.**
+- `node tools/site.mjs [seeds...]` — **does the town know the water is there?**
+  Waterfront frontage, quay coverage, severance by the river, and whether the
+  town WALL is a continuous edge or scenery with holes in it.
 - `node tools/vistas.mjs [seeds...]` — **what you SEE looking down a street.**
   The first metric here that grades the town from INSIDE rather than from
   above: stand on every road tile, look along the corridor, record what stops

@@ -277,6 +277,51 @@ back-of-block paving into gardens; the next step is enclosing them.
 *Grades: share of open ground that is inside a bounded, convex-ish region
 versus leftover slivers.*
 
+## 6. THE PIXEL LAYER — anomalies the data model cannot see
+
+Every item above is graded from the data model. That has been productive and
+it has one structural blind spot: **it can only find what somebody already
+knew to ask about.** The placement audit sat at 0 errors across fourteen seeds
+and `slivers.mjs` reported 0 pieces of geometry outside their envelope, while
+photographs from the phone kept showing long black members projecting out of
+buildings. Both were true. The geometry is inside its volume and still wrong
+on screen.
+
+`tools/anomaly.mjs` closes that. It flies the camera around the town LOOKING
+UP — the angle every one of those photographs was taken from — reads the
+framebuffer, and asks what is anomalous AS AN IMAGE with no model of what the
+town should contain. Currently: long thin dark shapes silhouetted against the
+sky, found by morphological opening; and high-frequency speckle blocks, which
+is what two coplanar faces look like.
+
+Current state: 2-3 findings per 10 vantages, small (18-42px) — the class is
+real and rare rather than absent. **The lantern ropes were the leading
+hypothesis and were refuted**: hiding them with `--hide=lanternRopes` and
+re-counting gave the same number. The remaining signature is a small dark X of
+thin members floating above the rooftops; seed 31337 at noon, vantage v05, is
+a reproducible example.
+
+Three things about building this tool are worth more than the tool:
+
+- **A heuristic mask produces confident nonsense.** The sky mask began as a
+  flood fill with a colour tolerance. At dusk a shadowed wall is close in
+  value to the sky above it, so the fill walked off the roofline and down the
+  facade, whole buildings became "sky", their lit windows became dark islands
+  inside it, and the tool reported forty floating timbers that were all
+  windows. Rendering the frame twice — once with the content groups hidden —
+  gives an exact mask with nothing to tune and nothing to leak.
+- **A detector must state its own noise floor.** Three successive versions
+  were not repeatable: same seed, same build, one sliver on one run and two on
+  the next, because the dusk sky animates between the two reads behind the
+  mask. Rendering both frames synchronously in one tick fixed the cause. The
+  tool now re-reads every vantage and prints its disagreement rate, so nobody
+  has to take its word for it.
+- **Annotate the frames.** A detector you cannot check is a detector you will
+  eventually trust for the wrong reason — and looking at the boxes is exactly
+  what revealed the windows-as-timbers failure in one glance.
+
+*Grades: sliver count per vantage, target 0. Speckle share, comparative.*
+
 ## Rules to hold onto while doing this
 
 - **Derive, do not decorate.** If a new pass sweeps the whole map and places
@@ -288,4 +333,11 @@ versus leftover slivers.*
 - **Decompose before attributing.** The street-width figure was a sum of two
   terms with different owners and got assigned to the wrong one for months.
 - **Change the tool and the code separately.** A/B the tool against the old
-  build before claiming a delta.
+  build before claiming a delta, and pin the seed while you do it.
+- **Prefer an exact test to a heuristic proxy.** Every proxy in this project
+  has eventually disagreed with the thing it stood for: a neighbour count for
+  road hierarchy, a clearance box for a gate footprint, a colour tolerance for
+  the sky. The exact test was available and cheaper to trust in all three.
+- **Make the tool explain itself, not just count.** Two changes were spent
+  chasing a phantom before the wall metric was asked to classify its gaps by
+  CAUSE, which exposed an off-by-one in the metric itself in a single run.

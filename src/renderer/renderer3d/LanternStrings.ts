@@ -339,6 +339,12 @@ export function buildLanternStrings(
 
   const ropeMesh = ropeBatch.build()
   if (ropeMesh) {
+    // Named so a tool can single it out at runtime. tools/anomaly.mjs flags
+    // long thin dark shapes against the sky, and "is that a rope or a stray
+    // beam?" is answerable in one run by hiding a named mesh — but only if it
+    // has a name. An unnamed mesh in a merged batch is anonymous by
+    // construction, which is the same problem tools/slivers.mjs exists for.
+    ropeMesh.name = 'lanternRopes'
     ropeMesh.castShadow = false
     ropeMesh.receiveShadow = false
   }
