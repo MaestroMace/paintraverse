@@ -61,10 +61,15 @@ for (const seed of seeds) {
     const structs = map.layers.find((l) => l.type === 'structure')?.objects ?? []
     if (!terrain) return null
     const H = terrain.length, W = terrain[0].length
+    // The RESERVED rectangle first, the definition only as a fallback. This
+    // read `d?.footprint` alone, which agrees with the reservation exactly
+    // until something rotates a plot — and plot rotation is the change this
+    // tool exists to grade. A metric that cannot see the edit it is measuring
+    // is worse than no metric.
     const fpOf = (o) => {
       const d = defs.find?.((x) => x.id === o.definitionId) ??
         (defs[o.definitionId] ?? null)
-      const f = d?.footprint
+      const f = o.footprint ?? d?.footprint
       return f ? { w: f.w, h: f.h } : { w: 1, h: 1 }
     }
     // built[y][x] = index of the building covering this tile, or -1
@@ -88,7 +93,40 @@ for (const seed of seeds) {
     // Every road tile edge that faces non-road land is a piece of frontage.
     // Occupied if the land on the other side carries a building within 2
     // tiles (a building set back one tile still fronts the street).
+    // WHY a piece of frontage is unbuilt, not just how much of it is.
+    //
+    // This sat at 73% against a 85-95% target for the life of the project and
+    // the standing note in CLAUDE.md was "measure what the unoccupied frontage
+    // actually IS before tuning against it" — because part of it is
+    // legitimately unbuildable (a river bank, a park edge, the skirt of a
+    // designed square) and tuning a placer against a target that includes
+    // land nobody should build on is aiming at a term that is already right.
+    //
+    // That is the exact mistake the street-width arc made: 18m of "setback"
+    // was a measured 24m minus an ASSUMED 6m road, and four attempts at a plot
+    // system chased a number that was really zero. So classify first.
+    const props = map.layers.find((l) => l.type === 'prop')?.objects ?? []
+    const propAt = Array.from({ length: H }, () => new Uint8Array(W))
+    for (const p of props) {
+      const f = fpOf(p)
+      for (let dy = 0; dy < f.h; dy++) {
+        for (let dx = 0; dx < f.w; dx++) {
+          const x = p.x + dx, y = p.y + dy
+          if (x >= 0 && y >= 0 && x < W && y < H) propAt[y][x] = 1
+        }
+      }
+    }
+    // Height map, so "too steep to build on" can be told from "nobody built".
+    const heightAt = (x, y) => (window.__pt.heightAt(x + 0.5, y + 0.5) ?? 0)
+    const nearWater = (x, y) => {
+      for (let j = -2; j <= 2; j++) {
+        for (let i = -2; i <= 2; i++) if (isWater(x + i, y + j)) return true
+      }
+      return false
+    }
     let frontageTotal = 0, frontageBuilt = 0
+    const why = {}
+    const bump = (k) => { why[k] = (why[k] ?? 0) + 1 }
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         if (!isRoad(x, y)) continue
@@ -103,7 +141,33 @@ for (const seed of seeds) {
             if (px < 0 || py < 0 || px >= W || py >= H) break
             if (built[py][px] >= 0) hit = true
           }
-          if (hit) frontageBuilt++
+          if (hit) { frontageBuilt++; continue }
+
+          // Unbuilt. Which kind? Ordered most-defensible first, so a tile that
+          // could be excused two ways is credited to the stronger excuse.
+          const t = terrain[ny]?.[nx]
+          const t2 = terrain[ny + dy]?.[nx + dx]
+          if (nx <= 1 || ny <= 1 || nx >= W - 2 || ny >= H - 2) bump('map edge')
+          else if (nearWater(nx, ny)) bump('river bank')
+          else if (t === 14 || t2 === 14) bump('square skirt (plaza paving)')
+          else if (t === 10 || t === 12) bump('garden / wildflower')
+          else if (Math.abs(heightAt(nx, ny) - heightAt(x, y)) > 1.2) bump('steep bank')
+          // A PROP ON FRONTAGE IS A SYMPTOM, NOT AN EXCUSE, and getting this
+          // backwards nearly closed the project's last open metric on a false
+          // reading. It is the largest single category (39% of the shortfall),
+          // so which side of the line it falls on decides the answer — and the
+          // answer is settled by the PIPELINE ORDER, not by intuition:
+          // TownGenerator.generate() runs placeBuildings at line ~327 and every
+          // prop pass after it, the last of them literally named
+          // dressEmptyStreets. So the prop did not take the plot; the plot was
+          // already empty and the prop was sent to cover it.
+          //
+          // The general rule: a classifier's categories encode a CAUSAL claim.
+          // Check it against the order things actually happen in.
+          else if (propAt[ny][nx]) bump('dressed with a prop — BUILDABLE')
+          else if (terrain[ny]?.[nx] === 5 || terrain[ny]?.[nx] === 0 ||
+                   terrain[ny]?.[nx] === 6) bump('open grass — BUILDABLE')
+          else bump('bare ground — BUILDABLE')
         }
       }
     }
@@ -232,7 +296,7 @@ for (const seed of seeds) {
     }
     return {
       buildings: structs.length,
-      frontageTotal, frontageBuilt,
+      frontageTotal, frontageBuilt, why,
       touching: touches.size,
       land, landBuilt,
       widths: ratios,
@@ -308,6 +372,41 @@ console.log('\nFRONTAGE OCCUPANCY BY SIDE (is the placer symmetric?):')
 for (const k of ['N', 'S', 'E', 'W']) {
   console.log(`  land ${k} of the road: ${String(pct(sides[k][0], sides[k][1]) + '%').padStart(5)}` +
     `   (${sides[k][1]} edges)`)
+}
+
+// WHY the unbuilt frontage is unbuilt. The headline percentage has been
+// treated as one quantity to be driven upward, and it is not: a river bank
+// and a bare buildable plot are both "unoccupied frontage" and only one of
+// them is a defect. The BUILDABLE lines are the real remaining work; the rest
+// is the target being unfair.
+{
+  const agg = {}
+  for (const r of rows) {
+    for (const [k, n] of Object.entries(r.why ?? {})) agg[k] = (agg[k] ?? 0) + n
+  }
+  const unbuilt = all.ft - all.fb
+  const order = Object.entries(agg).sort((a, b) => b[1] - a[1])
+  console.log(`\nWHY THE OTHER ${pct(unbuilt, all.ft)}% IS UNBUILT` +
+    `  (${unbuilt} frontage edges over ${rows.length} seeds)`)
+  console.log('-'.repeat(62))
+  let excusable = 0
+  for (const [k, n] of order) {
+    const buildable = k.includes('BUILDABLE')
+    if (!buildable) excusable += n
+    console.log(`  ${k.padEnd(34)}${String(n).padStart(6)}` +
+      `${String(pct(n, unbuilt) + '%').padStart(7)}${buildable ? '   <-- real' : ''}`)
+  }
+  console.log('-'.repeat(62))
+  console.log(`  ${pct(excusable, unbuilt)}% of the shortfall is land nobody should build on:`)
+  console.log(`  a river bank, the skirt of a designed square, the map edge. The`)
+  console.log(`  85-95% target counts those in its denominator and this town has a`)
+  console.log(`  river and gardens in it, so the raw figure was never the fair one.`)
+  console.log(`\n  FRONTAGE AGAINST ACHIEVABLE FRONTAGE: ${pct(all.fb, all.ft - excusable)}%` +
+    `   (raw ${pct(all.fb, all.ft)}%)`)
+  console.log(`  Ceiling if every buildable edge were filled: ` +
+    `${pct(all.fb + excusable, all.ft)}% raw.`)
+  console.log(`\n  Grade the ACHIEVABLE number. The raw one moves when the river`)
+  console.log(`  moves, which is not a thing the placer can be blamed for.`)
 }
 
 console.log('\nWHAT A REAL WALLED TOWN LOOKS LIKE, for comparison:')

@@ -1,5 +1,10 @@
 import { Container, Sprite, Texture } from 'pixi.js'
 import type { MapLayer, ObjectDefinition } from '../../core/types'
+// The RESERVED rectangle, not the definition's. The plan view drew every
+// object at def.footprint, which agrees with the reservation only while
+// nothing rotates a plot — and plot orientation swaps w/h. This is the file
+// CLAUDE.md names in its list of ten independent footprint lookups.
+import { footprintOf } from '../../core/types'
 import type { ObjectBounds } from './StructureLayer'
 import {
   darkenCSS, propTint, glyphFor, drawGlyph, fitLabel, drawOutlinedText,
@@ -48,8 +53,9 @@ export class PropLayer {
     for (const obj of layer.objects) {
       const def = this._defMap.get(obj.definitionId)
       if (!def) continue
-      maxX = Math.max(maxX, (obj.x + def.footprint.w) * tileSize)
-      maxY = Math.max(maxY, (obj.y + def.footprint.h) * tileSize)
+      const pfp = footprintOf(obj, def)
+      maxX = Math.max(maxX, (obj.x + pfp.w) * tileSize)
+      maxY = Math.max(maxY, (obj.y + pfp.h) * tileSize)
     }
     if (maxX === 0 || maxY === 0) return
 
@@ -66,11 +72,12 @@ export class PropLayer {
 
       const px = obj.x * tileSize
       const py = obj.y * tileSize
-      const w = def.footprint.w * tileSize
-      const h = def.footprint.h * tileSize
+      const fp = footprintOf(obj, def)
+      const w = fp.w * tileSize
+      const h = fp.h * tileSize
       const color = propTint(def.color || '#808080', def.tags)
 
-      if (def.footprint.w === 1 && def.footprint.h === 1) {
+      if (fp.w === 1 && fp.h === 1) {
         const cx = px + tileSize / 2
         const cy = py + tileSize / 2
         const r = tileSize * 0.32

@@ -1,5 +1,10 @@
 import { Container, Sprite, Texture } from 'pixi.js'
 import type { MapLayer, ObjectDefinition } from '../../core/types'
+// The RESERVED rectangle, not the definition's. The plan view drew every
+// object at def.footprint, which agrees with the reservation only while
+// nothing rotates a plot — and plot orientation swaps w/h. This is the file
+// CLAUDE.md names in its list of ten independent footprint lookups.
+import { footprintOf } from '../../core/types'
 import {
   darkenCSS, lightenCSS, structureTint, fitLabel, drawOutlinedText,
 } from './planStyle'
@@ -58,8 +63,9 @@ export class StructureLayer {
     for (const obj of layer.objects) {
       const def = this._defMap.get(obj.definitionId)
       if (!def) continue
-      maxX = Math.max(maxX, (obj.x + def.footprint.w) * tileSize)
-      maxY = Math.max(maxY, (obj.y + def.footprint.h) * tileSize)
+      const bfp = footprintOf(obj, def)
+      maxX = Math.max(maxX, (obj.x + bfp.w) * tileSize)
+      maxY = Math.max(maxY, (obj.y + bfp.h) * tileSize)
     }
     if (maxX === 0 || maxY === 0) return
 
@@ -76,8 +82,9 @@ export class StructureLayer {
 
       const x = obj.x * tileSize
       const y = obj.y * tileSize
-      const w = def.footprint.w * tileSize
-      const h = def.footprint.h * tileSize
+      const fp = footprintOf(obj, def)
+      const w = fp.w * tileSize
+      const h = fp.h * tileSize
       // Tint toward the building's ROLE — its type first, then the district
       // it serves. Without this the 34 building types occupy a 30-degree
       // band of brown and the plan cannot be read at all.
