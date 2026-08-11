@@ -77,6 +77,13 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'tower', w: 2, h: 2, weight: 1 },
     { id: 'archway', w: 3, h: 1, weight: 1 },
     { id: 'stable', w: 4, h: 3, weight: 1 },
+    // The one small ORDINARY house in this quarter, and it has to exist.
+    // Every other noble entry is 3 tiles or wider except the tower, which
+    // infill correctly refuses to use, so the quarter could not be filled at
+    // all and built coverage fell out of its band. A narrow townhouse on a
+    // noble side street is also just correct — Georgian and Parisian quarters
+    // are full of them. Weighted low so the mansions still lead.
+    { id: 'narrow_house', w: 1, h: 3, weight: 3 },
   ],
   waterfront: [
     { id: 'building_small', w: 2, h: 2, weight: 4 },
@@ -1803,26 +1810,22 @@ export class TownGenerator implements IMapGenerator {
         // Try building_small (2x2) first for better density.
         // Skip-probability dropped from 0.4 → 0.15 so 85% of viable slots
         // actually get filled instead of 60% being randomly skipped.
-        if (rng() > 0.15 && y + 1 < h && x + 1 < w &&
-            !occupied[y][x + 1] && !occupied[y + 1][x] && !occupied[y + 1][x + 1]) {
-          const defId = rng() > 0.5 ? 'building_small' : 'corner_building'
+        // The type comes from the DISTRICT's table sized to the real gap, not
+        // from a literal. Both branches used to hardcode generic housing and
+        // then label it with whatever quarter it landed in — see
+        // pickTypeForSpace. The 0.15 roll survives as a thinning coin flip.
+        const pick = rng() > 0.15
+          ? this.pickTypeForSpace(dType, x, y, occupied, w, h, rng)
+          : this.pickTypeForSpace(dType, x, y, occupied, w, h, rng, 2, 3)
+        // null = this quarter has nothing that fits here, so leave the gap.
+        if (pick) {
           buildings.push({
-            id: uuid(), definitionId: defId,
+            id: uuid(), definitionId: pick.id,
             x, y, rotation: 0, scaleX: 1, scaleY: 1, elevation: elev,
-            footprint: { w: 2, h: 2 },
+            footprint: { w: pick.w, h: pick.h },
             properties: { floors: this.districtFloors(dType, rng), district: dType }
           })
-          occupied[y][x] = true; occupied[y][x + 1] = true
-          occupied[y + 1][x] = true; occupied[y + 1][x + 1] = true
-          filled++
-        } else if (y + 1 < h && !occupied[y + 1][x]) {
-          buildings.push({
-            id: uuid(), definitionId: 'row_house',
-            x, y, rotation: 0, scaleX: 1, scaleY: 1, elevation: elev,
-            footprint: { w: 1, h: 2 },
-            properties: { floors: this.districtFloors(dType, rng), district: dType }
-          })
-          occupied[y][x] = true; occupied[y + 1][x] = true
+          this.markArea(occupied, x, y, pick.w, pick.h, w, h)
           filled++
         }
       }
@@ -1841,14 +1844,16 @@ export class TownGenerator implements IMapGenerator {
         if (!this.areaFree(occupied, x, y, 2, 2, w, h)) continue
 
         const cornerType = (districts.find(d => d.id === (districtMap[y]?.[x] ?? -1)))?.type || 'residential'
+        const cPick = this.pickTypeForSpace(cornerType, x, y, occupied, w, h, rng, 3, 3)
+        if (!cPick) continue
         buildings.push({
-          id: uuid(), definitionId: 'corner_building',
+          id: uuid(), definitionId: cPick.id,
           x, y, rotation: 0, scaleX: 1, scaleY: 1,
-          footprint: { w: 2, h: 2 },
+          footprint: { w: cPick.w, h: cPick.h },
           elevation: Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2),
           properties: { floors: this.districtFloors(cornerType, rng), district: cornerType }
         })
-        this.markArea(occupied, x, y, 2, 2, w, h)
+        this.markArea(occupied, x, y, cPick.w, cPick.h, w, h)
         corners++
       }
     }
@@ -3620,6 +3625,73 @@ export class TownGenerator implements IMapGenerator {
    * uniform district heights" — so every range below is 2-3 wide and simply
    * starts somewhere else.
    */
+  /**
+   * Pick a building type from THE DISTRICT'S OWN TABLE that fits the space
+   * actually free at (x, y).
+   *
+   * The fill passes each hardcoded their type — `row_house` for a 1x2 gap,
+   * `building_small` or `corner_building` for a 2x2 — while reading the
+   * district on the line above and using it only to label the result and
+   * choose a floor count. So generic housing was stamped into every quarter
+   * and then signed with that quarter's name. The census makes the size of it
+   * plain: `DISTRICT_BUILDINGS.noble` contains no row house at all and noble's
+   * most common building was 13 row houses; `cemetery` lists only chapel and
+   * tower and had 7. District character sat at 26% not because the quarters
+   * failed to be distinctive but because they were overwritten afterwards.
+   *
+   * Two things this does that a fixed-slot version could not, both learned by
+   * measuring the fixed-slot version first:
+   *
+   * - It asks the OCCUPANCY MAP how much room there is rather than assuming
+   *   1x2 or 2x2. Restricting a noble quarter to types that fit a 2x2 hole
+   *   leaves it nothing (its smallest ordinary house is 3x2), and built
+   *   coverage fell out of its 50-70% band. Sizing to the real gap keeps the
+   *   density while still building the right thing.
+   * - It excludes NEVER_TERRACED. Those are the stand-alone monuments —
+   *   towers, chapels, bell towers — and infill is not where they come from.
+   *   Without this the noble and cemetery quarters filled their gaps with
+   *   TOWERS, which reads as absurd and also games the character metric,
+   *   since a tower is by definition a type distinctive to its district.
+   *
+   * Returns null when the district has nothing that fits, and callers treat
+   * that as "leave the gap". For a cemetery that is every time, which is the
+   * right answer: a cemetery has no ordinary house because it should not be
+   * packed with cottages, and filling it anyway is how it stopped reading as
+   * a cemetery.
+   */
+  private pickTypeForSpace(
+    dType: DistrictType | string,
+    x: number, y: number,
+    occupied: boolean[][], w: number, h: number,
+    rng: () => number,
+    maxW = 99, maxH = 99,
+  ): { id: string; w: number; h: number } | null {
+    const table = DISTRICT_BUILDINGS[dType as DistrictType] ?? DISTRICT_BUILDINGS.residential
+    const ordinary = table.filter((t) =>
+      !NEVER_TERRACED.has(t.id) && t.w <= maxW && t.h <= maxH)
+    if (ordinary.length === 0) return null
+    // Weighted order, then take the first that physically fits. Weighting the
+    // ORDER rather than filtering by size first means a district's common
+    // house is tried before its rare one even when both would fit.
+    const pool = ordinary.slice()
+    while (pool.length) {
+      const total = pool.reduce((sum, t) => sum + t.weight, 0)
+      let roll = rng() * total
+      let idx = pool.length - 1
+      for (let i = 0; i < pool.length; i++) {
+        roll -= pool[i].weight
+        if (roll <= 0) { idx = i; break }
+      }
+      const t = pool[idx]
+      if (x + t.w <= w - 1 && y + t.h <= h - 1 &&
+          this.areaFree(occupied, x, y, t.w, t.h, w, h)) {
+        return { id: t.id, w: t.w, h: t.h }
+      }
+      pool.splice(idx, 1)
+    }
+    return null
+  }
+
   private districtFloors(dType: DistrictType | string, rng: () => number): number {
     switch (dType) {
       // Every range is 3 storeys wide except the slum, which is genuinely
@@ -3811,9 +3883,14 @@ export class TownGenerator implements IMapGenerator {
         if (!this.areaFree(occupied, side.bx, side.by, side.bw, side.bh, w, h)) continue
 
         // Place a row of buildings along this side
-        const buildingType = d.type === 'noble' ? 'building_medium' : d.type === 'temple' ? 'chapel'
-          : rng() > 0.5 ? 'building_small' : 'row_house'
-        const bfp = this.getFootprint(buildingType)
+        // Was a three-way conditional naming two of eleven district types and
+        // falling through to generic housing for the other nine, which is the
+        // same hardcode as the fill passes wearing a nicer coat.
+        const sPick = this.pickTypeForSpace(d.type, side.bx, side.by, occupied, w, h,
+          rng, side.bw, side.bh)
+        if (!sPick) continue
+        const buildingType = sPick.id
+        const bfp = { w: sPick.w, h: sPick.h }
 
         let bx = side.bx
         while (bx + bfp.w <= side.bx + side.bw) {

@@ -234,6 +234,17 @@ Five seeds in sixteen started the player inside a wall and one in the river,
 for a year, because the code path that runs before anything else was the one
 path nothing tested.
 
+**A pass that reads a value for LABELLING while hardcoding the CONTENT will
+undo whatever the value was supposed to decide.** Three fill passes each read
+the district at their tile, used it to pick a floor count and to stamp
+`district:` on the object, and then hardcoded `row_house` / `building_small` /
+`corner_building` as the type. So every quarter got generic housing and then
+signed it with its own name. `DISTRICT_BUILDINGS.noble` contains no row house
+and noble's commonest building was 13 row houses; `cemetery` lists only chapel
+and tower and had 7. District character was not failing to be generated — it
+was being overwritten downstream. Grep for the variable being used twice in
+one block and only once meaningfully.
+
 **Content goes where there is an ANCHOR to attach it to.** Every front-attached
 detail in BuildingFactory hangs off `frontWallZ` / `frontWallHalfW`. There was
 no equivalent pair for the back or the flanks, and that absence — not any
@@ -915,9 +926,10 @@ Run these before believing anything about where the project is.
 | enclosure (to a WALL) | streets.mjs | median 3m, 0% over 15m | clean |
 | corridor width | streets.mjs | 4% of road over-wide, was 58% | clean |
 | street width | urbanform.mjs | 12m facade to facade vs 4-10m | near range |
-| built coverage | urbanform.mjs | 53% vs 50-70% | clean |
+| built coverage | urbanform.mjs | 47% vs 50-70% — see the district trade below | slightly under |
+| **district character** | **districts.mjs** | **57% of buildings distinctive to their quarter, was 26%** | **improving** |
 | party walls | urbanform.mjs | 93% vs 60-80% | above range, deliberately |
-| frontage occupancy | urbanform.mjs | **82% of ACHIEVABLE** frontage vs 85-95% (raw 73%) | near range |
+| frontage occupancy | urbanform.mjs | **75% of ACHIEVABLE** frontage vs 85-95% (raw 66%) | near range |
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
 | prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
@@ -941,6 +953,46 @@ it moved the reading nine points without touching the generator:
 counts it. Against ACHIEVABLE frontage the town reads **82%**, three points
 under the band rather than twelve. Grade the achievable number; the raw one
 moves when the river moves.
+
+### THE DISTRICT TRADE — read this before "fixing" coverage
+
+Coverage 50% -> 47% and achievable frontage 82% -> 75% are **deliberate and
+they are the price of district character going 26% -> 57%.** Do not reverse
+them without reading this.
+
+The fill passes used to hardcode `row_house` / `building_small` into every
+quarter while reading the district only to label the result. Making them draw
+from `DISTRICT_BUILDINGS` instead means a quarter with no small ORDINARY
+building simply does not get filled — and three of them have none:
+
+| quarter | before | after |
+|---|---|---|
+| temple | 39 bldgs: row_house 20, staircase 7 | 19: staircase 8, bell_tower_tall 6 |
+| noble | 21: row_house 13, tower 2 | 14: narrow_house 6, balcony_house 2 |
+| cemetery | 12: row_house 7, chapel 2 | 4: chapel 2, tower 2 |
+
+**The lost coverage was fake.** It was row houses stamped into a graveyard.
+A cemetery with four buildings reads as a cemetery; one with twelve, seven of
+them cottages, reads as a housing estate with graves in it.
+
+Two constraints discovered while doing it, both worth keeping:
+
+- **Infill must exclude `NEVER_TERRACED`.** A first pass let noble and
+  cemetery fill their 2x2 gaps with TOWERS, which looks absurd and also games
+  the character metric — a tower is by definition distinctive to its quarter.
+  Monuments come from the main placer and from landmarks, never from infill.
+- **Size the pick to the space actually free, not to a fixed slot.** Asking
+  for types that fit 2x2 leaves a noble quarter nothing at all, because its
+  smallest ordinary house is 3x2. `pickTypeForSpace` asks the occupancy map.
+
+`narrow_house` was added to the noble table as its one small ordinary type —
+every other noble entry is 3 wide or a tower. A census of the definitions
+confirmed there is nothing else to reallocate: only `clock_tower` and
+`windmill` are defined and unused, and both are 3x3 monuments. **A small
+district-specific vocabulary (a sexton's hut, a coach house, clergy lodgings)
+is the one place in this project where new building assets would clearly pay
+for themselves** — it is what would let temple and cemetery be dense AND
+distinctive instead of choosing.
 
 Two things fell out of that decomposition and both are load-bearing:
 
