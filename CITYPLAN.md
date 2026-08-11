@@ -51,7 +51,7 @@ those five are distinct and reinforce one another. Score ourselves honestly:
 |---|---|---|
 | paths | a hierarchy you can feel — high street, lane, alley | tiers exist in data, but every street looks alike |
 | edges | river, wall, cliff: a seam the town acknowledges | quay 53%, wall 6.5m and 76% sealed — **built** |
-| districts | recognisable from inside, with a transition | Voronoi cells; you cannot tell you crossed one |
+| districts | recognisable from inside, with a transition | heights differ now (2 -> 4 medians); character 27%, seam unbuilt |
 | nodes | where paths converge and you pause | 4 seeds in 5 have a square, 27-33m, 61-97% enclosed — **improving** |
 | landmarks | visible from far, orienting | **done** — vista termination 6% -> 18% |
 
@@ -314,8 +314,40 @@ gate, a bridge or a level change rather than being an invisible line where the
 palette swaps. Cross-dissolve is the Imagineering term; Cullen calls the same
 move a "closure".
 
-*Grades: district purity (what fraction of a district's buildings are its own
-types) and boundary legibility.*
+*Grades: `tools/districts.mjs` — character (share of a district's buildings
+that are types distinctive to it) and signature (do the quarters differ in the
+three things a player perceives: ground, height, density).*
+
+**PARTLY DONE — distinct median heights across six districts went 2 to 4.**
+The ranges had been differentiated in the main placer all along. They did not
+survive because SIX other places also set `floors`, each with its own
+hardcoded formula — the gap-fill, two terrace fill passes, the corner
+buildings and a courtyard placer — and every one wrote 1-2 regardless of
+district. Every quarter's 10th percentile came out at 1 storey INCLUDING the
+noble quarter, whose baseline starts at 3. One `districtFloors()` now, and all
+seven callers go through it. Duplicated maths drifts silently; this is the
+same failure as the smoke plumes that kept a stale FLOOR_HEIGHT.
+
+**The guard in the tool earned its place immediately.** DESIGN.md's philosophy
+wants height variation INSIDE a cluster — "2 storey next to 4 storey next to 3
+storey, not uniform district heights" — while Lynch wants the quarters to
+differ FROM each other, and with a floor of one storey and a cap of five there
+is not enough range for both. The first attempt used 2-wide ranges: distinct
+medians 2 -> 4, and within-district spread 3 storeys -> 2 with three of twelve
+districts going flat. That is the silhouette pillar being traded away for a
+Lynch number. Widening every range back to 3 and lifting the cap to 6 keeps
+the separation and puts flat districts at 0 of 12. **Printing both numbers
+side by side is the only reason the trade was visible.**
+
+Still open, and it is the bigger half: **CHARACTER is 27%** — every district is
+mostly row houses, a market quarter included. CLAUDE.md records two failed
+attempts at the type mix and exactly why they failed, so this wants the
+render-layer route (a row house in a market district drawn as a shopfront)
+rather than another go at the weights.
+
+Also unbuilt: the SEAM. Nothing hides a district boundary — no bend, gate,
+bridge or level change — so the transition is an invisible line on a Voronoi
+diagram. That is the cross-dissolve, and it is untouched.
 
 ### 5. POSITIVE OUTDOOR SPACE
 

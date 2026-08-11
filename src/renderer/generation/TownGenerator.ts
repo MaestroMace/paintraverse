@@ -1575,15 +1575,8 @@ export class TownGenerator implements IMapGenerator {
 
       // Growth-ring-aware floor count
       const heightVal = heightMap[oy]?.[ox] ?? 0
-      let baseFloors: number
-      switch (dType) {
-        case 'noble':   baseFloors = 2 + Math.floor(rng() * 3); break  // 2–4
-        case 'temple':  baseFloors = 1 + Math.floor(rng() * 3); break
-        case 'market':  baseFloors = 1 + Math.floor(rng() * 3); break  // 1–3 (was 1–2)
-        case 'slum':    baseFloors = 1 + Math.floor(rng() * (rng() > 0.7 ? 2 : 1)); break
-        case 'garden':  baseFloors = 1 + Math.floor(rng() * 2); break
-        default:        baseFloors = 1 + Math.floor(rng() * 3); break  // 1–3 (was 1–2)
-      }
+      const baseFloors = this.districtFloors(dType, rng)
+
       const coreBonus = ringChar === 'core' ? 1 : 0
       const hillBonus = heightVal > 1.0 ? 1 : 0
       // Rare "tower house" whimsy: 4% of buildings get +2 floors to stand
@@ -1592,7 +1585,11 @@ export class TownGenerator implements IMapGenerator {
       // where one ambitious family built up.
       const towerHouse = rng() < 0.04
       const towerBonus = towerHouse ? 2 : 0
-      const floors = Math.min(baseFloors + coreBonus + hillBonus + towerBonus, 5)
+      // Cap 6, not 5. With a floor of one storey there are only so many levels
+      // to go round, and six districts cannot have distinct medians AND
+      // three-storey spreads inside a five-level range. One more level at the
+      // top is 17.4m, which is a tall noble townhouse rather than a tower.
+      const floors = Math.min(baseFloors + coreBonus + hillBonus + towerBonus, 6)
 
       const elevBias = DISTRICT_ELEVATION_BIAS[dType] || 0
       const rawElev = heightVal + elevBias
@@ -1742,7 +1739,7 @@ export class TownGenerator implements IMapGenerator {
         scaleX: 0.92 + rng() * 0.16, scaleY: 0.94 + rng() * 0.12,
         elevation,
         footprint: { w: bw, h: bh },
-        properties: { floors: 1 + Math.floor(rng() * 2), district: dType }
+        properties: { floors: this.districtFloors(dType, rng), district: dType }
       })
 
       for (let dy = 0; dy < bh; dy++) {
@@ -1780,7 +1777,7 @@ export class TownGenerator implements IMapGenerator {
             id: uuid(), definitionId: defId,
             x, y, rotation: 0, scaleX: 1, scaleY: 1, elevation: elev,
             footprint: { w: 2, h: 2 },
-            properties: { floors: dType === 'noble' ? 2 + Math.floor(rng() * 2) : 1 + Math.floor(rng() * 2), district: dType }
+            properties: { floors: this.districtFloors(dType, rng), district: dType }
           })
           occupied[y][x] = true; occupied[y][x + 1] = true
           occupied[y + 1][x] = true; occupied[y + 1][x + 1] = true
@@ -1790,7 +1787,7 @@ export class TownGenerator implements IMapGenerator {
             id: uuid(), definitionId: 'row_house',
             x, y, rotation: 0, scaleX: 1, scaleY: 1, elevation: elev,
             footprint: { w: 1, h: 2 },
-            properties: { floors: 1 + Math.floor(rng() * 2), district: dType }
+            properties: { floors: this.districtFloors(dType, rng), district: dType }
           })
           occupied[y][x] = true; occupied[y + 1][x] = true
           filled++
@@ -1810,12 +1807,13 @@ export class TownGenerator implements IMapGenerator {
         if (!hasHRoad || !hasVRoad) continue
         if (!this.areaFree(occupied, x, y, 2, 2, w, h)) continue
 
+        const cornerType = (districts.find(d => d.id === (districtMap[y]?.[x] ?? -1)))?.type || 'residential'
         buildings.push({
           id: uuid(), definitionId: 'corner_building',
           x, y, rotation: 0, scaleX: 1, scaleY: 1,
           footprint: { w: 2, h: 2 },
           elevation: Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2),
-          properties: { floors: 2, district: (districts.find(d => d.id === (districtMap[y]?.[x] ?? -1)))?.type || 'residential' }
+          properties: { floors: this.districtFloors(cornerType, rng), district: cornerType }
         })
         this.markArea(occupied, x, y, 2, 2, w, h)
         corners++
@@ -3551,6 +3549,51 @@ export class TownGenerator implements IMapGenerator {
     return list[Math.floor(rng() * list.length)]
   }
 
+  /**
+   * How tall does a building in THIS district want to be?
+   *
+   * Lynch's DISTRICT is legible only if you can tell from inside which one you
+   * are standing in, and height is one of the three things a player actually
+   * perceives. Measured, six districts shared TWO distinct median heights:
+   * every quarter was 2 storeys.
+   *
+   * The ranges had been differentiated in the main placer all along. They did
+   * not survive because SIX other places also set `floors`, each with its own
+   * hardcoded formula — the gap-fill pass, two terrace fill passes, the corner
+   * buildings, and a courtyard placer — and all of them wrote 1-2 regardless
+   * of district. Every district's 10th percentile came out at 1 storey
+   * including the noble quarter, whose baseline starts at 3. Duplicated maths
+   * drifts silently; this is the same failure as the smoke plumes that kept a
+   * stale FLOOR_HEIGHT long after the real one changed.
+   *
+   * The baselines are separated, NOT the spreads. DESIGN.md wants variation
+   * INSIDE a cluster — "2 storey next to 4 storey next to 3 storey, not
+   * uniform district heights" — so every range below is 2-3 wide and simply
+   * starts somewhere else.
+   */
+  private districtFloors(dType: DistrictType | string, rng: () => number): number {
+    switch (dType) {
+      // Every range is 3 storeys wide except the slum, which is genuinely
+      // uniform and low. Narrower ranges separate the medians better and cost
+      // the silhouette: the first attempt used 2-wide ranges, took distinct
+      // medians from 2 to 4, and dropped within-district spread from 3 storeys
+      // to 2 with three of twelve districts going flat. That is DESIGN.md
+      // pillar 2 being traded away for a Lynch number, which is not a trade
+      // worth making — a row of identical rooflines is the thing this project
+      // most wants to avoid.
+      case 'noble':    return 3 + Math.floor(rng() * 3)   // 3-5, the tall quarter
+      case 'market':   return 2 + Math.floor(rng() * 3)   // 2-4, shop below, living above
+      case 'harbor':
+      case 'waterfront':
+      case 'fortress': return 2 + Math.floor(rng() * 3)   // 2-4
+      case 'temple':   return 1 + Math.floor(rng() * 3)   // 1-3; the spires are landmarks
+      case 'garden':   return 1 + Math.floor(rng() * 3)   // 1-3
+      case 'cemetery': return 1 + Math.floor(rng() * 3)   // 1-3
+      case 'slum':     return 1 + Math.floor(rng() * (rng() > 0.7 ? 2 : 1))
+      default:         return 1 + Math.floor(rng() * 3)   // 1-3, the ordinary town
+    }
+  }
+
   // === BUILDING-SPECIFIC PROPS ===
   private getBuildingSpecificProps(defId: string, rng: () => number): string[] {
     switch (defId) {
@@ -3735,7 +3778,7 @@ export class TownGenerator implements IMapGenerator {
               elevation: elev,
               footprint: this.getFootprint(buildingType),
               properties: {
-                floors: d.type === 'noble' ? 2 + Math.floor(rng() * 2) : 1 + Math.floor(rng() * 2),
+                floors: this.districtFloors(d.type, rng),
                 district: d.type,
                 style: d.type === 'noble' ? 'ornate' : 'standard',
               }
