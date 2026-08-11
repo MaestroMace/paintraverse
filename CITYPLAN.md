@@ -112,6 +112,42 @@ should have ONE floor. The seam belongs at the edge of the place.
 
 *Grades: paving churn, target under 10%. Ground colour families (streets.mjs).*
 
+**DONE — visible seams 33% -> 20%, and the confetti seam 791 -> 13.**
+`streets.mjs` now measures seams in COLOUR rather than tile id, because ids
+15/16 are deliberately identical to 8/9 and counting those reports a mosaic
+nobody can see. `softenBackOfBlock` resolves every paved tile that is neither
+street nor designed square to its DISTRICT's single canonical paving, instead
+of preserving whatever the last of six passes to touch it happened to write.
+Plaza flagstone went from 152 blobs with 750 tiles of perimeter to 3 blobs
+with 36. `carvePlaza` lays a field and a rim rather than alternating on
+`(x + y) % 3` and `% 5`, which is a checker at bathroom-tile scale and a
+patchwork at 3 metres per tile.
+Honest cost: the stone-against-cobble seam went 135 -> 394, because temple and
+noble quarters now floor their forecourts in stone. That one is systematic
+rather than random — it reads as a footway beside a carriageway — but it is a
+trade, not a free win.
+
+**Also done, same principle applied to props.** `dressEmptyStreets` decided
+"is this a square?" by testing the paving MATERIAL, which stopped being a
+valid question the moment district cobble became the street's own forecourt:
+every kerb in a cobbled quarter was classified as a square and furnished from
+the square kit, whose heaviest entry is a TREE. That is the tree standing in
+the middle of the street. It reads `squareMap` now — the only thing that
+actually knows — and the carriageway is a hard exclusion rather than a 75%
+thinning, per Alexander #124: the life of a public space forms at its edge,
+and a space whose edge fails never becomes lively however much you put in the
+middle of it.
+
+A warning for whoever measures this next. THREE definitions of "misplaced
+prop" were tried before one matched the defect on screen. Counting props on
+circulation tiles scored a barrel against a tavern wall as a failure, when
+that is exactly where a barrel belongs — 22% "in the road" was mostly correct
+kerbside dressing. Counting only circulation then missed the tree entirely,
+because it stood on the APRON. The definition that works: on hard paving, in
+the open, no wall beside it, not inside a designed square. Also: an early A/B
+here compared two different towns, because the probe never set a seed and the
+UI supplies whatever it holds. Pin the seed.
+
 ### 2. THE RIVER IS AN EDGE THE TOWN ACKNOWLEDGES
 
 **Measured: water is 6% of the map and 9% of buildings touch it.** The river

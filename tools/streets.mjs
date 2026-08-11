@@ -214,6 +214,43 @@ for (const seed of seeds) {
       if (max - min < 24) return lum > 0.5 ? 'pale neutral' : 'dark neutral'
       return lum > 0.55 ? 'pale warm' : lum > 0.3 ? 'mid warm' : 'dark warm'
     }
+    // PAVING COHERENCE — is the floor one material per place, or a mosaic?
+    //
+    // Counted in COLOUR, not tile id. Ids 15/16 are deliberately identical to
+    // 8/9 (see core/terrain.ts): a cobbled market district and a cobbled
+    // street are the same surface and the id exists only so the data can say
+    // which is circulation. A seam between them is invisible and counting it
+    // would report a mosaic that nobody can see. Only a seam the eye can find
+    // is a seam.
+    const rgb = (id) => {
+      const c = pal[id]
+      if (c === undefined) return null
+      return [(c >> 16) & 255, (c >> 8) & 255, c & 255]
+    }
+    const PAVED_IDS = new Set([2, 8, 9, 13, 14, 15, 16])
+    let pavedEdges = 0, visibleSeams = 0
+    const seamPairs = {}
+    for (let y = 0; y < H - 1; y++) {
+      for (let x = 0; x < W - 1; x++) {
+        const t = terrain[y][x]
+        if (!PAVED_IDS.has(t)) continue
+        for (const [dx, dy] of [[1, 0], [0, 1]]) {
+          const n = terrain[y + dy][x + dx]
+          if (!PAVED_IDS.has(n)) continue
+          pavedEdges++
+          if (n === t) continue
+          const a = rgb(t), b = rgb(n)
+          if (!a || !b) continue
+          // Perceptually "different surface" rather than "different number".
+          const d = Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2])
+          if (d < 40) continue
+          visibleSeams++
+          const k = [t, n].sort((p, q) => p - q).join('/')
+          seamPairs[k] = (seamPairs[k] ?? 0) + 1
+        }
+      }
+    }
+
     const families = {}
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
@@ -225,7 +262,7 @@ for (const seed of seeds) {
       W, H, hist, widths, overWide, roadTiles,
       blobs: blobs.slice(0, 5),
       components: blobs.length,
-      toWall, unreached, families,
+      toWall, unreached, families, pavedEdges, visibleSeams, seamPairs,
     }
   }, AUTHORISED)
   if (!r) { console.log(`seed ${seed}: no terrain`); continue }
@@ -308,6 +345,25 @@ for (const r of rows) {
   }
   const top = Object.entries(agg).sort((a, b) => b[1] - a[1])[0]
   console.log(`\nlargest single family: ${top[0]} at ${pct(top[1], total)}% of the map`)
+}
+
+console.log('\n=== PAVING COHERENCE — one material per place, or a mosaic? ===')
+console.log('(seams counted in COLOUR: ids 15/16 are identical to 8/9 by design,')
+console.log(' so a seam between them is not something anyone can see.)\n')
+{
+  let pe = 0, vs = 0
+  const pairs = {}
+  for (const r of rows) {
+    pe += r.pavedEdges; vs += r.visibleSeams
+    for (const [k, v] of Object.entries(r.seamPairs)) pairs[k] = (pairs[k] ?? 0) + v
+  }
+  console.log(`  ${vs} of ${pe} paved-to-paved edges are a VISIBLE material change ` +
+    `(${pct(vs, pe)}%)`)
+  const top = Object.entries(pairs).sort((a, b) => b[1] - a[1]).slice(0, 6)
+  for (const [k, n] of top) {
+    const [a, b] = k.split('/')
+    console.log(`    ${(NAMES[a] ?? a)} | ${(NAMES[b] ?? b)}`.padEnd(52) + n)
+  }
 }
 
 console.log('\n=== ENCLOSURE — from anywhere you can stand, how far to a WALL? ===')

@@ -422,8 +422,7 @@ export class TownGenerator implements IMapGenerator {
       // solid(), not anchors — bridges live in `blockers`, and passing only
       // anchors put a bush inside one. This is the hand-threaded argument list
       // the accumulators exist to prevent; use the accumulator.
-      solid(), placedProps, rng,
-    )
+      solid(), placedProps, rng, squareMap)
     placedProps.push(...streetFill)
 
     // Safety net: drop anything whose footprint hangs off the grid. Every
@@ -803,18 +802,25 @@ export class TownGenerator implements IMapGenerator {
           + Math.sin(angle * 13 + 2.7) * 0.04
         if (ellDist < 1.0 + edgeNoise) {
           if (squareMap) squareMap[y][x] = true
-          if (ellDist < 0.5) {
-            terrain[y][x] = tilePrimary // inner sanctum
-          } else if (ellDist < 0.75) {
-            // Golden inner ring — alternating pattern
-            terrain[y][x] = (x + y) % 3 === 0 ? tilePrimary : 14
-          } else {
-            // Outer ring — plaza flagstone with a stone accent. Uses paving
-            // ids, not the street/alley ids: a plaza is open paved space, not
-            // circulation, and tagging it as road made every building fronting
-            // a square look like it was standing in the street.
-            terrain[y][x] = (x + y) % 5 === 0 ? 2 : 14
-          }
+          // ONE MATERIAL PER PLACE. A square has a floor, and the seam belongs
+          // at its edge — not scattered through it.
+          //
+          // This used to lay three zones with `(x + y) % 3` and `(x + y) % 5`
+          // alternation, which is a checker pattern at the scale of a bathroom
+          // tile and a patchwork at the scale of a town: a tile is 3 METRES, so
+          // every "accent" is a 3m square of a different colour dropped at
+          // random through the paving. Measured, 40% of all paved-to-paved tile
+          // edges in the map changed material, and street-cobble-against-
+          // flagstone was 252 of 659 seams. That is the "broken overlapping
+          // textures" report — not a texture bug at all, but six near-identical
+          // paving ids interleaved at tile granularity.
+          //
+          // A field and a defined rim instead. Real squares read exactly like
+          // this: one surface, with a kerb band that tells you where it ends.
+          const RIM = 0.82
+          terrain[y][x] = ellDist < RIM
+            ? tilePrimary
+            : (tilePrimary === 2 ? 14 : 2)
         }
       }
     }
@@ -2086,12 +2092,41 @@ export class TownGenerator implements IMapGenerator {
         }
       }
     }
+    // ONE MATERIAL PER PLACE.
+    //
+    // Every paved tile that is not a street and not a designed square gets the
+    // district's single canonical paving id, rather than keeping whatever the
+    // last pass to touch it happened to write. Six passes paint ground here —
+    // base terrain, district paint, two plaza carvers, the market square, the
+    // road painter — and each layers over the last, so a tile's material was a
+    // record of its history instead of a statement about where it is.
+    //
+    // Measured, that produced confetti: plaza flagstone came out as 152
+    // separate blobs totalling 245 tiles with 750 tiles of perimeter, biggest
+    // blob 32. 40% of every paved-to-paved edge in the map was a material
+    // change. From inside the town that reads as patchy, broken paving, which
+    // is what it is.
+    //
+    // Assigning by district rather than forcing everything to street cobble is
+    // the Lynch move: a temple quarter really is floored in stone and a market
+    // in cobble, and putting the seam on the DISTRICT BOUNDARY is what makes
+    // the boundary perceptible instead of making it noise.
+    const districtPaving = (t: DistrictType | undefined): number => {
+      switch (t) {
+        case 'temple': case 'noble': case 'fortress': case 'cemetery': return 2
+        default: return 15   // colour-matched to street cobble: street and
+      }                      // forecourt read as one continuous floor
+    }
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const t = terrain[y][x]
         if (!isHardPaving(t)) continue
-        if (squareMap[y][x] || built[y][x]) continue
-        if (dist[y][x] <= APRON) continue
+        if (squareMap[y][x]) continue          // the square owns its own floor
+        if (dist[y][x] <= APRON || built[y][x]) {
+          const dd = districts.find((d) => d.id === districtMap[y]?.[x])
+          terrain[y][x] = districtPaving(dd?.type)
+          continue
+        }
         const d = districts.find((dd) => dd.id === districtMap[y]?.[x])
         // Two octaves so a yard is not a flat colour — the same trick
         // paintDistrictTerrain uses, at the same frequency, so the new ground
@@ -3908,6 +3943,13 @@ export class TownGenerator implements IMapGenerator {
     /** Everything solid — buildings, landmarks AND bridges. */
     solidObjs: PlacedObject[], existingProps: PlacedObject[],
     rng: () => number,
+    /** The designed squares. A SQUARE is a place somebody laid out, and only
+     *  this map knows which tiles are one — the material cannot answer it.
+     *  District cobble (15/16) is the street's own forecourt now, so a test
+     *  on paving material called every kerb in a cobbled quarter "a square"
+     *  and furnished it from the square kit, whose heaviest entry is a TREE.
+     *  That is the tree standing in the middle of the street. */
+    squareMap: boolean[][],
   ): PlacedObject[] {
     const out: PlacedObject[] = []
     // NOT createOccupied: that marks every road tile as occupied, which is
@@ -3935,10 +3977,7 @@ export class TownGenerator implements IMapGenerator {
       const t = terrain[y]?.[x]
       return t === 8 || t === 9 || t === 14 || t === 15 || t === 16
     }
-    const isPaving = (x: number, y: number) => {
-      const t = terrain[y]?.[x]
-      return t === 14 || t === 15 || t === 16
-    }
+    const isSquare = (x: number, y: number) => !!squareMap[y]?.[x]
 
     // Multi-source BFS out from everything that already exists.
     const INF = 0x3fffffff
@@ -3975,7 +4014,7 @@ export class TownGenerator implements IMapGenerator {
       for (let x = 0; x < w; x++) {
         if (!isDressable(x, y)) continue
         const d = dist[y * w + x]
-        const need = isPaving(x, y) ? BARE_PAVING : BARE
+        const need = isSquare(x, y) ? BARE_PAVING : BARE
         if (d >= need && d < INF) candidates.push({ i: y * w + x, d })
       }
     }
@@ -4011,16 +4050,27 @@ export class TownGenerator implements IMapGenerator {
     for (const c of candidates) {
       const x = c.i % w, y = (c.i / w) | 0
       if (!this.areaFree(occupied, x, y, 1, 1, w, h)) continue
-      // Keep the middle of the carriageway clear — clutter belongs at the
-      // kerb. A tile with a non-street neighbour is an edge tile.
+      // A tile with a non-dressable neighbour is at the edge of the space —
+      // against a wall, a yard or a bank.
       const atKerb = !isDressable(x + 1, y) || !isDressable(x - 1, y) ||
         !isDressable(x, y + 1) || !isDressable(x, y - 1)
-      // Mid-carriageway clutter is mostly skipped, but an open square needs
-      // SOME furniture away from its edges or it stays a car park; paving is
-      // therefore only lightly thinned.
-      if (!atKerb && rng() < (isPaving(x, y) ? 0.45 : 0.75)) continue
-      const paved = isPaving(x, y)
-      const obj = this.createObj(pickFrom(paved ? SQUARE_KIT : STREET_KIT), x, y)
+      const square = isSquare(x, y)
+      // THE CARRIAGEWAY IS FOR MOVEMENT. Nothing stands in the middle of a
+      // street; a barrel is pushed against the wall, which is where a barrel
+      // in a real town actually is. This used to be a 75% thinning rather than
+      // a rule, so a quarter of mid-street tiles still got furniture and 22%
+      // of every town's props ended up standing in the carriageway.
+      //
+      // Alexander #124, Activity Pockets: the life of a public space forms
+      // around its EDGE, and a space whose edge fails never becomes lively
+      // however much you put in the middle of it. So the edge is where this
+      // pass works — and a square keeps a deliberately open centre, which is
+      // the same rule seen from the other side.
+      if (!atKerb) {
+        if (!square) continue
+        if (rng() < 0.7) continue
+      }
+      const obj = this.createObj(pickFrom(square ? SQUARE_KIT : STREET_KIT), x, y)
       obj.properties.facingY = rng() * Math.PI * 2
       out.push(obj)
       // Claim a small neighbourhood so the fill spreads instead of clumping
