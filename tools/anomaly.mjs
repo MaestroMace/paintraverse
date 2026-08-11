@@ -109,16 +109,28 @@ if (HIDE) {
 // screenshot that reported a floating timber was taken from. CLAUDE.md's
 // lesson from the gable-winding bug: a negative result is only as good as the
 // vantage it was taken from, and every shot in the old harness pointed down.
+//
+// A quarter of them are ELEVATED. Every vantage here was originally at eye
+// height, and a walkshot from the skyline vantage then turned up an obvious
+// long dark bar floating against the sky that this sweep had never seen —
+// because from the street that bar is behind a roof. The tool's vantage set
+// is its blind spot, which is the same lesson the gable winding taught from
+// the other direction: a negative result is only as good as its vantage, so
+// vary the vantage rather than trusting a clean run.
 const VANTAGES = []
 for (let i = 0; i < NSHOTS; i++) {
   const a = (i / NSHOTS) * Math.PI * 2
   const r = 6 + (i % 5) * 3.5
+  const elevated = i % 4 === 3
   VANTAGES.push({
-    x: 24 + Math.cos(a) * r,
-    z: 24 + Math.sin(a) * r,
+    x: 24 + Math.cos(a) * (elevated ? r + 14 : r),
+    z: 24 + Math.sin(a) * (elevated ? r + 14 : r),
     yaw: a + Math.PI + (i % 3 - 1) * 0.5,
-    // Cycle level / up / well up. Up is where the defect lives.
-    pitch: [0.0, 0.28, 0.5][i % 3],
+    // Street level cycles level / up / well up — up is where the defect
+    // lives. The elevated ones look slightly DOWN across the rooftops, which
+    // is where a beam projecting above a roofline shows against the sky.
+    pitch: elevated ? -0.08 : [0.0, 0.28, 0.5][i % 3],
+    up: elevated ? 22 : 1.6,
   })
 }
 
@@ -140,7 +152,7 @@ const EVAL = async (vv) => {
       await new Promise((r) => setTimeout(r, ms))
     }
     const ground = pt.heightAt(vv.x, vv.z) ?? 0
-    pt.flyTo(vv.x, ground + 1.6, vv.z, vv.yaw, vv.pitch)
+    pt.flyTo(vv.x, ground + (vv.up ?? 1.6), vv.z, vv.yaw, vv.pitch)
     await settle()
 
     // Largest canvas is the 3D view. preserveDrawingBuffer is on, so the

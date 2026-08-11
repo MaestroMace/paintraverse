@@ -404,6 +404,16 @@ Three things about building this tool are worth more than the tool:
 
 *Grades: sliver count per vantage, target 0. Speckle share, comparative.*
 
+**The vantage set is the tool's blind spot.** Every vantage was at eye height
+until a routine walkshot from the skyline turned up an obvious long dark bar
+floating against the sky that the sweep had never once reported — from the
+street that bar is behind a roof. A quarter of the vantages are elevated now,
+looking slightly DOWN across the rooftops, and the first run with them found a
+169px sliver, four times longer than anything the street-level sweep had ever
+seen. Same lesson the gable winding taught from the other direction: a
+negative result is only as good as its vantage, so vary the vantage rather
+than trusting a clean run.
+
 ## Rules to hold onto while doing this
 
 - **Derive, do not decorate.** If a new pass sweeps the whole map and places
