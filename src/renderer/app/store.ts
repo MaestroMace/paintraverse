@@ -761,6 +761,81 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 4, h: 1 },
     styleSetSlots: []
   },
+  // === REVERSE GHOSTS: geometry that existed and could never be placed ===
+  //
+  // PropFactory draws twenty ids the store never defined, so the art was
+  // unreachable — the mirror image of the usual ghost, and invisible to
+  // tools/features.mjs, which censuses gates rather than definitions. These
+  // are the ones the waterfront needs: `rowboat` and `skiff` share the boat
+  // builder with fishing_boat, `boulder` / `rock` / `rocky_outcrop` share the
+  // stone builder, `port_crane` shares the crane. Registering them costs six
+  // definitions and buys a whole river vocabulary that was already modelled.
+  {
+    id: 'rowboat',
+    name: 'Rowboat',
+    category: 'prop',
+    tags: ['water', 'vessel'],
+    color: '#7A6244',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'skiff',
+    name: 'Skiff',
+    category: 'prop',
+    tags: ['water', 'vessel'],
+    color: '#846A48',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'boulder',
+    name: 'Boulder',
+    category: 'prop',
+    tags: ['natural', 'stone'],
+    color: '#8A8580',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'rock',
+    name: 'Rock',
+    category: 'prop',
+    tags: ['natural', 'stone'],
+    color: '#938E86',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'rocky_outcrop',
+    name: 'Rocky Outcrop',
+    category: 'prop',
+    tags: ['natural', 'stone'],
+    color: '#807A72',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'port_crane',
+    name: 'Port Crane',
+    category: 'infrastructure',
+    tags: ['water', 'trade'],
+    color: '#6A5A44',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: []
+  },
+  // Reeds are the one thing a river bank needs that nothing in the vocabulary
+  // could stand in for. Everything natural here is a tree, a bush or a stone,
+  // and none of them says "waterline".
+  {
+    id: 'reeds',
+    name: 'Reeds',
+    category: 'prop',
+    tags: ['natural', 'water'],
+    color: '#6E7A46',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
   {
     id: 'fishing_boat',
     name: 'Fishing Boat',

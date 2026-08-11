@@ -273,6 +273,15 @@ and tower and had 7. District character was not failing to be generated — it
 was being overwritten downstream. Grep for the variable being used twice in
 one block and only once meaningfully.
 
+**Census the ART, not only the gates.** `features.mjs` audits gated
+FEATURES and `registry.mjs` audits DEFINITIONS, and between them they still
+missed twenty finished prop geometries that the store never defined — so
+PropFactory could draw `rowboat`, `skiff`, `boulder`, `rock`, `rocky_outcrop`
+and `port_crane`, and nothing could ever place them. That is the ghost in
+reverse: not content gated into nonexistence but content with no way in. Diff
+the ids the RENDERER handles against the ids the store DEFINES; it is one
+grep and it found a whole river vocabulary already modelled.
+
 **Content goes where there is an ANCHOR to attach it to.** Every front-attached
 detail in BuildingFactory hangs off `frontWallZ` / `frontWallHalfW`. There was
 no equivalent pair for the back or the flanks, and that absence — not any

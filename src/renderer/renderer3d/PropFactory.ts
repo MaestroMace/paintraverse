@@ -322,6 +322,27 @@ export function buildPropMeshes(
         }
       }
 
+    } else if (id === 'reeds') {
+      // A clump of thin blades leaning off vertical. The one thing a river
+      // bank needed that nothing in the vocabulary could stand in for —
+      // everything natural here was a tree, a bush or a stone, and none of
+      // them says "waterline". Deliberately sparse and tall rather than dense:
+      // reeds read by their SILHOUETTE against the water, so a handful of
+      // blades that break the shoreline beats a solid mass that reads as a
+      // bush standing in a puddle.
+      const blades = 7 + (hash % 5)
+      for (let b = 0; b < blades; b++) {
+        const a = rand01(hash, 4100 + b * 7) * Math.PI * 2
+        const rad = rand01(hash, 4200 + b * 7) * 0.34
+        const bh = 0.55 + rand01(hash, 4300 + b * 7) * 0.55
+        const lean = 0.10 + rand01(hash, 4400 + b * 7) * 0.16
+        const g = new THREE.BoxGeometry(0.035, bh, 0.035)
+        g.translate(0, bh / 2, 0)
+        g.rotateZ(Math.cos(a) * lean)
+        g.rotateX(Math.sin(a) * lean)
+        g.translate(px + Math.cos(a) * rad, elev, pz + Math.sin(a) * rad)
+        batch.addPositioned(g, b % 3 === 0 ? 0x7d8a4e : 0x63713c)
+      }
     } else if (id === 'bush' || id === 'hedge') {
       const b = geo.bushGeo.clone()
       b.scale(1.3, 1.3, 1.3)

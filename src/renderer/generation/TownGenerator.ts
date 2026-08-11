@@ -465,6 +465,14 @@ export class TownGenerator implements IMapGenerator {
       solid(), heightMap, terrainTiles, rng)
     blockers.push(...precinctWalls)
 
+    // 12d. THE WATERFRONT CLAIMS ITS OWN BANK, before the global prop passes
+    // get to it. Run late, after placeVegetation and the rest, it found half
+    // the bank already taken by scattered bushes and trees — the generic
+    // scatter had spent the riverside on street furniture. A parcel owns its
+    // frontage; the river owns its bank.
+    placedProps.push(...this.dressWaterfront(
+      width, height, terrainTiles, waterMap, taken(), solid(), heightMap, rng))
+
     // 12c. Grand courtyards — intentional enclosed spaces with symmetry
     const courtyardProps = this.generateGrandCourtyards(
       terrainTiles, roadMap, waterMap, heightMap,
@@ -1397,6 +1405,22 @@ export class TownGenerator implements IMapGenerator {
         // the water is a harbour piazza and wants no lane painted through it.
         if (terrain[y][x] === 2 || terrain[y][x] === 14) continue
         if (Math.hypot(x - center.x, y - center.y) > REACH) continue
+        // A QUAY EXISTS BECAUSE A STREET SERVES IT. Without this the pass
+        // paved every bank tile inside REACH, which is essentially the whole
+        // urban river: measured, 59 of 62 free bank tiles came out paved and
+        // the waterfront's entire soft-bank vocabulary — reeds, stones —
+        // fired three times in three towns. A river that is quay from end to
+        // end is uniform, and uniform is what reads as underdeveloped.
+        // Gating on a nearby street gives working stretches where the town
+        // meets the water and muddy ones between, which is both how it
+        // happens and the variation Cullen's serial vision wants along a walk.
+        let servedByRoad = false
+        for (let dy = -3; dy <= 3 && !servedByRoad; dy++) {
+          for (let dx = -3; dx <= 3; dx++) {
+            if (roadMap[y + dy]?.[x + dx]) { servedByRoad = true; break }
+          }
+        }
+        if (!servedByRoad) continue
         let wet = 0
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
           if (isWet(x + dx, y + dy)) wet++
@@ -1739,6 +1763,163 @@ export class TownGenerator implements IMapGenerator {
           footprint: { w: 1, h: 1 },
           properties: { crossing: true },
         })
+      }
+    }
+    return out
+  }
+
+  /**
+   * DRESS THE WATERFRONT — give the bank a vocabulary of its own.
+   *
+   * Measured before this existed: 202 objects stood within two tiles of water
+   * across three towns, and they were lampposts (19), trees (17), crates (15)
+   * and bushes (15). The river was dressed with the same street furniture as
+   * every other street. Meanwhile `dock`, `pier`, `crane` and `fishing_boat`
+   * are all defined, all have finished geometry in PropFactory, and placed
+   * ZERO objects at the water — and `rowboat`, `skiff`, `boulder`, `rock`,
+   * `rocky_outcrop` and `port_crane` had geometry the store never defined at
+   * all, so they were unreachable.
+   *
+   * The bank is not one place, so it does not get one palette:
+   *
+   *   WHARF — bank in the built town, on paving or beside buildings. Working
+   *     riverside: mooring posts, crates and barrels landed off a boat, fish
+   *     racks, rope, a crane where the quay is wide. Boats moored ON the
+   *     water against it.
+   *   SHORE — bank outside the town. Reeds at the waterline, stones, the odd
+   *     willow. Nothing built, because nobody built there.
+   *
+   * Everything is placed by asking the water WHICH WAY IT IS, so a mooring
+   * post stands at the lip and a reed clump stands in the shallows rather
+   * than both landing wherever the global spacing metric had a gap.
+   */
+  private dressWaterfront(
+    w: number, h: number, terrain: number[][], waterMap: boolean[][],
+    placed: PlacedObject[], structures: PlacedObject[],
+    heightMap: number[][], rng: () => number
+  ): PlacedObject[] {
+    const out: PlacedObject[] = []
+    const taken = new Set<string>()
+    for (const o of placed) {
+      const fp = o.footprint ?? this.getFootprint(o.definitionId)
+      for (let dy = 0; dy < fp.h; dy++) {
+        for (let dx = 0; dx < fp.w; dx++) taken.add(`${o.x + dx},${o.y + dy}`)
+      }
+    }
+    const free = (x: number, y: number): boolean =>
+      x > 0 && y > 0 && x < w - 1 && y < h - 1 &&
+      !waterMap[y][x] && !taken.has(`${x},${y}`)
+
+    // A bank tile counts as WHARF if the town has reached it — paving under
+    // foot, or a building within two tiles. Otherwise it is open shore.
+    // STRUCTURES only. Built from `placed` — which is every object including
+    // scattered props — this halo covered nearly the whole map, every bank
+    // tile classified as wharf, and the entire SHORE palette (reeds, stones)
+    // fired zero times in three towns. "Has the town reached here" is a
+    // question about buildings.
+    const built = new Set<string>()
+    for (const o of structures) {
+      const fp = o.footprint ?? this.getFootprint(o.definitionId)
+      for (let dy = -2; dy < fp.h + 2; dy++) {
+        for (let dx = -2; dx < fp.w + 2; dx++) built.add(`${o.x + dx},${o.y + dy}`)
+      }
+    }
+    const paved = (x: number, y: number): boolean => {
+      const t = terrain[y]?.[x]
+      return t === 8 || t === 9 || t === 14 || t === 15 || t === 16
+    }
+
+    const WHARF = ['mooring', 'crate', 'barrel', 'rope_coil', 'fish_rack',
+      'crate_stack', 'barrel_stack', 'rope_coil']
+    const SHORE = ['reeds', 'reeds', 'reeds', 'rock', 'boulder', 'bush',
+      'rocky_outcrop', 'reeds']
+    let boats = 0, cranes = 0
+
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        if (!waterMap[y][x]) {
+          let t2 = 0
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            if (waterMap[y + dy]?.[x + dx]) t2++
+          }
+          if (t2 > 0) rejected(free(x, y) ? 'wf~bankFree' : 'wf~bankOccupied')
+        }
+        if (!free(x, y)) continue
+        // Which way is the water, and how far? A quay is a BAND, not a line:
+        // dressing only the row that touches the water left a four-tile apron
+        // of bare paving behind it, which is what the wharf still read as
+        // empty. The second row gets the same vocabulary at lower density —
+        // goods land where they were unloaded and get stacked back from the
+        // edge, not balanced on the lip.
+        let wx = 0, wz = 0, touching = 0, ring = 0
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          if (waterMap[y + dy]?.[x + dx]) { wx += dx; wz += dy; touching++ }
+        }
+        if (touching > 0) ring = 1
+        else {
+          for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2],
+            [1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+            if (waterMap[y + dy]?.[x + dx]) { wx += Math.sign(dx); wz += Math.sign(dy); ring = 2; break }
+          }
+        }
+        if (ring === 0) continue
+        // PAVED, not merely "near a building". The river runs through the
+        // town on a 48x48 map, so every one of its 62 free bank tiles was
+        // within two tiles of something built and the shore palette fired
+        // zero times. A quay is a quay because someone laid stone on it; the
+        // stretches between the quays are soft, muddy and reedy, and those
+        // are most of the bank even in a town.
+        const isWharf = paved(x, y)
+        rejected(isWharf ? 'wf~wharfTile' : 'wf~shoreTile')
+
+        // Density: a working quay is busy, an open shore is not.
+        // A working quay is BUSY — that is what makes it read as working. The
+        // first pass at 0.34 left long bare stretches between the goods, which
+        // is the sparseness the whole complaint was about. The shore stays
+        // thinner, because nobody is stacking barrels on a mudbank.
+        const dens = (isWharf ? 0.58 : 0.46) * (ring === 1 ? 1 : 0.55)
+        if (rng() > dens) {
+          rejected(isWharf ? 'wf~wharfDice' : 'wf~shoreDice')
+          continue
+        }
+
+        const pool = isWharf ? WHARF : SHORE
+        let id = pool[Math.floor(rng() * pool.length)]
+
+        // A crane belongs where a quay is wide enough to swing one, and one
+        // or two per town is plenty — it is a landmark, not clutter.
+        if (isWharf && cranes < 2 && rng() < 0.10 &&
+            free(x + 1, y) && free(x, y + 1) && free(x + 1, y + 1)) {
+          out.push(this.createObj('port_crane', x, y,
+            Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2)))
+          taken.add(`${x},${y}`); taken.add(`${x + 1},${y}`)
+          taken.add(`${x},${y + 1}`); taken.add(`${x + 1},${y + 1}`)
+          cranes++
+          continue
+        }
+        // `mooring` is a horse_post standing at the lip of the quay — the
+        // vocabulary has no bollard and a tethering post is the same object.
+        if (id === 'mooring') id = 'horse_post'
+
+        out.push(this.createObj(id, x, y,
+          Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2)))
+        taken.add(`${x},${y}`)
+
+        // MOOR A BOAT against a wharf, on the water itself. This is the one
+        // thing that says "river" rather than "canal-shaped hole", and the
+        // boat builder has been in PropFactory the whole time with nothing
+        // ever asking for it.
+        if (isWharf && ring === 1 && boats < 6 && rng() < 0.30) {
+          const bx = x + wx, by = y + wz
+          if (waterMap[by]?.[bx] && !taken.has(`${bx},${by}`) &&
+              waterMap[by + wz]?.[bx + wx]) {
+            const kind = rng() < 0.45 ? 'rowboat' : (rng() < 0.6 ? 'skiff' : 'fishing_boat')
+            out.push(this.createObj(kind, bx, by,
+              Math.min(Math.round((heightMap[by]?.[bx] ?? 0) * 2) / 2, 2)))
+            taken.add(`${bx},${by}`)
+            boats++
+          }
+        }
       }
     }
     return out
@@ -3431,6 +3612,23 @@ export class TownGenerator implements IMapGenerator {
     const vegetation: PlacedObject[] = []
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
     this.markObjects(occupied, existingObjs, w, h)
+
+    // THE RIVER OWNS ITS BANK. Reserve every tile touching water before the
+    // generic scatter runs: dressWaterfront has already dressed it with reeds,
+    // stones, mooring posts and goods, and whatever it deliberately left bare
+    // is bare because a working quay is not a flowerbed. Without this the
+    // forest sampler planted full-size trees and bushes on the lip of the
+    // wharf — photographed twice, and it is precisely the "random" reading the
+    // waterfront work is trying to remove. This is CITYPLAN's ownership rule:
+    // a parcel emits its own props, and the global metric does not get a vote.
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (waterMap[y][x]) continue
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          if (waterMap[y + dy]?.[x + dx]) { occupied[y][x] = true; break }
+        }
+      }
+    }
 
     // Tighter Poisson so forest cores can actually get dense; the forest-
     // mask below decides whether each sampled point GETS a tree, so we
