@@ -447,6 +447,12 @@ export class TownGenerator implements IMapGenerator {
       width, height, roadMap, waterMap, [...buildings, ...landmarks], gates, rng, terrainTiles)
     blockers.push(...townWalls)
 
+    // 12b. Boundary walls round the quarters that are DELIBERATELY sparse.
+    const precinctWalls = this.encloseSparseQuarters(
+      width, height, roadMap, waterMap, districtMap, districts,
+      solid(), heightMap, terrainTiles, rng)
+    blockers.push(...precinctWalls)
+
     // 12c. Grand courtyards — intentional enclosed spaces with symmetry
     const courtyardProps = this.generateGrandCourtyards(
       terrainTiles, roadMap, waterMap, heightMap,
@@ -3795,6 +3801,114 @@ export class TownGenerator implements IMapGenerator {
     return null
   }
 
+  /**
+   * ENCLOSE THE SPARSE QUARTERS — give a churchyard, graveyard or garden the
+   * edge that a house would otherwise have provided.
+   *
+   * This exists because of a measured trade. Making the fill passes draw from
+   * DISTRICT_BUILDINGS took district character 26% -> 55%, and correctly made
+   * the quarters that own no ordinary small building genuinely sparse. A
+   * sparse quarter puts its facades further apart, and facade-to-facade street
+   * width went 12m -> 15m against a 4-10m target — the single number DESIGN.md
+   * says separates a town from a field.
+   *
+   * The answer is not to put houses back in the graveyard. Sitte and Alexander
+   * #106 both make ENCLOSURE the thing that turns leftover ground into a
+   * place, and neither requires the enclosing thing to be a building. A
+   * cathedral close, a burial ground and a garden are defined by a boundary
+   * wall in every real town; that is what a precinct wall is.
+   *
+   * Three properties this deliberately has:
+   *
+   * - It only walls a quarter's ROAD frontage. An interior boundary between
+   *   two built quarters needs no wall and would read as a maze.
+   * - It leaves gates. A sealed precinct is a bug, not an edge, so every run
+   *   longer than GATE_EVERY tiles gets an opening, and any tile a road
+   *   actually enters through is skipped outright.
+   * - It never counts as a building. The definitions are `infrastructure`
+   *   with a `barrier` tag, which is the population split urbanform.mjs now
+   *   makes — so this can raise enclosure and street definition without
+   *   inflating built coverage, party walls or district character. If a
+   *   change can move a metric for a reason that is not the reason you
+   *   intended, it will.
+   */
+  private encloseSparseQuarters(
+    w: number, h: number,
+    roadMap: boolean[][], waterMap: boolean[][],
+    districtMap: number[][], districts: District[],
+    placed: PlacedObject[], heightMap: number[][], terrain: number[][],
+    rng: () => number,
+  ): PlacedObject[] {
+    // ASK THE TERRAIN, NOT roadMap. carveAlleys paints tile 9 straight into
+    // terrainTiles without registering it in roadMap, and it runs before this
+    // pass — so a roadMap test says "not a street" about a tile that is one.
+    // CLAUDE.md records this exact bug putting a town wall across an alley,
+    // and testing roadMap here put a precinct wall in the street on seed 4242
+    // within one run. Anything asking "is this a street?" asks isCirculation.
+    const isStreet = (x: number, y: number): boolean =>
+      isCirculation(terrain?.[y]?.[x]) || !!roadMap[y]?.[x]
+    const WALLED: Set<DistrictType> = new Set(['cemetery', 'temple', 'garden'])
+    const GATE_EVERY = 7
+    const out: PlacedObject[] = []
+
+    const occupied = new Set<string>()
+    for (const o of placed) {
+      const fp = o.footprint ?? this.getFootprint(o.definitionId)
+      for (let dy = 0; dy < fp.h; dy++) {
+        for (let dx = 0; dx < fp.w; dx++) occupied.add(`${o.x + dx},${o.y + dy}`)
+      }
+    }
+
+    for (const d of districts) {
+      if (!WALLED.has(d.type)) continue
+      // Walk the quarter's frontage in a stable order so a "run" really is a
+      // run along one edge and the gate spacing means something.
+      const edges: { x: number; y: number; alongX: boolean }[] = []
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          if ((districtMap[y]?.[x] ?? -1) !== d.id) continue
+          if (isStreet(x, y) || waterMap[y][x]) continue
+          if (occupied.has(`${x},${y}`)) continue
+          // Only a tile whose neighbour is actually the street.
+          const rN = isStreet(x, y - 1), rS = isStreet(x, y + 1)
+          const rW = isStreet(x - 1, y), rE = isStreet(x + 1, y)
+          if (!(rN || rS || rE || rW)) continue
+          // A tile with road on two opposite sides is a threshold the street
+          // passes THROUGH. Walling it seals the quarter off from its own
+          // approach, which is the failure the town-wall placer had to learn
+          // about gates the hard way.
+          if ((rN && rS) || (rE && rW)) continue
+          // The wall runs perpendicular to the direction the street lies in.
+          edges.push({ x, y, alongX: rN || rS })
+        }
+      }
+      if (edges.length < 4) continue    // too small a quarter to be worth an edge
+
+      let run = 0
+      for (const e of edges) {
+        run++
+        // Leave a gap for a gateway, offset by the quarter's own id so every
+        // precinct in a town does not gap at the same count.
+        if ((run + d.id) % GATE_EVERY === 0) continue
+        const id = e.alongX ? 'precinct_wall' : 'precinct_wall_v'
+        out.push({
+          id: uuid(),
+          definitionId: id,
+          x: e.x, y: e.y,
+          rotation: 0, scaleX: 1, scaleY: 1,
+          // Same elevation quantisation every other placer uses. A boundary
+          // wall that ignores the slope it stands on is the "props hovering"
+          // class of defect with a longer footprint.
+          elevation: Math.min(Math.round((heightMap[e.y]?.[e.x] ?? 0) * 2) / 2, 2),
+          footprint: { w: 1, h: 1 },
+          properties: { district: d.type, precinct: true },
+        })
+        occupied.add(`${e.x},${e.y}`)
+      }
+    }
+    return out
+  }
+
   private districtFloors(dType: DistrictType | string, rng: () => number): number {
     switch (dType) {
       // Every range is 3 storeys wide except the slum, which is genuinely
@@ -4722,6 +4836,7 @@ export class TownGenerator implements IMapGenerator {
     const footprints: Record<string, { w: number; h: number }> = {
       // Small district-specific houses — see store.ts. tools/registry.mjs
       // checks these agree with the other two footprint tables.
+      precinct_wall: { w: 1, h: 1 }, precinct_wall_v: { w: 1, h: 1 },
       clergy_house: { w: 2, h: 2 },
       almshouse: { w: 1, h: 3 },
       sexton_hut: { w: 1, h: 2 },

@@ -71,10 +71,24 @@ for (const seed of seeds) {
 
     // A building records the district it was placed in. That is the label the
     // generator believes; everything below asks whether the label is legible.
+    // BARRIERS ARE NOT BUILDINGS. Precinct walls carry a `district` property
+    // so the renderer can pick their stone by quarter, and that alone dragged
+    // character down two points here — a wall is not in any DISTRICT_BUILDINGS
+    // table, so every segment counted as a building that is not distinctive to
+    // its own quarter. Third time today a tool's "buildings" population turned
+    // out to include something that is not one; the general rule is that a
+    // metric about buildings must filter by CATEGORY, not by "is in the
+    // structure layer".
+    const isBarrier = (o) => {
+      const def = defs.find?.((x) => x.id === o.definitionId) ??
+        (defs[o.definitionId] ?? null)
+      return def?.category === 'infrastructure' ||
+        (def?.tags ?? []).includes('barrier')
+    }
     const byDistrict = {}
     for (const o of structs) {
       const d = o.properties?.district
-      if (!d) continue
+      if (!d || isBarrier(o)) continue
       ;(byDistrict[d] ??= { types: {}, floors: [], cells: [] })
       const b = byDistrict[d]
       b.types[o.definitionId] = (b.types[o.definitionId] ?? 0) + 1

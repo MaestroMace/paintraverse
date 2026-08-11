@@ -797,6 +797,62 @@ function tmplStackedTower(ctx: MassingContext): Volume[] {
  *  Footprint orientation (w vs d) determines wall orientation: the wall
  *  runs along the LONGER axis. Height is fixed (2.2 world units) so the
  *  wall reads as an actual fortification, not a garden wall. */
+/**
+ * A PRECINCT WALL — the low boundary round a churchyard, graveyard or garden.
+ *
+ * Not a small town wall. A town wall is 6.5m and defends; this is chest-to-
+ * head height and merely says "this side is not the street", which is the
+ * whole point: a cathedral close, a burial ground and a garden quarter are
+ * not defined by building walls at all, they are defined by a boundary. Sitte
+ * and Alexander #106 both make enclosure the thing that turns leftover space
+ * into a place, and neither requires the enclosing thing to be a house.
+ *
+ * It exists because giving the sparse quarters their own building vocabulary
+ * correctly made them sparse, and sparse quarters push facades apart:
+ * facade-to-facade street width went 12m -> 15m against a 4-10m target. The
+ * answer is not to build houses in the graveyard again — it is to give the
+ * graveyard an edge.
+ *
+ * Deliberately below eye level at 1.45m: you see OVER it into the precinct,
+ * which is what makes a churchyard read as a churchyard rather than a yard.
+ */
+function tmplLowWall(ctx: MassingContext, alongX: boolean): Volume[] {
+  const wallH = 1.45
+  const thickness = 0.5
+  // The axis comes from the TYPE, not from the footprint. Both precinct wall
+  // variants are 1x1 so they can follow an irregular quarter boundary tile by
+  // tile, and a square footprint cannot imply a direction — the town wall gets
+  // away with `footW >= footD` only because its segments are 2x1 and 1x2.
+  const longAxisX = alongX
+  const wallW = longAxisX ? ctx.footW : thickness
+  const wallD = longAxisX ? thickness : ctx.footD
+  const stoneColor = 0x8d8478
+  const volumes: Volume[] = [{
+    role: 'mainBody',
+    offsetX: 0, offsetZ: 0,
+    width: wallW, depth: wallD,
+    bottomY: 0, height: wallH,
+    roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+    wallColor: stoneColor, roofColor: stoneColor,
+    textured: false, cornice: false,
+    floors: 1,
+  }]
+  // A coping course: a slightly wider, paler slab along the top. It is the
+  // one detail that separates a wall from an extruded box at a distance, and
+  // it costs a single volume.
+  volumes.push({
+    role: 'trim',
+    offsetX: 0, offsetZ: 0,
+    width: wallW + (longAxisX ? 0 : 0.14), depth: wallD + (longAxisX ? 0.14 : 0),
+    bottomY: wallH, height: 0.12,
+    roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+    wallColor: 0xa8a094, roofColor: 0xa8a094,
+    textured: false, cornice: false,
+    floors: 1,
+  })
+  return volumes
+}
+
 function tmplWallSegment(ctx: MassingContext): Volume[] {
   // A town wall in METRES. This was 2.2, which is shorter than a single
   // storey (2.9) and shorter than every house it is supposed to defend — the
@@ -978,6 +1034,8 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   gatehouse: (ctx) => tmplGatehouse(ctx),
   windmill: (ctx) => tmplWindmill(ctx),
   stone_wall: (ctx) => tmplWallSegment(ctx),
+  precinct_wall: (ctx) => tmplLowWall(ctx, true),
+  precinct_wall_v: (ctx) => tmplLowWall(ctx, false),
   stone_wall_v: (ctx) => tmplWallSegment(ctx),
   crenellated_wall: (ctx) => tmplWallSegment(ctx),
   mansion: (ctx) => rand01(ctx.hash, 515) < 0.5 ? tmplCornerTower(ctx) : tmplLShape(ctx),

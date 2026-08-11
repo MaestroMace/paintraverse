@@ -68,8 +68,13 @@ const defs = new Map()
 // number of definitions you think you wrote, the regex is wrong, not the code.
 for (const m of STORE.matchAll(
   /\{\s*id:\s*'([a-z_]+)',\s*name:\s*(?:'[^']*'|"[^"]*"),\s*category:\s*'(\w+)',\s*tags:\s*\[([^\]]*)\],[\s\S]{0,200}?footprint:\s*\{\s*w:\s*(\d+),\s*h:\s*(\d+)\s*\}/g)) {
-  if (m[2] !== 'building') continue
-  defs.set(m[1], { w: +m[4], h: +m[5], tags: m[3] })
+  // Infrastructure counts too. BUILDING_HEIGHTS and BUILDING_ROOF_STYLE are
+  // consulted for every structure-layer object, so a WALL missing from them
+  // exports at the 1.8-tile fallback exactly like a house would. Checking
+  // only category 'building' let the precinct wall through — a tool's scope
+  // has to match the table's scope, not the table's name.
+  if (m[2] !== 'building' && m[2] !== 'infrastructure') continue
+  defs.set(m[1], { w: +m[4], h: +m[5], tags: m[3], cat: m[2] })
 }
 // Cross-check: every `id:` in a building-looking definition should have been
 // parsed. Anything here means the regex above missed a definition shape.
@@ -116,23 +121,31 @@ let problems = 0
 const rows = []
 for (const [id, d] of [...defs].sort()) {
   const miss = []
-  if (!genFp[id]) miss.push('gen.getFootprint')
-  if (!facFp[id]) miss.push('BuildingFactory.FOOTPRINTS')
-  if (!heights.has(id)) miss.push('BUILDING_HEIGHTS')
-  if (!roofs.has(id)) miss.push('BUILDING_ROOF_STYLE')
+  if (d.cat === 'building' && !genFp[id]) miss.push('gen.getFootprint')
+  if (d.cat === 'building' && !facFp[id]) miss.push('BuildingFactory.FOOTPRINTS')
+  // The export's height/roof tables only matter for objects that go through
+  // the BUILDING path — structure-layer things. Most `infrastructure` is a
+  // PROP (lamppost, fence, crane) drawn by a different route entirely, and
+  // flagging those produced seventeen findings that were all noise.
+  // BuildingFactory.FOOTPRINTS is precisely the list of what that path draws,
+  // so it is the right scope test rather than the category name.
+  const drawnAsStructure = d.cat === 'building' || !!facFp[id]
+  if (drawnAsStructure && !heights.has(id)) miss.push('BUILDING_HEIGHTS')
+  if (drawnAsStructure && !roofs.has(id)) miss.push('BUILDING_ROOF_STYLE')
   const disagree = []
   for (const [label, t] of [['gen', genFp[id]], ['factory', facFp[id]],
     ['district', placeable.get(id)]]) {
     if (t && (t.w !== d.w || t.h !== d.h)) disagree.push(`${label} ${t.w}x${t.h}`)
   }
-  const reachable = placeable.has(id) || DIRECT_PLACED.has(id)
+  const reachable = d.cat === 'infrastructure' ||
+    placeable.has(id) || DIRECT_PLACED.has(id)
   if (miss.length || disagree.length || !reachable) {
     problems++
     rows.push({ id, d, miss, disagree, reachable })
   }
 }
 
-console.log(`\n=== REGISTRY — ${defs.size} building definitions ===\n`)
+console.log(`\n=== REGISTRY — ${defs.size} building + infrastructure definitions ===\n`)
 if (rows.length === 0) {
   console.log('  Every building type is registered in every table, all three')
   console.log('  footprint tables agree, and every type can actually be placed.')

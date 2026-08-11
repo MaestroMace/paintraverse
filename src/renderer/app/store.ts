@@ -439,6 +439,30 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 2, h: 1 },
     styleSetSlots: []
   },
+  // Low boundary wall round a sparse quarter — a churchyard, graveyard or
+  // garden edge, not a fortification. 1x1 so it can follow an irregular
+  // district boundary tile by tile; the two variants carry the AXIS, since a
+  // square footprint cannot imply one. Category 'infrastructure' with a
+  // 'barrier' tag so urbanform.mjs counts it as enclosure and never as a
+  // building.
+  {
+    id: 'precinct_wall',
+    name: 'Precinct Wall',
+    category: 'infrastructure',
+    tags: ['barrier'],
+    color: '#8D8478',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'precinct_wall_v',
+    name: 'Precinct Wall (N-S)',
+    category: 'infrastructure',
+    tags: ['barrier'],
+    color: '#8D8478',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
   {
     id: 'stone_wall',
     name: 'Stone Wall',

@@ -1055,6 +1055,41 @@ walls at all — they are defined by a BOUNDARY WALL.** `stone_wall` and
 building them up is the next move, and it would raise enclosure without
 undoing any of the character work.
 
+### THE PRECINCT WALL — done, and what it is honestly worth
+
+`precinct_wall` / `precinct_wall_v` (1x1, low, 1.45m with a coping) now run
+along the road frontage of cemetery, temple and garden quarters, gapped every
+seventh tile for a gateway and skipped wherever a street passes through.
+~25 segments a town; boundary-wall frontage 2% -> 5%.
+
+**Street width did NOT move, and that is correct.** A 1.45m wall you can see
+over does not enclose a street the way a 9m facade does, and counting it as a
+facade would be gaming the metric. What the wall buys is Lynch's EDGE — the
+quarter reads as a bounded place — and a continuous street line where the
+sparse quarter's buildings leave gaps. Grade it on the boundary-wall frontage
+line, not on street width.
+
+Three things it had to get right, each one a trap the repo had already
+documented:
+
+- **Ask `isCirculation(terrain)`, never `roadMap`.** `carveAlleys` paints tile
+  9 straight into terrainTiles without registering it, and it runs before this
+  pass. Testing roadMap put a precinct wall in the street on seed 4242 in the
+  first run — the same bug CLAUDE.md already records putting a town wall
+  across an alley.
+- **A barrier must not count as a building.** These carry `district` so the
+  renderer can pick their stone by quarter, and that alone dropped district
+  character two points, because a wall is in no DISTRICT_BUILDINGS table and
+  so read as "not distinctive to its own quarter". `districts.mjs` filters by
+  category now, as `urbanform.mjs` already does.
+- **The export tables are keyed by id for every STRUCTURE, not every
+  building.** A wall missing from `BUILDING_HEIGHTS` exports at the 1.8-tile
+  fallback: 5.4m. The town wall got away with it by luck at 6.5m real; a 1.45m
+  precinct wall would have been a two-storey slab. `tools/registry.mjs` now
+  scopes that check by `BuildingFactory.FOOTPRINTS` — the actual list of what
+  the building draw path handles — rather than by the category name, which
+  found `aqueduct` missing too.
+
 Two things fell out of that decomposition and both are load-bearing:
 
 - **"A prop stands there" is a SYMPTOM, not an excuse**, and it is the largest

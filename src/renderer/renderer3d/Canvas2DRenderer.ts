@@ -128,6 +128,13 @@ const BUILDING_HEIGHTS: Record<string, number> = {
   // Small district-specific houses.
   clergy_house: 2.6, almshouse: 2.4, sexton_hut: 1.6,
   mausoleum: 1.8, coach_house: 2.2, potting_shed: 1.4,
+  // BARRIERS. This table is keyed by definition id and consulted for every
+  // structure-layer object, not only buildings, so a wall absent from it
+  // exports at the 1.8-tile fallback — 5.4m. The town wall is 6.5m so it got
+  // away with that by luck; a 1.45m precinct wall would have exported as a
+  // slab two storeys high. Heights are metres/TILE.
+  stone_wall: 2.2, stone_wall_v: 2.2, crenellated_wall: 2.2,
+  precinct_wall: 0.5, precinct_wall_v: 0.5, aqueduct: 4.0,
 }
 
 // Windmill gets a special roof style
@@ -153,6 +160,8 @@ const BUILDING_ROOF_STYLE: Record<string, RoofStyle> = {
   // silhouette that says "tomb" rather than "cottage".
   clergy_house: 'steep', almshouse: 'steep', sexton_hut: 'gabled',
   mausoleum: 'hipped', coach_house: 'gabled', potting_shed: 'gabled',
+  stone_wall: 'flat', stone_wall_v: 'flat', crenellated_wall: 'flat',
+  precinct_wall: 'flat', precinct_wall_v: 'flat', aqueduct: 'flat',
 }
 
 // Which buildings have timber framing on walls

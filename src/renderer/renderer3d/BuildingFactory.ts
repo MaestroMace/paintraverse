@@ -70,6 +70,7 @@ const FOOTPRINTS: Record<string, { w: number; h: number }> = {
   windmill: { w: 3, h: 3 },
   // Town-wall variants: horizontal runs 2x1, vertical runs 1x2.
   stone_wall: { w: 2, h: 1 }, stone_wall_v: { w: 1, h: 2 },
+  precinct_wall: { w: 1, h: 1 }, precinct_wall_v: { w: 1, h: 1 },
   crenellated_wall: { w: 2, h: 1 },
 }
 
