@@ -53,6 +53,11 @@ for (const seed of seeds) {
   await win.waitForTimeout(150)
   await win.getByRole('button', { name: /^generate$/i }).first().click()
   await win.waitForTimeout(2800)
+  // The 3D view has to have built for the render layer's diagnostics to
+  // exist. Districts are a question about what a person SEES, and half the
+  // answer lives in the building factory rather than in the map data.
+  await win.getByRole('button', { name: '3D', exact: true }).click()
+  await win.waitForTimeout(3000)
 
   const r = await win.evaluate(() => {
     const st = window.__pt.store.getState()
@@ -122,6 +127,16 @@ for (const seed of seeds) {
       })
     }
     out.sort((a, b2) => b2.total - a.total)
+    // Trade DRESSING per district, from the render layer. featureCounts keys
+    // gated features as "shopSign@market", because a global count cannot
+    // answer the question they exist to serve: signs read 16% of buildings
+    // town-wide, which sounds reasonable and was the symptom — it was 16%
+    // everywhere, cemetery included, since the gate had no district test.
+    const fc = window.__pt.debugInfo()?.buildingFactory?.featureCounts ?? {}
+    for (const d of out) {
+      d.signs = fc[`shopSign@${d.name}`] ?? 0
+      d.awnings = fc[`awning@${d.name}`] ?? 0
+    }
     return { districts: out, nDistricts }
   })
   if (!r) { console.log(`seed ${seed}: no terrain`); continue }
@@ -134,14 +149,14 @@ const pct = (a, b) => (b === 0 ? 0 : Math.round((a / b) * 100))
 console.log('\n=== DISTRICTS — is the label legible from inside? ===')
 for (const r of rows) {
   console.log(`\nseed ${r.seed} — ${r.nDistricts} districts with buildings`)
-  console.log('  district      bldgs  characteristic   floors p10/med/p90  ground  top types')
+  console.log('  district      bldgs  character  floors p10/med/p90  trade dressing  top types')
   console.log('  ' + '-'.repeat(88))
   for (const d of r.districts) {
     const tt = d.topTypes.map(([t, n]) => `${t} ${n}`).join(', ')
     console.log(`  ${d.name.padEnd(13)}${String(d.total).padStart(6)}` +
       `${String(pct(d.characteristic, d.total) + '%').padStart(16)}` +
       `${String(`${d.loFloors}/${d.medFloors}/${d.hiFloors}`).padStart(19)}` +
-      `${String(d.ground).padStart(8)}   ${tt}`)
+      `${String(pct(d.signs, d.total) + '%').padStart(15)}   ${tt}`)
   }
 }
 

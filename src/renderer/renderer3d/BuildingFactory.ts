@@ -252,6 +252,14 @@ export function buildBuildingMeshes(
   const scaleSamples: BuildingScale[] = []
   const featureCounts: Record<string, number> = {}
   const tally = (k: string) => { featureCounts[k] = (featureCounts[k] ?? 0) + 1 }
+  /** Tally a gated feature BY DISTRICT as well as in total.
+   *
+   *  A global count cannot answer the question these features exist to serve.
+   *  Shop signs read 16% of buildings town-wide, which sounds like a
+   *  reasonable amount of signage and is actually the symptom: it was 16%
+   *  EVERYWHERE, cemetery included, because the gate had no district test.
+   *  What matters is the split, so record it. */
+  const tallyIn = (k: string, d: string) => { tally(k); tally(`${k}@${d}`) }
   let flatToppedTallVolumes = 0
   const roofBatch = new BatchedMeshBuilder()
   const detailBatch = new BatchedMeshBuilder()
@@ -1606,7 +1614,41 @@ export function buildBuildingMeshes(
       obj.definitionId === 'half_timber' || obj.definitionId === 'corner_building' ||
       obj.definitionId === 'row_house'
     )
-    const signChance = isTradeBldg ? 0.85 : 0.45
+    // WHERE a building stands decides whether it is a shop.
+    //
+    // This was a flat 0.85 for a trade building and 0.45 for any ordinary
+    // house, with no district test at all — so a row house in the CEMETERY
+    // carried a shop sign as readily as one on the market square. Measured,
+    // 16% of buildings town-wide had a sign and 13% an awning, spread evenly,
+    // which is the exact opposite of what a market quarter is. Dressing that
+    // appears everywhere differentiates nothing, and it was the whole of the
+    // town's trade vocabulary.
+    //
+    // The district test had been REMOVED deliberately, because keying on the
+    // single 'market' district left seeds where no eligible building stood in
+    // it. That was a real problem and this is the fix for it: a graded weight
+    // per district rather than a boolean, so trading streets are dense with
+    // signage, ordinary streets carry the occasional one, and a temple or
+    // cemetery carries none — without any seed ending up with zero.
+    const tradeWeight = (d: string): number => {
+      switch (d) {
+        case 'market': return 1.0
+        case 'harbor': case 'waterfront': return 0.8
+        case 'artisan': return 0.7
+        case 'slum': return 0.35
+        case 'residential': return 0.28
+        case 'noble': return 0.2
+        case 'fortress': return 0.15
+        case 'temple': case 'cemetery': case 'garden': return 0.06
+        default: return 0.3
+      }
+    }
+    // A tavern is a tavern wherever it stands, so a trade BUILDING keeps a
+    // high floor; an ordinary house is a shop only because of its street.
+    const tw = tradeWeight(district)
+    const signChance = isTradeBldg
+      ? Math.max(0.5, 0.85 * (0.55 + 0.45 * tw))
+      : 0.85 * tw
     if (
       // Width gate is max(w,h), not w: a row_house is 1x2, and terraced row
       // houses are the ONE type a shopping street is mostly made of. Keying
@@ -1618,7 +1660,7 @@ export function buildBuildingMeshes(
     ) {
       // Sign at ground-floor top, ~2.3m above base — eye level for a
       // 1.6m-tall player so it reads as "shop sign" not "high banner".
-      tally('shopSign')
+      tallyIn('shopSign', district)
       const signY = Math.min(2.3, FLOOR_HEIGHT * 1.05)
       const signW = 0.5 + rand01(hash, 813) * 0.25      // 0.5..0.75
       const signH = 0.32 + rand01(hash, 815) * 0.16     // 0.32..0.48
@@ -1667,9 +1709,10 @@ export function buildBuildingMeshes(
     if (
       (isTradeBldg || isShopfrontHouse) && Math.max(fpT.w, fpT.h) >= 2 &&
       !NO_JITTER.has(obj.definitionId) &&
-      wallH > 1.8 && rand01(hash, 821) < (isTradeBldg ? 0.6 : 0.35)
+      wallH > 1.8 && rand01(hash, 821) <
+        (isTradeBldg ? Math.max(0.35, 0.6 * (0.55 + 0.45 * tw)) : 0.7 * tw)
     ) {
-      tally('awning')
+      tallyIn('awning', district)
       const awningY = Math.min(2.0, FLOOR_HEIGHT * 0.95)
       const awningW = Math.min(2.6, frontWallHalfW * 1.1)
       const awningD = 0.55
