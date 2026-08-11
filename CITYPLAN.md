@@ -1,0 +1,172 @@
+# CITYPLAN — how this town gets planned instead of assembled
+
+Read `DESIGN.md` for the aesthetic north star and `CLAUDE.md` for the session
+handoff. This file is the third one: **what a town is structurally, why ours
+is not one yet, and the order to fix it in.**
+
+## The diagnosis, in one sentence
+
+The generator has no causal hierarchy: it is a stack of independent passes
+that each sweep the whole map and none of which constrains the next, so
+nothing in the town is the way it is *because* of anything else.
+
+That is precisely what "scattered" means. Every previous fix has been an
+improvement to one pass — narrower streets, anchored plots, weenies at the end
+of vistas — and each of them worked. But a town assembled from independently
+good passes is still assembled. A planned town is *derived*.
+
+Here is what the pipeline does today, in order:
+
+    noise heightmap -> water channels from noise -> Voronoi districts
+      -> district ground paint -> plazas at district centres
+      -> roads radiating from the map centre -> erosion -> bridges
+      -> landmarks -> buildings on road edges -> props
+
+Read that list looking for causation and there is almost none. The water is
+noise and nothing responds to it. The districts are Voronoi cells around
+random centres, so a "harbour district" can sit inland and a "noble district"
+in a marsh. The roads radiate from the map centre whether or not anything is
+there. The plazas are at district centres, which are arbitrary points, not
+where roads meet.
+
+A real town is the opposite: every element is downstream of the one before.
+
+    SITE  ->  REASON  ->  ARMATURE  ->  BLOCKS  ->  PLOTS  ->  BUILDINGS  ->  DRESSING
+
+Why is the town *here* (a ford, a harbour, a defensible hill, a crossroads)?
+That answer picks the primary street. The primary street picks the market
+square. The square and the streets bound the blocks. The blocks subdivide into
+plots. Plots carry buildings. Buildings own their dressing.
+
+## The principles we are planning against
+
+Four sources, all saying compatible things, plus the Imagineering layer that
+DESIGN.md already commits us to.
+
+**Kevin Lynch, *The Image of the City* (1960).** People navigate by five
+elements: PATHS, EDGES, DISTRICTS, NODES, LANDMARKS. A place is *legible* when
+those five are distinct and reinforce one another. Score ourselves honestly:
+
+| element | what it should be | what we have |
+|---|---|---|
+| paths | a hierarchy you can feel — high street, lane, alley | tiers exist in data, but every street looks alike |
+| edges | river, wall, cliff: a seam the town acknowledges | river ignored; wall exists but is decorative |
+| districts | recognisable from inside, with a transition | Voronoi cells; you cannot tell you crossed one |
+| nodes | where paths converge and you pause | plazas sit at district centres, not junctions |
+| landmarks | visible from far, orienting | **done** — vista termination 6% -> 18% |
+
+Landmarks are the one element we have actually built. The other four are the
+work.
+
+**Camillo Sitte, *City Planning According to Artistic Principles* (1889).**
+The classic study of why medieval squares feel good and Beaux-Arts ones do
+not. Three rules we can encode:
+- A square must be ENCLOSED. Streets should enter at the corners, not through
+  the middle of a side, or the enclosure leaks out of the gap.
+- Monuments belong at the EDGE of a square, not the centre. The centre is for
+  people; a statue in the middle divides the space and blocks the view across.
+- A square's proportions should relate to the height of the buildings round
+  it — roughly 1:1 to 1:3 of width to facade height for the minor dimension.
+
+**Christopher Alexander, *A Pattern Language* (1977).** The relevant patterns:
+- **#106 Positive Outdoor Space.** Outdoor space must be *shaped* — convex,
+  bounded, deliberate. Space that is merely left over between buildings reads
+  as nothing. Most of our open ground is left over.
+- **#61 Small Public Squares.** A square people use is around 20m across, far
+  smaller than designers reach for. Ours were 48m before the last pass.
+- **#100 Pedestrian Street**, **#121 Path Shape.** A path is a *place*, not a
+  corridor — it wants bulges, narrowings and things to stop at.
+
+**Gordon Cullen, *Townscape* (1961).** SERIAL VISION: a town is experienced as
+a sequence of revealed views, and the pleasure is in the rhythm of enclosure
+and release. Turn a corner and something new is disclosed. This is the same
+idea as the Imagineering cross-dissolve, arrived at from the British side, and
+it is the one that argues hardest against a grid.
+
+**Imagineering (DESIGN.md).** The weenie (done). Cross-dissolve: you never see
+two lands at once, a bend or a berm hides the seam. The three-distance read:
+silhouette at 100ft, composition at 30ft, detail at 3ft. The story: every
+element answers "what happened here".
+
+Where the four agree is the plan: **make the space between buildings shaped
+and intentional, make the boundaries between areas perceptible, and make the
+sequence of views along a path rewarding.**
+
+## The order of work, and the metric that grades each
+
+Ordered by payoff per risk. Each item names the number that says it worked, so
+none of this is graded by squinting at a screenshot.
+
+### 1. ONE MATERIAL PER PLACE — the ground is a mosaic
+
+**Measured: 40% of paved-to-paved tile edges change material.** The commonest
+seam is street cobble against plaza flagstone, 252 of 659, and it is a
+regression: the road painter was taught to skip tiles that are already a
+designed square, so wherever a road crosses a plaza's outer ring the street
+keeps flagstone. `carvePlaza` then speckles its own rings with `(x+y)%3` and
+`(x+y)%5` patterns, which is a patchwork generator by construction.
+
+This is the "broken overlapping textures" report, and it is not a texture bug:
+it is six near-identical paving ids interleaved at tile granularity. A place
+should have ONE floor. The seam belongs at the edge of the place.
+
+*Grades: paving churn, target under 10%. Ground colour families (streets.mjs).*
+
+### 2. THE RIVER IS AN EDGE THE TOWN ACKNOWLEDGES
+
+**Measured: water is 6% of the map and 9% of buildings touch it.** The river
+is generated from noise before anything else exists and nothing downstream
+reads it. So it is a ribbon that happens to pass through, which is exactly the
+"scattered buildings and rivers" report.
+
+A town on a river has: a QUAY (a hard edge you can walk, not a mud bank), a
+FORD or bridge that is the reason the town is here, buildings that FRONT the
+water rather than turning their backs, and a waterfront district that is
+about the water. Lynch's edge only works if it is legible from inside.
+
+*Grades: waterfront frontage occupancy; bridges per crossing; a new
+`tools/site.mjs`.*
+
+### 3. NODES WHERE PATHS MEET, NOT AT DISTRICT CENTRES
+
+A square belongs where roads converge, because that is where people already
+are. Ours are placed at Voronoi centroids and the roads are drawn to them
+afterwards, which is backwards. Sitte's rules then apply: enter at the
+corners, keep it enclosed, monument at the edge.
+
+*Grades: share of squares with 3+ streets meeting; enclosure of square
+perimeter; vista termination.*
+
+### 4. DISTRICTS YOU CAN FEEL, WITH A CROSS-DISSOLVE
+
+A district should be recognisable from inside — its ground, its building
+types, its props, its density — and the boundary should be hidden by a bend, a
+gate, a bridge or a level change rather than being an invisible line where the
+palette swaps. Cross-dissolve is the Imagineering term; Cullen calls the same
+move a "closure".
+
+*Grades: district purity (what fraction of a district's buildings are its own
+types) and boundary legibility.*
+
+### 5. POSITIVE OUTDOOR SPACE
+
+Alexander #106. Every piece of open ground should be either a shaped public
+space or a private yard belonging to somebody. Leftover space between
+buildings is the failure mode. `softenBackOfBlock` made a start by turning
+back-of-block paving into gardens; the next step is enclosing them.
+
+*Grades: share of open ground that is inside a bounded, convex-ish region
+versus leftover slivers.*
+
+## Rules to hold onto while doing this
+
+- **Derive, do not decorate.** If a new pass sweeps the whole map and places
+  things by a global rule, it is scatter with better manners. Ask what it is
+  downstream of.
+- **A metric that scatter can satisfy will be satisfied by scatter.** Prefer
+  the metric only the real structure can move. See `emptiness.mjs` in
+  CLAUDE.md for the cautionary case.
+- **Decompose before attributing.** The street-width figure was a sum of two
+  terms with different owners and got assigned to the wrong one for months.
+- **Change the tool and the code separately.** A/B the tool against the old
+  build before claiming a delta.
