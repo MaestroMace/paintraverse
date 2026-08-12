@@ -370,6 +370,9 @@ export class TownGenerator implements IMapGenerator {
       terrainTiles, waterMap, squareMap
     )
 
+    // 7b. THE TOWN BUILDS A HARD EDGE ON ITS RIVER.
+    this.buildQuayWalls(width, height, roadMap, waterMap, heightMap, waterLevel)
+
     // 8. Place bridges over water where roads cross
     const bridges = this.placeBridges(width, height, roadMap, waterMap, rng)
     // A continuous river severs the town unless something crosses it, and
@@ -1388,6 +1391,82 @@ export class TownGenerator implements IMapGenerator {
    * Only inside the town. A quay round every pond in the countryside is a
    * ring road round a puddle; the bank out there should stay a bank.
    */
+  /**
+   * QUAY WALLS — where the town meets the river, the bank is BUILT.
+   *
+   * Reported: "the slope may work on the outskirts, but when it gets into the
+   * city I expect it to be built out like the rest of the town." That is
+   * correct and it is the same principle as the precinct wall: a graded earth
+   * bank is a RURAL riverbank, and a town makes a hard edge. Paris quais,
+   * Amsterdam grachten, York staithes — vertical masonry with the water at its
+   * foot, not a lawn running into the shallows.
+   *
+   * carveRiverBed grades every bank identically over SKIRT tiles, because at
+   * that point in generation there is no town yet to know about. This runs
+   * after the street network, which is the first moment anything knows where
+   * the town actually reached: carveQuays marks quay tiles into roadMap, so a
+   * road tile touching water IS the urban bank, and everything else stays the
+   * slope it was.
+   *
+   * Two properties a wall needs and a slope does not:
+   *   LEVEL — the quay top is flat, at one height along its run, so it reads
+   *     as a built surface rather than a ramp that happens to be paved.
+   *   SHARP — nothing between the quay top and the bed. The drop is the wall.
+   *
+   * The height is measured from the WATERLINE rather than from the existing
+   * ground, because that is what makes it a consistent parapet along the whole
+   * run instead of following the hill behind it.
+   */
+  private buildQuayWalls(
+    w: number, h: number, roadMap: boolean[][], waterMap: boolean[][],
+    heightMap: number[][], waterLevel: number[][]
+  ): void {
+    // 0.8 raw is ~1.45m of wall above the water — chest height from a boat,
+    // knee-to-waist from the quay side once the coping is on. Tall enough to
+    // read as masonry and low enough that the town does not lose its river.
+    const QUAY = 0.8
+    const level = (x: number, y: number): number | null => {
+      let best: number | null = null
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx, ny = y + dy
+          if (!waterMap[ny]?.[nx]) continue
+          const raw = waterLevel[ny]?.[nx]
+          if (raw === undefined || Number.isNaN(raw)) continue
+          if (best === null || raw < best) best = raw
+        }
+      }
+      return best
+    }
+    // Pass 1: the tiles that actually front the water.
+    const front: { x: number; y: number; top: number }[] = []
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        if (waterMap[y][x] || !roadMap[y][x]) continue
+        let touches = false
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          if (waterMap[y + dy]?.[x + dx]) { touches = true; break }
+        }
+        if (!touches) continue
+        const wl = level(x, y)
+        if (wl === null) continue
+        front.push({ x, y, top: wl + QUAY })
+      }
+    }
+    for (const f of front) heightMap[f.y][f.x] = f.top
+    // Pass 2: one tile back, blended, so the quay is a flat apron rather than
+    // a kerb with the old slope still rising behind it.
+    for (const f of front) {
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = f.x + dx, ny = f.y + dy
+        if (nx < 1 || ny < 1 || nx >= w - 1 || ny >= h - 1) continue
+        if (waterMap[ny][nx]) continue
+        if (front.some((o) => o.x === nx && o.y === ny)) continue
+        heightMap[ny][nx] = heightMap[ny][nx] * 0.35 + f.top * 0.65
+      }
+    }
+  }
+
   private carveQuays(
     roadMap: boolean[][], tierMap: number[][], terrain: number[][],
     waterMap: boolean[][], w: number, h: number,
@@ -1829,11 +1908,11 @@ export class TownGenerator implements IMapGenerator {
       return t === 8 || t === 9 || t === 14 || t === 15 || t === 16
     }
 
-    const WHARF = ['mooring', 'crate', 'barrel', 'rope_coil', 'fish_rack',
-      'crate_stack', 'barrel_stack', 'rope_coil']
+    const WHARF = ['mooring_ring', 'crate', 'barrel', 'rope_coil', 'fish_rack',
+      'crate_stack', 'barrel_stack', 'rope_coil', 'mooring_ring']
     const SHORE = ['reeds', 'reeds', 'reeds', 'rock', 'boulder', 'bush',
       'rocky_outcrop', 'reeds']
-    let boats = 0, cranes = 0
+    let boats = 0, cranes = 0, steps = 0, jetties = 0
 
     for (let y = 1; y < h - 1; y++) {
       for (let x = 1; x < w - 1; x++) {
@@ -1897,9 +1976,37 @@ export class TownGenerator implements IMapGenerator {
           cranes++
           continue
         }
-        // `mooring` is a horse_post standing at the lip of the quay — the
-        // vocabulary has no bollard and a tethering post is the same object.
-        if (id === 'mooring') id = 'horse_post'
+
+        // STEPS DOWN THE WALL, on the row that actually fronts the water.
+        // Only meaningful against a built quay — a flight of stone into a mud
+        // slope is nothing — so it is gated on the same wharf test that
+        // buildQuayWalls uses to decide where to build the wall at all.
+        if (isWharf && ring === 1 && steps < 4 && rng() < 0.14) {
+          out.push(this.createObj('water_steps', x, y,
+            Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2)))
+          taken.add(`${x},${y}`)
+          steps++
+          continue
+        }
+        // A JETTY reaching out over the water. `pier` and `dock` were both
+        // defined with finished geometry and placed nowhere; a wharf with a
+        // hard edge is exactly what they hang off.
+        if (isWharf && ring === 1 && jetties < 3 && rng() < 0.12) {
+          const len = 3
+          let clear = true
+          for (let k = 1; k <= len; k++) {
+            if (!waterMap[y + wz * k]?.[x + wx * k] ||
+                taken.has(`${x + wx * k},${y + wz * k}`)) { clear = false; break }
+          }
+          if (clear) {
+            const jx = x + wx, jy = y + wz
+            out.push(this.createObj(rng() < 0.5 ? 'pier' : 'dock', jx, jy,
+              Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2)))
+            for (let k = 0; k < len; k++) taken.add(`${x + wx * (k + 1)},${y + wz * (k + 1)}`)
+            jetties++
+            continue
+          }
+        }
 
         out.push(this.createObj(id, x, y,
           Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2)))

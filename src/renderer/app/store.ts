@@ -770,6 +770,27 @@ const defaultObjectDefs: ObjectDefinition[] = [
   // builder with fishing_boat, `boulder` / `rock` / `rocky_outcrop` share the
   // stone builder, `port_crane` shares the crane. Registering them costs six
   // definitions and buys a whole river vocabulary that was already modelled.
+  // Assets the QUAY WALL made possible. A hard vertical edge is a thing you
+  // can cut steps into and bolt rings to; a graded mud bank is not, which is
+  // why neither of these existed while every riverbank was a slope.
+  {
+    id: 'water_steps',
+    name: 'Water Steps',
+    category: 'infrastructure',
+    tags: ['water', 'passage'],
+    color: '#9A948A',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
+  {
+    id: 'mooring_ring',
+    name: 'Mooring Ring',
+    category: 'prop',
+    tags: ['water', 'harbor'],
+    color: '#6E6862',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
   {
     id: 'rowboat',
     name: 'Rowboat',

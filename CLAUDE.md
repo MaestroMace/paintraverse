@@ -972,6 +972,7 @@ Run these before believing anything about where the project is.
 | prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
 | **the river** | **river.mjs** | **bank relief 0.67m med / 1.28m max (was 0.03m), drop +3.6m** | **fixed** |
 | river severance | site.mjs | 0 of 5 seeds have an unreachable district, was 2 | clean |
+| waterfront dressing | (see dressWaterfront) | 10 maritime/natural types at the bank, was 2 | improving |
 | **360-degree read** | **allsides.mjs** | **flank/front 0.74 / 0.51 on two seeds, was 0.42 / 0.28** | **improving** |
 
 **Every metric here is now in or near range, and the last outlier was mostly
@@ -1093,6 +1094,27 @@ walls at all — they are defined by a BOUNDARY WALL.** `stone_wall` and
 `iron_fence` already exist as objects. Enclosing sparse quarters rather than
 building them up is the next move, and it would raise enclosure without
 undoing any of the character work.
+
+### THE QUAY WALL — the town builds its own river edge
+
+Reported: "the slope may work on the outskirts, but when it gets into the city
+I expect it to be built out like the rest of the town." Correct, and it is the
+precinct-wall argument again: a graded earth bank is RURAL, and a town makes a
+hard edge — Paris quais, Amsterdam grachten, York staithes.
+
+`carveRiverBed` grades every bank identically because at step 3 there is no
+town yet to know about. `buildQuayWalls` runs after the street network, which
+is the first moment anything knows where the town reached: `carveQuays` marks
+quay tiles into `roadMap`, so a road tile touching water IS the urban bank and
+everything else keeps its slope. It levels the quay top to waterline + 0.8 raw
+(~1.45m) along the whole run and leaves the drop sharp, because a wall needs a
+FLAT top and NOTHING between the top and the bed. Measure it from the
+waterline, not the existing ground, or the parapet follows the hill behind it.
+
+The hard edge is also what made three assets possible — you cannot cut steps
+into mud: `water_steps` down the wall, `mooring_ring` (dressWaterfront had
+been tying boats to a HORSE POST), and `pier` / `dock` as jetties, both of
+which had finished geometry and had never been placed.
 
 ### THE PRECINCT WALL — done, and what it is honestly worth
 

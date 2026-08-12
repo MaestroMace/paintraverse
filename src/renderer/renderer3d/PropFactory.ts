@@ -322,6 +322,44 @@ export function buildPropMeshes(
         }
       }
 
+    } else if (id === 'water_steps') {
+      // A flight cut DOWN the quay wall into the river. This is the detail
+      // that says a wall is a built thing people use rather than a retaining
+      // edge: you land a boat, you fetch water, you wash. It only became
+      // possible when the urban bank stopped being a slope — you cannot cut
+      // steps into mud.
+      //
+      // Drawn descending from the tile's own ground height, because a prop is
+      // placed on the quay TOP and the water is below it.
+      const STEPS = 6
+      const rise = 0.26, tread = 0.30, wide = 1.5
+      for (let k = 0; k < STEPS; k++) {
+        const g = new THREE.BoxGeometry(wide, rise, tread)
+        g.translate(px, elev - rise * (k + 0.5), pz + tread * (k + 0.5))
+        batch.addPositioned(g, k % 2 === 0 ? 0x9a948a : 0x8e8880)
+      }
+      // Low cheek walls either side, so the flight reads as masonry rather
+      // than as boxes stacked on a bank.
+      for (const sx of [-1, 1]) {
+        const cheek = new THREE.BoxGeometry(0.16, 0.5, tread * STEPS)
+        cheek.translate(px + sx * (wide / 2 + 0.06),
+          elev - rise * STEPS * 0.42, pz + tread * STEPS * 0.5)
+        batch.addPositioned(cheek, 0x877f76)
+      }
+    } else if (id === 'mooring_ring') {
+      // A squat stone bollard with an iron ring. The vocabulary had no
+      // bollard, so dressWaterfront was tying boats to a HORSE POST.
+      const post = new THREE.CylinderGeometry(0.16, 0.20, 0.52, 8)
+      post.translate(px, elev + 0.26, pz)
+      batch.addPositioned(post, 0x6e6862)
+      const cap = new THREE.SphereGeometry(0.17, 8, 5)
+      cap.scale(1, 0.55, 1)
+      cap.translate(px, elev + 0.52, pz)
+      batch.addPositioned(cap, 0x625c56)
+      const ring = new THREE.TorusGeometry(0.13, 0.032, 5, 10)
+      ring.rotateY(Math.PI / 2)
+      ring.translate(px, elev + 0.36, pz + 0.17)
+      batch.addPositioned(ring, 0x2a2622)
     } else if (id === 'reeds') {
       // A clump of thin blades leaning off vertical. The one thing a river
       // bank needed that nothing in the vocabulary could stand in for —
