@@ -1348,7 +1348,7 @@ export function buildPropMeshes(
         batch.addPositioned(endCap, 0x5a3a18)
       }
 
-    } else if (id === 'tent' || id === 'pavilion') {
+    } else if (id === 'tent' || id === 'pavilion' || id === 'market_tent') {
       // Peaked cloth tent — pyramidal cone on a square base platform
       const base = new THREE.BoxGeometry(fp.w * 0.85, 0.08, fp.h * 0.85)
       base.translate(px, elev + 0.04, pz)

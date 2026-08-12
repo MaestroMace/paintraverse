@@ -273,6 +273,21 @@ and tower and had 7. District character was not failing to be generated — it
 was being overwritten downstream. Grep for the variable being used twice in
 one block and only once meaningfully.
 
+**A designed place must be dressed BEFORE the global scatter runs.** Three
+instances of this in one day. The waterfront pass ran after placeVegetation
+and found half the bank planted with trees. The generic scatter took the quay
+lip. And `placePlazaFeatures` ran after placeProps, placeLights and
+placeStreetFurniture — the main square is the most attractive open space on
+the map by any distance metric, so those three filled it and the square's own
+composition pass arrived to find nothing left. The scatter answers "is this
+spot bare"; only the owner knows what belongs there.
+
+**Reset diagnostics at the TOP of the thing you are diagnosing.** `placeStats`
+was cleared inside `placeBuildings`, which is step 10 of about twenty — so
+every counter recorded by an earlier pass was wiped before anyone could read
+it, and a new counter in step 7 simply never appeared. A diagnostic that only
+works for the second half of a pipeline has a trap in it.
+
 **Census the ART, not only the gates.** `features.mjs` audits gated
 FEATURES and `registry.mjs` audits DEFINITIONS, and between them they still
 missed twenty finished prop geometries that the store never defined — so
@@ -962,11 +977,11 @@ Run these before believing anything about where the project is.
 | street emptiness | emptiness.mjs | median 3m, 0% over 12m | satisfiable by scatter — see below |
 | enclosure (to a WALL) | streets.mjs | median 3m, 0% over 15m | clean |
 | corridor width | streets.mjs | 4% of road over-wide, was 58% | clean |
-| street width | urbanform.mjs | 15m facade to facade vs 4-10m, was 12m | **regressed — see ledger** |
-| built coverage | urbanform.mjs | 43% vs 50-70% (walls no longer counted as buildings) | under |
+| street width | urbanform.mjs | 12m facade to facade vs 4-10m | recovered |
+| built coverage | urbanform.mjs | 47% vs 50-70% (walls not counted as buildings) | near range |
 | **district character** | **districts.mjs** | **55% of buildings distinctive to their quarter, was 26%** | **improving** |
 | party walls | urbanform.mjs | 89% vs 60-80% | above range, deliberately |
-| frontage occupancy | urbanform.mjs | **74% of ACHIEVABLE** frontage vs 85-95% (raw 65%) | near range |
+| frontage occupancy | urbanform.mjs | **76% of ACHIEVABLE** frontage vs 85-95% (raw 70%) | near range |
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
 | prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |

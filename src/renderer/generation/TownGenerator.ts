@@ -227,7 +227,7 @@ const NEVER_TERRACED = new Set([
 ])
 
 const DISTRICT_PROPS: Record<DistrictType, string[]> = {
-  market: ['market_stall', 'crate', 'crate_stack', 'barrel', 'hanging_sign', 'wagon', 'sign', 'cafe_table', 'cart', 'hay_bale', 'bunting_pole', 'bunting_pole'],
+  market: ['market_stall', 'market_tent', 'crate', 'crate_stack', 'barrel', 'hanging_sign', 'wagon', 'sign', 'cafe_table', 'cart', 'market_tent', 'bunting_pole'],
   residential: ['potted_plant', 'bench', 'well', 'fence', 'planter_box', 'flower_box', 'cloth_line', 'rain_barrel', 'woodpile'],
   artisan: ['barrel', 'crate', 'barrel_stack', 'sign', 'fence', 'crate_stack', 'woodpile', 'cart', 'rain_barrel', 'forge_brazier', 'forge_brazier'],
   noble: ['potted_plant', 'planter_box', 'bench', 'statue', 'fountain', 'wall_lantern', 'column', 'monument', 'garden_arch', 'flower_box', 'heraldic_banner', 'heraldic_banner'],
@@ -290,6 +290,13 @@ export class TownGenerator implements IMapGenerator {
     const { width, height, seed, complexity, density } = config
     const rng = createRNG(seed)
     const noise = new SimplexNoise(seed)
+
+    // Counters are reset HERE, at the top of generation, not inside
+    // placeBuildings. They used to be cleared there — which is step 10 — so
+    // every counter recorded by an earlier pass was silently wiped before
+    // anyone could read it. A diagnostic that only works for passes after the
+    // halfway point is a diagnostic with a trap in it.
+    for (const k of Object.keys(placeStats)) delete placeStats[k]
 
     // 1. Height map
     const heightMap = this.generateHeightMap(width, height, noise)
@@ -370,6 +377,10 @@ export class TownGenerator implements IMapGenerator {
       terrainTiles, waterMap, squareMap
     )
 
+    // 7a. Sitte: a square is a room, and streets meet it at its corners.
+    this.openSquareRooms(width, height, roadMap, squareMap, terrainTiles,
+      mainCenter, plazaRadius)
+
     // 7b. THE TOWN BUILDS A HARD EDGE ON ITS RIVER.
     this.buildQuayWalls(width, height, roadMap, waterMap, heightMap, waterLevel)
 
@@ -405,7 +416,7 @@ export class TownGenerator implements IMapGenerator {
     // 10. Place buildings with district awareness, around the landmarks.
     const buildings = this.placeBuildings(
       width, height, roadMap, waterMap, heightMap, districtMap, districts,
-      complexity, density, rng, mainCenter, terrainTiles, noise,
+      complexity, density, rng, mainCenter, terrainTiles, noise, squareMap,
       [...bridges, ...landmarks] // already placed — don't build through them
     )
 
@@ -485,6 +496,27 @@ export class TownGenerator implements IMapGenerator {
     placedProps.push(...courtyardProps)
 
     // 13. Contextual props per district
+    // 13a. THE MAIN SQUARE DRESSES ITSELF FIRST.
+    //
+    // This used to run after placeProps, placeLights and placeStreetFurniture,
+    // and the square is the most attractive open space on the map by any
+    // distance metric — so those three filled it, and by the time its own pass
+    // arrived there was nothing left. Measured: the fountain placed ZERO times
+    // across three towns. Every town this project has generated has had an
+    // empty central node, silently, because the composition pass ran last.
+    //
+    // Third instance of the same shape today, after the waterfront and the
+    // quay: A DESIGNED PLACE MUST BE DRESSED BEFORE THE GLOBAL SCATTER RUNS.
+    // The scatter answers "is this spot bare"; only the owner knows what
+    // belongs there.
+    // 15. Plaza features (fountain, market stalls, statues)
+    const plazaProps = this.placePlazaFeatures(
+      width, height, mainCenter, plazaRadius, districts,
+      taken(), density, rng,
+      roadMap, waterMap,
+    )
+    placedProps.push(...plazaProps)
+
     const props = this.placeProps(
       width, height, roadMap, waterMap,
       anchors,
@@ -506,13 +538,6 @@ export class TownGenerator implements IMapGenerator {
     )
     placedProps.push(...streetFurniture)
 
-    // 15. Plaza features (fountain, market stalls, statues)
-    const plazaProps = this.placePlazaFeatures(
-      width, height, mainCenter, plazaRadius, districts,
-      taken(), density, rng,
-      roadMap, waterMap,
-    )
-    placedProps.push(...plazaProps)
 
     // 16. Vegetation with district awareness + species variety
     const vegetation = this.placeVegetation(
@@ -1467,6 +1492,93 @@ export class TownGenerator implements IMapGenerator {
     }
   }
 
+  /**
+   * OPEN A ROOM IN THE SQUARE — Sitte's rule, which this generator cites and
+   * has never obeyed.
+   *
+   * The main streets all radiate from the town centre, so within a few tiles
+   * of it they overlap into one solid mass of carriageway. The square that
+   * `carvePlaza` paves there is therefore not a room, it is a junction with
+   * flagstones. Measured consequence: `placePlazaFeatures` could not find a
+   * free 3x3 anywhere inside the plaza radius, so the fountain placed ZERO
+   * times in every town this project has ever generated, and searching wider
+   * only put it 12-15 tiles away in a random back lot.
+   *
+   * Sitte's actual prescription is that streets should enter a square at its
+   * CORNERS and not run across it. This erodes carriageway out of the middle
+   * of the square, using the same simple-point criterion as
+   * `narrowRoadSwathes` — a tile whose road neighbours form exactly one
+   * connected run can be removed without disconnecting anything or opening a
+   * hole, and the test is re-run against the LIVE map between removals
+   * because two tiles can each be individually removable and jointly cut the
+   * network. The paving stays; only the carriageway goes.
+   */
+  private openSquareRooms(
+    w: number, h: number, roadMap: boolean[][], squareMap: boolean[][],
+    terrain: number[][], center: { x: number; y: number }, plazaRadius: number
+  ): void {
+    // The room is the inner part of the square; the outer ring stays
+    // carriageway so the streets still reach it and run AROUND it, which is
+    // both how traffic works and what keeps the network joined.
+    const inner = Math.max(2, plazaRadius * 0.62)
+    const room: { x: number; y: number }[] = []
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        if (!roadMap[y][x]) continue
+        if (squareMap && !squareMap[y][x]) continue
+        if (Math.hypot(x - center.x, y - center.y) > inner) continue
+        room.push({ x, y })
+      }
+    }
+    if (room.length === 0) { rejected('plaza~roomEmpty'); return }
+
+    // Count connected road components, so the removal can be TESTED rather
+    // than argued about.
+    const components = (): number => {
+      const seen = Array.from({ length: h }, () => new Uint8Array(w))
+      let n = 0
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          if (!roadMap[y][x] || seen[y][x]) continue
+          n++
+          const q: [number, number][] = [[x, y]]
+          seen[y][x] = 1
+          for (let i = 0; i < q.length; i++) {
+            const [cx, cy] = q[i]
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+              const nx = cx + dx, ny = cy + dy
+              if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+              if (!roadMap[ny][nx] || seen[ny][nx]) continue
+              seen[ny][nx] = 1
+              q.push([nx, ny])
+            }
+          }
+        }
+      }
+      return n
+    }
+
+    // A SIMPLE POINT CANNOT MAKE A HOLE — that is its guarantee, and a square
+    // IS a hole, so the criterion narrowRoadSwathes uses is the wrong tool
+    // here. It removed exactly one tile. Cut the whole room instead and then
+    // TEST connectivity, restoring if it broke: the ring of carriageway left
+    // around the room is what carries the spokes past each other, so in
+    // practice it holds, but "in practice" is not a guarantee and the check
+    // costs one flood fill.
+    const before = components()
+    for (const t of room) roadMap[t.y][t.x] = false
+    if (components() > before) {
+      for (const t of room) roadMap[t.y][t.x] = true
+      rejected('plaza~roomWouldSever')
+      return
+    }
+    // Leave the flagstones: a square is paved, it just is not a road.
+    for (const t of room) {
+      if (terrain[t.y][t.x] === 8 || terrain[t.y][t.x] === 9) terrain[t.y][t.x] = 14
+    }
+    rejected(`plaza~roomTiles${room.length}`)
+  }
+
   private carveQuays(
     roadMap: boolean[][], tierMap: number[][], terrain: number[][],
     waterMap: boolean[][], w: number, h: number,
@@ -2078,14 +2190,13 @@ export class TownGenerator implements IMapGenerator {
     districtMap: number[][], districts: District[],
     complexity: number, density: number,
     rng: () => number, center: { x: number; y: number },
-    terrainTiles: number[][], noise: SimplexNoise,
+    terrainTiles: number[][], noise: SimplexNoise, squareMap: boolean[][],
     /** Already-placed structures whose tiles are off limits — bridges are
      *  laid down before buildings, and without this a house could be built
      *  straight through one. */
     blockers: PlacedObject[] = []
   ): PlacedObject[] {
     const buildings: PlacedObject[] = []
-    for (const k of Object.keys(placeStats)) delete placeStats[k]
     // Per-generation, or a second Generate click inherits the first
     // town's counts and every scarce type reads as already at its cap.
     this._perDistrictType.clear()
@@ -2148,6 +2259,17 @@ export class TownGenerator implements IMapGenerator {
     placeStats._freeTiles = freeTiles
     placeStats._maxBuildings = maxBuildings
     let placed = 0
+
+    // A DESIGNED SQUARE IS NOT A BUILDING PLOT. openSquareRooms cuts the
+    // carriageway out of the middle of the main square so it can be a room
+    // rather than a junction — and that immediately handed the square to this
+    // placer, which saw fresh unoccupied paving and built on it. The fountain
+    // then had to search fourteen tiles out again. A square is reserved.
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (squareMap?.[y]?.[x]) occupied[y][x] = true
+      }
+    }
 
     // Phase B: Walk edges, placing buildings with continuity bonus
     // Track which tiles have a neighbor building for "street wall" bonus
@@ -3508,11 +3630,70 @@ export class TownGenerator implements IMapGenerator {
     this.markObjects(occupied, existingObjs, w, h)
 
     // Fountain at main center
-    if (this.areaFree(occupied, center.x - 1, center.y - 1, 2, 2, w, h)) {
-      props.push(this.createObj('fountain', center.x - 1, center.y - 1))
-      this.markArea(occupied, center.x - 1, center.y - 1, 2, 2, w, h)
+    // THE GRAND fountain on the main square, if it fits. This is Lynch's NODE
+    // — the one place in the town every path leads to — and it had the same
+    // 2x2 fountain any district plaza gets. `fountain_grand` is a real variant
+    // (`const grand = id === 'fountain_grand'` in PropFactory), it had never
+    // been definable, and a bigger centrepiece is also a weenie: something to
+    // walk toward down a street.
+    //
+    // AND IT HAS TO SEARCH, because the exact centre is never free. The town's
+    // main streets radiate FROM this point — nine of them — so the centre tile
+    // is a road junction, and createOccupied marks roads. Testing only
+    // (center-1, center-1) meant the gate failed every single time: measured
+    // across three towns, `fountain` placed ZERO. The central node of every
+    // town this project has ever generated has been empty, silently, because
+    // the one spot it was allowed to use was the one spot it could not have.
+    //
+    // A fountain beside the junction rather than in it is also just right.
+    let placedFountain = false
+    // Reach well past the square. The main streets all radiate from this
+    // point, so within a few tiles of it they overlap into one solid mass of
+    // road and there is no free 3x3 anywhere inside the plaza radius at all —
+    // which is why the fountain placed zero times even when this pass ran
+    // first. The square's usable ground starts where the roads separate.
+    // BOUNDED to the square. Searching wider does find a free 3x3, but at
+    // ring 11-15 — thirty to forty-five metres out, in a back lot. A grand
+    // fountain that is not on the square is not a centrepiece, it is scatter
+    // with a big footprint, and a town with no fountain is the better of the
+    // two. If the square is genuinely full (a landmark took it) that is a
+    // legitimate answer.
+    const R = Math.floor(plazaRadius) + 2
+    spiral:
+    for (let r = 0; r <= R && !placedFountain; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (r > 0 && Math.abs(dx) !== r && Math.abs(dy) !== r) continue
+          const fx = center.x - 1 + dx, fy = center.y - 1 + dy
+          if (this.areaFree(occupied, fx, fy, 3, 3, w, h)) {
+            props.push(this.createObj('fountain_grand', fx, fy))
+            this.markArea(occupied, fx, fy, 3, 3, w, h)
+            placedFountain = true
+            break spiral
+          }
+        }
+      }
+    }
+    if (placedFountain) rejected('plaza~grandOK')
+    if (!placedFountain) {
+      spiral2:
+      for (let r = 0; r <= R; r++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (r > 0 && Math.abs(dx) !== r && Math.abs(dy) !== r) continue
+            const fx = center.x - 1 + dx, fy = center.y - 1 + dy
+            if (this.areaFree(occupied, fx, fy, 2, 2, w, h)) {
+              props.push(this.createObj('fountain', fx, fy))
+              this.markArea(occupied, fx, fy, 2, 2, w, h)
+              placedFountain = true
+              break spiral2
+            }
+          }
+        }
+      }
     }
 
+    if (!placedFountain) rejected('plaza~noFountainAnywhere')
     // Two concentric rings around the fountain instead of a random
     // scatter. Inner ring: 8 cafe tables at cardinal/diagonal angles.
     // Outer ring: market stalls alternating with benches. Each prop's
@@ -3575,7 +3756,13 @@ export class TownGenerator implements IMapGenerator {
       const ang = (i / outerCount) * Math.PI * 2
       const rx = Math.round(center.x + Math.cos(ang) * outerR)
       const ry = Math.round(center.y + Math.sin(ang) * outerR)
-      if (i % 2 === 0) placePlaza('market_stall', rx, ry, 2, 2, ang + Math.PI)
+      // Alternate stalls with TENTS. The notes have said for a long time that
+      // market districts read as plain row houses; a peaked cloth tent is the
+      // single most legible "this is a market" object in the vocabulary, and
+      // it had geometry the store never defined so it could never be placed.
+      if (i % 2 === 0) {
+        placePlaza(i % 4 === 0 ? 'market_tent' : 'market_stall', rx, ry, 2, 2, ang + Math.PI)
+      }
       else placePlaza('bench', rx, ry, 2, 1, ang + Math.PI)
     }
 
@@ -4272,7 +4459,13 @@ export class TownGenerator implements IMapGenerator {
         const mx = gate.x + (gate.x < w / 2 ? -d : d)
         const my = gate.y
         if (mx >= 0 && mx < w && my >= 0 && my < h && !occupied[my][mx]) {
-          countryside.push(this.createObj('road_marker', mx, my, 0))
+          // Every so often the marker is a STANDING STONE instead — older
+          // than the road it now marks, which is the kind of thing that makes
+          // a landscape feel like it has a past. Its own branch in the stone
+          // builder (`if (id === 'standing_stone')`), never definable until
+          // now, so it has never once appeared.
+          countryside.push(this.createObj(
+            rng() < 0.22 ? 'standing_stone' : 'road_marker', mx, my, 0))
           occupied[my][mx] = true
           break
         }

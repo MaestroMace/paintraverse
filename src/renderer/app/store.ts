@@ -773,6 +773,41 @@ const defaultObjectDefs: ObjectDefinition[] = [
   // Assets the QUAY WALL made possible. A hard vertical edge is a thing you
   // can cut steps into and bolt rings to; a graded mud bank is not, which is
   // why neither of these existed while every riverbank was a slope.
+  // Three more reverse ghosts, and only three: of the fourteen prop geometries
+  // the store never defined, most turned out to be ALIASES sharing a builder
+  // with an id that is already defined — `hedge` draws a bush, `stone_bridge`
+  // and `arched_bridge` are the existing bridge, `milestone` is a road_marker,
+  // `picket_fence` is a fence, `haystack` is a hay_bale. Only these three have
+  // a builder that actually branches on the id, so only these three are art
+  // the town does not already have. Checking which is which took one grep and
+  // it turned "a whole round of free content" into an honest three.
+  {
+    id: 'market_tent',
+    name: 'Market Tent',
+    category: 'prop',
+    tags: ['commercial', 'market'],
+    color: '#B0623A',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: []
+  },
+  {
+    id: 'fountain_grand',
+    name: 'Grand Fountain',
+    category: 'prop',
+    tags: ['civic', 'landmark'],
+    color: '#9AA0A4',
+    footprint: { w: 3, h: 3 },
+    styleSetSlots: []
+  },
+  {
+    id: 'standing_stone',
+    name: 'Standing Stone',
+    category: 'prop',
+    tags: ['natural', 'landmark'],
+    color: '#7E7A72',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: []
+  },
   {
     id: 'water_steps',
     name: 'Water Steps',
