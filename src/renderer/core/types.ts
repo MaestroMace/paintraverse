@@ -55,6 +55,21 @@ export interface MapLayer {
    * at, independent of the ground under it.
    */
   waterLevel?: number[][]
+  /**
+   * Which quarter owns each tile, as a district id, plus the id -> type table
+   * to read it with. Terrain layers only.
+   *
+   * Stored for the same reason `heightMap` is: it is a fact about the PLAN
+   * that nothing downstream can recover. The obvious reconstruction — read the
+   * ground and infer the quarter — is the mistake this repo has now made three
+   * times (dressEmptyStreets, narrowRoadSwathes, anomaly.mjs's sky mask), and
+   * the one-material-per-place pass makes it worse by deliberately giving
+   * several quarters the same paving. Buildings carry a `district` property,
+   * but they are sparse and absent exactly where the interesting question is:
+   * on the street between two quarters.
+   */
+  districtMap?: number[][]
+  districtTypes?: Record<number, string>
 }
 
 export type LayerType = 'terrain' | 'structure' | 'prop' | 'road' | 'water' | 'custom'

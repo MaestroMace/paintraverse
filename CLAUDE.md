@@ -1009,6 +1009,8 @@ Run these before believing anything about where the project is.
 | river severance | site.mjs | 0 of 5 seeds have an unreachable district, was 2 | clean |
 | waterfront dressing | (see dressWaterfront) | 10 maritime/natural types at the bank, was 2 | improving |
 | **360-degree read** | **allsides.mjs** | **flank/front 0.74 / 0.51 on two seeds, was 0.42 / 0.28** | **improving** |
+| **the district seam** | **seam.mjs** | **90% of quarter crossings marked, 3 unmarked in 8 towns** | **closed — was believed unbuilt** |
+| which quarters exist | quarters.mjs | one water quarter per town, residential in 8 of 8 | fixed |
 
 **Every metric here is now in or near range, and the last outlier was mostly
 the denominator.** That standing instruction — measure what the unoccupied
@@ -1641,6 +1643,17 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   WALLPAPER that fires everywhere equally and so tells the player nothing.
   Run it after touching any dressing gate. Read the caveat it prints — a
   feature correctly confined to a rare type looks identical to a ghost.
+- `node tools/seam.mjs [seeds...] [--shoot]` — **what is standing where you
+  cross into another quarter.** Lynch's DISTRICT edge, the Imagineering
+  cross-dissolve, Cullen's closure. **Reads 90% marked over 30 crossings on 8
+  seeds, which REFUTES CITYPLAN's long-standing "the seam is unbuilt" — do not
+  build a cross-dissolve pass for it.** Read its sample-size note first: there
+  are only 3-5 crossings a town, because a boundary running ALONG a street
+  yields one pair per tile while one CROSSING it yields one pair in total. Two
+  corrections were needed before its number was honest, both on the record in
+  the file, and `--shoot` photographs the crossings because `bend` carries a
+  third of the pass rate and no number can settle a claim about what is
+  visible.
 - `node tools/quarters.mjs [seeds...]` — **which districts a town gets at all,
   and how big each one is.** districts.mjs grades a quarter from inside;
   nothing asked the prior question. That gap hid a real defect for the length

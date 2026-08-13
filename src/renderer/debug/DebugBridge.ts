@@ -24,7 +24,7 @@ import { auditRoofWinding } from '../renderer3d/architecture/Roofs'
 import { placeStats } from '../generation/TownGenerator'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
 import { TILE } from '../renderer3d/scale'
-import { TERRAIN_COLORS, TERRAIN_NAMES } from '../core/terrain'
+import { TERRAIN_COLORS, TERRAIN_NAMES, isCirculation } from '../core/terrain'
 
 export function installDebugBridge(): void {
   if (typeof window === 'undefined') return
@@ -56,6 +56,11 @@ export function installDebugBridge(): void {
      * a fourth living in tools/ would be the same mistake with a longer fuse.
      */
     terrainPalette: () => ({ colors: { ...TERRAIN_COLORS }, names: { ...TERRAIN_NAMES } }),
+
+    /** Which tiles a person can WALK along. Same argument as the palette: only
+     *  8 and 9 are circulation, 14/15/16 are paving, and every tool that
+     *  hardcoded that pair is one edit away from disagreeing with the engine. */
+    isCirculation: (tileId: number | undefined) => isCirculation(tileId),
 
     /** Every roof triangle checked for OUTWARD winding. The batched material
      *  is FrontSide, so an inward face is deleted, not just mis-lit — and you

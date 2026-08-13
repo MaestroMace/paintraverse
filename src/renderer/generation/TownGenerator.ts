@@ -650,7 +650,12 @@ export class TownGenerator implements IMapGenerator {
       id: uuid(), name: 'Terrain', type: 'terrain',
       // heightMap travels WITH the terrain, so the renderer draws the ground
       // this generator actually planned on — including the river valley.
-      visible: true, locked: false, objects: [], terrainTiles, heightMap, waterLevel
+      // The district plan travels with it for the same reason: it is a fact
+      // about the PLAN, and reading it back off the ground is the mistake this
+      // repo keeps making. See MapLayer.districtMap.
+      visible: true, locked: false, objects: [], terrainTiles, heightMap, waterLevel,
+      districtMap,
+      districtTypes: Object.fromEntries(districts.map((d) => [d.id, d.type])),
     }
     const structureLayer: MapLayer = {
       id: uuid(), name: 'Structures', type: 'structure',

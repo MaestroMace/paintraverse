@@ -345,9 +345,52 @@ attempts at the type mix and exactly why they failed, so this wants the
 render-layer route (a row house in a market district drawn as a shopfront)
 rather than another go at the weights.
 
-Also unbuilt: the SEAM. Nothing hides a district boundary — no bend, gate,
-bridge or level change — so the transition is an invisible line on a Voronoi
-diagram. That is the cross-dissolve, and it is untouched.
+**THE SEAM IS NOT UNBUILT — measured, 90% marked, and the claim below was
+wrong.** `tools/seam.mjs` stands on every point where a street carries you
+from one quarter into the next and asks what is there. Over 8 seeds: 30
+crossings, **27 of them marked** — gateway 33%, bend 30%, pinch 10%, level
+10%, water 3%, wall 3% — and **three unmarked in eight towns.** Writing a
+cross-dissolve pass would be a mechanism for a cause that is not there, which
+this project has now paid for three times.
+
+Two of the three bend crossings were photographed (`--shoot`) before the
+verdict was believed, because `bend` carries a third of the pass rate and
+"the street turns" is a claim about what a person SEES. Both show the view
+closed by a building squarely across the road. It happens by accident of the
+road network rather than by design, but Cullen does not ask who intended it.
+
+Four things about building this that generalise, three of them corrections to
+the tool made before its number was trusted:
+
+- **The population is not "boundary tiles".** A Voronoi edge through the
+  middle of a block is invisible and needs nothing. What a player experiences
+  is a CROSSING, and there are only 3-5 a town — not a shortage of
+  measurement but the geometry: **a boundary running ALONG a street yields one
+  pair per tile of overlap, one CROSSING it yields one pair in total.** 30
+  crossings against 203 alongside-pairs. Run eight seeds before believing any
+  rate here.
+- **The first run read 95% marked with `bend` at 31%, and it was counting
+  sideways steps across ordinary streets as closures.** A pair of adjacent
+  walkable tiles in different quarters is not a crossing if the boundary runs
+  along the carriageway — nobody walks that way, and casting a sightline along
+  that axis hits the opposite facade at once. Same shape as the street-width
+  bug: a scan that runs both axes at every road tile measures LENGTH half the
+  time. The exact test is that the street continues through the join.
+- **Two halves of the tool disagreed and one of them was not about vision.**
+  `turns()` read the walkable CORRIDOR and `cast()` read BUILDINGS, so a road
+  ending at open paving scored as a closure while you could still see twenty
+  tiles down it. Only the second is something a person experiences; both have
+  to hold now.
+- **The ground-colour reading is structurally near zero and says so.** Both
+  tiles of a crossing are carriageway, which is painted the same in every
+  quarter, so the sample excludes the thing the palette question is about. It
+  is printed with that caveat attached rather than as a 0%.
+
+The remaining signal is **BOTH LANDS at 40%** — that share of crossings shows
+you 18m or more of each quarter at once. Whether that is a defect is an
+art-direction call and not obviously one: "never see two lands at once" is a
+theme-park rule for keeping fictions apart, and a real town shows you the next
+quarter down the street all the time.
 
 ### 5. POSITIVE OUTDOOR SPACE
 
