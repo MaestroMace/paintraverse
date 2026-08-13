@@ -173,6 +173,42 @@ const defaultObjectDefs: ObjectDefinition[] = [
   // one or two quarters, so a quarter can be filled with its OWN fabric.
   // Every one of them is registered in all six id-keyed tables — see
   // tools/registry.mjs, which exists because missing one is silent.
+  // === SMALL TRADE-QUARTER TYPES ===
+  //
+  // Measured: noble 100%, garden 85%, fortress 71% district character — the
+  // quarters that were given their own small vocabulary — against harbor 14%,
+  // waterfront 17%, market 33%. The trade quarters are three near-identical
+  // places: row houses, shops and trade dressing, sharing their whole
+  // vocabulary with each other.
+  //
+  // They DO have exclusive types already. They are just too big to ever get
+  // placed: `covered_market` is market-only at 4x3 and `lighthouse` is
+  // harbor-only at 3x3, and placeBuildings' own note records why that loses —
+  // a type's real odds are its weight TIMES how often it fits, and a 4x3 fits
+  // almost nowhere. So the exclusive vocabulary has to be SMALL, which is
+  // exactly the shape that worked for temple, cemetery and noble.
+  //
+  // Both get a distinct massing template rather than a new name on the same
+  // box, because a type that reads identically to a row house is WALLPAPER
+  // however well it scores.
+  {
+    id: 'net_loft',
+    name: 'Net Loft',
+    category: 'building',
+    tags: ['structure', 'commercial', 'harbor'],
+    color: '#8A7A5E',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  {
+    id: 'weigh_house',
+    name: 'Weigh House',
+    category: 'building',
+    tags: ['structure', 'commercial', 'market'],
+    color: '#A89272',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
   {
     id: 'clergy_house',
     name: 'Clergy House',

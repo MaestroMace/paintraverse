@@ -126,7 +126,7 @@ const BUILDING_HEIGHTS: Record<string, number> = {
   bell_tower_tall: 9.0, cathedral: 7.0, gatehouse: 4.0, lighthouse: 8.0,
   mill: 4.0, round_tower: 5.0, stable: 2.2,
   // Small district-specific houses.
-  clergy_house: 2.6, almshouse: 2.4, sexton_hut: 1.6,
+  net_loft: 3.4, weigh_house: 3.0, clergy_house: 2.6, almshouse: 2.4, sexton_hut: 1.6,
   mausoleum: 1.8, coach_house: 2.2, potting_shed: 1.4,
   // BARRIERS. This table is keyed by definition id and consulted for every
   // structure-layer object, not only buildings, so a wall absent from it
@@ -158,7 +158,7 @@ const BUILDING_ROOF_STYLE: Record<string, RoofStyle> = {
   stable: 'gabled',
   // A mausoleum is a low stone box with a shallow lid — the flat top is the
   // silhouette that says "tomb" rather than "cottage".
-  clergy_house: 'steep', almshouse: 'steep', sexton_hut: 'gabled',
+  net_loft: 'steep', weigh_house: 'hipped', clergy_house: 'steep', almshouse: 'steep', sexton_hut: 'gabled',
   mausoleum: 'hipped', coach_house: 'gabled', potting_shed: 'gabled',
   stone_wall: 'flat', stone_wall_v: 'flat', crenellated_wall: 'flat',
   precinct_wall: 'flat', precinct_wall_v: 'flat', aqueduct: 'flat',

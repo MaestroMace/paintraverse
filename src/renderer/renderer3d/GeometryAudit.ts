@@ -63,6 +63,21 @@ const WATER_TOLERANT = new Set([
   'bridge', 'pier', 'dock', 'fishing_boat', 'water_channel', 'mill',
   'lighthouse', 'crane', 'well', 'fountain',
 ])
+/**
+ * A VESSEL floats, so it stands on water by definition.
+ *
+ * The set above is a list of literals maintained by hand, and a new water type
+ * is exactly what it forgets: `rowboat` and `skiff` were registered, moored
+ * against the new quays, and immediately reported as props standing in a
+ * river. That is the second time today the same hardcoded-list shape has
+ * produced a false error — the first was `footbridge` as a building in the
+ * water, fixed by reading the `passage` tag. Read the tag here too. The
+ * definitions already say what these things are.
+ */
+function tolerAtesWater(def: ObjectDefinition | undefined): boolean {
+  const tags = def?.tags ?? []
+  return tags.includes('vessel') || tags.includes('passage')
+}
 
 const MAX_ISSUES = 60
 
@@ -163,7 +178,8 @@ export function auditMapGeometry(
       add('building-on-road', 'error', obj,
         `${roadTiles}/${fp.w * fp.h} footprint tiles are road/alley — building sits in the street`)
     }
-    if (waterTiles > 0 && !WATER_TOLERANT.has(obj.definitionId) && !isPassage) {
+    if (waterTiles > 0 && !WATER_TOLERANT.has(obj.definitionId) && !isPassage &&
+        !tolerAtesWater(defs.get(obj.definitionId))) {
       add('building-in-water', 'error', obj,
         `${waterTiles}/${fp.w * fp.h} footprint tiles are water`)
     }
@@ -188,7 +204,8 @@ export function auditMapGeometry(
     }
 
     const t = tileAt(obj.x, obj.y)
-    if (t === TILE_WATER && !WATER_TOLERANT.has(obj.definitionId)) {
+    if (t === TILE_WATER && !WATER_TOLERANT.has(obj.definitionId) &&
+        !tolerAtesWater(defs.get(obj.definitionId))) {
       add('prop-in-water', 'warn', obj, `stands on a water tile`)
     }
 

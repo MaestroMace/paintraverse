@@ -42,6 +42,9 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'row_house', w: 1, h: 2, weight: 3 },
     { id: 'tavern', w: 4, h: 3, weight: 2 },
     { id: 'covered_market', w: 4, h: 3, weight: 2 },
+    // Market's only exclusive type was covered_market at 4x3, which is to say
+    // it had none. A weigh house is 2x2 and arcaded.
+    { id: 'weigh_house', w: 2, h: 2, weight: 6 },
     { id: 'building_small', w: 2, h: 2, weight: 2 },
     { id: 'apothecary', w: 2, h: 3, weight: 2 },
     { id: 'inn', w: 3, h: 3, weight: 1 },
@@ -97,6 +100,7 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'inn', w: 3, h: 3, weight: 2 },
     { id: 'half_timber', w: 3, h: 2, weight: 1 },
     { id: 'mill', w: 3, h: 3, weight: 6 },
+    { id: 'net_loft', w: 2, h: 2, weight: 5 },
   ],
   temple: [
     { id: 'chapel', w: 3, h: 4, weight: 5 },
@@ -143,6 +147,10 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'inn', w: 3, h: 3, weight: 2 },
     { id: 'building_small', w: 2, h: 2, weight: 2 },
     { id: 'lighthouse', w: 3, h: 3, weight: 4 },
+    // The quarter's one SMALL exclusive type. warehouse (25%) and lighthouse
+    // (12%) are exclusive-ish already and never place, because a 4x3 and a
+    // 3x3 lose the fit lottery to a 1x2 row house whatever their weight.
+    { id: 'net_loft', w: 2, h: 2, weight: 6 },
     { id: 'mill', w: 3, h: 3, weight: 5 },
   ],
   fortress: [
@@ -437,7 +445,7 @@ export class TownGenerator implements IMapGenerator {
     // with barrels).
     const anchors: PlacedObject[] = [...buildings, ...landmarks]
     const blockers: PlacedObject[] = [...bridges]
-    const placedProps: PlacedObject[] = []
+    let placedProps: PlacedObject[] = []
     /** Structures placed so far — occupancy only. */
     const solid = (): PlacedObject[] => [...anchors, ...blockers]
     /** Everything placed so far, structures and props alike. */
@@ -521,8 +529,12 @@ export class TownGenerator implements IMapGenerator {
       width, height, roadMap, waterMap,
       anchors,
       // Blockers only: town walls and bridges were previously invisible here,
-      // so props ended up buried inside the wall and its watchtowers.
-      [...blockers, ...placedProps],
+      // so props ended up buried inside the wall and its watchtowers. And it
+      // happened AGAIN with precinct_wall — a hand-listed argument is a bug
+      // generator, which this file already says in as many words, so use the
+      // accumulator. taken() is anchors + blockers + everything placed, and
+      // there is no second list to forget.
+      taken(),
       districtMap, districts, density, config.assetFrequencies, rng, mainCenter
     )
     placedProps.push(...props)
@@ -589,6 +601,38 @@ export class TownGenerator implements IMapGenerator {
     }
 
     const allStructures = [...anchors, ...blockers].filter(inBounds)
+
+    // NO PROP MAY BE BURIED IN A STRUCTURE — enforced once, here, instead of
+    // hoped for in each of the eight passes that place props.
+    //
+    // Every one of those passes takes its own snapshot of what is already on
+    // the ground, and this file already records the shape twice: town walls
+    // were invisible to placeProps until someone passed blockers, and bridges
+    // were invisible to dressEmptyStreets until someone passed solid(). It
+    // happened a third time with precinct_wall. Threading the right list into
+    // every pass is a bug generator; the invariant is cheap to enforce for
+    // real, and it holds for any pass written later by anyone.
+    const structTiles = new Set<string>()
+    for (const o of allStructures) {
+      const fp = o.footprint ?? this.getFootprint(o.definitionId)
+      for (let dy = 0; dy < fp.h; dy++) {
+        for (let dx = 0; dx < fp.w; dx++) structTiles.add(`${o.x + dx},${o.y + dy}`)
+      }
+    }
+    const buriedProps = placedProps.filter((p) => {
+      const fp = p.footprint ?? this.getFootprint(p.definitionId)
+      for (let dy = 0; dy < fp.h; dy++) {
+        for (let dx = 0; dx < fp.w; dx++) {
+          if (structTiles.has(`${p.x + dx},${p.y + dy}`)) return true
+        }
+      }
+      return false
+    })
+    if (buriedProps.length) {
+      placeStats._buriedPropsDropped = buriedProps.length
+      const drop = new Set(buriedProps.map((p) => p.id))
+      placedProps = placedProps.filter((p) => !drop.has(p.id))
+    }
     // Exactly the accumulator every placer above was handed — there is no
     // second, hand-maintained list that can drift out of sync with it.
     const allProps = placedProps.filter(inBounds)
@@ -5703,6 +5747,7 @@ export class TownGenerator implements IMapGenerator {
       // checks these agree with the other two footprint tables.
       precinct_wall: { w: 1, h: 1 }, precinct_wall_v: { w: 1, h: 1 },
       footbridge: { w: 1, h: 1 },
+      net_loft: { w: 2, h: 2 }, weigh_house: { w: 2, h: 2 },
       clergy_house: { w: 2, h: 2 },
       almshouse: { w: 1, h: 3 },
       sexton_hut: { w: 1, h: 2 },

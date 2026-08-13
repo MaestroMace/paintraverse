@@ -273,6 +273,26 @@ and tower and had 7. District character was not failing to be generated — it
 was being overwritten downstream. Grep for the variable being used twice in
 one block and only once meaningfully.
 
+**A metric you stop running can regress in silence.** District character was
+recorded at 55%, and while the whole river arc was under way — carve, quay,
+waterfront, crossings — nothing re-ran the TOWN battery. It reads 36-37% now
+without the trade types, and a bisect showed the square work cost only one
+point of it, so roughly eighteen points went missing somewhere in the river
+arc and no commit message mentions it. Run the battery for the system you are
+NOT working on; that is the only way a side effect gets caught while it is
+still one commit wide.
+
+**An exclusive type that is too big to place is not an exclusive type.** The
+trade quarters read 14-33% against noble's 100% and garden's 85%, and it was
+tempting to blame the weights: harbor's table is 25% warehouse and only 9%
+row house. But placeBuildings' own note already records that a type's real
+odds are its weight TIMES how often it fits — so `covered_market` (4x3,
+market-only) and `lighthouse` (3x3, harbor-only) never place, and the quarter
+falls back on the small generic types it shares with every other quarter. The
+fix is the same one that worked for temple and cemetery: give it a SMALL
+exclusive type. Measured cleanly by stash-and-rebuild, `net_loft` and
+`weigh_house` are worth +8 points.
+
 **A designed place must be dressed BEFORE the global scatter runs.** Three
 instances of this in one day. The waterfront pass ran after placeVegetation
 and found half the bank planted with trees. The generic scatter took the quay
@@ -979,7 +999,7 @@ Run these before believing anything about where the project is.
 | corridor width | streets.mjs | 4% of road over-wide, was 58% | clean |
 | street width | urbanform.mjs | 12m facade to facade vs 4-10m | recovered |
 | built coverage | urbanform.mjs | 47% vs 50-70% (walls not counted as buildings) | near range |
-| **district character** | **districts.mjs** | **55% of buildings distinctive to their quarter, was 26%** | **improving** |
+| district character | districts.mjs | 44% distinctive to their quarter (was 26%; 55% was recorded and has since drifted — see below) | improving |
 | party walls | urbanform.mjs | 89% vs 60-80% | above range, deliberately |
 | frontage occupancy | urbanform.mjs | **76% of ACHIEVABLE** frontage vs 85-95% (raw 70%) | near range |
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |

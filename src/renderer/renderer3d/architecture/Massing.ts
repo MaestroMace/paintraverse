@@ -1095,6 +1095,12 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   inn: (ctx) => rand01(ctx.hash, 519) < 0.5 ? tmplSideBay(ctx) : tmplJettiedUpper(ctx),
   tavern: (ctx) => rand01(ctx.hash, 521) < 0.55 ? tmplSideBay(ctx) : tmplPorchFront(ctx),
   covered_market: (ctx) => tmplPorchFront(ctx),
+  // A net loft is a tall store with its upper floor jettied out over the
+  // quay, so a hoist can drop straight to a boat. A weigh house is an
+  // arcaded public building you walk under. Both need a SILHOUETTE that is
+  // not a row house, or they are wallpaper with a new name.
+  net_loft: (ctx) => tmplJettiedUpper(ctx),
+  weigh_house: (ctx) => tmplPorchFront(ctx),
   warehouse: (ctx) => tmplStepBack(ctx),
   stable: (ctx) => tmplFarmstead(ctx),
   mill: (ctx) => rand01(ctx.hash, 523) < 0.3 ? tmplWindmill(ctx) : tmplFarmstead(ctx),
