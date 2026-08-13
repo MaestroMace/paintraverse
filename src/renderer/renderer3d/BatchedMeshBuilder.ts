@@ -346,6 +346,28 @@ export class BatchedMeshBuilder {
   /** How many fragments have been collected */
   get count(): number { return this.geos.length }
 
+  /**
+   * World-space AABB of everything added since `from`, or null if nothing was.
+   *
+   * Exists so a caller can measure ONE logical object out of a merged batch.
+   * A batch hides its authors by construction — that is the whole reason
+   * slivers.mjs has to capture a stack — and "how big is a boulder" is
+   * unanswerable from the finished mesh. Bracket the emission instead.
+   */
+  boundsSince(from: number): { min: THREE.Vector3; max: THREE.Vector3 } | null {
+    if (from >= this.geos.length) return null
+    const min = new THREE.Vector3(Infinity, Infinity, Infinity)
+    const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity)
+    for (let i = from; i < this.geos.length; i++) {
+      const g = this.geos[i]
+      g.computeBoundingBox()
+      if (!g.boundingBox) continue
+      min.min(g.boundingBox.min)
+      max.max(g.boundingBox.max)
+    }
+    return Number.isFinite(min.x) ? { min, max } : null
+  }
+
   /** Merge all collected fragments into a single Mesh. Returns null if empty. */
   build(): THREE.Mesh | null {
     if (this.geos.length === 0) return null

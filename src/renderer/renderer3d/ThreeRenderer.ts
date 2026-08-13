@@ -12,7 +12,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
 import { footprintOf } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
-import { buildTerrainMesh, getTerrainHeight, groundYAtWorld, tickWater, TERRAIN_WORLD_SCALE } from './TerrainMesh'
+import { buildTerrainMesh, getTerrainHeight, groundYAtWorld, tickWater, setWaterSky, TERRAIN_WORLD_SCALE } from './TerrainMesh'
 import { TILE } from './scale'
 
 // First-person walkaround constants. Minecraft-ish feel.
@@ -45,7 +45,7 @@ const MOUSE_PITCH_SENS = 0.002
 import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, type BuildingBatchResult, type BuildingTop, FLOOR_HEIGHT } from './BuildingFactory'
 import { tickWallEmissive } from './architecture/VolumeRenderer'
 import { buildLanternStrings, buildWallLanterns, setLanternEmissiveIntensity, tickLanternEmissive } from './LanternStrings'
-import { buildPropMeshes, setLampPoolOpacity, type PropBatchResult } from './PropFactory'
+import { buildPropMeshes, setLampPoolOpacity, propSizes, type PropBatchResult } from './PropFactory'
 
 /**
  * Patch a material's fog to fade in more strongly near ground level, so
@@ -1303,6 +1303,25 @@ export class ThreeRenderer {
       }
     }
 
+    // FEED THE WATER THE SKY IT IS REFLECTING.
+    //
+    // Every branch above sets the sky dome's uniforms and then the river,
+    // being Lambert, ignored all of it and stayed the same flat blue. Read
+    // them back here — one place, after whichever branch ran — so the two can
+    // never disagree about what colour the sky is. A river mirroring last
+    // hour's sky is a worse defect than one mirroring nothing.
+    if (this.skyUniforms) {
+      this._scratchSunDir2
+        .set(sunX - this.townCenterX, Math.max(0.02, sunY), sunZ - this.townCenterZ)
+        .normalize()
+      setWaterSky(
+        this.skyUniforms.uHorizon.value,
+        this.skyUniforms.uZenith.value,
+        this._scratchSunDir2,
+        this.sunLight.color,
+      )
+    }
+
     // Shadow camera follows sun position, targets town center
     this.sunLight.target.position.set(this.townCenterX, 0, this.townCenterZ)
     this.updateShadowCamera()
@@ -1880,6 +1899,7 @@ export class ThreeRenderer {
       // are captured per-building and surfaced here so debug-dumps include
       // any per-building runtime errors.
       buildingFactory: getBuildingDiagnostics(),
+      propSizes,
     }
   }
 

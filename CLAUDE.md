@@ -1643,6 +1643,15 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   WALLPAPER that fires everywhere equally and so tells the player nothing.
   Run it after touching any dressing gate. Read the caveat it prints — a
   feature correctly confined to a rare type looks identical to a ghost.
+- `node tools/propscale.mjs [seeds...]` — **every prop's real size in metres
+  against what that thing measures in the world.** humanscale.mjs does this
+  for buildings and has caught three scale bugs; nothing did it for props, and
+  the gap had a live defect in it — boulders 2.7m across and rowboats 5.3m
+  long by 39cm tall. Measured from the EMITTED GEOMETRY (PropFactory brackets
+  each object and asks the batcher for its world AABB), so it grades what is
+  on screen. **Read the caveat about its own targets**: three of them were
+  wrong on the first run, every one written from the ID rather than from the
+  object, and the geometry was right each time.
 - `xvfb-run -a node tools/touch.mjs [--device=pixel|pixel-land|tablet]` —
   **can you work the app with a FINGER?** Every other harness drives it with
   a mouse; `webshot.mjs` sets `hasTouch` and then CLICKS things, which is a
@@ -1768,6 +1777,78 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   TS `private` is compile-time only, so `__pt.renderer().buildingGroup` etc.
   are reachable — hiding groups/meshes at runtime is the fastest way to
   bisect "what is that artifact?".
+
+## THE RIVER READ AS A HOLE, AND river.mjs COULD NOT SEE IT
+
+Reported from the phone: "the river is a total mess." It was, and every
+number in `river.mjs` was healthy at the time — bank relief 0.69m, descent
+76%, width gathering 2.3 to 3.0. **That tool measures the CHANNEL, which is a
+fact about the height map, and the defect was in the SURFACE.** The carve was
+right and the thing on screen was wrong, and only a photograph separates
+those two. Same shape as the entry above it: a metric can be honest and
+stable while the defect sits one question away from what it asks.
+
+**Water was a `MeshLambertMaterial`.** Lambert is pure diffuse: no specular,
+no reflection, no view dependence. At dusk the sun is low and warm and the
+hemisphere term is dim and blue, so a blue diffuse plane renders very nearly
+BLACK — under a bright orange sky the river was the darkest thing in frame.
+That is backwards in the most basic way. **At dusk water is the BRIGHTEST
+surface in a landscape, because it is showing you the sky.**
+
+It is Fresnel-mixed toward the sky now — Schlick at water's real 2%
+normal-incidence reflectance, so almost nothing looking straight down and
+almost total at a grazing angle, which is most of what reads as "wet" — plus
+a sun glint and three crossed wavetrains perturbing the normal so the
+highlight travels. Phong rather than a raw ShaderMaterial so the fog and
+shadow chunks still apply; distant water has to sit in the same haze as the
+land. `setWaterSky` is fed from the sky dome's own uniforms in one place after
+the time-of-day branches, so the two can never disagree — a river mirroring
+last hour's sky is worse than one mirroring nothing.
+
+**A perfect mirror was the wrong answer too.** First pass reflected the sky
+exactly, and at a grazing angle that is the same warm tone as the sunlit
+ground either side, so the river stopped reading as water and started reading
+as wet paving. Real water takes the red out of what it reflects and gives back
+less than it receives: `sky * vec3(0.60, 0.74, 0.92) * 0.85`.
+
+### AND THE PROPS AT THE BANK HAD NEVER BEEN TO SCALE
+
+The other half of the photograph was a faceted lump the size of a house
+sitting on the bank. `tools/propscale.mjs` measured every prop and found
+**18 of 27 graded types out of range** — boulders 2.7m across, standing stones
+4.3m tall, rowboats 5.3m long and 39cm tall (a pancake), fish racks at 5.5m.
+
+**These are the props that had no way in until the river arc gave them one.**
+The store defined no ids for `boulder`, `rowboat`, `skiff`, `rocky_outcrop`,
+so nothing could place them, no screenshot could contain one, and the
+TILE = 3.0 rescale swept straight past them. Wiring them up handed the town a
+vocabulary that had never once been drawn. **Content with no way in, once
+given a way in, arrives at whatever scale it was authored at.**
+
+Two populations, and they are wrong in OPPOSITE directions from the same
+rescale:
+
+- Props sized as a fraction of `fp` **tripled**, because `fp` is metres now
+  and was tiles when they were written. A rowboat at `fp.w * 0.85` on a 2x1
+  plot is 5.1m long — against a 22cm hull and a 30cm prow, which are absolute
+  and did not move. That mixture is what makes a pancake.
+- Props sized by **absolute constants** stayed put, and were tuned when a
+  house was one to three world units wide: crates at 35cm, benches at 90cm,
+  street trees at 3.4m — shorter than the ground floor they stand against.
+
+The rule is the one already on the record for MAX_OVERHANG: **pin a thing with
+an intrinsic size to a physical number, and only span the footprint when the
+object genuinely fills its plot** (a fence, a dock, a bridge). `physical(m,
+span)` in PropFactory takes the real size clamped to the plot so it can never
+overflow. 18 out of range -> 8, all marginal.
+
+**Three of the tool's own targets were wrong on the first run**, and the
+pattern is worth more than the fix: every one had been written from the ID
+rather than from the object. A "rowboat" imagined as a dinghy is 2m and a real
+one is 3.5-4.5; `horse_post` models a hitching RAIL and its own comment says
+so; `mooring_ring` is a stone bollard. The measurements were right each time.
+**When a target you wrote disagrees with geometry whose comment explains
+itself, suspect the target.**
 
 ## MOBILE QUALITY OF LIFE — and why none of it was caught
 

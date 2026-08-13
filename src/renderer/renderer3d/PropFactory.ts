@@ -128,6 +128,31 @@ function rand01(hash: number, salt: number): number {
   return n / 0xffffffff
 }
 
+/**
+ * Per-type prop dimensions in METRES, accumulated as the town is built and
+ * read by tools/propscale.mjs. Keyed by definition id; widest/tallest as well
+ * as median, because a type that is right on average and monstrous on a 2x2
+ * plot is exactly the failure this exists to catch.
+ */
+export const propSizes: Record<string, { n: number; w: number[]; h: number[]; d: number[] }> = {}
+function recordPropSize(
+  id: string, bb: { min: THREE.Vector3; max: THREE.Vector3 } | null
+): void {
+  if (!bb) return
+  const e = (propSizes[id] ??= { n: 0, w: [], h: [], d: [] })
+  e.n++
+  e.w.push(bb.max.x - bb.min.x)
+  e.h.push(bb.max.y - bb.min.y)
+  e.d.push(bb.max.z - bb.min.z)
+}
+/** Cleared at the top of each batch — otherwise a re-generate accumulates
+ *  every town this session and the median drifts toward nothing in
+ *  particular. Same trap as placeStats being reset in the middle of the
+ *  pipeline. */
+export function resetPropSizes(): void {
+  for (const k of Object.keys(propSizes)) delete propSizes[k]
+}
+
 export interface PropBatchResult {
   batched: THREE.Mesh[]          // merged geometry meshes
   lampposts: THREE.Object3D[]    // individual (emissive + lights)
@@ -139,6 +164,7 @@ export function buildPropMeshes(
   getHeight?: (x: number, z: number) => number
 ): PropBatchResult {
   const geo = getGeo()
+  resetPropSizes()
   const batch = new BatchedMeshBuilder()
   const lampposts: THREE.Object3D[] = []
   // Geometry for emissive lamp bulbs, accumulated per-lamppost with lamppost
@@ -166,6 +192,7 @@ export function buildPropMeshes(
     // double-count the terrain).
     const elev = getHeight ? getHeight(ptx, ptz) : (obj.elevation || 0)
     const hash = simpleHash(obj.id)
+    const _auditFrom = batch.count
 
     // Per-prop Y rotation. The generator can set obj.properties.facingY
     // (radians) to give the prop a *meaningful* orientation — face the
@@ -186,6 +213,19 @@ export function buildPropMeshes(
     // rotated by propRot around that center, then translated to world.
     // Every batch.addPositioned call below that wants rotation should use
     // this helper instead of baking world coords into .translate(px+dx, ...).
+    /**
+     * An object with an INTRINSIC real-world size takes it, clamped so it can
+     * never overflow the plot it was given.
+     *
+     * `fp` is in metres and used to be in tiles, so anything that sized itself
+     * as a fraction of its footprint tripled at the rescale while the absolute
+     * constants beside it did not. That produced a rowboat 5.3m long and 39cm
+     * tall — a pancake — and boulders wider than a row house. A boat is a
+     * boat's size wherever you put it; only things that genuinely FILL their
+     * plot (a fence, a dock, a bridge) should span the footprint.
+     */
+    const physical = (metres: number, span: number) => Math.min(metres, span * 0.92)
+
     const emitRot = (g: THREE.BufferGeometry, dx: number, dy: number, dz: number, color: number) => {
       g.translate(dx, dy, dz)
       if (propRot !== 0) g.rotateY(propRot)
@@ -202,7 +242,11 @@ export function buildPropMeshes(
           : ['oak', 'pine', 'birch', 'maple', 'willow', 'poplar', 'oak']
         species = pool[hash % pool.length]
       }
-      const heightJitter = 0.85 + ((hash >> 3) % 30) / 100  // 0.85–1.15
+      // A street tree is 6-12m, and these were coming out at 3.4m — shorter
+      // than the ground floor of the houses they stand against. Same absolute
+      // constants left behind by the rescale as the benches and crates.
+      const TREE_SCALE = 1.75
+      const heightJitter = (0.85 + ((hash >> 3) % 30) / 100) * TREE_SCALE
       const trunkH =
         species === 'pine' ? 2.8 * heightJitter :
         species === 'poplar' ? 3.0 * heightJitter :
@@ -608,11 +652,12 @@ export function buildPropMeshes(
       const bv = id === 'rain_barrel' ? 2 : (hash % 3)
       if (bv === 0) {
         // Classic standing barrel with two visible hoops
-        const body = new THREE.CylinderGeometry(0.2, 0.22, 0.5, 8)
-        body.translate(px, elev + 0.25, pz)
+        // A cask is ~60cm across and 90 tall. Was 40x50.
+        const body = new THREE.CylinderGeometry(0.28, 0.31, 0.88, 8)
+        body.translate(px, elev + 0.44, pz)
         batch.addPositioned(body, 0x6a4a28)
-        for (const hy of [0.08, 0.42]) {
-          const hoop = new THREE.TorusGeometry(0.22, 0.015, 3, 8)
+        for (const hy of [0.15, 0.73]) {
+          const hoop = new THREE.TorusGeometry(0.31, 0.022, 3, 8)
           hoop.rotateX(Math.PI / 2)
           hoop.translate(px, elev + hy, pz)
           batch.addPositioned(hoop, 0x3a3a3a)
@@ -659,11 +704,16 @@ export function buildPropMeshes(
       }
 
     } else if (id === 'crate' || id === 'crate_stack') {
+      // A packing crate is 60-70cm on a side. These were 35cm — a shoebox —
+      // which is the other half of the scale-coupling story: props sized by
+      // ABSOLUTE constants were tuned when a house was one to three world
+      // units wide, and unlike the footprint-derived ones they got no free
+      // multiplier when TILE became 3. Same rescale, opposite direction.
       const num = id === 'crate_stack' ? 3 : 1
       for (let ci = 0; ci < num; ci++) {
-        const s = 0.35 - ci * 0.03
+        const s = 0.64 - ci * 0.055
         const c = new THREE.BoxGeometry(s, s, s)
-        c.translate(px + (ci % 2) * 0.1, elev + ci * 0.33 + s / 2, pz + (ci % 2) * 0.05)
+        c.translate(px + (ci % 2) * 0.16, elev + ci * 0.60 + s / 2, pz + (ci % 2) * 0.09)
         batch.addPositioned(c, 0x8a7050)
       }
 
@@ -671,22 +721,24 @@ export function buildPropMeshes(
       // Three bench variants by hash: wooden with backrest, stone slab,
       // wooden backless with end arms. All rotate with propRot.
       const bv = hash % 3
+      // A two-seater bench is 1.6m long with the seat at 45cm. These were
+      // 90cm long and 35 high, which is a child's bench.
       if (bv === 0) {
-        emitRot(new THREE.BoxGeometry(0.9, 0.04, 0.3), 0, 0.35, 0, 0x6a4a28)
-        emitRot(new THREE.BoxGeometry(0.9, 0.35, 0.03), 0, 0.55, -0.13, 0x6a4a28)
-        for (const lx of [-0.38, 0.38]) {
-          emitRot(new THREE.BoxGeometry(0.07, 0.33, 0.28), lx, 0.17, 0, 0x5a3a1a)
+        emitRot(new THREE.BoxGeometry(1.6, 0.06, 0.46), 0, 0.45, 0, 0x6a4a28)
+        emitRot(new THREE.BoxGeometry(1.6, 0.5, 0.05), 0, 0.72, -0.2, 0x6a4a28)
+        for (const lx of [-0.68, 0.68]) {
+          emitRot(new THREE.BoxGeometry(0.1, 0.43, 0.42), lx, 0.22, 0, 0x5a3a1a)
         }
       } else if (bv === 1) {
-        emitRot(new THREE.BoxGeometry(1.0, 0.1, 0.35), 0, 0.35, 0, 0x8a847a)
-        for (const lx of [-0.38, 0.38]) {
-          emitRot(new THREE.BoxGeometry(0.18, 0.3, 0.3), lx, 0.15, 0, 0x7a7468)
+        emitRot(new THREE.BoxGeometry(1.7, 0.14, 0.5), 0, 0.45, 0, 0x8a847a)
+        for (const lx of [-0.62, 0.62]) {
+          emitRot(new THREE.BoxGeometry(0.26, 0.38, 0.44), lx, 0.19, 0, 0x7a7468)
         }
       } else {
-        emitRot(new THREE.BoxGeometry(0.9, 0.05, 0.3), 0, 0.4, 0, 0x7a5a30)
-        for (const lx of [-0.43, 0.43]) {
-          emitRot(new THREE.BoxGeometry(0.06, 0.15, 0.32), lx, 0.5, 0, 0x5a3a1a)
-          emitRot(new THREE.BoxGeometry(0.06, 0.4, 0.3), lx, 0.2, 0, 0x5a3a1a)
+        emitRot(new THREE.BoxGeometry(1.55, 0.07, 0.44), 0, 0.46, 0, 0x7a5a30)
+        for (const lx of [-0.66, 0.66]) {
+          emitRot(new THREE.BoxGeometry(0.08, 0.2, 0.46), lx, 0.58, 0, 0x5a3a1a)
+          emitRot(new THREE.BoxGeometry(0.08, 0.46, 0.42), lx, 0.23, 0, 0x5a3a1a)
         }
       }
 
@@ -1152,20 +1204,27 @@ export function buildPropMeshes(
     } else if (id === 'fishing_boat' || id === 'rowboat' || id === 'skiff') {
       // Hull: long narrow box with tilted end planks to suggest prow/stern
       const longAxisX = fp.w >= fp.h
-      const L = longAxisX ? fp.w * 0.85 : fp.h * 0.85
-      const W = longAxisX ? fp.h * 0.55 : fp.w * 0.55
+      // A hull is a hull. These were fp.w * 0.85, which after the rescale made
+      // every rowboat 5.3m long against a 22cm hull and a 30cm prow — a plank
+      // floating on the river rather than a boat.
+      const hullLen = id === 'fishing_boat' ? 5.4 : id === 'skiff' ? 4.0 : 3.4
+      const hullBeam = id === 'fishing_boat' ? 1.9 : 1.3
+      const L = physical(hullLen, longAxisX ? fp.w : fp.h)
+      const W = physical(hullBeam, longAxisX ? fp.h : fp.w)
+      // The freeboard has to grow with the hull or the pancake comes back.
+      const hullH = L * 0.16
       const hullColor = 0x6a4a28
       const plankColor = 0x5a3a20
-      const hull = new THREE.BoxGeometry(longAxisX ? L : W, 0.22, longAxisX ? W : L)
-      hull.translate(px, elev + 0.15, pz)
+      const hull = new THREE.BoxGeometry(longAxisX ? L : W, hullH, longAxisX ? W : L)
+      hull.translate(px, elev + hullH * 0.5, pz)
       batch.addPositioned(hull, hullColor)
       // Tilted prow plank (front)
-      const prow = new THREE.BoxGeometry(longAxisX ? 0.2 : W, 0.3, longAxisX ? W : 0.2)
+      const prow = new THREE.BoxGeometry(longAxisX ? 0.2 : W, hullH * 1.5, longAxisX ? W : 0.2)
       prow.rotateZ(longAxisX ? 0.4 : 0)
       prow.rotateX(longAxisX ? 0 : 0.4)
       prow.translate(
         px + (longAxisX ? L / 2 + 0.05 : 0),
-        elev + 0.25,
+        elev + hullH * 0.8,
         pz + (longAxisX ? 0 : L / 2 + 0.05),
       )
       batch.addPositioned(prow, plankColor)
@@ -1179,7 +1238,7 @@ export function buildPropMeshes(
         const t = (si === 0 ? -0.2 : 0.2) * L
         seat.translate(
           px + (longAxisX ? t : 0),
-          elev + 0.28,
+          elev + hullH * 0.95,
           pz + (longAxisX ? 0 : t),
         )
         batch.addPositioned(seat, plankColor)
@@ -1413,26 +1472,33 @@ export function buildPropMeshes(
     } else if (id === 'rock' || id === 'boulder' || id === 'standing_stone' || id === 'rocky_outcrop') {
       // Natural stone feature: cluster of tilted boulders with slightly
       // varied colors. Standing stones are taller singletons.
-      const baseSize = Math.max(fp.w, fp.h)
+      // Stones have their OWN size. Deriving it from the footprint made a
+      // boulder 2.7m across and a standing stone 4.3m tall — the faceted lump
+      // that filled a third of the frame in every riverbank photograph. A
+      // rocky outcrop legitimately spreads, so it gets the largest budget.
+      const stoneSize = id === 'rocky_outcrop' ? 2.2 : id === 'boulder' ? 1.5 : 0.9
+      const baseSize = physical(stoneSize, Math.max(fp.w, fp.h))
       if (id === 'standing_stone') {
+        // A menhir is tall and slim: ~2.4m of it, not 1.4x whatever plot it
+        // happened to land on.
         const stone = new THREE.BoxGeometry(
-          baseSize * 0.25, baseSize * 1.4, baseSize * 0.2,
+          physical(0.55, fp.w), 2.4, physical(0.4, fp.h),
         )
         stone.rotateZ(0.08 * (((hash >> 1) & 1) ? 1 : -1))
-        stone.translate(px, elev + baseSize * 0.7, pz)
+        stone.translate(px, elev + 1.2, pz)
         batch.addPositioned(stone, 0x7a746a)
       } else {
         // Cluster of 3 boulders at varied positions and heights
         for (let bi = 0; bi < 3; bi++) {
           const angle = (bi / 3) * Math.PI * 2 + hash * 0.3
-          const r = baseSize * 0.18
+          const r = baseSize * 0.3
           const boulder = new THREE.SphereGeometry(
-            baseSize * (0.22 + ((hash >> (bi * 2)) & 3) * 0.04), 5, 4,
+            baseSize * (0.30 + ((hash >> (bi * 2)) & 3) * 0.055), 5, 4,
           )
           boulder.scale(1.0, 0.75, 1.0)
           boulder.translate(
             px + Math.cos(angle) * r,
-            elev + baseSize * 0.18,
+            elev + baseSize * 0.16,
             pz + Math.sin(angle) * r,
           )
           batch.addPositioned(boulder, [0x7a746a, 0x84796a, 0x6a6460][bi % 3])
@@ -1564,7 +1630,9 @@ export function buildPropMeshes(
       // Harbor prop — 3 vertical stakes + 2 crossbars + 5 hanging fish
       // silhouettes. fp 2×1, oriented along the longer axis.
       const longAxisX = fp.w >= fp.h
-      const L = longAxisX ? fp.w * 0.9 : fp.h * 0.9
+      // A drying rack is about 2.5m of crossbar. Spanning the footprint made
+      // it 5.5m — a fence with fish on it.
+      const L = physical(2.5, longAxisX ? fp.w : fp.h)
       const postColor = 0x5a3a20
       const fishColor = 0x8a7060
       for (let si = 0; si < 3; si++) {
@@ -1666,6 +1734,17 @@ export function buildPropMeshes(
       b.translate(px, elev + h / 2, pz)
       batch.addPositioned(b, color)
     }
+
+    // HOW BIG DID THAT ACTUALLY COME OUT?
+    //
+    // Nothing measured props. humanscale.mjs grades buildings against what a
+    // building measures in the real world; a boulder had no such check, and
+    // the ones dressWaterfront started placing came out five metres across —
+    // wider than a row house — because their geometry sizes itself off the
+    // FOOTPRINT, which is in metres now and was in tiles when they were
+    // written. They had never been drawn before, so the rescale swept past
+    // them: content with no way in cannot be caught by looking at the screen.
+    recordPropSize(id, batch.boundsSince(_auditFrom))
   }
 
   // Build the single merged mesh

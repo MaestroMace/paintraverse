@@ -377,23 +377,119 @@ function buildRetainingWalls(
 // flatShading off: the surface now carries corner-shared heights like the
 // ground, so per-face normals would shatter exactly the continuity that was
 // just built. Same reason the ground mesh stopped using it.
-const _waterMat = new THREE.MeshLambertMaterial({
-  color: 0x3070a0, transparent: true, opacity: 0.75, flatShading: false,
+/**
+ * WATER IS A MIRROR, NOT A DIFFUSE SURFACE.
+ *
+ * This was a MeshLambertMaterial with a fixed blue and a colour wobble.
+ * Lambert is pure diffuse: no specular, no reflection, no view dependence.
+ * At dusk the sun is low and warm and the hemisphere term is dim and blue, so
+ * a blue diffuse plane renders very nearly BLACK — photographed under a
+ * bright orange sky, the river was the darkest thing in the frame. That is
+ * backwards in the most basic way: at dusk, water is the BRIGHTEST surface in
+ * a landscape, because it is showing you the sky.
+ *
+ * `river.mjs` could never have caught it. Every figure that tool reports is a
+ * fact about the height map — bank relief, descent, width — and all of them
+ * were healthy while the thing on screen read as a hole in the world. The
+ * channel was right and the SURFACE was wrong, and only a photograph
+ * separates those two.
+ *
+ * So the surface is Fresnel-mixed toward the sky the sky dome is actually
+ * drawing (`setWaterSky` is fed from the same uniforms), with a sun glint and
+ * a slow ripple perturbing the normal so the glint breaks up and moves. Phong
+ * rather than a raw ShaderMaterial so the fog and shadow chunks still apply —
+ * distant water has to sit in the same haze as the land it runs through.
+ */
+const _waterUniforms = {
+  uSkyHorizon: { value: new THREE.Color(0xd0e0f0) },
+  uSkyZenith: { value: new THREE.Color(0x4488cc) },
+  uSunDir: { value: new THREE.Vector3(0.4, 0.6, 0.4).normalize() },
+  uSunColor: { value: new THREE.Color(0xffee88) },
+  uWaterTime: { value: 0 },
+}
+const _waterMat = new THREE.MeshPhongMaterial({
+  color: 0x1b3348, specular: 0x223344, shininess: 60,
+  transparent: true, opacity: 0.88, flatShading: false,
   side: THREE.DoubleSide,
 })
+_waterMat.onBeforeCompile = (shader) => {
+  Object.assign(shader.uniforms, _waterUniforms)
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', `#include <common>
+      varying vec3 vWPos;`)
+    .replace('#include <fog_vertex>', `#include <fog_vertex>
+      vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`)
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>
+      varying vec3 vWPos;
+      uniform vec3 uSkyHorizon;
+      uniform vec3 uSkyZenith;
+      uniform vec3 uSunDir;
+      uniform vec3 uSunColor;
+      uniform float uWaterTime;`)
+    // Before the fog chunk, so distant water still fades into the haze.
+    .replace('#include <fog_fragment>', `
+      {
+        // Three crossed wavetrains: two axis-aligned and one diagonal, so the
+        // surface never resolves into stripes. Amplitudes are small — this is
+        // a normal perturbation for the highlight to travel across, not
+        // displacement, and a big one makes the river look like corrugated
+        // iron rather than water.
+        float w1 = sin(vWPos.x * 0.42 + uWaterTime * 0.85);
+        float w2 = sin(vWPos.z * 0.35 - uWaterTime * 0.65);
+        float w3 = sin((vWPos.x + vWPos.z) * 0.19 + uWaterTime * 0.4);
+        vec3 N = normalize(vec3(w1 * 0.055 + w3 * 0.03, 1.0, w2 * 0.055 + w3 * 0.03));
+        vec3 V = normalize(cameraPosition - vWPos);
+        // Schlick, with water's real normal-incidence reflectance (~2%): almost
+        // no reflection looking straight down, almost total at a grazing
+        // angle. That view dependence is most of what reads as "wet".
+        float fres = 0.02 + 0.98 * pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 4.0);
+        vec3 R = reflect(-V, N);
+        vec3 sky = mix(uSkyHorizon, uSkyZenith, clamp(R.y * 1.6, 0.0, 1.0));
+        // Absorb and cool the reflection. A perfect mirror at a grazing angle
+        // reproduces the sky exactly, which at dusk is the same warm tone as
+        // the sunlit ground either side — so the river stopped reading as
+        // water and started reading as wet paving. Real water takes the red
+        // out of what it reflects and gives back less than it receives.
+        sky = sky * vec3(0.60, 0.74, 0.92) * 0.85;
+        float glint = pow(max(dot(R, normalize(uSunDir)), 0.0), 180.0);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, sky, fres) + uSunColor * glint * 1.4;
+        // Opaque where it mirrors, translucent where you look into it, so the
+        // bed reads underfoot at the shore and the channel reads as sky
+        // further out.
+        gl_FragColor.a = mix(0.72, 0.97, fres);
+      }
+      #include <fog_fragment>`)
+}
+
+/** Feed the water the sky it is actually reflecting. Called whenever the time
+ *  of day changes — the sky dome's uniforms and this must never disagree, or
+ *  the river mirrors a sky that is not there. */
+export function setWaterSky(
+  horizon: THREE.Color, zenith: THREE.Color, sunDir: THREE.Vector3, sunColor: THREE.Color,
+): void {
+  _waterUniforms.uSkyHorizon.value.copy(horizon)
+  _waterUniforms.uSkyZenith.value.copy(zenith)
+  _waterUniforms.uSunDir.value.copy(sunDir).normalize()
+  _waterUniforms.uSunColor.value.copy(sunColor)
+}
 /** Opaque channel bed under the translucent surface — without it a shallow
  *  river reads as a hole showing sky, since the ground mesh skips water. */
-const _waterBedMat = new THREE.MeshLambertMaterial({ color: 0x1d3a4d })
-const _waterBaseColor = new THREE.Color(0x3070a0)
-const _waterTint = new THREE.Color(0x50a0c0)
+const _waterBedMat = new THREE.MeshLambertMaterial({ color: 0x3a3226 })
+const _waterBaseColor = new THREE.Color(0x1b3348)
+const _waterTint = new THREE.Color(0x24455f)
 
 /** Called every frame from ThreeRenderer — nudges the water color with
  *  a low-frequency sine wobble so the surface appears to shimmer. Also
  *  varies opacity slightly for the sparkle feel. */
 export function tickWater(time: number): void {
+  // The colour wobble is gone: it was standing in for movement on a surface
+  // that had none, and a whole river changing hue together reads as a light
+  // flickering rather than as water. The ripple in the shader is per-pixel
+  // and travels, which is what movement actually looks like.
+  _waterUniforms.uWaterTime.value = time
   const wobble = Math.sin(time * 0.9) * 0.5 + 0.5
-  _waterMat.color.copy(_waterBaseColor).lerp(_waterTint, wobble * 0.25)
-  _waterMat.opacity = 0.7 + Math.sin(time * 1.3) * 0.06
+  _waterMat.color.copy(_waterBaseColor).lerp(_waterTint, wobble * 0.06)
 }
 
 function buildWaterMesh(
