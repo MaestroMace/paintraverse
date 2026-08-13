@@ -17,3 +17,6 @@ android/.gradle/
 android/build/
 android/app/build/
 android/capacitor-cordova-android-plugins/
+
+# tsc -b writes these; they are build state, not source.
+*.tsbuildinfo

@@ -206,7 +206,7 @@ export function buildLanternStrings(
   tops?: Map<string, BuildingTop>,
 ): LanternStringsResult {
   const structureLayer = map.layers.find(l => l.type === 'structure')
-  if (!structureLayer) return { ropeMesh: null, lanternMesh: null }
+  if (!structureLayer) return { ropeMesh: null, lanternMesh: null, wallLanternMesh: null }
 
   // Gather eligible building centers. Filter out NO-signature types
   // (walls, gates, staircases) so we don't string lanterns across
@@ -241,7 +241,7 @@ export function buildLanternStrings(
       yaw: t ? t.rotationY : 0,
     })
   }
-  if (centers.length < 2) return { ropeMesh: null, lanternMesh: null }
+  if (centers.length < 2) return { ropeMesh: null, lanternMesh: null, wallLanternMesh: null }
 
   // Pick pairs. Simple O(N²) scan with a distance filter; N is typically
   // ~150–200 so cost is a few tens of thousands of ops, cheap at load.
@@ -284,7 +284,7 @@ export function buildLanternStrings(
     }
     if (strings.length >= MAX_STRINGS) break
   }
-  if (strings.length === 0) return { ropeMesh: null, lanternMesh: null }
+  if (strings.length === 0) return { ropeMesh: null, lanternMesh: null, wallLanternMesh: null }
 
   // Build rope segments as a batched mesh with baked colors. Lanterns go
   // into a separate batch — their material has emissive + vertex colors

@@ -743,22 +743,7 @@ export function createEmissiveTexture(config: FacadeConfig, face: FacadeFace): T
   return texture
 }
 
-export function createFacadeConfig(
-  obj: { id: string; properties: Record<string, unknown> },
-  footprintW: number,
-  palette: { wall: number; roof: number; door: number },
-  hash: number
-): FacadeConfig {
-  return {
-    floors: (obj.properties.floors as number) || 1 + (hash % 2),
-    width: footprintW,
-    wallColor: palette.wall,
-    roofColor: palette.roof,
-    doorColor: palette.door,
-    hasTimber: !!obj.properties.hasTimber || hash % 3 === 0,
-    hasAwning: !!obj.properties.hasAwning,
-    hasShutters: !!obj.properties.hasShutters || hash % 4 !== 0,
-    hasFlowerBox: !!obj.properties.hasFlowerBox,
-    style: (obj.properties.style as string) || 'standard',
-  }
-}
+// createFacadeConfig() lived here and had NO CALLERS. It predated `wallH`
+// becoming part of FacadeConfig and never gained the field, so it could not
+// have built a valid config — the ghost failure in its plainest form, kept
+// alive only because the typecheck gate was checking zero files.

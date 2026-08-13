@@ -1099,6 +1099,74 @@ found only because the measured count still exceeded its cap afterwards. A
 gate enforced in three of four paths is not enforced, and the way to know is
 to re-measure, not to reason about which paths you covered.
 
+### THE EIGHTEEN MISSING POINTS — found, and it was ONE COMMIT
+
+District character was recorded at 55%, drifted unwatched through the river
+arc, and read 36%. Bisecting it — HEAD's `districts.mjs` against each commit's
+`src/`, so the tool could not be the variable — put the whole drop in a single
+step and every commit after it flat:
+
+    627824c  55%      554c62e  37%
+    b6d9f66  55%      d6817bc  37%
+    4e4afbf  38%  <-- 07cb93d  37%
+    fc782d6  40%      4aaffc4  36%
+
+**It was not accumulated drift and it was not the height map.** `4e4afbf`
+turned the river into a connected Dijkstra channel, and the district typer
+asked `hasNearbyWater(radius 6)` — *any* wet tile in a 13x13 box. That
+predicate was written when water was sparse noise blobs. Against a channel
+that crosses the map it answers yes almost everywhere, and `harbor` sat in the
+random bag besides, so **every town came out with BOTH a harbor and a
+waterfront, together half of all its buildings, sharing six of their ten
+building types.** A distinction with no difference, occupying the land the
+ordinary quarters used to have.
+
+Three lessons, and the middle one is the general form:
+
+- **A PREDICATE that stops discriminating fails silently; a QUANTITY does
+  not.** `countNearbyWater` replaces it. Harbour needs 34+ wet tiles in the
+  box (harbourage you could moor in) and waterfront 8+, they are mutually
+  exclusive, and neither is in the random pool any more — a water quarter is
+  earned by the SITE, which is CITYPLAN's derive-don't-decorate rule applied
+  to the one pass that was still drawing from a bag.
+- **A uniform pick over "every type not used yet" has no notion of ordinary.**
+  A town was exactly as likely to grow a cemetery as somewhere to live, and
+  two seeds in three had no residential quarter at all. `DISTRICT_POOL` is
+  weighted now: residential 10, artisan 6, noble/temple 4, the rest 2-3.
+- **Run the battery for the system you are NOT working on.** Nothing in the
+  river arc was wrong; the metric for a neighbouring system was simply never
+  re-run, and one commit's side effect had eight commits to hide in. It is
+  cheap to catch while it is one commit wide and expensive afterwards.
+
+### SLUM AND RESIDENTIAL WERE THE SAME DEFECT ONE LEVEL DOWN
+
+With the pool fixed, seed 4242 grew an 87-building slum reading **7%
+distinctive** — and it was right to. Every entry in the slum table was also a
+residential entry: two labels on one vocabulary, exactly like harbor and
+waterfront. The fix is the pattern that has now worked five times
+(potting_shed, sexton_hut, coach_house, net_loft, weigh_house): **give the
+quarter a SMALL exclusive type, because a type's real odds are its weight
+times how often it fits and only a 1x2 fits often.**
+
+`tenement` (1x2) and `lean_to` (1x2). What separates a slum from a housing
+street is not its plan, it is DENSITY on the same plot — a tenement stacks
+lodgings where a row house has one household, and a lean-to is the shed
+somebody ended up living in. Tall-and-narrow beside low-and-flat is a
+silhouette no other quarter has. Slum 7% -> 67%, and seed 4242's residential
+quarter went 13% -> 46% as a side effect, because the types stopped being
+shared.
+
+**Both got their own massing rather than a new name on the same box.** The
+tenement deliberately does NOT use `tmplTallTowerHouse` — that insets to a
+freestanding square and throws away the party wall, and a tenement is a
+terraced block whose whole difference is that it goes up. `tmplLeanTo` is a
+stepped pair of flat boxes because there is no mono-pitch primitive and a
+gable would make it a cottage.
+
+    district character   44% -> 53%   (pool fix alone 44 -> 41; the drop was
+                                       the metric counting a correct
+                                       residential quarter as a failure)
+
 ### THE HONEST LEDGER FOR THE DISTRICT ARC
 
 | metric | before | after | note |
@@ -1440,6 +1508,20 @@ The whole device problem list is fixed. What is left:
 ## Quick reference — where commands live
 
 - Start session: `git pull origin main`
+- **`npm run typecheck` was checking ZERO FILES and is fixed.** `tsconfig.json`
+  is a solution file — `"files": []` plus two project references — and plain
+  `tsc --noEmit` on one of those compiles nothing and exits 0. The gate this
+  file has told every session "must be green before commit" had never once
+  looked at a source file. The script is `tsc -b --force` now, and the first
+  real run turned up **eleven errors**, three of them pre-existing: a
+  `VolumeRole` union missing `'trim'` while three templates emitted it, three
+  `LanternStringsResult` early returns missing a field added later, an
+  `EditorViewport` cache typed as `ReturnType<its own getter>`, and a
+  `createFacadeConfig` with NO CALLERS that predated `wallH` joining
+  `FacadeConfig`. `tsconfig.node.json` also had `rootDir: src/main` while
+  including `src/preload`, so that project could not build at all.
+  **A green gate that has never failed is not evidence; it is an untested
+  instrument.** Feed a check a known-bad input once and watch it go red.
 - Build check: `npm run typecheck && npm run build`
   **Check the build with a success marker, not `| tail -1`.** On failure the
   last line of `npm run build` is an esbuild stack frame, not an error banner,
@@ -1559,6 +1641,27 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   WALLPAPER that fires everywhere equally and so tells the player nothing.
   Run it after touching any dressing gate. Read the caveat it prints — a
   feature correctly confined to a rare type looks identical to a ghost.
+- `node tools/quarters.mjs [seeds...]` — **which districts a town gets at all,
+  and how big each one is.** districts.mjs grades a quarter from inside;
+  nothing asked the prior question. That gap hid a real defect for the length
+  of the river arc — two seeds in three had NO residential quarter, because
+  the type was drawn uniformly from every unused type, so a town was as likely
+  to grow a cemetery as somewhere to live. Also prints the wet-tile histogram
+  behind the water-quarter thresholds, which are the only numbers in
+  `generateDistricts` that cannot be derived.
+- `node tools/asset.mjs <defId> [seed] [--n=3] [--time=]` — **photograph ONE
+  building type where it actually stands, with the subject outlined.** There
+  was no way to look at a single type: adding a building meant running
+  walkshots and hoping one of five fixed vantages contained it, which for
+  something that is 3% of the town it does not. Two things it has to do and
+  neither is the camera: pick a STANDABLE vantage (flyTo does not test
+  occupancy — the same trap rivershot.mjs documents), and frame by an exact
+  test rather than a standoff guess. A fixed standoff shot a 1x2 lean-to as a
+  30px smudge at four tiles and then a tenement's front door at two; how far
+  back you must stand is decided by HEIGHT, which only the built scene knows,
+  so it walks out until the projected footprint box fits. The magenta outline
+  is not decoration — two rounds went on guessing which box in the frame was
+  the subject.
 - `node tools/districts.mjs [seeds...]` — **can you tell which quarter you are
   in?** Character (are the building types distinctive), signature (do ground,
   height and density differ), and trade dressing per district. Prints

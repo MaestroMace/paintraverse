@@ -42,6 +42,7 @@ const URBAN_DISTRICTS = new Set<string>([
 const FOOTPRINTS: Record<string, { w: number; h: number }> = {
   // Small district-specific houses — see store.ts.
   net_loft: { w: 2, h: 2 }, weigh_house: { w: 2, h: 2 },
+  tenement: { w: 1, h: 2 }, lean_to: { w: 1, h: 2 },
   clergy_house: { w: 2, h: 2 },
   almshouse: { w: 1, h: 3 },
   sexton_hut: { w: 1, h: 2 },

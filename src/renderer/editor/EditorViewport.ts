@@ -2,6 +2,7 @@ import { Application, Container, FederatedPointerEvent } from 'pixi.js'
 import { Grid } from './Grid'
 import { TerrainLayer } from './layers/TerrainLayer'
 import { StructureLayer } from './layers/StructureLayer'
+import type { ObjectBounds } from './layers/StructureLayer'
 import { PropLayer } from './layers/PropLayer'
 import { OverlayLayer } from './layers/OverlayLayer'
 import type { MapDocument, ObjectDefinition } from '../core/types'
@@ -31,7 +32,7 @@ export class EditorViewport {
   private _ready = false
   private _lastHoverTileX = -1
   private _lastHoverTileY = -1
-  private _objectBoundsCache: ReturnType<EditorViewport['getAllObjects']> | null = null
+  private _objectBoundsCache: ObjectBounds[] | null = null
   // Stored listener refs for cleanup
   private _wheelHandler: ((e: WheelEvent) => void) | null = null
   private _keyDownHandler: ((e: KeyboardEvent) => void) | null = null
@@ -334,7 +335,7 @@ export class EditorViewport {
     this.requestRender()
   }
 
-  getAllObjects() {
+  getAllObjects(): ObjectBounds[] {
     if (!this._objectBoundsCache) {
       this._objectBoundsCache = [
         ...this.structureLayer.getObjectBounds(),

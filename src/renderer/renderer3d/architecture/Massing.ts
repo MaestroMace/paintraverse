@@ -17,6 +17,12 @@ import { STOREY_HEIGHT, MIN_HABITABLE_W } from '../scale'
 export type VolumeRole =
   | 'mainBody' | 'tower' | 'wing' | 'upperFloor' | 'spire'
   | 'porch' | 'transept' | 'penthouse' | 'chimneyVol'
+  // Non-habitable detail carried as a volume: a footbridge deck and its
+  // handrails, a wall's coping course. Three templates had been emitting
+  // this for a while and it was never in the union — nothing caught it,
+  // because `npm run typecheck` was pointed at a solution file with
+  // "files": [] and had been checking zero source files.
+  | 'trim'
 
 export interface Volume {
   role: VolumeRole
@@ -760,6 +766,83 @@ function tmplTallTowerHouse(ctx: MassingContext): Volume[] {
   }]
 }
 
+/**
+ * A TENEMENT: the same plot as a row house, carrying twice the people.
+ *
+ * Deliberately NOT the tower-house template, which insets to a freestanding
+ * square and would throw away the party wall. A tenement is a terraced block —
+ * it fills its footprint so it can share both flanks — and its whole
+ * difference from the row house beside it is that it goes UP. The top storey
+ * is jettied a little into the street, which is the historical way of getting
+ * another room out of a plot you cannot widen, and it gives the quarter a
+ * ragged roofline nothing else in town has.
+ */
+function tmplTenement(ctx: MassingContext): Volume[] {
+  const totalH = ctx.wallH * (1.55 + rand01(ctx.hash, 227) * 0.5)
+  const topH = Math.max(STOREY_HEIGHT, totalH * 0.28)
+  const bodyH = totalH - topH
+  const roofStyle: RoofStyle = rand01(ctx.hash, 229) < 0.6 ? 'steep' : 'gabled'
+  // Inside MAX_OVERHANG, and taken off the front only — the flanks stay flush
+  // so the terrace still closes up.
+  const jetty = 0.22 + rand01(ctx.hash, 231) * 0.16
+  const axis = roofAxisFor(ctx.footW, ctx.footD)
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: bodyH,
+      roofStyle: 'flat', roofHeight: 0, roofAxis: axis,
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: false,
+      floors: Math.max(2, Math.round(bodyH / STOREY_HEIGHT)),
+    },
+    {
+      role: 'upperFloor',
+      offsetX: 0, offsetZ: jetty / 2,
+      width: ctx.footW, depth: ctx.footD + jetty,
+      bottomY: bodyH - 0.04,
+      height: topH + 0.04,
+      roofStyle, roofHeight: roofHeightFor(roofStyle, topH, ctx.sv), roofAxis: axis,
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: ctx.sv.cornice > 0.3,
+      floors: Math.max(1, Math.round(topH / STOREY_HEIGHT)),
+    },
+  ]
+}
+
+/**
+ * A LEAN-TO: the shed somebody ended up living in.
+ *
+ * There is no mono-pitch roof primitive and a gable would make this a small
+ * cottage, which is the opposite of the point. It is built as a stepped pair
+ * of flat-topped boxes — tall side against the neighbour, low side to the
+ * yard — which reads as a slope from any distance and as improvised from
+ * close up. The 4cm overlap is the same trick pickMassing uses: two exactly
+ * coincident faces are a depth-buffer tie whether or not the geometry is
+ * "correct".
+ */
+function tmplLeanTo(ctx: MassingContext): Volume[] {
+  const hiH = Math.max(STOREY_HEIGHT * 0.95, ctx.wallH * 0.5)
+  const loH = hiH * 0.7
+  const along = ctx.footW >= ctx.footD
+  const w = along ? ctx.footW / 2 + 0.02 : ctx.footW
+  const d = along ? ctx.footD : ctx.footD / 2 + 0.02
+  const off = (along ? ctx.footW : ctx.footD) / 4
+  const mk = (role: VolumeRole, sign: number, height: number): Volume => ({
+    role,
+    offsetX: along ? sign * off : 0,
+    offsetZ: along ? 0 : sign * off,
+    width: w, depth: d,
+    bottomY: 0, height,
+    roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+    wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+    textured: true, cornice: false,
+    floors: 1,
+  })
+  return [mk('mainBody', -1, hiH), mk('wing', 1, loH)]
+}
+
 /** Body + dramatic centered tall tower (like a keep). */
 function tmplStackedTower(ctx: MassingContext): Volume[] {
   const mainRoof: RoofStyle = 'flat'
@@ -1101,6 +1184,11 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   // not a row house, or they are wallpaper with a new name.
   net_loft: (ctx) => tmplJettiedUpper(ctx),
   weigh_house: (ctx) => tmplPorchFront(ctx),
+  // The slum's pair. A tenement is a tall narrow stack — the tower-house
+  // silhouette is exactly right and MAX_TOWER_ASPECT already stops it
+  // needling. A lean-to is the only mono-pitch thing in town.
+  tenement: (ctx) => tmplTenement(ctx),
+  lean_to: (ctx) => tmplLeanTo(ctx),
   warehouse: (ctx) => tmplStepBack(ctx),
   stable: (ctx) => tmplFarmstead(ctx),
   mill: (ctx) => rand01(ctx.hash, 523) < 0.3 ? tmplWindmill(ctx) : tmplFarmstead(ctx),

@@ -121,9 +121,18 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'almshouse', w: 1, h: 3, weight: 4 },
   ],
   slum: [
-    { id: 'row_house', w: 1, h: 2, weight: 8 },
-    { id: 'narrow_house', w: 1, h: 3, weight: 5 },
-    { id: 'building_small', w: 2, h: 2, weight: 5 },
+    // SLUM AND RESIDENTIAL WERE TWO LABELS ON ONE VOCABULARY — the same shape
+    // of defect as harbor-versus-waterfront, and it showed the moment the
+    // district pool started producing slums: 87 buildings on seed 4242 reading
+    // 7% distinctive, because every entry here was also a residential entry.
+    // A slum's real difference is not its plan, it is that the same plot
+    // carries more people: a tenement is TALL, NARROW and subdivided, and it
+    // has to be the small type or it loses the fit lottery to the row house.
+    { id: 'tenement', w: 1, h: 2, weight: 9 },
+    { id: 'row_house', w: 1, h: 2, weight: 4 },
+    { id: 'narrow_house', w: 1, h: 3, weight: 4 },
+    { id: 'building_small', w: 2, h: 2, weight: 4 },
+    { id: 'lean_to', w: 1, h: 2, weight: 5 },
     { id: 'corner_building', w: 2, h: 2, weight: 2 },
     { id: 'shop', w: 2, h: 3, weight: 1 },
   ],
@@ -1040,9 +1049,25 @@ export class TownGenerator implements IMapGenerator {
     noise: SimplexNoise, waterMap: boolean[][]
   ): District[] {
     const numDistricts = Math.max(3, Math.floor(4 + complexity * 5))
-    const districtTypes: DistrictType[] = [
-      'market', 'residential', 'artisan', 'noble', 'waterfront', 'temple', 'slum', 'garden',
-      'harbor', 'fortress', 'cemetery'
+    // THE ORDINARY FABRIC HAS TO BE THE COMMON CASE.
+    //
+    // This was a uniform pick over every unused type, which means a town was
+    // exactly as likely to grow a cemetery as a residential quarter. Measured
+    // over three seeds: two of them had NO residential district at all, and a
+    // town whose housing has nowhere to be is not a town. Weight the pool so
+    // the ordinary fabric leads and the special quarters are special.
+    //
+    // `waterfront` and `harbor` are absent on purpose — see below, they are
+    // earned by the SITE rather than drawn from a bag.
+    const DISTRICT_POOL: { type: DistrictType; weight: number }[] = [
+      { type: 'residential', weight: 10 },
+      { type: 'artisan', weight: 6 },
+      { type: 'noble', weight: 4 },
+      { type: 'temple', weight: 4 },
+      { type: 'slum', weight: 3 },
+      { type: 'fortress', weight: 2 },
+      { type: 'garden', weight: 2 },
+      { type: 'cemetery', weight: 2 },
     ]
 
     // Use Poisson disk for spread-out district centers
@@ -1067,14 +1092,39 @@ export class TownGenerator implements IMapGenerator {
       if (i === 0) {
         type = 'market'
       } else {
-        // Check if near water -> waterfront
-        const isNearWater = this.hasNearbyWater(candidates[i].x, candidates[i].y, waterMap, w, h, 6)
-        if (isNearWater && !usedTypes.has('waterfront')) {
+        // A WATER QUARTER IS EARNED BY THE SITE, AND THERE IS ONLY ONE.
+        //
+        // This test was `hasNearbyWater(radius 6)` — any single wet tile in a
+        // 13x13 box — written when the water was sparse noise blobs. The river
+        // is a connected channel across the whole map now, so nearly every
+        // candidate passes, and `harbor` sat in the random bag besides. Every
+        // town came out with BOTH a harbor and a waterfront, together half of
+        // all its buildings, sharing six of their ten building types: a
+        // distinction with no difference, occupying the space the ordinary
+        // quarters used to have.
+        //
+        // Count the water instead of testing for any, and make the two
+        // mutually exclusive. A HARBOUR needs harbourage — a broad body you
+        // could moor a hull in. A three-tile river passing by earns a
+        // WATERFRONT, which is what a river town actually has.
+        const wet = this.countNearbyWater(candidates[i].x, candidates[i].y, waterMap, w, h, 6)
+        // Leave the histogram in. The thresholds below are the only numbers in
+        // this function that cannot be derived, so the distribution they cut
+        // has to stay visible or the next person tunes them blind.
+        rejected(`~wet@${wet === 0 ? '0' : wet < 10 ? '1-9' : wet < 35 ? '10-34' : wet < 70 ? '35-69' : '70+'}`)
+        const hasWaterQuarter = usedTypes.has('waterfront') || usedTypes.has('harbor')
+        if (wet >= 34 && !hasWaterQuarter) {
+          type = 'harbor'
+        } else if (wet >= 8 && !hasWaterQuarter) {
           type = 'waterfront'
         } else {
-          // Pick a type that hasn't been used yet, with preference
-          const available = districtTypes.filter(t => !usedTypes.has(t) || t === 'residential')
-          type = available[Math.floor(rng() * available.length)]
+          const avail = DISTRICT_POOL.filter(
+            (t) => !usedTypes.has(t.type) || t.type === 'residential'
+          )
+          const total = avail.reduce((s, t) => s + t.weight, 0)
+          let roll = rng() * total
+          type = avail[avail.length - 1].type
+          for (const t of avail) { roll -= t.weight; if (roll <= 0) { type = t.type; break } }
         }
       }
 
@@ -1095,13 +1145,26 @@ export class TownGenerator implements IMapGenerator {
   }
 
   private hasNearbyWater(x: number, y: number, waterMap: boolean[][], w: number, h: number, radius: number): boolean {
+    return this.countNearbyWater(x, y, waterMap, w, h, radius) > 0
+  }
+
+  /**
+   * HOW MUCH water is near, not whether any is.
+   *
+   * The boolean form of this question stopped discriminating the moment the
+   * river became a connected channel: a 13x13 box around almost any centre
+   * contains a wet tile, so "is this a waterfront?" answered yes everywhere.
+   * A quantity survives that change; a predicate does not.
+   */
+  private countNearbyWater(x: number, y: number, waterMap: boolean[][], w: number, h: number, radius: number): number {
+    let n = 0
     for (let dy = -radius; dy <= radius; dy++) {
       for (let dx = -radius; dx <= radius; dx++) {
         const nx = x + dx, ny = y + dy
-        if (nx >= 0 && nx < w && ny >= 0 && ny < h && waterMap[ny][nx]) return true
+        if (nx >= 0 && nx < w && ny >= 0 && ny < h && waterMap[ny][nx]) n++
       }
     }
-    return false
+    return n
   }
 
   private assignDistrictMap(w: number, h: number, districts: District[], noise: SimplexNoise): number[][] {
@@ -5748,6 +5811,7 @@ export class TownGenerator implements IMapGenerator {
       precinct_wall: { w: 1, h: 1 }, precinct_wall_v: { w: 1, h: 1 },
       footbridge: { w: 1, h: 1 },
       net_loft: { w: 2, h: 2 }, weigh_house: { w: 2, h: 2 },
+      tenement: { w: 1, h: 2 }, lean_to: { w: 1, h: 2 },
       clergy_house: { w: 2, h: 2 },
       almshouse: { w: 1, h: 3 },
       sexton_hut: { w: 1, h: 2 },

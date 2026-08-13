@@ -191,6 +191,31 @@ const defaultObjectDefs: ObjectDefinition[] = [
   // Both get a distinct massing template rather than a new name on the same
   // box, because a type that reads identically to a row house is WALLPAPER
   // however well it scores.
+  // The slum's own two. Same argument as above one level down: `slum` and
+  // `residential` shared every entry in their tables, so an 87-building slum
+  // read 7% distinctive and was correct to. What actually separates the two
+  // in a real town is DENSITY on the same plot — a tenement stacks lodgings
+  // where a row house has one household, and a lean-to is the shed somebody
+  // ended up living in. Tall-and-narrow beside low-and-flat is a silhouette
+  // no other quarter has.
+  {
+    id: 'tenement',
+    name: 'Tenement',
+    category: 'building',
+    tags: ['structure', 'residential', 'slum'],
+    color: '#6E655A',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  {
+    id: 'lean_to',
+    name: 'Lean-To',
+    category: 'building',
+    tags: ['structure', 'residential', 'slum'],
+    color: '#7A6B57',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door']
+  },
   {
     id: 'net_loft',
     name: 'Net Loft',
