@@ -950,6 +950,84 @@ function tmplFootbridge(ctx: MassingContext): Volume[] {
   return vols
 }
 
+/**
+ * A STONE BRIDGE — piers standing in the bed, a deck across them, parapets.
+ *
+ * Reported as "there are essentially no bridges", and 20 of every 23 placed
+ * were `bridge`. The arched-bridge geometry exists and is good — piers, deck,
+ * parapet walls, arch bands — but it lives in PropFactory, and `bridge` is
+ * placed into the STRUCTURE layer, which BuildingFactory draws. `bridge`
+ * appears nowhere in BuildingFactory and nowhere in the massing overrides, so
+ * every one of them fell through to the generic archetype and was built as an
+ * ordinary house standing in the river. Content with no way in, again: the
+ * geometry was never wrong, nothing routed to it.
+ *
+ * Rebuilt here rather than reached for across the layer boundary, because the
+ * object genuinely belongs to the structure layer — it blocks, it carries a
+ * `passage` tag for collision, and the audit reads its footprint.
+ *
+ * Like the footbridge, it stands on PIERS: a bridge tile sits over water and
+ * the terrain under it is the river BED, which the carve puts well below the
+ * waterline, so a deck at local ground height would be submerged.
+ */
+function tmplStoneBridge(ctx: MassingContext): Volume[] {
+  const longAxisX = ctx.footW >= ctx.footD
+  const span = longAxisX ? ctx.footW : ctx.footD
+  const wide = longAxisX ? ctx.footD : ctx.footW
+  // Clear of the waterline with headroom for a skiff underneath.
+  const deckY = 1.85
+  const deckT = 0.34
+  const stone = 0x8a8478
+  const parapet = 0x7b7466
+  const vols: Volume[] = []
+
+  // Piers, one every ~3m of span, down into the bed.
+  const piers = Math.max(2, Math.round(span / 3))
+  for (let i = 0; i < piers; i++) {
+    const t = piers === 1 ? 0 : (i / (piers - 1) - 0.5)
+    const off = t * span * 0.78
+    vols.push({
+      role: 'mainBody',
+      offsetX: longAxisX ? off : 0,
+      offsetZ: longAxisX ? 0 : off,
+      width: longAxisX ? 0.7 : wide * 0.72,
+      depth: longAxisX ? wide * 0.72 : 0.7,
+      bottomY: 0, height: deckY,
+      roofStyle: 'none', roofHeight: 0, roofAxis: 'x',
+      wallColor: stone, roofColor: stone,
+      textured: false, cornice: false, floors: 1,
+    })
+  }
+  // The deck, slightly over-long so consecutive bridge tiles read as one run
+  // rather than a dotted line — the same trick the footbridge uses.
+  vols.push({
+    role: 'trim',
+    offsetX: 0, offsetZ: 0,
+    width: (longAxisX ? span : wide) + 0.14,
+    depth: (longAxisX ? wide : span) + 0.14,
+    bottomY: deckY, height: deckT,
+    roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+    wallColor: stone, roofColor: stone,
+    textured: false, cornice: false, floors: 1,
+  })
+  // Parapets. Without them a deck is a raft, and from the bank the parapet is
+  // most of what says "bridge" at all.
+  for (const sgn of [-1, 1]) {
+    vols.push({
+      role: 'trim',
+      offsetX: longAxisX ? 0 : sgn * (wide / 2 - 0.16),
+      offsetZ: longAxisX ? sgn * (wide / 2 - 0.16) : 0,
+      width: longAxisX ? span + 0.14 : 0.32,
+      depth: longAxisX ? 0.32 : span + 0.14,
+      bottomY: deckY + deckT, height: 0.78,
+      roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+      wallColor: parapet, roofColor: parapet,
+      textured: false, cornice: false, floors: 1,
+    })
+  }
+  return vols
+}
+
 function tmplLowWall(ctx: MassingContext, alongX: boolean): Volume[] {
   const wallH = 1.45
   const thickness = 0.5
@@ -1169,6 +1247,10 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   windmill: (ctx) => tmplWindmill(ctx),
   stone_wall: (ctx) => tmplWallSegment(ctx),
   footbridge: (ctx) => tmplFootbridge(ctx),
+  bridge: (ctx) => tmplStoneBridge(ctx),
+  stone_bridge: (ctx) => tmplStoneBridge(ctx),
+  arched_bridge: (ctx) => tmplStoneBridge(ctx),
+  aqueduct: (ctx) => tmplStoneBridge(ctx),
   precinct_wall: (ctx) => tmplLowWall(ctx, true),
   precinct_wall_v: (ctx) => tmplLowWall(ctx, false),
   stone_wall_v: (ctx) => tmplWallSegment(ctx),

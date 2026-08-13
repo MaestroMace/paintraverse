@@ -74,6 +74,11 @@ const FOOTPRINTS: Record<string, { w: number; h: number }> = {
   stone_wall: { w: 2, h: 1 }, stone_wall_v: { w: 1, h: 2 },
   precinct_wall: { w: 1, h: 1 }, precinct_wall_v: { w: 1, h: 1 },
   footbridge: { w: 1, h: 1 },
+  // The building draw path owns bridges because the STRUCTURE layer does.
+  // Absent from here, `bridge` took the fallback footprint and the generic
+  // house archetype, and 20 of every 23 bridges in a town were a cottage
+  // standing in the river.
+  bridge: { w: 4, h: 2 }, stone_bridge: { w: 4, h: 2 }, arched_bridge: { w: 4, h: 2 },
   crenellated_wall: { w: 2, h: 1 },
 }
 

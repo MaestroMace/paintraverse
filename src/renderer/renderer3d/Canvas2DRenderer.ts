@@ -130,6 +130,9 @@ const BUILDING_HEIGHTS: Record<string, number> = {
   // A tenement is the tallest ordinary house in town and a lean-to is the
   // shortest thing anyone lives in; the pair IS the slum's silhouette.
   tenement: 4.6, lean_to: 1.5,
+  // Deck at 1.85m plus a 0.78m parapet, in TILES. Absent, it exported at the
+  // 1.8-tile fallback — a 5.4m slab across the river.
+  bridge: 0.9,
   mausoleum: 1.8, coach_house: 2.2, potting_shed: 1.4,
   // BARRIERS. This table is keyed by definition id and consulted for every
   // structure-layer object, not only buildings, so a wall absent from it
@@ -163,6 +166,7 @@ const BUILDING_ROOF_STYLE: Record<string, RoofStyle> = {
   // silhouette that says "tomb" rather than "cottage".
   net_loft: 'steep', weigh_house: 'hipped', clergy_house: 'steep', almshouse: 'steep', sexton_hut: 'gabled',
   tenement: 'gabled', lean_to: 'flat',
+  bridge: 'flat',
   mausoleum: 'hipped', coach_house: 'gabled', potting_shed: 'gabled',
   stone_wall: 'flat', stone_wall_v: 'flat', crenellated_wall: 'flat',
   precinct_wall: 'flat', precinct_wall_v: 'flat', aqueduct: 'flat',
