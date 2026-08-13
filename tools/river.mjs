@@ -239,6 +239,60 @@ for (const seed of seeds) {
     const structs = map.layers.find((l) => l.type === 'structure')?.objects ?? []
     const bridges = structs.filter((o) => /bridge/.test(o.definitionId ?? ''))
 
+    // DOES IT ACTUALLY REACH THE OTHER SIDE?
+    //
+    // Counting bridges is not the question — a count said 7.7 a town while the
+    // photographs showed planks jutting off one bank and stopping in open
+    // water. `placeBridges` lays a fixed 4-tile deck wherever water is within
+    // four tiles AHEAD, which never asks whether four tiles is enough, and on
+    // a channel wider than that the deck ends mid-river. A bridge that does
+    // not land on the far bank is a diving board.
+    // ensureRiverCrossings lays a RUN of 1x1 footbridges along a water path,
+    // so grading each object on its own calls every tile of a perfectly good
+    // chain "dangling". Merge every deck tile into one mask and grade the RUN.
+    const defsById = st.objectDefinitions
+    const deck = Array.from({ length: H }, () => new Uint8Array(W))
+    for (const o of bridges) {
+      const d0 = defsById.find?.((x) => x.id === o.definitionId)
+      const f0 = o.footprint ?? d0?.footprint ?? { w: 1, h: 1 }
+      for (let dy = 0; dy < f0.h; dy++) {
+        for (let dx = 0; dx < f0.w; dx++) {
+          const x = o.x + dx, y = o.y + dy
+          if (x >= 0 && y >= 0 && x < W && y < H) deck[y][x] = 1
+        }
+      }
+    }
+    const spanCheck = bridges.map((o) => {
+      const d = defsById.find?.((x) => x.id === o.definitionId)
+      const fp = o.footprint ?? d?.footprint ?? { w: 1, h: 1 }
+      const alongX = fp.w >= fp.h
+      const len = alongX ? fp.w : fp.h
+      // Walk the deck's centre line out past each end and look for dry land.
+      const mx = alongX ? o.x : o.x + Math.floor(fp.w / 2)
+      const my = alongX ? o.y + Math.floor(fp.h / 2) : o.y
+      const wet = (x, y) => terrain[y]?.[x] === 3
+      const inB = (x, y) => x >= 0 && y >= 0 && x < W && y < H
+      const landAt = (x, y) => inB(x, y) && !wet(x, y)
+      const dx = alongX ? 1 : 0, dy = alongX ? 0 : 1
+      // One tile beyond each end of the deck must be land — that is what
+      // "lands on the bank" means.
+      // Follow the DECK outward from each end — through neighbouring bridge
+      // tiles — until it stops, then ask what is there.
+      const reach = (sx, sy, ux, uy) => {
+        let s = 0
+        while (s < 24 && inB(sx + ux * s, sy + uy * s) && deck[sy + uy * s][sx + ux * s]) s++
+        return landAt(sx + ux * s, sy + uy * s)
+      }
+      const beforeOK = reach(mx - dx, my - dy, -dx, -dy)
+      const afterOK = reach(mx + dx * len, my + dy * len, dx, dy)
+      let coversWater = false
+      for (let i = 0; i < len; i++) if (wet(mx + dx * i, my + dy * i)) coversWater = true
+      return { spans: beforeOK && afterOK && coversWater, coversWater, beforeOK, afterOK }
+    })
+    const spanning = spanCheck.filter((b) => b.spans).length
+    const dangling = spanCheck.filter((b) => b.coversWater && !b.spans).length
+    const onLand = spanCheck.filter((b) => !b.coversWater).length
+
     const med = (xs) => {
       const s = xs.slice().sort((a, b) => a - b)
       return s.length ? s[Math.floor(s.length / 2)] : 0
@@ -288,7 +342,7 @@ for (const seed of seeds) {
       widthMouth: med(lastQ.map((s) => s.width)),
       widthMed: med(stations.map((s) => s.width)),
       startsAtEdge, endsAtEdge,
-      bridges: bridges.length,
+      bridges: bridges.length, spanning, dangling, onLand,
     }
   })
   if (!r) { console.log(`seed ${seed}: no terrain`); continue }
@@ -352,7 +406,13 @@ console.log(`  A river gathers as it goes. Equal numbers mean a canal.`)
 
 console.log(`\nCONTINUITY      ${f(avg('components'), 1)} separate bodies of water; main channel ` +
   `${f(avg('mainLen'), 0)} of ${f(avg('waterTiles'), 0)} tiles`)
-console.log(`CROSSINGS       ${f(avg('bridges'), 1)} bridges per town`)
+console.log(`CROSSINGS       ${f(avg('bridges'), 1)} bridges per town — ` +
+  `${f(avg('spanning'), 1)} actually reach the far bank, ` +
+  `${f(avg('dangling'), 1)} stop in open water, ${f(avg('onLand'), 1)} touch no water at all`)
+console.log('  A COUNT IS NOT A CROSSING. Photographed, the "bridges" were')
+console.log('  planks jutting off one bank into the middle of the river:')
+console.log('  placeBridges lays a fixed 4-tile deck wherever water is within')
+console.log('  four tiles ahead and never asks whether four tiles is enough.')
 console.log(`\nNOISE FLOOR: every figure here is a pure function of the seed —`)
 console.log(`no camera, no frame timing — so a re-run on the same seeds is`)
 console.log(`bit-identical and any movement is the generator, not the tool.`)

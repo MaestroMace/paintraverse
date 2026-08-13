@@ -952,6 +952,49 @@ export class ThreeRenderer {
     // toward the town centre so you still set off inward rather than out into
     // the fields. 32 directions is finer than the streets are wide.
     {
+      /** Longest unobstructed run from a tile, over 32 directions, in tiles. */
+      const openness = (tx: number, tz: number): number => {
+        let best = 0
+        for (let i = 0; i < 32; i++) {
+          const a = (i / 32) * Math.PI * 2
+          const ux = Math.cos(a), uz = Math.sin(a)
+          let clear = 0
+          for (let s = 0.5; s <= 20; s += 0.5) {
+            if (!freeAt(tx + ux * s, tz + uz * s)) break
+            clear = s
+          }
+          best = Math.max(best, clear)
+        }
+        return best
+      }
+      // MOVE, DON'T JUST TURN. Choosing the yaw fixed 8 of 16 seeds that
+      // opened with a facade in your face, and left the case where there is
+      // nothing good to face from here at all — a spawn wedged in a one-tile
+      // gap can be turned all day and still see 1.5m. So if this tile is
+      // cramped, step to a nearby one that is not. Openness is exactly the
+      // property spawn.mjs measures, which is the point: search for the thing
+      // being graded rather than for a proxy that usually correlates.
+      if (this.collisionMask && openness(spawnX, spawnZ) < 3) {
+        let bestOpen = openness(spawnX, spawnZ)
+        let bx = spawnX, bz = spawnZ
+        for (let r = 1; r <= 8 && bestOpen < 6; r++) {
+          for (let dz = -r; dz <= r; dz++) {
+            for (let dx = -r; dx <= r; dx++) {
+              if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue
+              const tx = spawnX + dx, tz = spawnZ + dz
+              if (!freeAt(tx, tz)) continue
+              const o = openness(tx, tz)
+              if (o > bestOpen) { bestOpen = o; bx = tx; bz = tz }
+            }
+          }
+        }
+        if (bx !== spawnX || bz !== spawnZ) {
+          spawnX = bx; spawnZ = bz
+          const g2 = heightMap ? getTerrainHeight(heightMap, spawnX, spawnZ) : 0
+          this.camera.position.set(spawnX * TILE, g2 + EYE_HEIGHT, spawnZ * TILE)
+        }
+      }
+
       const centreYaw = Math.atan2(cz - spawnZ, cx - spawnX)
       let bestYaw = centreYaw, bestScore = -Infinity
       for (let i = 0; i < 32; i++) {
