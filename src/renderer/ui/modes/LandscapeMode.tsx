@@ -27,6 +27,12 @@ export function LandscapeMode() {
   // layout it booted with — and since a Pixel is 915px wide in landscape, it
   // did not consider itself a phone at all.
   const [narrow, setNarrow] = useState(isMobileLayout)
+
+  // Open onto a town, not an empty grid. Here rather than at store creation
+  // so Asset Creator does not pay for a generation it never shows, and
+  // idempotent so it cannot clobber a map you loaded from a file.
+  useEffect(() => { useAppStore.getState().ensureStarterWorld() }, [])
+
   useEffect(() => {
     const mq = window.matchMedia(MOBILE_LAYOUT_QUERY)
     const onChange = (e: MediaQueryListEvent) => {

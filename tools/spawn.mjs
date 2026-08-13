@@ -122,10 +122,25 @@ for (const seed of seeds) {
       const th = (a / 8) * Math.PI * 2
       if (!blocked(tx + Math.cos(th) * 0.5, tz + Math.sin(th) * 0.5)) openDirs++
     }
+
+    // WHAT IS IN FRONT OF YOU, not just whether you can stand.
+    //
+    // Both halves can be true at once and this tool only ever asked the first,
+    // so it read 0 of 16 STUCK while the app's opening frame was a brown
+    // rectangle: the spawn yaw pointed at the map CENTRE, which in a dense
+    // town is a building far more often than it is a street. Test the first
+    // thing that happens — and then test what it LOOKS like.
+    const yaw = three.cameraYaw ?? 0
+    let viewTiles = 0
+    for (let s = 0.5; s <= 20; s += 0.5) {
+      if (blocked(tx + Math.cos(yaw) * s, tz + Math.sin(yaw) * s)) break
+      viewTiles = s
+    }
     const ground = pt.heightAt(tx, tz) ?? 0
     return {
       tx: +tx.toFixed(2), tz: +tz.toFixed(2),
       insideBuilding, inWater, openDirs,
+      viewM: +(viewTiles * TILE).toFixed(1),
       buried: cam.position.y < ground - 0.1,
       selfBlocked: blocked(tx, tz),
       camY: +cam.position.y.toFixed(2), ground: +ground.toFixed(2),
@@ -138,18 +153,27 @@ await app.close()
 
 const bad = rows.filter((r) => r.selfBlocked || r.insideBuilding || r.inWater ||
   r.buried || r.openDirs === 0)
+/** A wall within 4m fills the frame. That is the app's first impression. */
+const WALL_M = 4
+const facingWall = rows.filter((r) => r.viewM < WALL_M)
 console.log('\n=== SPAWN — where does the player actually start? ===')
-console.log('seed        tile        in bldg  water  buried  open dirs  verdict')
-console.log('-'.repeat(74))
+console.log('seed        tile        in bldg  water  buried  open dirs   view  verdict')
+console.log('-'.repeat(80))
 for (const r of rows) {
-  const ok = !(r.selfBlocked || r.insideBuilding || r.inWater || r.buried || r.openDirs === 0)
+  const stuck = r.selfBlocked || r.insideBuilding || r.inWater || r.buried || r.openDirs === 0
   console.log(`${String(r.seed).padStart(8)}  ${String(`${r.tx},${r.tz}`).padEnd(14)}` +
     `${String(r.insideBuilding ? 'YES' : '-').padStart(7)}` +
     `${String(r.inWater ? 'YES' : '-').padStart(7)}` +
     `${String(r.buried ? 'YES' : '-').padStart(8)}` +
-    `${String(r.openDirs).padStart(11)}   ${ok ? 'ok' : 'STUCK'}`)
+    `${String(r.openDirs).padStart(11)}` +
+    `${String(`${r.viewM}m`).padStart(7)}   ` +
+    `${stuck ? 'STUCK' : r.viewM < WALL_M ? 'FACING A WALL' : 'ok'}`)
 }
-console.log('-'.repeat(74))
+console.log('-'.repeat(80))
 console.log(`\n${bad.length} of ${rows.length} seeds spawn the player somewhere they cannot stand.`)
 console.log('This is the first thing that happens in the app and there is no')
 console.log('recovering from it: you cannot walk out of a wall.')
+console.log(`\n${facingWall.length} of ${rows.length} spawn FACING A WALL (under ${WALL_M}m of view).`)
+console.log('A separate question from the one above, and this tool asked only the')
+console.log('first for a year: you can stand on perfectly legal ground with your')
+console.log('nose against a facade, and the app opens on a brown rectangle.')

@@ -8,6 +8,15 @@ import { OverlayLayer } from './layers/OverlayLayer'
 import type { MapDocument, ObjectDefinition } from '../core/types'
 import { useAppStore } from '../app/store'
 
+/**
+ * The live 2D viewport, for tools. Mirrors getActiveThreeRenderer: `private`
+ * is compile-time only, so the alternative is every harness reaching through
+ * React internals to find the instance — and without it a gesture test can
+ * only diff PIXELS, which cannot tell a pan from a selection highlight.
+ */
+let activeViewport: EditorViewport | null = null
+export const getActiveEditorViewport = (): EditorViewport | null => activeViewport
+
 export class EditorViewport {
   app: Application
   worldContainer: Container
@@ -37,6 +46,15 @@ export class EditorViewport {
   private _wheelHandler: ((e: WheelEvent) => void) | null = null
   private _keyDownHandler: ((e: KeyboardEvent) => void) | null = null
   private _keyUpHandler: ((e: KeyboardEvent) => void) | null = null
+  // Touch gestures — see setupTouchGestures.
+  private _touchPts = new Map<number, { x: number; y: number }>()
+  private _touchStart: { x: number; y: number } | null = null
+  private _pinchDist = 1
+  /** A gesture is in flight, so the Pixi stage handlers must stand down. */
+  private _touchActive = false
+  private _touchDown: ((e: PointerEvent) => void) | null = null
+  private _touchMove: ((e: PointerEvent) => void) | null = null
+  private _touchUp: ((e: PointerEvent) => void) | null = null
 
   // Callbacks
   onTileClick?: (tileX: number, tileY: number, event: FederatedPointerEvent) => void
@@ -101,7 +119,13 @@ export class EditorViewport {
     this.setupInteraction()
     this.centerView(32, 32, 32)
     this._ready = true
+    activeViewport = this
     this.requestRender()
+  }
+
+  /** Where the plan is and how big — pan in screen pixels, zoom as a factor. */
+  viewState(): { panX: number; panY: number; zoom: number } {
+    return { panX: this._panX, panY: this._panY, zoom: this._zoom }
   }
 
   /** Coalesce render requests — at most one render per animation frame */
@@ -116,11 +140,37 @@ export class EditorViewport {
     })
   }
 
+  /**
+   * Put the whole map on screen.
+   *
+   * This used to centre the pan and leave the zoom alone, which on a phone
+   * meant opening a 48x48 town at 1:1 — 1536 pixels of plan in a 412-pixel
+   * viewport, so you saw about a twelfth of it and had no way to reach the
+   * rest. Centring a thing you cannot see the edges of is not centring it.
+   *
+   * Never magnifies past 1:1: a small map should sit at its authored tile
+   * size rather than being blown up to fill a desktop window.
+   */
   centerView(gridWidth: number, gridHeight: number, tileSize: number): void {
     const mapW = gridWidth * tileSize
     const mapH = gridHeight * tileSize
-    this._panX = (this.app.screen.width - mapW * this._zoom) / 2
-    this._panY = (this.app.screen.height - mapH * this._zoom) / 2
+    const sw = this.app.screen.width, sh = this.app.screen.height
+    if (mapW > 0 && mapH > 0 && sw > 0 && sh > 0) {
+      const margin = 0.94
+      this._zoom = Math.max(0.05, Math.min(1, Math.min(sw / mapW, sh / mapH) * margin))
+    }
+    this._panX = (sw - mapW * this._zoom) / 2
+    this._panY = (sh - mapH * this._zoom) / 2
+    this.updateTransform()
+  }
+
+  /** Zoom about a point in screen space, clamped. Shared by wheel and pinch. */
+  private zoomAbout(sx: number, sy: number, factor: number): void {
+    const next = Math.max(0.1, Math.min(10, this._zoom * factor))
+    if (next === this._zoom) return
+    this._panX = sx - (sx - this._panX) * (next / this._zoom)
+    this._panY = sy - (sy - this._panY) * (next / this._zoom)
+    this._zoom = next
     this.updateTransform()
   }
 
@@ -130,6 +180,9 @@ export class EditorViewport {
     stage.hitArea = this.app.screen
 
     stage.on('pointerdown', (e: FederatedPointerEvent) => {
+      // A touch that turns out to be a drag is handled by the native gesture
+      // listeners below; the tool must not also fire. See setupTouchGestures.
+      if (this._touchActive) return
       if (e.button === 1 || (this._spaceHeld && e.button === 0)) {
         this._isPanning = true
         this._lastPanX = e.globalX
@@ -143,6 +196,7 @@ export class EditorViewport {
     })
 
     stage.on('pointermove', (e: FederatedPointerEvent) => {
+      if (this._touchActive) return
       if (this._isPanning) {
         this._panX += e.globalX - this._lastPanX
         this._panY += e.globalY - this._lastPanY
@@ -168,6 +222,7 @@ export class EditorViewport {
     })
 
     stage.on('pointerup', (e: FederatedPointerEvent) => {
+      if (this._touchActive) return
       if (this._isPanning) {
         this._isPanning = false
         return
@@ -187,18 +242,10 @@ export class EditorViewport {
     const canvasEl = this.app.canvas
     this._wheelHandler = (e: WheelEvent) => {
       e.preventDefault()
-      const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1
-      const newZoom = Math.max(0.1, Math.min(10, this._zoom * zoomFactor))
-
-      const mouseX = e.offsetX
-      const mouseY = e.offsetY
-      this._panX = mouseX - (mouseX - this._panX) * (newZoom / this._zoom)
-      this._panY = mouseY - (mouseY - this._panY) * (newZoom / this._zoom)
-      this._zoom = newZoom
-
-      this.updateTransform()
+      this.zoomAbout(e.offsetX, e.offsetY, e.deltaY > 0 ? 0.9 : 1.1)
     }
     canvasEl.addEventListener('wheel', this._wheelHandler, { passive: false })
+    this.setupTouchGestures(canvasEl)
 
     // Space key for panning + WASD for camera movement
     this._keyDownHandler = (e: KeyboardEvent) => {
@@ -222,6 +269,106 @@ export class EditorViewport {
       if (this._keysHeld.size === 0) this.stopCameraTick()
     }
     window.addEventListener('keyup', this._keyUpHandler)
+  }
+
+  /**
+   * PAN AND ZOOM ON A TOUCHSCREEN.
+   *
+   * The 2D plan could not be moved at all on a phone, and the reason is worth
+   * writing down because nothing flagged it: panning was bound to the MIDDLE
+   * MOUSE BUTTON or space-and-drag, and zoom to the SCROLL WHEEL. A phone has
+   * none of the three. Every input this editor had was a desktop input, so the
+   * map opened wherever it opened and stayed there.
+   *
+   * The rule, which is the one every map application uses:
+   *
+   *   - TWO fingers always pan and pinch, in every tool. A gesture you have to
+   *     switch modes to perform is a gesture people do not find.
+   *   - ONE finger belongs to the tool — tap to place, drag to paint — EXCEPT
+   *     where the tool has no drag behaviour, and then it pans too. Select is
+   *     the default tool and does nothing on drag, so the app you first open
+   *     scrolls under your thumb, which is what a map is expected to do.
+   *
+   * `_touchActive` gates the Pixi stage handlers off while a gesture is in
+   * flight. Both listen to the same canvas, so without it a two-finger pan
+   * also paints a line of cobbles under the first finger.
+   */
+  private setupTouchGestures(canvasEl: HTMLCanvasElement): void {
+    // Without this the browser owns the gesture: a drag scrolls the page and
+    // a pinch zooms the whole document instead of the map.
+    canvasEl.style.touchAction = 'none'
+
+    const rectPos = (e: PointerEvent) => {
+      const r = canvasEl.getBoundingClientRect()
+      return { x: e.clientX - r.left, y: e.clientY - r.top }
+    }
+    /** Does one finger belong to the tool, or to the map? */
+    const toolOwnsDrag = () => {
+      const t = useAppStore.getState().activeTool
+      return t === 'brush' || t === 'place' || t === 'erase'
+    }
+
+    this._touchDown = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse') return
+      this._touchPts.set(e.pointerId, rectPos(e))
+      if (this._touchPts.size === 2) {
+        const [a, b] = [...this._touchPts.values()]
+        this._pinchDist = Math.hypot(a.x - b.x, a.y - b.y) || 1
+        this._touchActive = true
+      } else if (this._touchPts.size === 1 && !toolOwnsDrag()) {
+        // Not active yet — a tap must still reach the tool. It only becomes a
+        // pan once the finger has actually travelled (see _touchMove).
+        this._touchStart = { ...rectPos(e) }
+      }
+    }
+    this._touchMove = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse' || !this._touchPts.has(e.pointerId)) return
+      const prev = this._touchPts.get(e.pointerId)!
+      const now = rectPos(e)
+      this._touchPts.set(e.pointerId, now)
+
+      if (this._touchPts.size >= 2) {
+        const [a, b] = [...this._touchPts.values()]
+        const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1
+        const midX = (a.x + b.x) / 2, midY = (a.y + b.y) / 2
+        // Pan by the midpoint's movement, then zoom about the new midpoint —
+        // so the two fingers stay on the same two pieces of ground.
+        this._panX += (now.x - prev.x) / 2
+        this._panY += (now.y - prev.y) / 2
+        this.updateTransform()
+        this.zoomAbout(midX, midY, dist / this._pinchDist)
+        this._pinchDist = dist
+        return
+      }
+
+      if (this._touchStart && !this._touchActive) {
+        const travelled = Math.hypot(now.x - this._touchStart.x, now.y - this._touchStart.y)
+        // 8px, so a tap with a shaky thumb still places a building.
+        if (travelled > 8) this._touchActive = true
+      }
+      if (this._touchActive) {
+        this._panX += now.x - prev.x
+        this._panY += now.y - prev.y
+        this.updateTransform()
+      }
+    }
+    this._touchUp = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse') return
+      this._touchPts.delete(e.pointerId)
+      if (this._touchPts.size === 0) {
+        // Deferred a frame: the stage's own pointerup fires after this one,
+        // and clearing the flag synchronously lets the end of a pan land as a
+        // tool click on whatever tile the finger stopped over.
+        const wasActive = this._touchActive
+        this._touchStart = null
+        if (wasActive) requestAnimationFrame(() => { this._touchActive = false })
+        else this._touchActive = false
+      }
+    }
+    canvasEl.addEventListener('pointerdown', this._touchDown)
+    canvasEl.addEventListener('pointermove', this._touchMove)
+    canvasEl.addEventListener('pointerup', this._touchUp)
+    canvasEl.addEventListener('pointercancel', this._touchUp)
   }
 
   private updateTransform(): void {
@@ -371,6 +518,7 @@ export class EditorViewport {
     // Mark not-ready first so any queued rAF render bails instead of touching
     // the torn-down Pixi renderer.
     this._ready = false
+    if (activeViewport === this) activeViewport = null
     // Clean up event listeners to prevent memory leaks
     this.stopCameraTick()
     if (this._wheelHandler) {
@@ -381,6 +529,13 @@ export class EditorViewport {
     }
     if (this._keyUpHandler) {
       window.removeEventListener('keyup', this._keyUpHandler)
+    }
+    const cv = this.app.canvas
+    if (this._touchDown) cv.removeEventListener('pointerdown', this._touchDown)
+    if (this._touchMove) cv.removeEventListener('pointermove', this._touchMove)
+    if (this._touchUp) {
+      cv.removeEventListener('pointerup', this._touchUp)
+      cv.removeEventListener('pointercancel', this._touchUp)
     }
     this.app.destroy(true)
   }

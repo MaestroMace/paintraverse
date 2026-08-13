@@ -1643,6 +1643,15 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   WALLPAPER that fires everywhere equally and so tells the player nothing.
   Run it after touching any dressing gate. Read the caveat it prints — a
   feature correctly confined to a rare type looks identical to a ghost.
+- `xvfb-run -a node tools/touch.mjs [--device=pixel|pixel-land|tablet]` —
+  **can you work the app with a FINGER?** Every other harness drives it with
+  a mouse; `webshot.mjs` sets `hasTouch` and then CLICKS things, which is a
+  mouse gesture wearing a touch flag, so no drag or pinch had ever been
+  exercised. That blind spot hid the plainest defect in the app: the 2D plan
+  could not be panned at all on a phone. Grades gestures against the
+  viewport's own pan/zoom via `window.__pt.editorView()` and keeps the
+  screenshots as evidence — the first cut diffed PIXELS and failed its own
+  "a tap must not pan" check, because a tap draws a selection highlight.
 - `node tools/seam.mjs [seeds...] [--shoot]` — **what is standing where you
   cross into another quarter.** Lynch's DISTRICT edge, the Imagineering
   cross-dissolve, Cullen's closure. **Reads 90% marked over 30 crossings on 8
@@ -1759,6 +1768,63 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   TS `private` is compile-time only, so `__pt.renderer().buildingGroup` etc.
   are reachable — hiding groups/meshes at runtime is the fastest way to
   bisect "what is that artifact?".
+
+## MOBILE QUALITY OF LIFE — and why none of it was caught
+
+Four defects, and what they have in common is that every harness in this repo
+drives the app with a MOUSE. `webshot.mjs` sets `hasTouch: true` and then
+CLICKS buttons, so the touch flag was decoration: no drag, no pinch, no
+two-finger anything had ever run. `tools/touch.mjs` is the missing instrument
+and it found all of them in one pass.
+
+- **The 2D plan could not be moved.** Panning was bound to the MIDDLE MOUSE
+  BUTTON or space-and-drag, and zoom to the SCROLL WHEEL. A phone has none of
+  the three. The rule now is the one every map app uses: **two fingers always
+  pan and pinch, in every tool; one finger belongs to the tool EXCEPT where
+  the tool has no drag behaviour, and then it pans too.** Select is the
+  default and does nothing on drag, so the app you first open scrolls under
+  your thumb. An 8px threshold keeps a shaky tap a tap. `_touchActive` gates
+  the Pixi stage handlers off during a gesture — both listen to the same
+  canvas, and without it a two-finger pan also paints a line of cobbles.
+  `touch-action: none` on the canvas, or the browser takes the gesture.
+- **`centerView` centred the pan and left the ZOOM alone.** A 48x48 town is
+  1536px of plan; on a 412px phone you saw about a twelfth of it. Centring a
+  thing whose edges you cannot see is not centring it. It fits now, never
+  magnifying past 1:1, and the desktop was cropped too.
+- **The view was re-framed on EVERY store change.** That effect runs whenever
+  a new map object is produced — one prop, one tile — so even once panning
+  existed, your next edit threw the view away. Re-frames only when
+  `map.id`/dimensions actually change.
+- **The app booted onto an empty 32x32 grid.** On a desktop that reads as a
+  blank canvas; on a phone it is a grey screen you must find the Build tab and
+  pull up a sheet to escape. `ensureStarterWorld()` grows a town on entering
+  the Landscape editor — idempotent, so it can never clobber a loaded map, and
+  the seed lives in the store so GenerationPanel's "Last seed" agrees with
+  what is on screen instead of sitting blank under a full town.
+- **The mode-select landing page ran off both sides of the screen.** Two cards
+  at `min-width: 260px` plus a 24px gap need 544px; a Pixel is 412. The first
+  thing anyone saw of this app was two half-cards reading "andscape Editor"
+  and "Asset Creator". ModeSelector.css had no media query at all.
+
+### THE SPAWN FACED A WALL IN HALF OF ALL SEEDS
+
+`spawn.mjs` read **0 of 16 STUCK** and was right, and the app still opened on
+a brown rectangle. Both true at once: the tool asks whether the player can
+STAND, and the spawn yaw pointed at the map CENTRE, which in a dense town is a
+building far more often than it is a street. Measured after teaching the tool
+to cast along the camera's own yaw: **8 of 16 seeds spawned with 1.5m of view
+— nose against a facade.** Now 0 of 16, median ~24m.
+
+The fix casts 32 directions across the collision mask and takes the longest
+clear run, biased up to 4 tiles' worth toward the town centre so you still set
+off inward. Draw calls at spawn fell 871 -> 189 as a side effect, because a
+camera pressed into a wall frustum-culls nothing.
+
+**The lesson is the sample-aimed-at-the-wrong-thing one again.** A metric can
+be honest, stable and clean while the defect sits one question away from what
+it asks. "Can the player stand here" and "is there anything to look at" are
+different questions about the same first frame, and only one of them was ever
+asked.
 
 ## Android / mobile build
 

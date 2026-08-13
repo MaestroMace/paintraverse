@@ -18,6 +18,7 @@ import type {
 } from '../core/types'
 import type { ExtractedPalette } from '../inspiration/PaletteExtractor'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
+import { getGenerator } from '../generation/GeneratorRegistry'
 
 // === DEFAULT FACTORIES ===
 
@@ -1266,6 +1267,23 @@ interface AppState {
 
   // Map operations
   setMap: (map: MapDocument) => void
+  /**
+   * The seed the world on screen was grown from. Lives here rather than in
+   * GenerationPanel's local state so the panel and the starter world cannot
+   * disagree about what you are looking at — the panel prints "Last seed" and
+   * a boot-time generate would otherwise leave that blank under a full town.
+   */
+  worldSeed: number
+  setWorldSeed: (seed: number) => void
+  /**
+   * Grow a town if there is not one yet. The app booted onto an EMPTY 32x32
+   * grid, which on a desktop is a blank canvas you can read as an invitation
+   * and on a phone is just a grey screen — you have to find the Build tab,
+   * pull up a sheet and press Generate before the app does anything at all.
+   * Idempotent: it only fires when the structure layer is empty, so it can
+   * never overwrite a map you loaded or edited.
+   */
+  ensureStarterWorld: () => void
   setProjectPath: (path: string | null) => void
   setDirty: (dirty: boolean) => void
 
@@ -1381,6 +1399,30 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Mode
   setAppMode: (mode) => set({ appMode: mode }),
   setView3D: (v) => set({ view3D: v }),
+
+  worldSeed: Math.floor(Math.random() * 99999),
+  setWorldSeed: (seed) => set({ worldSeed: seed }),
+
+  ensureStarterWorld: () => {
+    const st = get()
+    const built = st.map.layers.find((l) => l.type === 'structure')?.objects.length ?? 0
+    if (built > 0) return
+    try {
+      const gen = getGenerator('town')
+      if (!gen) return
+      const seed = st.worldSeed
+      st.setMap(gen.generate({
+        mapType: 'town', seed, width: 48, height: 48,
+        complexity: 0.5, density: 0.5,
+        assetFrequencies: {}, levelCount: 1, customParams: {},
+      }))
+    } catch (e) {
+      // Never let a generator failure stop the app from opening. Logged, not
+      // swallowed — a generation failure that went only into a UI state
+      // variable cost two sessions once already.
+      console.error('[ensureStarterWorld] failed:', e)
+    }
+  },
 
   // Map operations
   setMap: (map) => {

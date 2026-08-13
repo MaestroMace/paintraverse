@@ -939,7 +939,41 @@ export class ThreeRenderer {
     // and a uniform scale does not change an angle — so it needs no factor.
     const spawnGround = heightMap ? getTerrainHeight(heightMap, spawnX, spawnZ) : 0
     this.camera.position.set(spawnX * TILE, spawnGround + EYE_HEIGHT, spawnZ * TILE)
-    this.cameraYaw = Math.atan2(cz - spawnZ, cx - spawnX)
+
+    // FACE SOMEWHERE WORTH FACING.
+    //
+    // This pointed at the map centre, and `spawn.mjs` graded it clean because
+    // that tool asks whether the player can STAND, not what they can SEE. Both
+    // are true at once: you spawn on legal ground with your nose against a
+    // wall, because the centre of a dense town is a building far more often
+    // than it is a street, and the first frame of the app is a brown rectangle.
+    //
+    // Cast along the collision mask and take the longest clear run, biased
+    // toward the town centre so you still set off inward rather than out into
+    // the fields. 32 directions is finer than the streets are wide.
+    {
+      const centreYaw = Math.atan2(cz - spawnZ, cx - spawnX)
+      let bestYaw = centreYaw, bestScore = -Infinity
+      for (let i = 0; i < 32; i++) {
+        const yaw = (i / 32) * Math.PI * 2
+        const dx = Math.cos(yaw), dz = Math.sin(yaw)
+        let clear = 0
+        // Half-tile steps: a 1-tile gap between two buildings is a real view
+        // down an alley and a whole-tile walk can step straight over it.
+        for (let s = 0.5; s <= 20; s += 0.5) {
+          if (!freeAt(spawnX + dx * s, spawnZ + dz * s)) break
+          clear = s
+        }
+        // Turning toward the centre is worth up to 4 tiles of view, so a
+        // slightly shorter street pointing inward beats a long one pointing
+        // out of town — but it can never rescue a view of a wall.
+        let d = Math.abs(yaw - centreYaw) % (Math.PI * 2)
+        if (d > Math.PI) d = Math.PI * 2 - d
+        const score = clear + (1 - d / Math.PI) * 4
+        if (score > bestScore) { bestScore = score; bestYaw = yaw }
+      }
+      this.cameraYaw = bestYaw
+    }
     this.cameraPitch = -0.05
     this.verticalVel = 0
     this.flyMode = false

@@ -137,13 +137,24 @@ export function EditorCanvas() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update map rendering when map data changes (not on hover)
+  // Which map the view was last framed for. Re-framing has to be rare: this
+  // effect runs on EVERY store change that produces a new map object —
+  // placing one prop, painting one tile — and it used to re-centre each time,
+  // so any pan or zoom you had made was thrown away by your next edit. That is
+  // the other half of "you cannot scroll the map": you could not KEEP a view
+  // even once panning existed. Re-frame only for a genuinely different map.
+  const framedRef = useRef<string>('')
+
   useEffect(() => {
     const vp = viewportRef.current
     if (!vp || initError || isLoading) return
     vp.updateFromMap(map, objectDefinitions)
     vp.updateLayerVisibility(map.layers)
-    vp.centerView(map.gridWidth, map.gridHeight, map.tileSize)
+    const key = `${map.id}:${map.gridWidth}x${map.gridHeight}:${map.tileSize}`
+    if (framedRef.current !== key) {
+      framedRef.current = key
+      vp.centerView(map.gridWidth, map.gridHeight, map.tileSize)
+    }
   }, [map, objectDefinitions, initError, isLoading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update selection/hover overlay only (lightweight)

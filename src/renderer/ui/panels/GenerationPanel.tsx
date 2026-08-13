@@ -6,11 +6,15 @@ import type { GenerationConfig } from '../../core/types'
 export function GenerationPanel() {
   const [collapsed, setCollapsed] = useState(false)
   const setMap = useAppStore((s) => s.setMap)
+  const setWorldSeed = useAppStore((s) => s.setWorldSeed)
   const generators = getAllGenerators()
 
   const [config, setConfig] = useState<GenerationConfig>({
     mapType: 'town',
-    seed: Math.floor(Math.random() * 99999),
+    // Start from the seed the STARTER WORLD was grown from. The panel used to
+    // roll its own, so the app opened showing one town with a different
+    // number in the seed box — and "Last seed" sat blank under a full map.
+    seed: useAppStore.getState().worldSeed,
     width: 48,
     height: 48,
     complexity: 0.5,
@@ -36,6 +40,7 @@ export function GenerationPanel() {
       const map = gen.generate(config)
       setMap(map)
       setLastSeed(config.seed)
+      setWorldSeed(config.seed)
     } catch (e) {
       // Log as well as surfacing in the UI. A generation failure used to go
       // ONLY into this state variable, so a change that made the placer throw
@@ -63,6 +68,7 @@ export function GenerationPanel() {
       const map = gen.generate(newConfig)
       setMap(map)
       setLastSeed(newSeed)
+      setWorldSeed(newSeed)
     }, 0)
   }
 

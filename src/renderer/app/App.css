@@ -431,6 +431,27 @@ input[type="color"] {
     color: #24170a;
   }
 
+  /* Fit-to-screen, tucked under the view switch so the thumb finds both in
+   * the same corner. Sized to the 38px the switch uses — anything smaller is
+   * below the tap target people can hit reliably. */
+  .mobile-fit {
+    position: absolute;
+    top: 54px;
+    right: 8px;
+    z-index: 12;
+    min-width: 38px;
+    min-height: 38px;
+    padding: 0;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: rgba(12, 8, 16, 0.82);
+    backdrop-filter: blur(6px);
+    color: var(--text-dim);
+    font-size: 16px;
+    line-height: 1;
+  }
+  .mobile-fit:active { color: var(--accent); }
+
   /* Only covers the area above the sheet, so it can never swallow a tap
    * meant for the controls. */
   .mobile-sheet-scrim {

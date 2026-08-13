@@ -23,6 +23,7 @@ import { overhangClamps, resetOverhangClamps } from '../renderer3d/architecture/
 import { auditRoofWinding } from '../renderer3d/architecture/Roofs'
 import { placeStats } from '../generation/TownGenerator'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
+import { getActiveEditorViewport } from '../editor/EditorViewport'
 import { TILE } from '../renderer3d/scale'
 import { TERRAIN_COLORS, TERRAIN_NAMES, isCirculation } from '../core/terrain'
 
@@ -31,6 +32,12 @@ export function installDebugBridge(): void {
   ;(window as any).__pt = {
     store: useAppStore,
     renderer: () => getActiveThreeRenderer(),
+
+    /** The 2D plan viewport, and where it is looking. tools/touch.mjs grades
+     *  gestures against this rather than against pixels — a screenshot diff
+     *  cannot tell a pan from a selection highlight being drawn. */
+    editor: () => getActiveEditorViewport(),
+    editorView: () => getActiveEditorViewport()?.viewState() ?? null,
 
     /** Placement invariants over the CURRENT map — works with or without 3D. */
     audit: () => {

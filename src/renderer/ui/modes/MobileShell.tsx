@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAppStore } from '../../app/store'
 import { EditorCanvas } from '../../editor/EditorCanvas'
+import { getActiveEditorViewport } from '../../editor/EditorViewport'
 import { ThreeViewport } from '../components/ThreeViewport'
 import { GenerationPanel } from '../panels/GenerationPanel'
 import { InspirationPanel } from '../panels/InspirationPanel'
@@ -48,8 +49,15 @@ const TABS: { id: TabId; glyph: string; label: string }[] = [
 export function MobileShell() {
   const view3D = useAppStore((s) => s.view3D)
   const setView3D = useAppStore((s) => s.setView3D)
+  const map = useAppStore((s) => s.map)
   // null = sheet closed, viewport owns the whole screen.
   const [tab, setTab] = useState<TabId | null>(null)
+
+  // Panning and pinching are only half of navigating a map — the other half
+  // is getting back. Without this the way to see the whole town again is to
+  // pinch out by eye until it happens to fit, which is a thing nobody does.
+  const fitPlan = () =>
+    getActiveEditorViewport()?.centerView(map.gridWidth, map.gridHeight, map.tileSize)
 
   return (
     <div className="app-body mobile-shell">
@@ -69,6 +77,14 @@ export function MobileShell() {
             onClick={() => setView3D(true)}
           >3D</button>
         </div>
+
+        {/* Fit the whole plan back on screen. 2D only — the 3D view is a
+            walkaround and has no such thing as "the whole map". */}
+        {!view3D && (
+          <button className="mobile-fit" onClick={fitPlan} aria-label="Fit map to screen">
+            {'\u29C9'}
+          </button>
+        )}
       </div>
 
       {/* Tapping the town above the sheet closes it — the sheet is a transient

@@ -174,3 +174,49 @@
   opacity: 0.6;
   animation: fade-in 0.6s ease 0.5s both;
 }
+
+/* PHONE.
+ *
+ * Two cards with `min-width: 260px` and a 24px gap need 544px before the
+ * padding. A Pixel is 412 across, so the row simply ran off both sides of the
+ * screen and the first thing anyone saw of this app was two half-cards reading
+ * "andscape Editor" and "Asset Creator" with no way to scroll to the rest.
+ *
+ * Mirrors MOBILE_LAYOUT_QUERY in core/platform.ts, which App.css already
+ * copies verbatim for the same reason: width alone does not identify a phone,
+ * and a Pixel in landscape is 915px wide.
+ */
+@media (max-width: 900px), (pointer: coarse) and (max-width: 1180px) {
+  .mode-selector {
+    padding: 24px 16px;
+    gap: 28px;
+  }
+  .mode-selector-cards {
+    flex-direction: column;
+    gap: 14px;
+    width: 100%;
+    max-width: 420px;
+  }
+  .mode-selector .mode-card {
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+    padding: 20px 18px;
+  }
+  .mode-selector-title { font-size: 34px; }
+  .mode-selector-subtitle { font-size: 11px; letter-spacing: 3px; }
+  .mode-icon { font-size: 34px; }
+  .mode-title { font-size: 16px; }
+  .mode-desc { font-size: 11px; }
+}
+
+/* Landscape phone — vertical room is the scarce axis, so the cards go back
+ * side by side and everything shrinks rather than scrolling off the bottom. */
+@media (pointer: coarse) and (max-height: 500px) {
+  .mode-selector { padding: 12px; gap: 14px; }
+  .mode-selector-cards { flex-direction: row; gap: 12px; max-width: none; }
+  .mode-selector .mode-card { padding: 14px 12px; min-width: 0; }
+  .mode-selector-title { font-size: 26px; }
+  .mode-icon { font-size: 24px; }
+  .mode-desc { display: none; }
+}
