@@ -1787,6 +1787,41 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   are reachable — hiding groups/meshes at runtime is the fastest way to
   bisect "what is that artifact?".
 
+## THERE WERE NO BRIDGES — the geometry and the object lived in different layers
+
+Reported: "there are also essentially no bridges." `river.mjs` said 7.7
+crossings a town and `typemix.mjs` said 20 `bridge` plus 3 `footbridge` over
+three seeds, so they were being PLACED. They were not being DRAWN as bridges.
+
+`bridge` appears **zero times in BuildingFactory** and nowhere in the massing
+overrides. The arched-bridge geometry — piers, deck, parapet walls, arch bands
+— exists and is good, and it lives in **PropFactory**, which never sees these
+objects, because bridges go into the STRUCTURE layer. Every one fell through
+to the generic archetype and was built as an ordinary house standing in the
+river. Not "no bridges" — cottages on the water, which is worse.
+
+**Fourth instance of content-with-no-way-in in this arc, and the first where
+it was the ROUTING rather than the definition.** The geometry had a home, the
+object had a home, and they were different homes. When a type looks absent,
+check which FACTORY draws its layer before checking whether the art exists.
+
+`tmplStoneBridge` in Massing, registered for bridge / stone_bridge /
+arched_bridge / aqueduct. Rebuilt there rather than reached for across the
+boundary: the object genuinely belongs to the structure layer — it blocks, it
+carries the `passage` tag the collision mask clears, and the audit reads its
+footprint. Like the footbridge it stands on PIERS, because a bridge tile sits
+over water and the terrain under it is the river BED, so a deck at local
+ground height is submerged.
+
+**And adding it to `BuildingFactory.FOOTPRINTS` is what let `registry.mjs`
+finally see the type at all.** That check is scoped by the building path's own
+list — deliberately, so it does not grade props — which means a structure the
+building path does not handle is invisible to the tool built to catch exactly
+this. It then immediately reported `bridge` missing from `BUILDING_HEIGHTS`
+and `BUILDING_ROOF_STYLE`, where it would have exported at the 1.8-tile
+fallback: a 5.4m slab across the river. **A registry scoped by what a path
+handles cannot report what that path is missing.**
+
 ## A TOWN DOES NOT SLOPE INTO ITS RIVER — the corner-sharing rule at a shore
 
 Asked plainly: "the city river would have man made masonry edges right? why
