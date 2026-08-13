@@ -252,6 +252,40 @@ function buildGroundWithHeight(
       const n01 = terrainCornerNormal(heightMap, cx0, cz1)
       const n11 = terrainCornerNormal(heightMap, cx1, cz1)
 
+      // STEEP GROUND IS ROCK, NOT MUD.
+      //
+      // Reported as "a giant ravine running through the middle of town", and
+      // the geometry was not the problem: the cross-section falls AWAY from
+      // the water and bank relief is 1.35m, which is a quay. What runs the
+      // length of the river is the bank FACE, and an A/B with the retaining
+      // walls hidden proved it is the ground mesh's own slope rather than any
+      // wall — the land shares its shoreline corner with the riverbed, so it
+      // ramps down into the channel as ordinary terrain wearing whatever
+      // colour that tile had. Dirt.
+      //
+      // A near-vertical face also gets almost no direct sun and only the
+      // sideways half of the hemisphere term, so it renders as a dark slab
+      // whatever colour it carries. Two dark ramps either side of a channel
+      // IS a ravine, however healthy every number about the channel is.
+      //
+      // So: the steeper the ground, the more it reads as exposed stone —
+      // lighter, greyer, and NOT subject to the lowland darkening below,
+      // which was making the deepest part of the bank the darkest part of
+      // the picture. This is what a real cut bank or a battered revetment
+      // looks like, and it costs one colour mix.
+      const slopeDrop = Math.max(
+        Math.abs(y00 - y11), Math.abs(y10 - y01),
+        Math.abs(y00 - y10), Math.abs(y00 - y01),
+      )
+      // 0 below a 20% grade, 1 at 60% — a bank, not a street camber.
+      const rocky = Math.max(0, Math.min(1, (slopeDrop / TILE - 0.20) / 0.40))
+      if (rocky > 0) {
+        const sR = 0.60, sG = 0.565, sB = 0.515   // pale weathered stone
+        r = r * (1 - rocky) + sR * rocky
+        g = g * (1 - rocky) + sG * rocky
+        b = b * (1 - rocky) + sB * rocky
+      }
+
       // Per-CORNER colour jitter, for every tile type — not just roads.
       // The previous per-TILE jitter tinted each quad uniformly, which is
       // exactly the checkerboard of flat squares it was meant to prevent.
@@ -366,9 +400,14 @@ function buildRetainingWalls(
   geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(wallColors), 3))
   geo.computeVertexNormals()
 
-  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+  const wallMesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
     vertexColors: true, flatShading: true,
   }))
+  // Named so a harness can hide it and re-shoot. "Is that dark band the
+  // retaining wall or the ground sloping to the water?" is one A/B away and
+  // was two rounds of guessing before the name existed.
+  wallMesh.name = 'retainingWalls'
+  return wallMesh
 }
 
 /** Shared water material — module singleton so ThreeRenderer can tick

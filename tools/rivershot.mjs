@@ -100,7 +100,45 @@ const vantages = await win.evaluate(() => {
     }
   }
   out.sort((a, b) => b.score - a.score)
-  return out.slice(0, 3)
+  const across = out.slice(0, 3)
+
+  // AND ONE LOOKING ALONG THE CHANNEL.
+  //
+  // Every vantage above looks ACROSS the water, which shows the bank as a
+  // profile and a ravine as a line. A ravine running through a town is a
+  // long feature and it reads from the end of it — the same "test from the
+  // angle the bug appears at" lesson the gable winding taught, where every
+  // shot in the harness pointed the one way that could not see the defect.
+  // Stand on a crossing and look down the corridor.
+  let best = null
+  for (let y = 2; y < H - 2; y++) {
+    for (let x = 2; x < W - 2; x++) {
+      if (!free(x, y)) continue
+      // Must be ON the bank — water beside you — and looking down a long run
+      // of it. The first cut required water on BOTH sides, i.e. standing on a
+      // bridge, and bridges sit on water tiles that `free` rejects, so it
+      // found nothing at all and silently fell back to the across shots.
+      const onBank = DIRS.some(([sx, sy]) => isWater(x + sx, y + sy))
+      if (!onBank) continue
+      for (const [dx, dy] of DIRS) {
+        let run = 0, wetSeen = 0
+        for (let s = 1; s <= 22; s++) {
+          const nx = x + dx * s, ny = y + dy * s
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) break
+          if (isWater(nx, ny)) wetSeen++
+          else if (!free(nx, ny)) break
+          run = s
+        }
+        // Mostly water down that line = you are looking along the channel,
+        // not across it or down a street that happens to touch the bank.
+        if (run < 8 || wetSeen < run * 0.5) continue
+        if (!best || wetSeen > best.wet) {
+          best = { x: x + 0.5, y: y + 0.5, dx, dy, wet: wetSeen, clear: 0, along: true }
+        }
+      }
+    }
+  }
+  return best ? [...across, best] : across
 })
 
 if (!vantages.length) {
@@ -113,7 +151,7 @@ if (!vantages.length) {
       const g = pt.heightAt(a.x, a.y) ?? 0
       // Eye height, and a slight downward tilt — the bank is below the eye and
       // a level camera at the water's edge shows mostly sky.
-      pt.flyTo(a.x, g + 1.6, a.y, Math.atan2(a.dy, a.dx), -0.10)
+      pt.flyTo(a.x, g + 1.6, a.y, Math.atan2(a.dy, a.dx), a.along ? -0.02 : -0.10)
       for (let k = 0; k < 8; k++) await new Promise((r) => requestAnimationFrame(r))
       await new Promise((r) => setTimeout(r, 350))
       three.renderer.render(three.scene, three.camera)

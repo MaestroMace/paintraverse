@@ -1643,6 +1643,15 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   WALLPAPER that fires everywhere equally and so tells the player nothing.
   Run it after touching any dressing gate. Read the caveat it prints — a
   feature correctly confined to a rare type looks identical to a ghost.
+- `node tools/relief.mjs [seeds...]` — **the shape of the ground you walk on,
+  and where the steep bits are.** Three readings: a CROSS-SECTION of the river
+  corridor (height above the local waterline against distance from water,
+  from a BFS so there is no transect axis to get wrong), the WALKABLE GRADE
+  distribution under every street tile, and an ATTRIBUTION splitting steep
+  ground into at-the-river versus inland. `river.mjs` measures the CHANNEL and
+  could never see this: it reads the one tile between water and land, and a
+  ravine is a cross-section. Names the worst tiles by coordinate so you can go
+  and stand on one.
 - `node tools/propscale.mjs [seeds...]` — **every prop's real size in metres
   against what that thing measures in the world.** humanscale.mjs does this
   for buildings and has caught three scale bugs; nothing did it for props, and
@@ -1777,6 +1786,54 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   TS `private` is compile-time only, so `__pt.renderer().buildingGroup` etc.
   are reachable — hiding groups/meshes at runtime is the fastest way to
   bisect "what is that artifact?".
+
+## THE RAVINE WAS NEVER THE CHANNEL — it was the blend, and then the light
+
+Reported: "there is still a giant ravine running through the middle of town."
+Every number said otherwise, and all of them were honest: bank relief 0.69m
+median and 1.34m max, channel depth 1.07m, and — once `tools/relief.mjs`
+existed to ask — a CROSS-SECTION that FALLS AWAY from the water rather than
+rising. 1.37m at one tile, 1.10m at two, 0.44m at four. The river sits on a
+low ridge. There is no gorge in the height field at all.
+
+**It was in the tail, and then it was not geometry.** Two separate causes, and
+neither is anything `river.mjs` asks about:
+
+1. **The carve's skirt left a hard step.** Walkable grade read p99 35% with a
+   max of 44%, and every steep tile was within four tiles of water — in
+   ADJACENT PAIRS at distance 2 and 3, which is exactly where
+   `carveRiverBed`'s two-tile ease stops and untouched terrain resumes. Where
+   the natural ground is a couple of metres from `waterline + BANK`, two tiles
+   cannot absorb it and the remainder appears as one 44% wall, repeated the
+   whole length of the course. A continuous artificial escarpment either side
+   of the river is a ravine by any reasonable reading of the word.
+   Widening the skirt is the obvious fix and it is the one that produced the
+   original grand-canyon report. `relaxTerrainSteps` instead relaxes the
+   height field against a 0.36-raw maximum step with the water and its
+   immediate bank PINNED — so the quay edge stays exactly as built and
+   everything outward spreads over as many tiles as the drop needs. Bounded by
+   construction rather than measured afterwards, same as the two-way bank
+   clamp. **Steep street tiles 31 -> 0 over seven seeds; max grade 44% -> 22%.**
+
+2. **The bank FACE was dirt, and dirt on a steep face is black.** Hiding the
+   retaining walls and re-shooting changed nothing, which settles what the
+   dark bands are: the ground mesh's own slope. Land shares its shoreline
+   corner with the riverbed — `terrainCornerY` samples the corner's own tile —
+   so the bank ramps into the channel as ordinary terrain wearing whatever
+   colour that tile had. A near-vertical face also gets no direct sun and only
+   the sideways half of the hemisphere term, so it renders as a dark slab
+   whatever colour it carries. Two dark ramps either side of a channel IS a
+   ravine.
+   Steep ground now mixes toward pale weathered stone (0 below a 20% grade, 1
+   at 60%), which is what a cut bank or a battered revetment actually looks
+   like, and it exempts that ground from the lowland darkening that was making
+   the deepest part of the bank the darkest part of the picture.
+
+**Note what could not have found this.** The channel metrics were all in range
+and stayed in range; the fix moved none of them. `relief.mjs` had to exist,
+and then the A/B with `retainingWalls` hidden had to be run, because "is that
+dark band the wall or the ground?" is not answerable by looking. The mesh
+carries a NAME now for exactly that reason.
 
 ## THE RIVER READ AS A HOLE, AND river.mjs COULD NOT SEE IT
 

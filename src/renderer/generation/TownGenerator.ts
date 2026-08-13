@@ -401,6 +401,9 @@ export class TownGenerator implements IMapGenerator {
     // 7b. THE TOWN BUILDS A HARD EDGE ON ITS RIVER.
     this.buildQuayWalls(width, height, roadMap, waterMap, heightMap, waterLevel)
 
+    // 7c. AND NOWHERE ELSE IS ALLOWED A CLIFF.
+    this.relaxTerrainSteps(width, height, heightMap, waterMap)
+
     // 8. Place bridges over water where roads cross
     const bridges = this.placeBridges(width, height, roadMap, waterMap, rng)
     // A continuous river severs the town unless something crosses it, and
@@ -1020,6 +1023,91 @@ export class TownGenerator implements IMapGenerator {
         const bank = s + BANK
         heightMap[y][x] = heightMap[y][x] * (1 - ease) + bank * ease
       }
+    }
+  }
+
+  /**
+   * NO STREET IS A CLIFF — bounded by construction, not reported afterwards.
+   *
+   * Reported from the phone as "a giant ravine running through the middle of
+   * town", and every number said otherwise: bank relief 0.69m median, 1.34m
+   * max, and a CROSS-SECTION that falls away from the water rather than
+   * rising. The river was not deep. `tools/relief.mjs` found it in the tail —
+   * walkable grade p99 at 35% with a max of 44%, and every single steep tile
+   * within four tiles of water.
+   *
+   * The tiles came in ADJACENT PAIRS at distance 2 and 3, which is exactly
+   * where `carveRiverBed`'s two-tile skirt stops and untouched terrain
+   * resumes. The blend eases from the bank height to nothing over two tiles;
+   * where the natural ground is a couple of metres away from `waterline +
+   * BANK`, two tiles cannot absorb it and the leftover appears as one hard
+   * step. Repeated along the whole course, that is a continuous artificial
+   * escarpment paralleling the river on both sides — which is precisely the
+   * thing being described, and it is an artifact of the BLEND, not of the
+   * channel's depth. No amount of measuring the channel could have found it.
+   *
+   * Widening the skirt is the obvious fix and it is the wrong one: a long
+   * graded ramp either side is what got the first carve called a grand
+   * canyon. Instead, relax the height field against a maximum step, with the
+   * water and its immediate bank PINNED. That leaves the quay edge exactly as
+   * built — a wall you look over is deliberate — and spreads everything
+   * outward over as many tiles as the drop actually needs. Same argument as
+   * the two-way bank clamp: bound it by construction rather than reporting the
+   * max afterwards and hoping.
+   */
+  private relaxTerrainSteps(
+    w: number, h: number, heightMap: number[][], waterMap: boolean[][],
+  ): void {
+    // 0.36 raw is 0.65m over a 3m tile — a 22% grade, steep for a street and
+    // still short of a stair. Natural terrain here spans ~5m over 48 tiles,
+    // so this only ever bites on the carve's own leftovers.
+    const MAX_STEP = 0.36
+    // Pinned: the water itself, and the bank tile whose height the carve and
+    // the quay deliberately set. Relaxing those would flatten the very edge
+    // this town spent an arc building.
+    const pinned = Array.from({ length: h }, () => new Uint8Array(w))
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (!waterMap[y][x]) continue
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx, ny = y + dy
+            if (nx >= 0 && ny >= 0 && nx < w && ny < h) pinned[ny][nx] = 1
+          }
+        }
+      }
+    }
+    // Gauss-Seidel style: fix the worst offender in each pair, sweep until it
+    // converges. 24 sweeps is far more than the 5-6 it actually takes, and it
+    // exits early — a cap rather than a schedule.
+    for (let iter = 0; iter < 24; iter++) {
+      let worst = 0
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          if (waterMap[y][x]) continue
+          for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+            const nx = x + dx, ny = y + dy
+            if (nx >= w || ny >= h || waterMap[ny][nx]) continue
+            const diff = heightMap[ny][nx] - heightMap[y][x]
+            const over = Math.abs(diff) - MAX_STEP
+            if (over <= 0) continue
+            worst = Math.max(worst, over)
+            const aPin = pinned[y][x], bPin = pinned[ny][nx]
+            if (aPin && bPin) continue          // both fixed — nothing to give
+            const sign = Math.sign(diff)
+            // Move whichever end is free; if both are, split it.
+            if (!aPin && !bPin) {
+              heightMap[y][x] += sign * over * 0.5
+              heightMap[ny][nx] -= sign * over * 0.5
+            } else if (aPin) {
+              heightMap[ny][nx] -= sign * over
+            } else {
+              heightMap[y][x] += sign * over
+            }
+          }
+        }
+      }
+      if (worst < 0.01) break
     }
   }
 
