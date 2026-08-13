@@ -649,6 +649,29 @@ export class TownGenerator implements IMapGenerator {
     // second, hand-maintained list that can drift out of sync with it.
     const allProps = placedProps.filter(inBounds)
 
+    // THE TILE MAP AND THE WATER MAP MUST AGREE.
+    //
+    // Somewhere among ~20 terrain passes, a tile that `waterMap` calls water
+    // gets painted as land. Its HEIGHT is still the riverbed — `carveRiverBed`
+    // keys off waterMap — so the result is a land tile sitting below the
+    // waterline, and the ground mesh dutifully draws a quad ramping from the
+    // quay down into the river. Photographed, that is a pale slipway diving
+    // into the water every few tiles along the bank.
+    //
+    // Enforced once, here, rather than by auditing every pass for a guard:
+    // the same shape as the buried-prop invariant, and for the same reason —
+    // a rule applied in nineteen places out of twenty is not applied.
+    let reasserted = 0
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (waterMap[y][x] && terrainTiles[y][x] !== 3) {
+          terrainTiles[y][x] = 3
+          reasserted++
+        }
+      }
+    }
+    placeStats._waterTilesRepainted = reasserted
+
     const terrainLayer: MapLayer = {
       id: uuid(), name: 'Terrain', type: 'terrain',
       // heightMap travels WITH the terrain, so the renderer draws the ground

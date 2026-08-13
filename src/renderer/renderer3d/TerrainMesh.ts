@@ -21,6 +21,10 @@ import { TILE } from './scale'
 // Palette and tile semantics: core/terrain.ts (single source of truth).
 
 const WALL_COLOR = new THREE.Color(0x887868) // retaining wall stone — warm sandstone
+/** The town's own river edge: dressed ashlar, pale and clean. */
+const QUAY_COLOR = new THREE.Color(0x9a9184)
+/** Out where the town has not built: rougher stone revetment. */
+const BANK_COLOR = new THREE.Color(0x7d7566)
 
 /** Regenerate height map from seed (deterministic). Values 0..5.5 in raw
  *  units; world-unit scale applied in getTerrainHeight. Three-octave noise
@@ -66,13 +70,91 @@ export const TERRAIN_WORLD_SCALE = 1.8
  * this, so a corner shared by four tiles gets one height and one normal and
  * the surfaces cannot disagree.
  */
+/**
+ * The tile ids, so the corner rules below can tell land from riverbed.
+ *
+ * Module-level on purpose. `terrainCornerY` is THE definition of where the
+ * ground is — the mesh, the camera, props, collision and the audits all reach
+ * it, most of them through `getTerrainHeight`, and threading a tiles array
+ * through every one of those call sites is how the two would eventually
+ * disagree. One definition, one place it reads its inputs from.
+ */
+let _shoreTiles: number[][] | null = null
+
+/** Do the four tiles meeting at this corner include water / include land? */
+function cornerTouches(cx: number, cz: number, water: boolean): boolean {
+  if (!_shoreTiles) return false
+  for (let oz = -1; oz <= 0; oz++) {
+    for (let ox = -1; ox <= 0; ox++) {
+      const t = _shoreTiles[cz + oz]?.[cx + ox]
+      if (t === undefined) continue
+      if ((t === 3) === water) return true
+    }
+  }
+  return false
+}
+
+/** Extreme height among the tiles of one class meeting at this corner. */
+function cornerExtreme(
+  heightMap: number[][], cx: number, cz: number, water: boolean,
+): number | null {
+  if (!_shoreTiles) return null
+  let best = null as number | null
+  for (let oz = -1; oz <= 0; oz++) {
+    for (let ox = -1; ox <= 0; ox++) {
+      const tx = cx + ox, tz = cz + oz
+      const t = _shoreTiles[tz]?.[tx]
+      if (t === undefined) continue
+      if ((t === 3) !== water) continue
+      const v = heightMap[tz]?.[tx]
+      if (v === undefined) continue
+      // Land takes the HIGHEST of its tiles so the quay stays level to the
+      // brink; the bed takes the LOWEST so it never rises out of the channel.
+      best = best === null ? v : (water ? Math.min(best, v) : Math.max(best, v))
+    }
+  }
+  return best
+}
+
+/**
+ * Height of a single mesh CORNER, in world units — the LAND surface.
+ *
+ * A corner belongs to one tile and every tile touching it shares the value,
+ * which is what makes slopes flow instead of stair-stepping. At a SHORELINE
+ * that same rule is a defect: the corner between a quay at +1.45m and a
+ * riverbed at -0.58m can only hold one number, so the quad between them is a
+ * two-metre dirt RAMP into the water. A town does not slope into its river,
+ * it stops at a wall — and no amount of colouring the ramp makes it a wall.
+ *
+ * So land resolves a shoreline corner to the LAND beside it and the bed
+ * resolves it to the BED (see bedCornerY), the two surfaces genuinely
+ * disagree there, and the vertical gap between them is closed by masonry in
+ * buildRetainingWalls. Away from water this is byte-identical to what it
+ * always did, which is what keeps the camera, props and collision — all of
+ * which come through here — standing exactly where they used to.
+ */
 function terrainCornerY(heightMap: number[][], cx: number, cz: number): number {
   const gh = heightMap.length
   const gw = heightMap[0]?.length ?? 0
   if (gh === 0 || gw === 0) return 0
   const ix = Math.max(0, Math.min(gw - 1, cx))
   const iz = Math.max(0, Math.min(gh - 1, cz))
+  // Only a corner whose OWN tile is water deviates; everywhere else this is
+  // the original one-line rule and must stay that way.
+  if (_shoreTiles?.[iz]?.[ix] === 3 && cornerTouches(cx, cz, false)) {
+    const land = cornerExtreme(heightMap, cx, cz, false)
+    if (land !== null) return land * TERRAIN_WORLD_SCALE + cornerHeightNoise(cx, cz)
+  }
   return heightMap[iz][ix] * TERRAIN_WORLD_SCALE + cornerHeightNoise(cx, cz)
+}
+
+/** The same corner, resolved for the RIVERBED. Mirror of the rule above: a
+ *  bed corner shared with land takes the bed, so the channel floor does not
+ *  climb out of itself and poke through the water surface. */
+function bedCornerY(heightMap: number[][], cx: number, cz: number): number {
+  const bed = cornerExtreme(heightMap, cx, cz, true)
+  if (bed === null) return terrainCornerY(heightMap, cx, cz)
+  return bed * TERRAIN_WORLD_SCALE + cornerHeightNoise(cx, cz)
 }
 
 /**
@@ -156,6 +238,10 @@ export function buildTerrainMesh(
   // made every one of those plans invisible. The local generator survives
   // only for maps saved before the field existed, and for hand-drawn maps.
   const heightMap = suppliedHeightMap ?? generateHeightMap(gridWidth, gridHeight, seed)
+  // Before anything reads a corner — the shoreline rules need to know which
+  // tiles are water, and getTerrainHeight is called from outside this module
+  // for the rest of the session.
+  _shoreTiles = tiles
 
   group.add(buildGroundWithHeight(tiles, gridWidth, gridHeight, heightMap))
   group.add(buildRetainingWalls(tiles, gridWidth, gridHeight, heightMap))
@@ -240,10 +326,13 @@ function buildGroundWithHeight(
       // now share the same Y at shared corners, slopes flow continuously
       // across tile boundaries instead of stair-stepping. Out-of-bounds
       // falls back to the current tile's height for graceful edges.
-      const y00 = terrainCornerY(heightMap, cx0, cz0)
-      const y10 = terrainCornerY(heightMap, cx1, cz0)
-      const y01 = terrainCornerY(heightMap, cx0, cz1)
-      const y11 = terrainCornerY(heightMap, cx1, cz1)
+      // The bed is its own surface and resolves its corners as one. Using the
+      // land rule here is what made the channel floor climb to meet the bank.
+      const cY = isBed ? bedCornerY : terrainCornerY
+      const y00 = cY(heightMap, cx0, cz0)
+      const y10 = cY(heightMap, cx1, cz0)
+      const y01 = cY(heightMap, cx0, cz1)
+      const y11 = cY(heightMap, cx1, cz1)
 
       // Smooth per-corner normals, shared with the neighbouring tiles that
       // touch the same corner, so lighting is continuous across the grid.
@@ -367,7 +456,57 @@ function buildRetainingWalls(
         [0, -1, tx * TILE, ty * TILE, (tx + 1) * TILE, ty * TILE, 0, -1],             // top
       ]
 
+      const selfWater = tiles[ty]?.[tx] === 3
       for (const [dx, dz, wx0, wz0, wx1, wz1] of neighbors) {
+        const nbWater = tiles[ty + dz]?.[tx + dx] === 3
+
+        // A RIVER EDGE IS A WALL, NOT A GRADE.
+        //
+        // The ground mesh now stops the land dead at the brink and starts the
+        // bed at the bottom (see terrainCornerY / bedCornerY), which leaves a
+        // vertical gap along every shoreline. Closing it is not optional —
+        // an open gap is a hole you can see the sky through — and closing it
+        // with masonry is the whole point: a town does not slope into its
+        // river, it revets it. So this case ignores the 0.6 threshold and
+        // uses the two CORNER heights along the shared edge rather than one
+        // tile-centre value, because that gap is exactly two corners wide.
+        if (selfWater !== nbWater) {
+          if (selfWater) continue          // the land side owns the wall
+          const cx0 = wx0 / TILE, cz0 = wz0 / TILE
+          const cx1 = wx1 / TILE, cz1 = wz1 / TILE
+          const topA = terrainCornerY(heightMap, cx0, cz0)
+          const topB = terrainCornerY(heightMap, cx1, cz1)
+          const botA = bedCornerY(heightMap, cx0, cz0)
+          const botB = bedCornerY(heightMap, cx1, cz1)
+          if (topA - botA < 0.02 && topB - botB < 0.02) continue
+          // Quay stone where the town has built up to the water, and a paler
+          // natural revetment where it has not — the same distinction
+          // buildQuayWalls draws in the height map, carried into the picture.
+          const urban = tiles[ty]?.[tx] === 8 || tiles[ty]?.[tx] === 9 ||
+            tiles[ty]?.[tx] === 14 || tiles[ty]?.[tx] === 15 ||
+            tiles[ty]?.[tx] === 16 || tiles[ty]?.[tx] === 2
+          const qc = urban ? QUAY_COLOR : BANK_COLOR
+          const shade = (dx === 1 || dz === 1) ? 0.88 : 1.0
+          // A course band, so the face reads as laid stone rather than as a
+          // slab of colour. Two triangles per course, cheap and it is the one
+          // detail that separates masonry from a painted rectangle.
+          const COURSE = 0.45
+          const hi = Math.max(topA, topB), lo = Math.min(botA, botB)
+          const bands = Math.max(1, Math.min(8, Math.ceil((hi - lo) / COURSE)))
+          for (let bi = 0; bi < bands; bi++) {
+            const t0 = bi / bands, t1 = (bi + 1) / bands
+            const aT = topA + (botA - topA) * t0, aB = topA + (botA - topA) * t1
+            const bT = topB + (botB - topB) * t0, bB = topB + (botB - topB) * t1
+            // Alternate courses a shade apart; the mortar line is the change.
+            const k = shade * (bi % 2 === 0 ? 1.0 : 0.9)
+            const cr2 = qc.r * k, cg2 = qc.g * k, cb2 = qc.b * k
+            wallVerts.push(wx0, aT, wz0, wx1, bT, wz1, wx1, bB, wz1)
+            wallVerts.push(wx0, aT, wz0, wx1, bB, wz1, wx0, aB, wz0)
+            for (let i = 0; i < 6; i++) wallColors.push(cr2, cg2, cb2)
+          }
+          continue
+        }
+
         const nh = getTerrainHeight(heightMap, tx + dx, ty + dz)
         if (nh >= h) continue
         // Only emit a retaining wall for a significant drop (≥ 0.6 world

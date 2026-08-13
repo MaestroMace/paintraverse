@@ -1787,6 +1787,58 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   are reachable — hiding groups/meshes at runtime is the fastest way to
   bisect "what is that artifact?".
 
+## A TOWN DOES NOT SLOPE INTO ITS RIVER — the corner-sharing rule at a shore
+
+Asked plainly: "the city river would have man made masonry edges right? why
+does it slope down?" Correct on both counts, and the previous round's fix was
+cosmetic — it painted the slope to LOOK like stone instead of making it a
+wall.
+
+**The slope was a consequence of the corner-shared height rule.** A mesh
+corner belongs to one tile and every tile touching it takes the same value,
+which is exactly what stops the ground stair-stepping. At a SHORELINE that
+same rule is a defect: the corner between a quay at +1.45m and a riverbed at
+-0.58m can hold only one number, so the quad between them is a two-metre dirt
+ramp. No colour makes a ramp a wall.
+
+So the two surfaces are allowed to disagree there, and only there:
+
+- `terrainCornerY` — the LAND surface, and the single definition every
+  consumer reaches through `getTerrainHeight` (camera, props, collision,
+  audits) — resolves a corner whose own tile is WATER to the highest LAND at
+  that corner. Away from water it is byte-identical to the one-line rule it
+  always was, which is what keeps everything standing where it stood.
+- `bedCornerY` mirrors it for the channel floor, so the bed cannot climb out
+  of itself and poke through the water surface.
+- The vertical gap between them is closed by `buildRetainingWalls`, which for
+  a land/water edge ignores its 0.6m threshold (an unclosed gap is a hole you
+  see sky through), spans the two CORNER heights rather than one tile-centre
+  value, and lays the face in alternating courses — dressed ashlar where the
+  town has paved up to the water, rougher revetment where it has not.
+
+**Bank relief 0.69m -> 1.31m median.** Nothing was deepened; the land simply
+stopped ramping, so the figure is now the quay you can actually see.
+
+### AND FIFTEEN TILES A TOWN WERE WATER IN ONE MAP AND LAND IN THE OTHER
+
+With the walls in, pale wedges still dived into the river every few tiles. Not
+props — a height dump settled it in one run: a tile carrying terrain id 5
+(grass) at height 2.1 raw, which is the BED, below the 2.4 waterline. Land
+sitting under the water.
+
+`carveRiverBed` keys off `waterMap`, and somewhere among ~20 terrain passes a
+tile that waterMap calls water gets painted as land. It kept the bed height
+and gained a land quad, so the mesh drew a slipway. Enforced once at the end
+of `generate()` rather than by auditing twenty passes for a guard — the same
+shape as the buried-prop invariant, and for the same reason: **a rule applied
+in nineteen places out of twenty is not applied.** `placeStats`
+`_waterTilesRepainted` reports the count so it cannot go quiet.
+
+Free consequence worth noting: **continuity 2.7 -> 1.0 separate bodies of
+water.** Those mispainted tiles were islands cutting the channel into
+fragments, and every "the river is in pieces" reading for the whole arc was
+partly them.
+
 ## THE RAVINE WAS NEVER THE CHANNEL — it was the blend, and then the light
 
 Reported: "there is still a giant ravine running through the middle of town."
