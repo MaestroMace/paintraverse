@@ -425,13 +425,18 @@ export class TownGenerator implements IMapGenerator {
     // Composition has to be decided before the infill, which is the ordinary
     // way round for a town: the cathedral and the gate were there first and
     // the houses grew up against them.
-    const landmarks = this.placeLandmarks(
+    const { landmarks, dressing: landmarkDressing } = this.placeLandmarks(
       // Bridges are laid down before landmarks and are pure occupancy here —
       // without them a staircase could be dropped on top of a bridge.
       width, height, roadMap, waterMap, districts, districtMap,
       bridges, heightMap,
       complexity, rng, mainCenter, terrainTiles
     )
+    // The bench, statue and tavern signage that dress those landmarks are
+    // PROPS — pushed into placedProps below, where that accumulator exists.
+    // They were going out in the structure layer, where the building factory
+    // turned each of them into a house. See placeLandmarks.
+    placeStats._landmarkDressingProps = landmarkDressing.length
 
     // 10. Place buildings with district awareness, around the landmarks.
     const buildings = this.placeBuildings(
@@ -457,7 +462,7 @@ export class TownGenerator implements IMapGenerator {
     // with barrels).
     const anchors: PlacedObject[] = [...buildings, ...landmarks]
     const blockers: PlacedObject[] = [...bridges]
-    let placedProps: PlacedObject[] = []
+    let placedProps: PlacedObject[] = [...landmarkDressing]
     /** Structures placed so far — occupancy only. */
     const solid = (): PlacedObject[] => [...anchors, ...blockers]
     /** Everything placed so far, structures and props alike. */
@@ -621,6 +626,28 @@ export class TownGenerator implements IMapGenerator {
       return o.x >= 0 && o.y >= 0 && o.x + ofp.w <= width && o.y + ofp.h <= height
     }
 
+    // A LANDMARK'S DRESSING IS NOT A STRUCTURE.
+    //
+    // `placeLandmarks` dresses what it places — a bench in front of the clock
+    // tower, a barrel stack and hanging sign beside the tavern, a statue on
+    // the plaza — and pushed all of it into `landmarks`, which flows into
+    // `anchors` and out into the STRUCTURE layer. The intent is right and the
+    // destination was wrong: BuildingFactory draws that layer, so a bench came
+    // out as a NINE-METRE BUILDING with walls, windows and a roof. Three to
+    // eight of them a town: rare enough never to be the subject of a
+    // screenshot, common enough to be in most of them.
+    //
+    // `humanscale.mjs --by-type` is what surfaced it, and only because it
+    // reports by TYPE. The aggregate spread looked like ordinary variation;
+    // a line reading `bench ... wallH 9.5` cannot be anything else.
+    //
+    // This wants to be an invariant enforced once at the end, the way the
+    // buried-prop and water-tile rules are. It is not, and the reason is
+    // worth recording: that test needs each object's CATEGORY, the categories
+    // live in store.ts, and store.ts already imports the generator registry —
+    // so the generator cannot read them without an import cycle. The pass
+    // that creates the dressing is the only place here that knows what it is,
+    // so it keeps it separate instead.
     const allStructures = [...anchors, ...blockers].filter(inBounds)
 
     // NO PROP MAY BE BURIED IN A STRUCTURE — enforced once, here, instead of
@@ -3009,6 +3036,20 @@ export class TownGenerator implements IMapGenerator {
 
 
   // === LANDMARKS ===
+  /**
+   * Ids this pass emits as DRESSING rather than as structures. A landmark is
+   * a building; the bench in front of it is not, and pushing both into the
+   * same list sent the bench to BuildingFactory, which built it as a
+   * nine-metre house. Listed explicitly because the generator cannot read
+   * object CATEGORIES — they live in store.ts, which imports the generator
+   * registry, so reading them here would be an import cycle.
+   */
+  private static readonly LANDMARK_DRESSING = new Set([
+    'bench', 'statue', 'cafe_table', 'barrel_stack', 'hanging_sign',
+    'well', 'potted_plant', 'wall_lantern', 'crate', 'barrel', 'lamppost',
+    'flower_box', 'market_stall', 'signpost', 'rope_coil',
+  ])
+
   private placeLandmarks(
     w: number, h: number,
     roadMap: boolean[][], waterMap: boolean[][],
@@ -3017,7 +3058,7 @@ export class TownGenerator implements IMapGenerator {
     complexity: number, rng: () => number,
     center: { x: number; y: number },
     terrain: number[][]
-  ): PlacedObject[] {
+  ): { landmarks: PlacedObject[]; dressing: PlacedObject[] } {
     const landmarks: PlacedObject[] = []
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
     this.markBuildings(occupied, buildings, w, h)
@@ -3245,7 +3286,13 @@ export class TownGenerator implements IMapGenerator {
       }
     }
 
-    return landmarks
+    // Split the dressing out. Everything above was pushed into one list for
+    // occupancy purposes — which is correct, a bench does take a tile — but
+    // only the structures may go to the layer BuildingFactory draws.
+    return {
+      landmarks: landmarks.filter((o) => !TownGenerator.LANDMARK_DRESSING.has(o.definitionId)),
+      dressing: landmarks.filter((o) => TownGenerator.LANDMARK_DRESSING.has(o.definitionId)),
+    }
   }
 
   // === TOWN GATES ===

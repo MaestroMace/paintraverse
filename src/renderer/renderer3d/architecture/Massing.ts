@@ -751,7 +751,15 @@ function tmplFarmstead(ctx: MassingContext): Volume[] {
  *  house crowned by a steep pointed roof. Used by landmark promotion. */
 function tmplTallTowerHouse(ctx: MassingContext): Volume[] {
   const baseW = Math.max(1.1, Math.min(ctx.footW, ctx.footD) * 0.75)
-  const tallH = ctx.wallH * 2.2
+  // CAP IT AGAINST ITS OWN WIDTH, like every other tower here.
+  //
+  // Five templates run their height through towerHeightFor and this one did
+  // not, which is a bug in a PATTERN rather than in a line: the landmark
+  // promotion hands 28% of ALL buildings a dramatic template regardless of
+  // type, so an uncapped `wallH * 2.2` produced a 37.5m coach house and a
+  // 24.9m row house — the tower-block silhouette MAX_TOWER_ASPECT exists to
+  // prevent. Grep the siblings of any gate you fix.
+  const tallH = towerHeightFor(ctx.wallH * 2.2, baseW)
   const roofStyle: RoofStyle = rand01(ctx.hash, 221) < 0.55 ? 'steep' : 'pointed'
   return [{
     role: 'tower',
@@ -762,7 +770,11 @@ function tmplTallTowerHouse(ctx: MassingContext): Volume[] {
     roofAxis: 'x',
     wallColor: ctx.wallColor, roofColor: ctx.roofColor,
     textured: true, cornice: ctx.sv.cornice > 0.15,
-    floors: Math.max(3, Math.round(tallH / 1.05)),
+    // STOREY_HEIGHT, not a 1.05 left over from an earlier scale. volumeFloors
+    // guards against the resulting nonsense so nothing was drawn wrong, but
+    // the count goes into scaleSamples — and a diagnostic reporting a
+    // thirteen-storey bakery sends the next person after the wrong bug.
+    floors: Math.max(2, Math.round(tallH / STOREY_HEIGHT)),
   }]
 }
 

@@ -1787,6 +1787,56 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   are reachable — hiding groups/meshes at runtime is the fastest way to
   bisect "what is that artifact?".
 
+## A BENCH WAS BEING BUILT AS A NINE-METRE HOUSE
+
+`humanscale.mjs --by-type` surfaced it and only because it reports by TYPE.
+The aggregate spread looked like ordinary variation; a line reading
+`bench ... wallH 9.5` cannot be anything but a bug.
+
+`placeLandmarks` dresses what it places — a bench in front of the clock tower,
+a barrel stack and hanging sign beside the tavern, a statue on the plaza — and
+pushed all of it into `landmarks`, which flows into `anchors` and out into the
+STRUCTURE layer. BuildingFactory draws that layer, so each of those props came
+out as a building with walls, windows and a roof. **Three to eight a town:
+rare enough never to be the subject of a screenshot, common enough to be in
+most of them.**
+
+**This wants to be an invariant enforced once at the end, like the buried-prop
+and water-tile rules, and it is not.** That test needs each object's CATEGORY;
+the categories live in store.ts; store.ts imports the generator registry, so
+the generator cannot read them without an import cycle. The pass that creates
+the dressing is the only place that knows what it is, so it returns
+`{ landmarks, dressing }` and the caller files each in the right layer. If the
+definitions ever move to a neutral module, make this the invariant.
+
+### AND THE TOWER-HOUSE TEMPLATE SKIPPED THE CAP ITS FIVE SIBLINGS USE
+
+The same by-type reading showed `coach_house` at 37.5m and `row_house` at
+24.9m — an outbuilding and a terrace at tower-block height. The landmark
+promotion hands **28% of ALL buildings** a dramatic template regardless of
+type, and `tmplTallTowerHouse` computed `wallH * 2.2` with no ceiling while
+`tmplStackedTower`, `tmplCornerTower`, `tmplSpireEnd`, `tmplCircularTower` and
+`tmplCrossPlan` all run theirs through `towerHeightFor`, which caps against
+MAX_TOWER_ASPECT. One of six paths missing the gate. **A bug in a gate is a
+bug in a PATTERN — grep the siblings.** coach_house 37.5 -> 19.2m, row_house
+24.9 -> 16.9m.
+
+Its `floors: round(tallH / 1.05)` also still carried the pre-rescale divisor.
+`volumeFloors` guards against the nonsense so nothing drew wrong, but the
+count goes into `scaleSamples`, and a diagnostic reporting a THIRTEEN-STOREY
+BAKERY sends the next person after the wrong bug. **A dead number in a
+diagnostic is not harmless.**
+
+### AND THE "WASHED-OUT NOON OVERVIEW" WAS NOT REAL
+
+Reported by me from a screenshot and measured afterwards: mean luma 0.306,
+**0% of pixels above 0.80, 0% above 0.95.** Nothing is clipping. What the eye
+read as blown out is the known ground-colour finding — 60% of the map in one
+warm pale colour family — which `streets.mjs` already reports and CLAUDE.md
+already files as an art-direction call. The lesson is the one propscale.mjs
+learned about its own targets, pointed at an eyeball report instead:
+**when a claim you made disagrees with a measurement, suspect the claim.**
+
 ## THERE WERE NO BRIDGES — the geometry and the object lived in different layers
 
 Reported: "there are also essentially no bridges." `river.mjs` said 7.7
