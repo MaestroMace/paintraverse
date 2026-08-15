@@ -1701,7 +1701,16 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   back you must stand is decided by HEIGHT, which only the built scene knows,
   so it walks out until the projected footprint box fits. The magenta outline
   is not decoration — two rounds went on guessing which box in the frame was
-  the subject.
+  the subject. Both halves are `tools/lib/vantage.mjs` now.
+- `tools/lib/vantage.mjs` — **not a tool, the camera every tool should use.**
+  `lookAt(win, box)` raycasts candidate vantages against the real scene and
+  flies to the first with a clear line to the subject, returning where the
+  subject landed on screen; `cropTo` crops the capture to it with a floor size;
+  `markSubject` outlines it; `hideChrome` removes the HUD. Reach for this
+  instead of hand-placing a camera — five tools had each hand-rolled "find a
+  spot to stand" out of the tile map and every one of them had stood inside a
+  building. Its failures are informative: it names the mesh in the way.
+  `structureBox(id)` on the debug bridge gives you the box to pass it.
 - `node tools/districts.mjs [seeds...]` — **can you tell which quarter you are
   in?** Character (are the building types distinctive), signature (do ground,
   height and density differ), and trade dressing per district. Prints
@@ -1836,6 +1845,89 @@ warm pale colour family — which `streets.mjs` already reports and CLAUDE.md
 already files as an art-direction call. The lesson is the one propscale.mjs
 learned about its own targets, pointed at an eyeball report instead:
 **when a claim you made disagrees with a measurement, suspect the claim.**
+
+## HOW TO ACTUALLY LOOK AT SOMETHING — tools/lib/vantage.mjs
+
+Asked "is there a way to improve your interpretation of visuals?" after I had
+twice graded a 4x2 bridge from a 40-metre skyline and once called a noon
+overview washed out without measuring it. The honest diagnosis is that neither
+was a perception problem. **Framing was failing, and a failed frame silently
+downgrades you to a wide shot and a guess.** Four cameras in a row landed
+inside geometry that session; each returned a dark rectangle, and each time I
+reasoned about the rectangle instead of fixing the camera.
+
+Three rules, and every camera-placing tool here now goes through them:
+
+- **Raycast the vantage; do not infer it from the tile map.** A free tile says
+  nothing about the LINE OF SIGHT, which is why `rivershot`, `asset` and
+  `bridgeshot` each independently stood a camera inside a house. `lookAt()`
+  casts eye -> subject over the real scene and takes the first candidate that
+  is clear. When nothing works it NAMES the mesh in the way, which is a bug
+  report rather than a black frame.
+- **Aim at the box, not at the centre.** The first cut stopped the ray at 98%
+  of the distance to the box's midpoint — but the midpoint is inside the solid,
+  so every ray hit the subject itself and the tool reported all six bridges in
+  town as occluded by their own parapets. A slab test against the AABB is
+  exact and is three lines.
+- **Crop to the projected subject, and constrain the BEARING.** A bridge seen
+  three-quarters-on down a street is unoccluded, correctly framed and useless.
+  `prefer` + `arc` say "broadside from either bank, or tell me you can't".
+  And `maxFill` is the lever that matters for anything long and thin: at a
+  generous fill the camera satisfies the test from INSIDE the span — 14m from
+  an 18m bridge, 79% of frame, one pier at arm's length.
+
+**What it found in its first run is the point.** With a bridge finally on
+screen at a readable size, it was obviously a roofed pavilion on a plinth.
+
+### AND role: 'mainBody' WAS CARRYING TWO MEANINGS
+
+`mainBody` means "the principal volume, report it as BuildingTop" AND "this is
+a room, so apply the habitability rules". Four templates that are not
+buildings used it for the first meaning and silently got the second:
+
+| authored | built |
+|---|---|
+| 0.22m footbridge trestle | 2.60m block |
+| 0.70m bridge pier | 2.60m block, 2.90m tall, with a HIPPED ROOF |
+| 1.45m precinct wall | 2.90m tall, roofed — this file said 1.45 for weeks |
+| 1.60m curtain wall | 2.60m thick |
+| 1.0m merlon (`penthouse`) | 2.6m block at a 1.2m pitch — a solid slab |
+
+`Volume.habitable = false` and a `masonry()` stamp on the four templates. Note
+what that did NOT fix: **the habitable minimum exists in THREE places** —
+twice in `pickMassing` and once in `BuildingFactory` after wealthScale — and
+the BuildingFactory copy is the dominant one because it skips only three roles
+and so widened every piece of `trim` as well (a bridge parapet, an 8cm
+handrail, a wall's coping). Guarding two of three changed nothing on screen.
+A rule applied in two places out of three is not applied, and the only way to
+know is to re-measure.
+
+    precinct_wall   wallH 3.3m -> 1.6m
+    bridge pier     wallH 2.9m -> 1.8m
+    wallW p10 / min 2.60 / 2.60 -> 1.60 / 0.52
+
+The p10 reading is the tell in hindsight: **`MIN_HABITABLE_W` was the p10 AND
+the exact minimum of the whole town.** A floor that is also the tenth
+percentile is a floor that is doing far more than catching outliers, and
+`humanscale.mjs --by-type` had been printing `precinct_wall wallH 3.3` in
+plain sight for as long as precinct walls existed.
+
+There is also a **second, near-identical open-flat-top repair pass** in
+`pickMassing` with different constants. Both are live, they see different
+heights (one before the habitable minimum raises them and one after), and both
+need every guard — that is exactly how a 1.85m pier slipped past a 2.0m
+threshold in the first and got roofed by the second. Left in place because
+deleting one changes every roof in town and wants its own A/B.
+
+### AND BuildingTop IS THE WRONG BOX TO FRAME
+
+`structureBox` first returned the main body, and for a bridge the main body is
+one pier at one end of the span — so the tool framed a pier from two metres,
+which is the same "thirty pixels" failure it was built to end. `BuildingTop`
+now also carries `originX/originZ` and `spanHalfW/spanHalfD`: the envelope of
+ALL volumes about the placement origin. Same anchor argument as
+`PlacedObject.footprint` and `BuildingTop` itself — **when a whole category of
+work keeps not happening, look for the handle it would need.**
 
 ## AND I VERIFIED THE BRIDGES WITH A METRIC AND A DISTANT SKYLINE
 
