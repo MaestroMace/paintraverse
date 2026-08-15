@@ -1954,6 +1954,34 @@ export class ThreeRenderer {
   }
 
   /**
+   * The world-space box of one placed structure, by object id.
+   *
+   * Every "photograph this thing" tool has re-derived this from the tile
+   * footprint plus a guessed height, and a guessed height is what stood a
+   * camera under a bridge deck and inside a house. BuildingFactory already
+   * computes the real extents for the particle systems (see BuildingTop);
+   * this only publishes them, which is the same anchor argument that
+   * `PlacedObject.footprint` settled for placement.
+   */
+  debugStructureBox(id: string): { min: [number, number, number]; max: [number, number, number] } | null {
+    const t = this._buildingTops.get(id)
+    if (!t) return null
+    // Half-extents are recorded before yaw, so take the axis-aligned bound of
+    // the rotated rectangle — a 45-degree building must not report a box its
+    // own corners stick out of.
+    const c = Math.abs(Math.cos(t.rotationY)), s = Math.abs(Math.sin(t.rotationY))
+    const hx = t.spanHalfW * c + t.spanHalfD * s
+    const hz = t.spanHalfW * s + t.spanHalfD * c
+    // About the ORIGIN, not the main body — for a bridge the main body is one
+    // pier at one end of the span, and a box centred there frames the pier.
+    const baseY = this.sampleGroundY(t.originX, t.originZ)
+    return {
+      min: [t.originX - hx, Math.min(baseY, t.mainWallTopY - 0.5), t.originZ - hz],
+      max: [t.originX + hx, t.apexY, t.originZ + hz],
+    }
+  }
+
+  /**
    * Vertical extent of the built scene. `maxY` is the tallest point in town —
    * a blunt but effective regression signal for runaway geometry (a single
    * needle spire pushes it into the tens of metres above everything else).

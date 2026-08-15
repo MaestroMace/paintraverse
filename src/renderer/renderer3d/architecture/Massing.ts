@@ -49,6 +49,33 @@ export interface Volume {
   circular?: boolean
   /** Integer floors for facade texture; defaults to derived from height. */
   floors?: number
+  /**
+   * MASONRY, NOT A ROOM. Default (undefined) means the habitability rules
+   * below apply by role — a `mainBody` is somewhere a person stands, so it is
+   * floored at MIN_HABITABLE_W wide and STOREY_HEIGHT tall, and it grows a
+   * roof rather than sit open to the sky.
+   *
+   * Every one of those is wrong for a bridge pier, a footbridge trestle or a
+   * boundary wall, and all four of those templates used `mainBody` because it
+   * is also how BuildingFactory finds the principal volume. So the role was
+   * carrying two meanings and only one of them was true, which built:
+   *
+   *   authored              built
+   *   0.22m trestle    ->   2.60m block
+   *   0.70m pier       ->   2.60m block, 2.90m tall, with a HIPPED ROOF
+   *   1.45m precinct   ->   2.90m tall, roofed  (CLAUDE.md still says 1.45)
+   *   1.60m curtain    ->   2.60m thick
+   *
+   * A bridge came out as six roofed pavilions with a slab across them, which
+   * is what the phone kept photographing and calling planks.
+   */
+  habitable?: boolean
+}
+
+/** Stamp a template's volumes as masonry — see Volume.habitable. */
+function masonry(vols: Volume[]): Volume[] {
+  for (const v of vols) v.habitable = false
+  return vols
 }
 
 export interface MassingResult {
@@ -959,7 +986,7 @@ function tmplFootbridge(ctx: MassingContext): Volume[] {
       textured: false, cornice: false, floors: 1,
     })
   }
-  return vols
+  return masonry(vols)
 }
 
 /**
@@ -1037,7 +1064,7 @@ function tmplStoneBridge(ctx: MassingContext): Volume[] {
       textured: false, cornice: false, floors: 1,
     })
   }
-  return vols
+  return masonry(vols)
 }
 
 function tmplLowWall(ctx: MassingContext, alongX: boolean): Volume[] {
@@ -1074,7 +1101,7 @@ function tmplLowWall(ctx: MassingContext, alongX: boolean): Volume[] {
     textured: false, cornice: false,
     floors: 1,
   })
-  return volumes
+  return masonry(volumes)
 }
 
 function tmplWallSegment(ctx: MassingContext): Volume[] {
@@ -1133,7 +1160,11 @@ function tmplWallSegment(ctx: MassingContext): Volume[] {
       floors: 1,
     })
   }
-  return volumes
+  // Masonry, and the MERLONS need it as much as the curtain does: they are
+  // `penthouse`, which is in HABITABLE, so each 1.0m block was floored to
+  // 2.6m against a 1.2m pitch — every merlon overlapped its neighbours and
+  // the crenellation rendered as one solid slab.
+  return masonry(volumes)
 }
 
 /** Windmill: narrow circular tower + conical cap + four cross-arm sails. */
@@ -1352,8 +1383,14 @@ export function pickMassing(input: PickMassingInput): MassingResult {
   // (the body under a jetty, the block beneath a step-back penthouse), 14-16
   // per town were exposed. Give those a real roof, staying low-pitch so the
   // building keeps the character its style vector asked for.
+  // NOTE: there is a second, near-identical pass at "NO OPEN BOXES AGAINST THE
+  // SKY" below, with different constants. Both are live and both need every
+  // guard — this one sees the AUTHORED heights and that one sees the heights
+  // after the habitable minimum has raised them, which is how a 1.85m pier
+  // slipped past the 2.0m threshold here and was roofed down there.
   for (const v of volumes) {
     if (v.role === 'chimneyVol') continue // a chimney is meant to be open-topped
+    if (v.habitable === false) continue   // a pier and a parapet end in sky
     const isFlat = v.roofStyle === 'flat' || v.roofStyle === 'none' || v.roofHeight <= 0
     if (!isFlat || v.height < 2.0) continue
     const covered = volumes.some(o =>
@@ -1449,7 +1486,7 @@ export function pickMassing(input: PickMassingInput): MassingResult {
     'mainBody', 'wing', 'upperFloor', 'tower', 'penthouse', 'transept',
   ])
   for (const v of volumes) {
-    if (!HABITABLE.has(v.role)) continue
+    if (!HABITABLE.has(v.role) || v.habitable === false) continue
     const maxW = ctx.footW + MAX_OVERHANG * 2
     const maxD = ctx.footD + MAX_OVERHANG * 2
     v.width = Math.min(maxW, Math.max(v.width, Math.min(MIN_HABITABLE_W, maxW)))
@@ -1469,6 +1506,9 @@ export function pickMassing(input: PickMassingInput): MassingResult {
   // habitable minimum above pushed 50-odd per town past its 2m reporting
   // threshold, which did not create them, only revealed them.
   for (const v of volumes) {
+    // A flat top is only a defect on something that was supposed to be
+    // enclosed. A pier, a parapet and a curtain wall are MEANT to end in sky.
+    if (v.habitable === false) continue
     const isFlatTop = v.roofStyle === 'flat' || v.roofStyle === 'none' || v.roofHeight <= 0
     if (!isFlatTop || v.height < 2.0) continue
     const covered = volumes.some((o) =>

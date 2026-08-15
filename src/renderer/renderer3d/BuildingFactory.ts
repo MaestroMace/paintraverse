@@ -150,6 +150,13 @@ export interface BuildingTop {
   /** Main body's half-extents in world units, before yaw. */
   halfW: number
   halfD: number
+  /** The building's placement origin (world) — volume offsets are from here. */
+  originX: number
+  originZ: number
+  /** Half-extents of ALL volumes together, about the ORIGIN: the structure's
+   *  own envelope, as opposed to the main body's. */
+  spanHalfW: number
+  spanHalfD: number
   /** Yaw applied to the whole building, radians. */
   rotationY: number
 }
@@ -565,9 +572,18 @@ export function buildBuildingMeshes(
       // human minimum that pickMassing just enforced — a slum multiplier of
       // 0.78 on a 2.6m wall is 2.0m. Re-floor here, bounded by the footprint
       // plus the overhang allowance so this cannot reintroduce a sail.
+      //
+      // This is the THIRD copy of the habitable minimum (pickMassing has two),
+      // and it was the dominant one: it skips only three roles, so it also
+      // widened every piece of `trim` — a bridge parapet, a footbridge's 8cm
+      // handrail, a wall's coping — to 2.6m. Marking the masonry templates
+      // non-habitable fixed the other two copies and changed nothing on
+      // screen until this one learned the same word. A rule applied in two
+      // places out of three is not applied.
       const maxW = fp.w + 1.2, maxD = fp.h + 1.2
       for (const v of massing.volumes) {
         if (v.role === 'chimneyVol' || v.role === 'porch' || v.role === 'spire') continue
+        if (v.habitable === false) continue
         v.width = Math.min(maxW, Math.max(v.width, Math.min(MIN_HABITABLE_W, maxW)))
         v.depth = Math.min(maxD, Math.max(v.depth, Math.min(MIN_HABITABLE_W, maxD)))
         if (v.role === 'mainBody' || v.role === 'upperFloor') {
@@ -728,6 +744,15 @@ export function buildBuildingMeshes(
       const t = v.bottomY + v.height + v.roofHeight
       if (t > apexLocalY) apexLocalY = t
     }
+    // And the WHOLE structure's horizontal extent, over every volume. The main
+    // body is the right anchor for a chimney and the wrong one for a camera:
+    // a bridge's `mainBody` is a single 70cm pier, so a tool asking "frame this
+    // structure" got a shot of one pier from two metres and no bridge in it.
+    let spanHalfW = 0, spanHalfD = 0
+    for (const v of massing.volumes) {
+      spanHalfW = Math.max(spanHalfW, Math.abs(v.offsetX) + v.width / 2)
+      spanHalfD = Math.max(spanHalfD, Math.abs(v.offsetZ) + v.depth / 2)
+    }
     // Roof-style census. A volume taller than ~4m with no roof reads as an
     // unfinished building from the street, so count those separately.
     for (const v of massing.volumes) {
@@ -784,6 +809,10 @@ export function buildBuildingMeshes(
       centerZ: wz + (mainVol.offsetX * Math.sin(rotationY) + mainVol.offsetZ * Math.cos(rotationY)),
       halfW: mainVol.width / 2,
       halfD: mainVol.depth / 2,
+      originX: wx,
+      originZ: wz,
+      spanHalfW,
+      spanHalfD,
       rotationY,
       id: obj.id,
       apexY: wy + apexLocalY,

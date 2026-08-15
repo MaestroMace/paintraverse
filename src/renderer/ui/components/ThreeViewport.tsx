@@ -152,9 +152,12 @@ export function ThreeViewport() {
         </div>
       )}
       {/* FPS — top left. Content written imperatively via fpsTextRef to
-          avoid re-rendering the viewport each tick. */}
+          avoid re-rendering the viewport each tick. Named, like .walk-hint,
+          so headless capture can hide it: a cropped shot of a small subject
+          can end up mostly chrome. */}
       <div
         ref={fpsTextRef}
+        className="hud-chrome"
         style={{
           position: 'absolute', top: 4, left: 4,
           background: 'rgba(0,0,0,0.5)', padding: '2px 6px',
@@ -165,6 +168,7 @@ export function ThreeViewport() {
       {/* Screenshot — bottom right */}
       <button
         onClick={handleScreenshot}
+        className="hud-chrome"
         style={{
           position: 'absolute', bottom: 8, right: 8,
           padding: '4px 10px', fontSize: 10,

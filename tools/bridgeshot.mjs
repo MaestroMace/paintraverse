@@ -1,5 +1,5 @@
 /**
- * BRIDGESHOT — photograph every bridge, from above, with its tiles printed.
+ * BRIDGESHOT — photograph every bridge, with its tiles printed beside it.
  *
  * Written because I claimed bridges were fixed on the strength of a metric and
  * a distant skyline, and was told they still looked like planks. Four separate
@@ -7,10 +7,16 @@
  * a bridge sits over water with its own tiles tagged `passage`, so every
  * ground-level vantage picker either stood inside a building or under the deck.
  *
- * The fix is to stop fighting for a standable spot. Go UP. At 26m the only
- * things in the way are spires, and a three-quarter view from above shows the
- * whole span, both banks and the water at once — which is exactly the question
- * ("does it reach?") that a street-level shot cannot answer anyway.
+ * Both cameras here were hand-placed and both were wrong at first — one at 26m
+ * looked straight through a roofline, and the profile shot went to the wrong
+ * axis and stood inside a house. They are `lookAt()` now (tools/lib/vantage.mjs),
+ * which RAYCASTS the candidate before flying to it and refuses rather than
+ * returning a frame with a wall in it. The plan shot asks it to go up; the
+ * profile shot asks for a low bearing along the channel. Neither guesses.
+ *
+ * And the frames are CROPPED to the subject's projected box. A 4x2 bridge in a
+ * 935px view of a whole town is about thirty pixels, which is exactly how many
+ * pixels it takes for a plank to pass for a bridge.
  *
  * Each frame is printed with the tile row underneath it: L for land, ~ for
  * water, # for deck. The picture and the numbers come out of the same run, so
@@ -20,6 +26,7 @@
  */
 import { _electron as electron } from 'playwright-core'
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { lookAt, cropTo, hideChrome, FRAME } from './lib/vantage.mjs'
 
 const argv = process.argv.slice(2)
 const seed = Number(argv.find((a) => /^\d+$/.test(a)) ?? 31337)
@@ -47,7 +54,7 @@ await win.getByRole('button', { name: '3D', exact: true }).click()
 await win.waitForTimeout(2800)
 await win.evaluate((t) => window.__pt.store.getState().updateEnvironment({ timeOfDay: t }), timeOfDay)
 await win.waitForTimeout(900)
-await win.evaluate(() => { const h = document.querySelector('.walk-hint'); if (h) h.style.display = 'none' })
+await hideChrome(win)
 
 const info = await win.evaluate(() => {
   const st = window.__pt.store.getState()
@@ -86,7 +93,7 @@ const info = await win.evaluate(() => {
       strip += onDeck ? (wet(x, y) ? '#' : '=') : (wet(x, y) ? '~' : 'L')
     }
     return {
-      id: o.definitionId, x: o.x, y: o.y, fw: f.w, fh: f.h, alongX, len,
+      id: o.definitionId, oid: o.id, x: o.x, y: o.y, fw: f.w, fh: f.h, alongX, len,
       cx: o.x + f.w / 2, cy: o.y + f.h / 2, strip,
     }
   })
@@ -96,56 +103,57 @@ if (!info.length) { console.log(`no bridges in seed ${seed}`); await app.close()
 console.log(`${info.length} bridges in seed ${seed}`)
 console.log('key: L land · ~ open water · # deck OVER WATER · = deck over dry land\n')
 
+const TL = await win.evaluate(() => window.__pt.TILE)
+
 for (let i = 0; i < Math.min(want, info.length); i++) {
   const b = info[i]
-  await win.evaluate(async (a) => {
-    const pt = window.__pt, three = pt.renderer()
-    // Steep and high. The first cut sat at 26m and 14 tiles back, and the
-    // sightline to the bridge passed straight through the rooftops between —
-    // going "above the buildings" is not enough, the whole RAY has to clear
-    // them. At 44m and 8 tiles the ray is ~25m up at the midpoint, over
-    // everything but the spires, and the pitch is computed to land on the
-    // bridge rather than guessed.
-    const ALT = 44, BACK = 8
-    const ex = a.alongX ? a.cx : a.cx + BACK
-    const ez = a.alongX ? a.cy + BACK : a.cy
-    const TL = 3.0
-    const run = Math.hypot(a.cx - ex, a.cy - ez) * TL
-    const yaw = Math.atan2(a.cy - ez, a.cx - ex)
-    pt.flyTo(ex, ALT, ez, yaw, -Math.atan2(ALT - 3, Math.max(1, run)))
-    for (let k = 0; k < 8; k++) await new Promise((r) => requestAnimationFrame(r))
-    await new Promise((r) => setTimeout(r, 400))
-    three.renderer.render(three.scene, three.camera)
-  }, b)
-  const buf = await win.screenshot({ clip: { x: 232, y: 40, width: 935, height: 806 } })
-  writeFileSync(`.shots/bridge/${seed}-${i}-above.png`, buf)
 
-  // AND A PROFILE. The plan view proves the span REACHES; only a low oblique
-  // shows whether it READS as a bridge — parapets, piers, headroom. Taken
-  // from over the CHANNEL, which is the one line through a town guaranteed to
-  // be free of buildings, at 9m so the camera clears the deck it is looking
-  // at. Every earlier attempt at this stood on the bank at eye height and
-  // came back either inside a house or underneath the deck.
-  await win.evaluate(async (a) => {
-    const pt = window.__pt, three = pt.renderer()
-    const OFF = 7, ALT = 9
-    // Stand over the WATER. The deck crosses the channel, so the channel runs
-    // perpendicular to the deck: a deck along X means a river along Z, and the
-    // camera offsets along Z. Getting that backwards put it on the bank and
-    // inside a house — which is how every previous attempt at this failed.
-    const sx = a.alongX ? a.cx : a.cx + OFF
-    const sz = a.alongX ? a.cy + OFF : a.cy
-    const TL = 3.0
-    const run = Math.hypot(a.cx - sx, a.cy - sz) * TL
-    pt.flyTo(sx, ALT, sz, Math.atan2(a.cy - sz, a.cx - sx),
-             -Math.atan2(ALT - 3.5, Math.max(1, run)))
-    for (let k = 0; k < 8; k++) await new Promise((r) => requestAnimationFrame(r))
-    await new Promise((r) => setTimeout(r, 400))
-    three.renderer.render(three.scene, three.camera)
-  }, b)
-  const buf2 = await win.screenshot({ clip: { x: 232, y: 40, width: 935, height: 806 } })
-  writeFileSync(`.shots/bridge/${seed}-${i}-profile.png`, buf2)
-  console.log(`✓ .shots/bridge/${seed}-${i}-{above,profile}.png  ${b.id} ${b.fw}x${b.fh} @(${b.x},${b.y})  ${b.strip}`)
+  // The subject box comes from the RENDERER's own record of what it built
+  // (BuildingTop -> structureBox), not from the tile footprint and a guessed
+  // height. A guessed height is what put a camera under the deck.
+  const box = await win.evaluate((id) => window.__pt.structureBox(id), b.oid)
+  if (!box) { console.log(`  (no geometry) ${b.id} @(${b.x},${b.y})`); continue }
+  // Widen along the span so both banks are in frame — the question a plan shot
+  // answers is "does it REACH", and a box tight to the deck cannot show that.
+  const pad = 4 * TL
+  const wide = {
+    min: [box.min[0] - (b.alongX ? pad : 0), box.min[1], box.min[2] - (b.alongX ? 0 : pad)],
+    max: [box.max[0] + (b.alongX ? pad : 0), box.max[1], box.max[2] + (b.alongX ? 0 : pad)],
+  }
+
+  // PLAN — high and steep, showing the span, both banks and the water at once.
+  const plan = await lookAt(win, wide, { dists: [26, 34, 44, 56], heights: [22, 32, 44] })
+  if (plan.ok) {
+    writeFileSync(`.shots/bridge/${seed}-${i}-above.png`,
+      await win.screenshot({ clip: cropTo(plan.screen, FRAME, 0.25) }))
+  }
+
+  // PROFILE — low, along the channel, which is the one line through a town
+  // guaranteed to be free of buildings. Only this angle shows whether it READS
+  // as a bridge: parapets, piers, headroom over the water. The bearing is a
+  // PREFERENCE, not an instruction — if that side is blocked, lookAt walks
+  // round to the nearest clear one instead of returning a wall.
+  // maxFill is the lever that matters here. A long thin subject satisfies a
+  // generous fill from INSIDE its own span — the first cut stood 14m from an
+  // 18m bridge, filled 79% of frame and photographed one pier at arm's length.
+  // Broadside, from either bank-to-bank direction, and NOT from three-quarters
+  // down a street — an unoccluded, correctly-framed oblique of a bridge is
+  // still a picture of a dark mass behind some houses.
+  const along = b.alongX ? Math.PI / 2 : 0
+  const prof = await lookAt(win, box, {
+    dists: [14, 20, 28, 38], heights: [2, 5, 9], dirs: 24, maxFill: 0.55,
+    prefer: [along, along + Math.PI], arc: 0.5,
+  })
+  if (prof.ok) {
+    writeFileSync(`.shots/bridge/${seed}-${i}-profile.png`,
+      await win.screenshot({ clip: cropTo(prof.screen, FRAME, 0.5) }))
+  }
+
+  const note = (v, n) => v.ok
+    ? `${n} ${v.dist.toFixed(0)}m/${v.up.toFixed(0)}up fill ${(v.fill * 100).toFixed(0)}%`
+    : `${n} FAILED: ${v.why}`
+  console.log(`${plan.ok && prof.ok ? '✓' : '✗'} ${b.id} ${b.fw}x${b.fh} @(${b.x},${b.y})  ${b.strip}`)
+  console.log(`    ${note(plan, 'plan')} · ${note(prof, 'profile')}`)
 }
 for (const b of info.slice(want)) {
   console.log(`  (not shot) ${b.id} ${b.fw}x${b.fh} @(${b.x},${b.y})  ${b.strip}`)

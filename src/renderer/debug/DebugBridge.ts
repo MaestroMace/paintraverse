@@ -22,6 +22,7 @@ import { setFragmentAudit, getFragmentAudit, setSliverAudit, getSliverAudit } fr
 import { overhangClamps, resetOverhangClamps } from '../renderer3d/architecture/Massing'
 import { auditRoofWinding } from '../renderer3d/architecture/Roofs'
 import { placeStats } from '../generation/TownGenerator'
+import * as THREE from 'three'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
 import { getActiveEditorViewport } from '../editor/EditorViewport'
 import { TILE } from '../renderer3d/scale'
@@ -32,6 +33,20 @@ export function installDebugBridge(): void {
   ;(window as any).__pt = {
     store: useAppStore,
     renderer: () => getActiveThreeRenderer(),
+
+    /**
+     * The THREE namespace, so a harness can RAYCAST.
+     *
+     * Every camera-placing tool here has independently reinvented "find a spot
+     * to stand" out of the tile map, and every one of them has put the camera
+     * inside a building at least once — `flyTo` does not test occupancy, and a
+     * tile being free says nothing about whether the line of sight to the
+     * subject is clear. Four attempts to photograph a bridge failed that way in
+     * one session, and each failure looks like a black frame you then have to
+     * guess about. With a Raycaster the question is exact and the answer names
+     * the mesh that is in the way.
+     */
+    THREE,
 
     /** The 2D plan viewport, and where it is looking. tools/touch.mjs grades
      *  gestures against this rather than against pixels — a screenshot diff
@@ -108,6 +123,26 @@ export function installDebugBridge(): void {
     /** Fly the camera (no gravity) to TILE x/z at world height y. */
     flyTo: (tx: number, y: number, tz: number, yaw: number, pitch: number) =>
       getActiveThreeRenderer()?.debugFlyTo(tx * TILE, y, tz * TILE, yaw, pitch) ?? null,
+
+    /**
+     * Fly the camera to a WORLD position. The tile-coordinate contract above is
+     * right for a tool framing a grid cell and wrong for anything that has
+     * already raycast the scene: tools/lib/vantage.mjs works entirely in metres
+     * because that is what a Raycaster speaks, and converting to tiles at the
+     * bridge only to multiply straight back is a unit round-trip with nothing
+     * to gain and a factor of three to lose.
+     */
+    flyToWorld: (x: number, y: number, z: number, yaw: number, pitch: number) =>
+      getActiveThreeRenderer()?.debugFlyTo(x, y, z, yaw, pitch) ?? null,
+
+    /** The tile -> world factor, so no tool has to hardcode 3.0. */
+    TILE,
+
+    /**
+     * World-space AABB of one placed structure, by object id — the anchor
+     * tools/lib/vantage.mjs frames against. See debugStructureBox.
+     */
+    structureBox: (id: string) => getActiveThreeRenderer()?.debugStructureBox(id) ?? null,
 
     /**
      * Look down at a tile from `height` tiles up and `back` tiles away — the
