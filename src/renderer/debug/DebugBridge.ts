@@ -157,6 +157,13 @@ export function installDebugBridge(): void {
     roofCaps: () => ({ ...MAX_ROOF_SPAN_RATIO, _towerAspect: MAX_TOWER_ASPECT }),
 
     /**
+     * EVERY structure and prop as a feature vector — the input to
+     * tools/odd.mjs, which ranks things by how unlike their peers they are.
+     * See debugSceneFeatures.
+     */
+    sceneFeatures: () => getActiveThreeRenderer()?.debugSceneFeatures() ?? null,
+
+    /**
      * World-space AABB of one placed structure, by object id — the anchor
      * tools/lib/vantage.mjs frames against. See debugStructureBox.
      */

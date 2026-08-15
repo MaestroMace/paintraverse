@@ -45,7 +45,7 @@ const MOUSE_PITCH_SENS = 0.002
 import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, type BuildingBatchResult, type BuildingTop, FLOOR_HEIGHT } from './BuildingFactory'
 import { tickWallEmissive } from './architecture/VolumeRenderer'
 import { buildLanternStrings, buildWallLanterns, setLanternEmissiveIntensity, tickLanternEmissive } from './LanternStrings'
-import { buildPropMeshes, setLampPoolOpacity, propSizes, type PropBatchResult } from './PropFactory'
+import { buildPropMeshes, setLampPoolOpacity, propSizes, propInstances, type PropBatchResult } from './PropFactory'
 
 /**
  * Patch a material's fog to fade in more strongly near ground level, so
@@ -1951,6 +1951,37 @@ export class ThreeRenderer {
   /** Terrain surface height at a world x/z — the same sample placement uses. */
   debugHeightAt(x: number, z: number): number {
     return this.sampleGroundY(x, z)
+  }
+
+  /**
+   * EVERY structure and prop as a feature vector, for tools/odd.mjs.
+   *
+   * The outlier hunt needs one row per thing with enough numbers on it to ask
+   * "is this unlike its peers", and it must come from the BUILT scene rather
+   * than from the map, because the whole point is to catch what the pipeline
+   * did rather than what the generator intended. BuildingFactory records the
+   * aggregates where the massing is in scope (see BuildingTop) and PropFactory
+   * records each prop's emitted box and its gap to the ground.
+   */
+  debugSceneFeatures(): { structures: unknown[]; props: unknown[] } {
+    const structures: unknown[] = []
+    for (const t of this._buildingTops.values()) {
+      const box = this.debugStructureBox(t.id)
+      structures.push({
+        id: t.id, def: t.definitionId, district: t.district,
+        x: t.originX, z: t.originZ,
+        baseY: t.baseY,
+        height: +(t.apexY - t.baseY).toFixed(2),
+        wallTop: +(t.mainWallTopY - t.baseY).toFixed(2),
+        spanW: +(t.spanHalfW * 2).toFixed(2), spanD: +(t.spanHalfD * 2).toFixed(2),
+        volumes: t.volumeCount,
+        texturedVolumes: t.texturedVolumes,
+        wallArea: t.wallArea, texturedArea: t.texturedArea,
+        roofStyles: t.roofStyles,
+        box,
+      })
+    }
+    return { structures, props: propInstances.map((p) => ({ ...p })) }
   }
 
   /**

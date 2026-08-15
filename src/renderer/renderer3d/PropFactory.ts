@@ -135,8 +135,29 @@ function rand01(hash: number, salt: number): number {
  * plot is exactly the failure this exists to catch.
  */
 export const propSizes: Record<string, { n: number; w: number[]; h: number[]; d: number[] }> = {}
+
+/**
+ * PER-INSTANCE prop records, for tools/odd.mjs.
+ *
+ * propSizes aggregates by type, and an aggregate cannot point at the ONE
+ * barrel that came out three metres across or the one lamppost floating 40cm
+ * off the ground — a median hides both. This keeps each instance's emitted
+ * box and where its base sits relative to the ground under it, which is the
+ * pair of facts that "is this prop correctly placed" reduces to.
+ */
+export interface PropInstance {
+  id: string
+  /** World centre of the emitted geometry. */
+  x: number; y: number; z: number
+  w: number; h: number; d: number
+  /** Emitted lowest point minus the sampled ground: + floats, - buried. */
+  gap: number
+}
+export const propInstances: PropInstance[] = []
+
 function recordPropSize(
-  id: string, bb: { min: THREE.Vector3; max: THREE.Vector3 } | null
+  id: string, bb: { min: THREE.Vector3; max: THREE.Vector3 } | null,
+  groundY = 0,
 ): void {
   if (!bb) return
   const e = (propSizes[id] ??= { n: 0, w: [], h: [], d: [] })
@@ -144,6 +165,16 @@ function recordPropSize(
   e.w.push(bb.max.x - bb.min.x)
   e.h.push(bb.max.y - bb.min.y)
   e.d.push(bb.max.z - bb.min.z)
+  propInstances.push({
+    id,
+    x: +((bb.max.x + bb.min.x) / 2).toFixed(2),
+    y: +((bb.max.y + bb.min.y) / 2).toFixed(2),
+    z: +((bb.max.z + bb.min.z) / 2).toFixed(2),
+    w: +(bb.max.x - bb.min.x).toFixed(3),
+    h: +(bb.max.y - bb.min.y).toFixed(3),
+    d: +(bb.max.z - bb.min.z).toFixed(3),
+    gap: +(bb.min.y - groundY).toFixed(3),
+  })
 }
 /** Cleared at the top of each batch — otherwise a re-generate accumulates
  *  every town this session and the median drifts toward nothing in
@@ -151,6 +182,7 @@ function recordPropSize(
  *  pipeline. */
 export function resetPropSizes(): void {
   for (const k of Object.keys(propSizes)) delete propSizes[k]
+  propInstances.length = 0
 }
 
 export interface PropBatchResult {
@@ -1767,7 +1799,7 @@ export function buildPropMeshes(
     // FOOTPRINT, which is in metres now and was in tiles when they were
     // written. They had never been drawn before, so the rescale swept past
     // them: content with no way in cannot be caught by looking at the screen.
-    recordPropSize(id, batch.boundsSince(_auditFrom))
+    recordPropSize(id, batch.boundsSince(_auditFrom), elev)
     setBuildEnvelope(null)
   }
 

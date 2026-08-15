@@ -159,6 +159,25 @@ export interface BuildingTop {
   spanHalfD: number
   /** Yaw applied to the whole building, radians. */
   rotationY: number
+
+  // === FEATURES FOR tools/odd.mjs ===
+  // Cheap aggregates recorded where the massing is in scope, so the outlier
+  // hunt can ask "is this building unlike its peers" without re-deriving
+  // anything. See the tool: the point is a feature vector per structure that
+  // needs no target table, because the comparison is against the population.
+  definitionId: string
+  district: string
+  /** Ground level under the origin, so height is height and not altitude. */
+  baseY: number
+  volumeCount: number
+  /** How many volumes carry a painted facade. A tall shaft of bare colour is
+   *  the defect no geometry audit can see — it is legal in every dimension. */
+  texturedVolumes: number
+  /** Total wall AREA, and how much of it is textured. Counting VOLUMES lets a
+   *  60m untextured shaft hide behind two small textured outbuildings. */
+  wallArea: number
+  texturedArea: number
+  roofStyles: string[]
 }
 
 export interface BuildingBatchResult {
@@ -841,7 +860,24 @@ export function buildBuildingMeshes(
       })
     }
 
+    let volTexArea = 0, volArea = 0, volTex = 0
+    const volStyles: string[] = []
+    for (const v of massing.volumes) {
+      if (v.role === 'chimneyVol') continue
+      const a = 2 * (v.width + v.depth) * v.height
+      volArea += a
+      if (v.textured) { volTex++; volTexArea += a }
+      if (v.roofHeight > 0) volStyles.push(v.roofStyle)
+    }
     tops.push({
+      definitionId: obj.definitionId,
+      district: String(obj.properties?.district ?? '?'),
+      baseY: wy,
+      volumeCount: massing.volumes.length,
+      texturedVolumes: volTex,
+      wallArea: +volArea.toFixed(2),
+      texturedArea: +volTexArea.toFixed(2),
+      roofStyles: volStyles,
       centerX: wx + (mainVol.offsetX * Math.cos(rotationY) - mainVol.offsetZ * Math.sin(rotationY)),
       centerZ: wz + (mainVol.offsetX * Math.sin(rotationY) + mainVol.offsetZ * Math.cos(rotationY)),
       halfW: mainVol.width / 2,

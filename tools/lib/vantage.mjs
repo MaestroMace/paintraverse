@@ -73,6 +73,13 @@ export async function lookAt(win, box, opts = {}) {
     prefer: opts.prefer == null ? null
       : (Array.isArray(opts.prefer) ? opts.prefer : [opts.prefer]),
     arc: opts.arc ?? Math.PI,
+    // Which loop is outer. 'dist' takes the nearest workable camera, which is
+    // right for a plan shot. 'height' exhausts every DISTANCE at eye level
+    // before it will consider going up — right for anything whose walls are
+    // the subject, because a shot from 28m looking down cannot show you a
+    // wall, and the first version of this tool cheerfully took one to grade
+    // whether a facade was textured.
+    order: opts.order ?? 'dist',
   }
   return win.evaluate(async ({ box, cfg }) => {
     const pt = window.__pt, three = pt.renderer(), THREE = pt.THREE
@@ -168,11 +175,19 @@ export async function lookAt(win, box, opts = {}) {
       return { xs, ys }
     }
 
+    // (dist, height) pairs in the requested priority.
+    const pairs = []
+    if (cfg.order === 'height') {
+      for (const hUp of cfg.heights) for (const dist of cfg.dists) pairs.push([dist, hUp])
+    } else {
+      for (const dist of cfg.dists) for (const hUp of cfg.heights) pairs.push([dist, hUp])
+    }
+
     let firstBlocker = null, nearMiss = null
     let win_ = null
     search:
-    for (const dist of cfg.dists) {
-      for (const hUp of cfg.heights) {
+    {
+      for (const [dist, hUp] of pairs) {
         for (const i of order) {
           const a = (i / cfg.dirs) * Math.PI * 2
           const eye = new THREE.Vector3(
@@ -230,6 +245,116 @@ export async function lookAt(win, box, opts = {}) {
       fill: Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2,
     }
   }, { box, cfg })
+}
+
+/**
+ * MEASURE THE PIXELS THE SUBJECT ACTUALLY OCCUPIES.
+ *
+ * The other half of "I cannot perceive it". Framing got me a picture; this
+ * stops the verdict being my eyeball on that picture. A blank untextured shaft
+ * and a richly detailed facade are the same object to every data audit here —
+ * both are legal geometry with legal dimensions — and they are not remotely
+ * the same number of edges.
+ *
+ * THE MASK HAS TO BE EXACT. The first cut measured the whole projected BOX and
+ * reported a windmill with 554 square metres of bare wall as "reads as
+ * detailed", because the box also contained sky, a street and four neighbours.
+ * A tool's numerator and denominator have to count the same population, and
+ * the population here is "pixels showing this building".
+ *
+ * So raycast the grid: for each sample point in the box, cast from the camera
+ * through that pixel and ask whether the FIRST thing hit lies inside the
+ * subject's own world AABB. That is exact, it costs a few thousand rays, and
+ * it is the same argument as stopping the occlusion ray at the box rather than
+ * at 98% of the way to its centre — prefer the exact test to the proxy.
+ *
+ * Returns, over subject pixels only:
+ *   cover      share of the box that is actually the subject
+ *   luma       mean brightness 0..1
+ *   contrast   standard deviation of luma — a flat slab is near zero
+ *   edges      share of adjacent sample pairs with a real gradient step
+ *   colors     distinct colours at 4 bits per channel
+ */
+export async function subjectPixels(win, screen, box, grid = 56) {
+  return win.evaluate(({ s, box, grid }) => {
+    const pt = window.__pt, three = pt.renderer(), THREE = pt.THREE
+    const cv = three?.renderer?.domElement
+    if (!cv || !THREE) return null
+    three.renderer.render(three.scene, three.camera)
+    const W = cv.width, H = cv.height
+    const x0 = Math.max(0, Math.floor(s.x0 * W)), x1 = Math.min(W, Math.ceil(s.x1 * W))
+    const y0 = Math.max(0, Math.floor(s.y0 * H)), y1 = Math.min(H, Math.ceil(s.y1 * H))
+    const w = Math.max(2, x1 - x0), h = Math.max(2, y1 - y0)
+    const c = document.createElement('canvas')
+    c.width = w; c.height = h
+    const g = c.getContext('2d', { willReadFrequently: true })
+    g.drawImage(cv, x0, y0, w, h, 0, 0, w, h)
+    const px = g.getImageData(0, 0, w, h).data
+
+    // Everything that can be hit, on the same terms lookAt uses.
+    const seeThrough = (m) => !m || m.depthWrite === false ||
+      (m.transparent === true && (m.opacity ?? 1) < 0.9)
+    const blockers = []
+    three.scene.traverse((o) => {
+      if (!o.isMesh || !o.visible) return
+      if (o === three.skyMesh || o.name === 'skyDome') return
+      const mats = Array.isArray(o.material) ? o.material : [o.material]
+      if (mats.every(seeThrough)) return
+      blockers.push(o)
+    })
+    const ray = new THREE.Raycaster()
+    const ndc = new THREE.Vector2()
+    const inBox = (p) => p.x >= box.min[0] - 0.15 && p.x <= box.max[0] + 0.15 &&
+      p.y >= box.min[1] - 0.15 && p.y <= box.max[1] + 0.15 &&
+      p.z >= box.min[2] - 0.15 && p.z <= box.max[2] + 0.15
+
+    const gw = Math.min(grid, w), gh = Math.min(grid, h)
+    const mask = new Uint8Array(gw * gh)
+    const lum = new Float32Array(gw * gh)
+    const seen = new Set()
+    let hits = 0, sum = 0
+    for (let gy = 0; gy < gh; gy++) {
+      for (let gx = 0; gx < gw; gx++) {
+        const cx = x0 + Math.floor((gx + 0.5) * w / gw)
+        const cy = y0 + Math.floor((gy + 0.5) * h / gh)
+        ndc.set((cx / W) * 2 - 1, -((cy / H) * 2 - 1))
+        ray.setFromCamera(ndc, three.camera)
+        ray.near = 0; ray.far = 500
+        const hit = ray.intersectObjects(blockers, false)[0]
+        if (!hit || !inBox(hit.point)) continue
+        const li = ((cy - y0) * w + (cx - x0)) * 4
+        const r = px[li] / 255, gg = px[li + 1] / 255, b = px[li + 2] / 255
+        const L = 0.2126 * r + 0.7152 * gg + 0.0722 * b
+        const i = gy * gw + gx
+        mask[i] = 1; lum[i] = L; sum += L; hits++
+        seen.add(((px[li] >> 4) << 8) | ((px[li + 1] >> 4) << 4) | (px[li + 2] >> 4))
+      }
+    }
+    if (hits < 12) return { cover: +(hits / (gw * gh)).toFixed(3), sparse: true }
+    const mean = sum / hits
+    let varsum = 0, pairs = 0, steps = 0
+    for (let gy = 0; gy < gh; gy++) {
+      for (let gx = 0; gx < gw; gx++) {
+        const i = gy * gw + gx
+        if (!mask[i]) continue
+        varsum += (lum[i] - mean) ** 2
+        for (const j of [i - 1, i - gw]) {
+          if (j < 0 || !mask[j]) continue
+          if (j === i - 1 && gx === 0) continue
+          pairs++
+          if (Math.abs(lum[i] - lum[j]) > 0.045) steps++
+        }
+      }
+    }
+    return {
+      cover: +(hits / (gw * gh)).toFixed(3),
+      samples: hits,
+      luma: +mean.toFixed(3),
+      contrast: +Math.sqrt(varsum / hits).toFixed(3),
+      edges: +(pairs ? steps / pairs : 0).toFixed(3),
+      colors: seen.size,
+    }
+  }, { s: screen, box, grid })
 }
 
 /**

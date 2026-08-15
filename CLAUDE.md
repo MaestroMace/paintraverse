@@ -1731,6 +1731,23 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
 - `node tools/squares.mjs [seeds...]` — **is the open space a room or a gap?**
   Counts squares, their minor dimension, and enclosure as LINE OF SIGHT from
   the middle of the square. Graded against Sitte and Alexander #61.
+- `node tools/odd.mjs [seed] [--shots=N] [--props] [--all]` — **rank
+  everything by how UNLIKE its peers it is, then photograph the worst.** Every
+  other tool here answers a question somebody already knew to ask, which is why
+  every defect had to be reported from a phone first; a person looking at a
+  screenshot is not running twenty-five checks, they are noticing an OUTLIER.
+  No targets and no thresholds: each structure and prop becomes a feature
+  vector and is scored in robust deviations (median + MAD — with mean and sigma
+  a 61m tower inflates the spread enough to hide itself) against its own
+  definitionId, falling back to the whole town when a type has under 5 peers.
+  Then `lookAt` frames the worst, `subjectPixels` measures ONLY the subject's
+  pixels via a raycast mask, and a CONTROL pass measures ordinary buildings so
+  the pixel verdict is relative to this town rather than to a number I made up.
+  **Read its two stated blind spots**: it cannot see a defect the whole
+  population shares (that is provenance.mjs — the world against the CODE), and
+  an outlier is suspicion, not a verdict, because a cathedral is supposed to be
+  odd. The pair is the point: provenance catches uniform wrongness, odd catches
+  individual wrongness.
 - `node tools/anomaly.mjs [seed] [--time=12] [--shots=N] [--hide=meshName]` —
   **the defects that only exist in PIXELS.** Every other tool grades the data
   model, which can only find what somebody already knew to ask about; the
@@ -1855,6 +1872,57 @@ warm pale colour family — which `streets.mjs` already reports and CLAUDE.md
 already files as an art-direction call. The lesson is the one propscale.mjs
 learned about its own targets, pointed at an eyeball report instead:
 **when a claim you made disagrees with a measurement, suspect the claim.**
+
+## THE PERCEPTION HARNESS — provenance + odd + vantage, and why it is three tools
+
+Asked to make the correctness harness strong enough that we stop having
+conversations where something is obviously wrong to a person and I cannot see
+it. The honest decomposition is that there were three separate failures and
+they need three separate instruments; any one alone leaves a hole the other
+two cover.
+
+| failure | instrument | what it can see |
+|---|---|---|
+| the world does not match the CODE | `provenance.mjs` | uniform wrongness — every bridge a roofed pavilion |
+| one thing does not match its PEERS | `odd.mjs` | individual wrongness — the 29m untextured mill |
+| I cannot get a readable picture | `lib/vantage.mjs` | the verdict, once a number says "look here" |
+
+**The generative insight is that every audit in this repo answers a question
+somebody already knew to ask.** Twenty-five tools, each a checklist item. A
+person does not run a checklist on a screenshot; they notice the thing that
+does not fit. So `odd.mjs` computes a feature vector per structure and per prop
+straight off the BUILT scene and scores each against its own population —
+robust deviations, median and MAD, because with mean and sigma a single 61m
+tower inflates the spread enough to hide itself. Against the same
+`definitionId` where a type has five peers, against the whole town where it
+does not: a cathedral being unlike a row house is not news.
+
+Four design points, each of which was wrong in the first cut:
+
+- **A hand-written threshold is the propscale mistake again.** Grading an
+  outlier's pixels against `edges < 0.10` is a target I invented, and my
+  targets have been wrong three times out of three. So the tool measures SIX
+  ORDINARY buildings first and reports the numbers an unremarkable building in
+  *this* town produces. That is the control and the noise floor in one.
+- **The pixel mask has to be exact.** The first version measured the whole
+  projected box and called a windmill with 554m² of bare wall "detailed",
+  because the box also held sky, a street and four neighbours. `subjectPixels`
+  raycasts a grid and keeps only samples whose first hit is inside the
+  subject's own AABB — the numerator and denominator finally count the same
+  population.
+- **The camera has to prefer eye level.** `lookAt` took the NEAREST workable
+  vantage, which for a hemmed-in terrace is 28m up looking down, and a shot
+  from above cannot show you a wall. `order: 'height'` exhausts every distance
+  at eye level first.
+- **A fixed standoff refuses a cathedral.** Distances scale with the subject's
+  diagonal now; "unoccluded candidates were too close" is the thirty-pixels
+  failure wearing its opposite face.
+
+First run found a CLASS rather than an instance, which is the whole point:
+**38 structures a town carry 40-105m² of bare untextured wall while their peer
+median is zero** — legal in every dimension, invisible to every geometry audit,
+and to a person a grey slab. The tool tallies how many things share a top
+feature precisely so a class cannot be mistaken for an instance.
 
 ## THE ROOT CAUSE OF NOT BEING ABLE TO TELL — tools/provenance.mjs
 
