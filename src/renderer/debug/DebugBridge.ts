@@ -19,8 +19,8 @@
 import { useAppStore } from '../app/store'
 import { auditMapGeometry } from '../renderer3d/GeometryAudit'
 import { setFragmentAudit, getFragmentAudit, setSliverAudit, getSliverAudit } from '../renderer3d/BatchedMeshBuilder'
-import { overhangClamps, resetOverhangClamps, massingTrace, setMassingTrace } from '../renderer3d/architecture/Massing'
-import { auditRoofWinding } from '../renderer3d/architecture/Roofs'
+import { overhangClamps, resetOverhangClamps, massingTrace, setMassingTrace, MAX_TOWER_ASPECT } from '../renderer3d/architecture/Massing'
+import { auditRoofWinding, MAX_ROOF_SPAN_RATIO } from '../renderer3d/architecture/Roofs'
 import { placeStats } from '../generation/TownGenerator'
 import * as THREE from 'three'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
@@ -145,6 +145,16 @@ export function installDebugBridge(): void {
 
     /** The tile -> world factor, so no tool has to hardcode 3.0. */
     TILE,
+
+    /**
+     * The roof span caps, so provenance.mjs can ask how much of the town is
+     * PINNED to them instead of carrying its own copy. It carried one for
+     * exactly one session and the copy had already drifted — spire went 3.0 ->
+     * 3.8 in the source and the tool went on reporting 100% at a cap that no
+     * longer existed. Three copies of the terrain table taught this lesson
+     * once already (core/terrain.ts).
+     */
+    roofCaps: () => ({ ...MAX_ROOF_SPAN_RATIO, _towerAspect: MAX_TOWER_ASPECT }),
 
     /**
      * World-space AABB of one placed structure, by object id — the anchor

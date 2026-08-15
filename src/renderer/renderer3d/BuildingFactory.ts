@@ -16,7 +16,7 @@ import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
 import { pickMassing, volumeFloors, traceStage, clipToFootprint } from './architecture/Massing'
-import { gableMath } from './architecture/Roofs'
+import { gableMath, clampRoofHeight } from './architecture/Roofs'
 import { emitVolume, localToWorld, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
 import { pickPaletteForStyle } from './architecture/PaletteBias'
 import { TILE, STOREY_HEIGHT, MIN_HABITABLE_W } from './scale'
@@ -618,6 +618,14 @@ export function buildBuildingMeshes(
     // in the pipeline that may touch an extent, which is what makes the
     // invariant hold instead of merely being intended.
     clipToFootprint(massing.volumes, fp.w, fp.h, obj.definitionId)
+    // And re-cap the roofs, because the clip may have narrowed a volume and a
+    // roof sized for the original span is the floating-finial bug this repo
+    // already fixed once by ordering: buildRoof re-clamps against the real
+    // width and draws a shorter cone while the ornaments stay at the old apex.
+    // clampRoofHeight is idempotent, so last is safe.
+    for (const v of massing.volumes) {
+      v.roofHeight = clampRoofHeight(v.width, v.depth, v.roofHeight, v.roofStyle)
+    }
     traceStage(massing.traceId, obj.definitionId, 'wealthScale', massing.volumes, fp.w, fp.h)
 
     // Short 1-story buildings don't contribute meaningfully to the dusk

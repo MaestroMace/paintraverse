@@ -11,7 +11,7 @@
 import type { StyleVector } from './StyleVector'
 import type { ArchetypeId } from './Archetypes'
 import type { RoofStyle, RoofAxis } from './Roofs'
-import { clampRoofHeight, ensureRoofPitch } from './Roofs'
+import { clampRoofHeight, ensureRoofPitch, riseForSpan } from './Roofs'
 import { STOREY_HEIGHT, MIN_HABITABLE_W } from '../scale'
 
 export type VolumeRole =
@@ -113,6 +113,8 @@ export interface TracedVolume {
    *  sticking 1.55m into the street — outside the box the overhang clip
    *  enforced two passes earlier. A size audit cannot see that. */
   ox: number; oz: number
+  /** Needed to know which cap applies to the roof — see MAX_ROOF_SPAN_RATIO. */
+  rs: string
 }
 export interface TraceRow {
   id: number; def: string; stage: string
@@ -140,6 +142,7 @@ export function traceStage(
       w: +v.width.toFixed(3), d: +v.depth.toFixed(3),
       h: +v.height.toFixed(3), rh: +v.roofHeight.toFixed(3),
       ox: +v.offsetX.toFixed(3), oz: +v.offsetZ.toFixed(3),
+      rs: v.roofStyle,
     })),
   })
 }
@@ -239,7 +242,7 @@ export function resetOverhangClamps(): void {
  *  world units and 3x larger, which silently made the guard 3x weaker. 4 is
  *  the faithful translation with headroom: the tallest legitimate tower here
  *  (a 3-tile lighthouse at 4 floors) sits at 2.75. */
-const MAX_TOWER_ASPECT = 4
+export const MAX_TOWER_ASPECT = 4
 function towerHeightFor(raw: number, width: number): number {
   return Math.min(raw, width * MAX_TOWER_ASPECT)
 }
@@ -1643,7 +1646,23 @@ export function pickMassing(input: PickMassingInput): MassingResult {
   // real width and draws a shorter cone, while the finial still sits at the
   // old apex — which is why spires had ornaments hanging in the air above
   // their tips. clampRoofHeight is idempotent, so doing it last is safe.
-  for (const v of volumes) {
+  for (let i = 0; i < volumes.length; i++) {
+    const v = volumes[i]
+    // ASK IN THE RIGHT UNITS FIRST, for the styles whose rise is dominated by
+    // their span. roofHeightFor derives every rise from wallH, and for spire
+    // and pointed that ask is always 2-3x what the span cap allows, so the cap
+    // decided the shape: 96% of spires came out at EXACTLY 3.0x their span,
+    // which is one silhouette repeated across the whole town. Deriving the
+    // rise from the span puts the style vector back in charge and leaves the
+    // cap as the backstop it was written to be. See Roofs.riseForSpan.
+    const spanRise = riseForSpan(
+      v.width, v.depth, v.roofStyle, ctx.sv.roofPitch,
+      // A little per-volume jitter so two buildings that happen to share a
+      // style vector still differ, and a building with two spires does not
+      // grow a matched pair.
+      (rand01(input.hash, 941 + i * 7) - 0.5) * 0.24,
+    )
+    if (spanRise !== null) v.roofHeight = spanRise
     // Floor first (pitch for the span), ceiling second (span cap). The
     // minimum is strictly below the maximum for every style, so ordering
     // them this way cannot produce a roof that violates either.

@@ -1918,6 +1918,49 @@ offsets and so walks an edge volume straight back out) and by declaration
 a physical declaration, same argument as PropFactory's `physical(m, span)`).
 **39 volumes outside the box -> 0.**
 
+### AND EVERY SPIRE IN TOWN WAS EXACTLY 3.0x ITS SPAN
+
+The general form of the MIN_HABITABLE_W finding, and `provenance.mjs` now has
+a census for it: **a clamp that most of a population sits EXACTLY on is not a
+clamp, it is the design.** The template's variation is computed and thrown
+away, and no aggregate can see it, because a perfectly uniform value has a
+perfectly healthy median.
+
+| style | at the cap, before | after |
+|---|---|---|
+| spire | **96%** — p10 = med = p90 = **3.00** | 17% — 3.15 / 3.47 / 3.80 |
+| pointed | 48% — med 2.16 | 1% — 1.82 / 2.06 / 2.30 |
+
+`roofHeightFor` derives every rise from `wallH`, a VERTICAL quantity, and
+`clampRoofHeight` caps against the volume's own width, a HORIZONTAL one. For
+the shallow styles the two land in the same range and the cap catches a tail.
+For the tall ones the ask is always 2-3x what the cap allows, so the cap always
+won and there was ONE spire silhouette in a 300-building town. Same shape as
+`ensureRoofPitch`, which fixed the opposite failure — a rise too SMALL for a
+span that had tripled. `riseForSpan` asks in the right units; the cap goes back
+to being a backstop, and `MAX_ROOF_SPAN_RATIO.spire` moves 3.0 -> 3.8 because a
+real Gothic spire runs 5-7x its base and 3.0 was only ever a guard against the
+wallH-derived runaway.
+
+Two things it turned up on the way, both already-documented classes:
+
+- **A copy of the cap table in the tool drifted within one session.** The
+  source went 3.0 -> 3.8 and `provenance.mjs` kept reporting "100% at the cap"
+  against a number that no longer existed, with ratios printed ABOVE its own
+  cap. It reads `__pt.roofCaps()` now. Three copies of the terrain table
+  taught this once already.
+- **My own `clipToFootprint` after wealthScale reintroduced the floating
+  finial.** A volume clipped narrower keeps a roof sized for its original
+  span; BuildingFactory re-runs `clampRoofHeight` after the clip, which is
+  idempotent, so last is safe.
+
+The same census also asks about `MAX_TOWER_ASPECT`, and towers are pinned the
+same way — **p90 = 4.0, exactly the cap** — with 5 bodies a town OVER it (max
+5.0), for the same reason: the late clip narrows a base whose height was capped
+against the old width. Left as recorded rather than chased; a 5-25% overshoot
+on five volumes is not visible, and lowering a tower body after its spire's
+`bottomY` is fixed would leave the spire in the air.
+
 ### AND slivers.mjs HAD BEEN CONFIDENTLY REPORTING PROPS 71 METRES LONG
 
 `PropFactory` never called `setBuildEnvelope`, and `BuildingFactory` set one

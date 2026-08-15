@@ -110,10 +110,53 @@ export function gableMath(args: {
  * so clamp here, the one place the base dimensions are actually known (every
  * template and any future caller routes through buildRoof).
  */
-const MAX_ROOF_SPAN_RATIO: Record<RoofStyle, number> = {
+export const MAX_ROOF_SPAN_RATIO: Record<RoofStyle, number> = {
   none: 0, flat: 0,
   hipped: 1.3, gabled: 1.4, mansard: 1.2, dome: 1.3,
-  steep: 1.9, pointed: 2.4, spire: 3.0,
+  // A real Gothic spire runs 5-7x its base width (Salisbury ~6.7, Freiburg
+  // ~5); 3.0 was chosen when the ask was a runaway multiple of wallH and the
+  // cap was the only thing standing between the skyline and a 74m needle.
+  // With riseForSpan below deriving the ask from the span, the cap goes back
+  // to being a backstop and can sit where the architecture is.
+  steep: 1.9, pointed: 2.4, spire: 3.8,
+}
+
+/**
+ * THE RISE A TALL ROOF SHOULD HAVE, FROM ITS OWN SPAN.
+ *
+ * roofHeightFor() in Massing derives every rise from wallH — a VERTICAL
+ * quantity — and clampRoofHeight caps against the volume's own width, a
+ * HORIZONTAL one. For the shallow styles the two happen to land in the same
+ * range and the cap catches a tail. For the tall ones they never agree, so the
+ * cap always won:
+ *
+ *     spire    n=25   p10 3.00  med 3.00  p90 3.00   96% at the cap
+ *     pointed  n=85   p10 1.05  med 2.16  p90 2.40   48% at the cap
+ *
+ * Every spire in a 300-building town was EXACTLY 3.0x its span — one shape,
+ * repeated, and no aggregate could see it because a perfectly uniform value
+ * has a perfectly healthy median. The template's variation was being computed
+ * and then thrown away.
+ *
+ * A pitch is a rise over a SPAN. Ask for it that way and the style vector
+ * produces real variation, under the cap by construction rather than at it.
+ * Same shape as ensureRoofPitch, which fixed the opposite failure — a rise too
+ * SMALL for a span that had tripled.
+ */
+const SPAN_PITCH: Partial<Record<RoofStyle, [number, number]>> = {
+  spire: [2.15, 3.7],
+  pointed: [1.3, 2.35],
+}
+
+/** Rise for a span-dominated style, or null if this style is not one. */
+export function riseForSpan(
+  w: number, d: number, style: RoofStyle, roofPitch: number, jitter = 0,
+): number | null {
+  const range = SPAN_PITCH[style]
+  if (!range) return null
+  const span = (w + d) / 2
+  const t = Math.max(0, Math.min(1, roofPitch + jitter))
+  return span * (range[0] + t * (range[1] - range[0]))
 }
 
 /**
