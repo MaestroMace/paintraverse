@@ -33,10 +33,27 @@
  * A green gate that has never failed is not evidence; it is an untested
  * instrument.
  *
- * **A noise band, not an exact match.** Generation is not bit-identical
- * between runs on the same seed (two runs of provenance differ by a volume or
- * two), so demanding equality would cry wolf until nobody read it. Each metric
- * declares how much movement is nothing.
+ * **A noise band, not an exact match, and MEASURE IT.** `--repeat=3` runs each
+ * check three times on identical seeds and prints the spread. Every band below
+ * comes from that, because a band picked by eye either cries wolf or swallows
+ * a real regression and there is no way to tell which. What it showed:
+ *
+ *     districts   character        49, 49, 49     spread 0
+ *     provenance  outsideBox        0,  0,  0     spread 0
+ *     provenance  habitablePinned  11, 11, 11     spread 0
+ *     provenance  doubled          18, 16, 18     spread 2
+ *     roofcheck   openTops         14, 13, 16     spread 3
+ *     odd         overZ3           39, 48, 41     spread 9
+ *     odd         bareWall         28, 40, 31     spread 12
+ *
+ * districts reads the MAP and is perfectly stable, so the generator is
+ * deterministic. Everything noisy reads the BUILT SCENE. Part of that was a
+ * race — every tool waited a guessed number of milliseconds for the 3D view,
+ * and lib/scene.mjs polls for completion instead, which took habitablePinned
+ * from spread 1 to 0. The rest is structural: overZ3, bareWall and spireAtCap
+ * are COUNTS OVER A THRESHOLD whose scale is computed from the same
+ * population, so a small shift moves a cluster of items across the line at
+ * once. Those get wide bands and are not gates.
  */
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
@@ -112,7 +129,12 @@ const CHECKS = [
     // clamp, and this went 39 -> 0 by ordering. It must stay there.
     gates: { outsideBox: (v) => v === 0 },
     dir: { doubled: -1, spireAtCap: -1, habitablePinned: -1 },
-    band: { doubled: 4, spireAtCap: 12, habitablePinned: 5 },
+    // Bands MEASURED with --repeat=3 on identical seeds, not picked by eye:
+    //   doubled 18,16,18 -> 2   spireAtCap 7,14,3 -> 11   habitablePinned 11,11,11 -> 0
+    // spireAtCap is a count over a threshold on a population of ~29 spires, so
+    // two buildings moving swings it 7 points. It is kept because the SHAPE of
+    // the finding mattered (96% -> single digits) and dropped as a gate.
+    band: { doubled: 4, spireAtCap: 14, habitablePinned: 3 },
   },
   {
     name: 'humanscale',
@@ -128,7 +150,8 @@ const CHECKS = [
     electron: true,
     cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/roofcheck.mjs', '4242', '777', '31337']],
     extract: (o) => ({ openTops: num(o, /TOTAL OPEN-TOPPED VOLUMES ACROSS \d+ SEEDS:\s*(\d+)/) }),
-    dir: { openTops: -1 }, band: { openTops: 8 },
+    // measured 14,13,16 -> spread 3
+    dir: { openTops: -1 }, band: { openTops: 6 },
   },
   {
     name: 'odd',
@@ -139,7 +162,14 @@ const CHECKS = [
       overZ3: num(o, /WHAT IS ODD, over z=3 \((\d+) of \d+\)/),
       bareWall: num(o, /bareWallArea\s+(\d+) over z=3/) ?? 0,
     }),
-    dir: { overZ3: -1, bareWall: -1 }, band: { overZ3: 12, bareWall: 8 },
+    // measured 39,48,41 and 28,40,31 -> spreads of 9 and 12.
+    //
+    // Both are COUNTS OVER A THRESHOLD whose scale (median + MAD) is computed
+    // from the same population, so a small shift moves a cluster of items
+    // across z=3 at once. That is jumpy by construction, not a bug in the
+    // scene, and the honest response is a band wide enough to say so rather
+    // than a tighter one that would cry wolf every run.
+    dir: { overZ3: -1, bareWall: -1 }, band: { overZ3: 14, bareWall: 16 },
   },
   {
     name: 'urbanform',

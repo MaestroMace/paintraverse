@@ -45,6 +45,7 @@
 import { _electron as electron } from 'playwright-core'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { lookAt, cropTo, markSubject, subjectPixels, hideChrome, FRAME } from './lib/vantage.mjs'
+import { waitForScene } from './lib/scene.mjs'
 
 const argv = process.argv.slice(2)
 const seed = Number(argv.find((a) => /^\d+$/.test(a)) ?? 31337)
@@ -112,7 +113,11 @@ await win.waitForTimeout(200)
 await win.getByRole('button', { name: /^generate$/i }).first().click()
 await win.waitForTimeout(2800)
 await win.getByRole('button', { name: '3D', exact: true }).click()
-await win.waitForTimeout(3200)
+// POLL, do not guess. A fixed timeout measures a partially-built town on a
+// slow run and reports it with complete confidence — see lib/scene.mjs for the
+// numbers that proved it.
+const built = await waitForScene(win)
+console.log(`scene settled: ${built.succeeded} built, ${built.failed} failed, of ${built.wanted}`)
 await win.evaluate((t) => window.__pt.store.getState().updateEnvironment({ timeOfDay: t }), timeOfDay)
 await win.waitForTimeout(900)
 await hideChrome(win)

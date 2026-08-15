@@ -1903,6 +1903,42 @@ Two things it has to get right, both already on the record here:
 Both failure paths were tested by breaking them on purpose and watching the
 board go red before it was trusted — feed a check a known-bad input once.
 
+### AND IT MEASURED ITS OWN NOISE FLOOR, WHICH IS WHERE THE FIRST FINDING CAME FROM
+
+`--repeat=3` runs each check three times on identical seeds and prints the
+spread, because a band picked by eye either cries wolf or swallows a real
+regression and there is no way to know which.
+
+    districts   character        49, 49, 49     spread 0
+    provenance  outsideBox        0,  0,  0     spread 0
+    provenance  habitablePinned  11, 11, 11     spread 0
+    provenance  doubled          18, 16, 18     spread 2
+    roofcheck   openTops         14, 13, 16     spread 3
+    odd         overZ3           39, 48, 41     spread 9
+    odd         bareWall         28, 40, 31     spread 12
+
+**`districts` reads the MAP and is perfectly stable, so the generator is
+deterministic; everything that moves reads the BUILT SCENE.** Two causes, and
+only one of them was a bug:
+
+- **Every tool waited a GUESSED number of milliseconds for the 3D view** —
+  `waitForTimeout(2800)`, a number somebody wrote once. On a slow run under
+  SwiftShader that measures a partially built town and reports it with
+  complete confidence, which is the sample-count lesson wearing a stopwatch.
+  `tools/lib/scene.mjs` polls until the built count stops changing AND matches
+  what the map contains, and throws with both numbers if it never settles.
+  That took `habitablePinned` to spread 0. **Retrofit it into any tool that
+  reads the built scene.**
+- **The rest is structural and not a defect.** `overZ3`, `bareWall` and
+  `spireAtCap` are COUNTS OVER A THRESHOLD whose scale (median + MAD) is
+  computed from the same population, so a small shift moves a cluster of items
+  across the line together. Those get wide bands and are not gates; the SHAPE
+  of such a finding is what matters (spire 96% -> single digits), never the
+  exact count.
+
+**A metric nobody has run twice has an unknown noise floor, and every A/B ever
+taken against it inherited that.** Run `--repeat` before believing a delta.
+
 ## THE PERCEPTION HARNESS — provenance + odd + vantage, and why it is three tools
 
 Asked to make the correctness harness strong enough that we stop having
