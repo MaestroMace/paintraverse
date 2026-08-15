@@ -60,7 +60,7 @@ await win.waitForTimeout(3000)
 await win.getByText('Landscape', { exact: false }).first().click()
 await win.waitForTimeout(1200)
 
-const all = []
+let all = []
 for (const seed of seeds) {
   await win.evaluate((s) => {
     const inp = [...document.querySelectorAll('.left-panel input')]
@@ -86,6 +86,26 @@ await app.close()
 if (all.length === 0) {
   console.log('\nNo samples — the 3D scene did not build.')
   process.exit(1)
+}
+
+// MASONRY IS NOT A ROOM, so it must not be in the human-scale distribution.
+// A boundary wall's "storey height" is a category error: the number is the
+// wall, and grading it against 2.6-3.2m says the wall is too short. When the
+// habitable minimum stopped inflating walls to 2.9m this audit went from 0%
+// to 19% of buildings "under head height", and the 59 were exactly the 53
+// precinct walls and 6 bridges — correctly sized, wrongly counted. A tool's
+// two halves have to count the same population. Reported on their own line,
+// the way urbanform separates boundary walls from buildings.
+// Older builds have no flag; treat a missing one as habitable so this tool
+// still runs against them.
+const masonry = all.filter((s) => s.habitable === false)
+all = all.filter((s) => s.habitable !== false)
+if (masonry.length) {
+  const byId = {}
+  for (const m of masonry) (byId[m.definitionId] ??= []).push(m.wallH)
+  const parts = Object.entries(byId).sort((a, b) => b[1].length - a[1].length)
+    .map(([id, hs]) => `${id} x${hs.length} @ ${(hs.slice().sort((a, b) => a - b)[hs.length >> 1]).toFixed(1)}m`)
+  console.log(`\n${masonry.length} masonry structures excluded (a wall is not a storey): ${parts.join(' · ')}`)
 }
 
 console.log(`\n=== HUMAN SCALE AUDIT — ${all.length} buildings, ${seeds.length} seeds ===`)

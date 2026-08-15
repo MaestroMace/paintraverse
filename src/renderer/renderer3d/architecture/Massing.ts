@@ -81,6 +81,67 @@ function masonry(vols: Volume[]): Volume[] {
 export interface MassingResult {
   volumes: Volume[]
   primaryFace: 'x+' | 'x-' | 'z+' | 'z-'
+  /** Key for the geometry trace — see massingTrace. */
+  traceId: number
+}
+
+// === GEOMETRY PROVENANCE ===
+//
+// A template declares a bridge pier 0.70m wide and the scene contains a 2.60m
+// block. Between those two facts sit nine mutation passes — two flat-top roof
+// repairs, an overhang clip, a z-fight nudge, the habitable minimum in THREE
+// places, wealthScale, and two roof clamps — and until this existed, nothing
+// anywhere could say which one did it, or that anything had.
+//
+// That is the root cause of a whole class of defect I could not see. Every
+// audit in this repo grades a MODEL: footprints, tile ids, adjacency, prop
+// bounds against a table I wrote by hand from the id (which was wrong three
+// times). None of them asks the one question that has no judgement in it —
+// **is the geometry in the world the geometry the code asked for?** The five
+// defects found by photograph this session (2.6m piers, roofed piers, a 2.9m
+// precinct wall, 2.6m footbridge trestles, merlons fused into a slab) were all
+// that same question, and all five would have fallen out of one run of this.
+//
+// Snapshot the volume array at each named stage; the tool diffs consecutive
+// snapshots, so attribution is exact rather than inferred. Off by default: it
+// costs an array copy per building per stage.
+export interface TracedVolume {
+  role: string; w: number; d: number; h: number; rh: number
+  /** Offsets too, because SIZE is only half the question: the habitable
+   *  minimum grows a volume about its own centre without touching its offset,
+   *  so a 0.7m bay window pinned 0.35m proud of the wall becomes a 2.6m room
+   *  sticking 1.55m into the street — outside the box the overhang clip
+   *  enforced two passes earlier. A size audit cannot see that. */
+  ox: number; oz: number
+}
+export interface TraceRow {
+  id: number; def: string; stage: string
+  /** The footprint the placer reserved, in world metres. */
+  fw: number; fd: number
+  vols: TracedVolume[]
+}
+export const massingTrace: { on: boolean; rows: TraceRow[]; next: number } =
+  { on: false, rows: [], next: 0 }
+
+export function setMassingTrace(on: boolean): void {
+  massingTrace.on = on
+  massingTrace.rows = []
+  massingTrace.next = 0
+}
+
+export function traceStage(
+  id: number, def: string, stage: string, vols: Volume[], fw = 0, fd = 0,
+): void {
+  if (!massingTrace.on) return
+  massingTrace.rows.push({
+    id, def, stage, fw, fd,
+    vols: vols.map((v) => ({
+      role: v.role,
+      w: +v.width.toFixed(3), d: +v.depth.toFixed(3),
+      h: +v.height.toFixed(3), rh: +v.roofHeight.toFixed(3),
+      ox: +v.offsetX.toFixed(3), oz: +v.offsetZ.toFixed(3),
+    })),
+  })
 }
 
 function rand01(hash: number, salt: number): number {
@@ -700,6 +761,11 @@ function tmplCrossPlan(ctx: MassingContext): Volume[] {
 function tmplSideBay(ctx: MassingContext): Volume[] {
   const mainRoof = roofFromStyle(ctx.sv, ctx.hash, 91)
   const bayW = Math.max(1.2, ctx.footW * 0.45)
+  // A bay window projects about 0.7m. That is a PHYSICAL declaration, not a
+  // fraction that might compound into a sliver, and the habitable minimum —
+  // which exists for the compounding case — was turning it into a 2.6m room
+  // bolted to the side of the house. Same argument as PropFactory's
+  // `physical(m, span)`: pin a thing with an intrinsic size to a number.
   const bayD = 0.7
   const bayH = ctx.wallH * 0.92
   const baySide = rand01(ctx.hash, 93) < 0.5 ? -1 : 1
@@ -722,6 +788,7 @@ function tmplSideBay(ctx: MassingContext): Volume[] {
       offsetZ: baySide * (ctx.footD / 2 + bayD / 2 - 0.1),
       width: bayW, depth: bayD,
       bottomY: 0, height: bayH,
+      habitable: false,
       roofStyle: bayRoof, roofHeight: roofHeightFor(bayRoof, bayH, ctx.sv),
       roofAxis: 'x',
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
@@ -1200,7 +1267,12 @@ function tmplWindmill(ctx: MassingContext): Volume[] {
   const armT = 0.16
   const hubY = bodyH * 0.82
   const faceZ = -(diameter / 2 + armT)
-  // Horizontal blade and vertical blade, crossing at the hub.
+  // Horizontal blade and vertical blade, crossing at the hub. A SAIL is 16cm
+  // of timber lattice — habitable: false, or the room-width minimum builds it
+  // as a 2.6m slab, which tools/provenance.mjs measured at x16 the authored
+  // depth. The windmill has been blamed four times in CLAUDE.md for defects it
+  // had nothing to do with; this one is real and it was never visible because
+  // no audit compared the built sail against the declared one.
   volumes.push({
     role: 'wing',
     offsetX: 0, offsetZ: faceZ,
@@ -1208,7 +1280,7 @@ function tmplWindmill(ctx: MassingContext): Volume[] {
     bottomY: hubY - armT / 2, height: armT,
     roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
     wallColor: 0x5a4030, roofColor: 0x5a4030,
-    textured: false, cornice: false, floors: 1,
+    textured: false, cornice: false, floors: 1, habitable: false,
   })
   volumes.push({
     role: 'wing',
@@ -1217,7 +1289,7 @@ function tmplWindmill(ctx: MassingContext): Volume[] {
     bottomY: hubY - armLen / 2, height: armLen,
     roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
     wallColor: 0x5a4030, roofColor: 0x5a4030,
-    textured: false, cornice: false, floors: 1,
+    textured: false, cornice: false, floors: 1, habitable: false,
   })
   return volumes
 }
@@ -1353,6 +1425,40 @@ export interface PickMassingInput {
   roofColor: number
 }
 
+
+/**
+ * Clip every volume back inside the footprint the placer reserved, plus
+ * MAX_OVERHANG. The hard invariant of the massing pipeline, and therefore the
+ * LAST thing that may touch an extent — see the note at its call site.
+ */
+export function clipToFootprint(
+  volumes: Volume[], footW: number, footD: number, definitionId: string,
+): void {
+  const halfW = footW / 2 + MAX_OVERHANG
+  const halfD = footD / 2 + MAX_OVERHANG
+  for (const v of volumes) {
+    // chimneyVol is anchored to a roof slope and is small by construction.
+    if (v.role === 'chimneyVol') continue
+    const loX = v.offsetX - v.width / 2, hiX = v.offsetX + v.width / 2
+    const loZ = v.offsetZ - v.depth / 2, hiZ = v.offsetZ + v.depth / 2
+    // CLIP to the allowed box rather than shrinking symmetrically. Shrinking
+    // width by the overhang pulls BOTH edges in, which walks a wing away from
+    // the wall it is attached to and leaves it floating. Recomputing the
+    // extents and the offset from them moves only the edge that was outside.
+    const nLoX = Math.max(loX, -halfW), nHiX = Math.min(hiX, halfW)
+    const nLoZ = Math.max(loZ, -halfD), nHiZ = Math.min(hiZ, halfD)
+    if (nLoX > loX || nHiX < hiX || nLoZ > loZ || nHiZ < hiZ) {
+      const key = `${definitionId}:${v.role}`
+      overhangClamps[key] = (overhangClamps[key] ?? 0) + 1
+      v.width = Math.max(0.1, nHiX - nLoX)
+      v.offsetX = (nLoX + nHiX) / 2
+      v.depth = Math.max(0.1, nHiZ - nLoZ)
+      v.offsetZ = (nLoZ + nHiZ) / 2
+    }
+  }
+
+}
+
 export function pickMassing(input: PickMassingInput): MassingResult {
   const ctx: MassingContext = {
     sv: input.sv, hash: input.hash,
@@ -1376,6 +1482,8 @@ export function pickMassing(input: PickMassingInput): MassingResult {
     const idx = Math.floor(rand01(input.hash, 301) * options.length)
     volumes = options[Math.min(idx, options.length - 1)](ctx)
   }
+  const traceId = massingTrace.next++
+  traceStage(traceId, input.definitionId, 'template', volumes, ctx.footW, ctx.footD)
 
   // A flat volume with nothing stacked on top of it is an open box against
   // the sky — it reads as a half-built house. roofFromStyle returns 'flat' for
@@ -1404,37 +1512,8 @@ export function pickMassing(input: PickMassingInput): MassingResult {
     v.roofAxis = roofAxisFor(v.width, v.depth)
   }
 
-  // Nothing may hang far outside the footprint the placer reserved.
-  //
-  // The audit checks FOOTPRINTS, so a building can pass every placement
-  // invariant and still throw geometry through its neighbour — which is
-  // exactly what the windmill's sails did for as long as they existed, at
-  // three tiles of overhang per side. Jetties and eaves legitimately
-  // overhang, so this is a generous ceiling meant to catch the runaway case,
-  // not to tighten the style. Same idea as MAX_ROOF_SPAN_RATIO and
-  // MAX_TOWER_ASPECT: cap a derived dimension against the thing it belongs to.
-  const halfW = ctx.footW / 2 + MAX_OVERHANG
-  const halfD = ctx.footD / 2 + MAX_OVERHANG
-  for (const v of volumes) {
-    // chimneyVol is anchored to a roof slope and is small by construction.
-    if (v.role === 'chimneyVol') continue
-    const loX = v.offsetX - v.width / 2, hiX = v.offsetX + v.width / 2
-    const loZ = v.offsetZ - v.depth / 2, hiZ = v.offsetZ + v.depth / 2
-    // CLIP to the allowed box rather than shrinking symmetrically. Shrinking
-    // width by the overhang pulls BOTH edges in, which walks a wing away from
-    // the wall it is attached to and leaves it floating. Recomputing the
-    // extents and the offset from them moves only the edge that was outside.
-    const nLoX = Math.max(loX, -halfW), nHiX = Math.min(hiX, halfW)
-    const nLoZ = Math.max(loZ, -halfD), nHiZ = Math.min(hiZ, halfD)
-    if (nLoX > loX || nHiX < hiX || nLoZ > loZ || nHiZ < hiZ) {
-      const key = `${input.definitionId}:${v.role}`
-      overhangClamps[key] = (overhangClamps[key] ?? 0) + 1
-      v.width = Math.max(0.1, nHiX - nLoX)
-      v.offsetX = (nLoX + nHiX) / 2
-      v.depth = Math.max(0.1, nHiZ - nLoZ)
-      v.offsetZ = (nLoZ + nHiZ) / 2
-    }
-  }
+  traceStage(traceId, input.definitionId, 'roofRepair', volumes, ctx.footW, ctx.footD)
+
 
   // === COINCIDENT FACES ===
   //
@@ -1498,6 +1577,33 @@ export function pickMassing(input: PickMassingInput): MassingResult {
     }
   }
 
+  traceStage(traceId, input.definitionId, 'minHabitable', volumes, ctx.footW, ctx.footD)
+
+  // === THE CLIP RUNS LAST, AND THAT IS THE WHOLE POINT ===
+  //
+  // It used to run BEFORE the habitable minimum, which is two passes before
+  // the thing that undoes it. The minimum grows a volume about its own centre
+  // and never touches the offset, so `tmplSideBay`'s 0.7m projecting bay —
+  // pinned 0.35m proud of the wall, as a bay window is — came out 2.6m deep
+  // and reaching 1.55m into the street. 39 volumes a town ended up outside the
+  // box this clip exists to enforce, all of them wings, up to 1.5m proud.
+  //
+  // Nothing caught it because the existing instruments count the clip FIRING
+  // (overhangClamps) rather than the final state, and the comment above the
+  // minimum reasoned that bounding the SIZE by footprint + MAX_OVERHANG made
+  // it safe — true only for a volume centred on the origin, which an attached
+  // one never is. tools/provenance.mjs measures the extent after the last
+  // pass, which is the only version of the question that cannot be argued
+  // with. A clamp that is not last is not a clamp.
+  //
+  // BuildingFactory calls this again after wealthScale, which scales offsets
+  // as well as extents and so walks an edge volume straight back out. Same
+  // function, not a second copy: the habitable minimum lives in three places
+  // and that is exactly how a bridge pier survived two of them.
+  clipToFootprint(volumes, ctx.footW, ctx.footD, input.definitionId)
+
+  traceStage(traceId, input.definitionId, 'overhangClip', volumes, ctx.footW, ctx.footD)
+
   // === NO OPEN BOXES AGAINST THE SKY ===
   //
   // A flat top is a legitimate style when something sits on it. Exposed, it
@@ -1523,6 +1629,8 @@ export function pickMassing(input: PickMassingInput): MassingResult {
     v.roofAxis = roofAxisFor(v.width, v.depth)
   }
 
+  traceStage(traceId, input.definitionId, 'openBoxRepair', volumes, ctx.footW, ctx.footD)
+
   // Roof heights are derived from wall height, so a slim volume could carry a
   // roof many times its own width. Clamp on the Volume itself — not just at
   // draw time — so every consumer of v.roofHeight (ridge caps, finials,
@@ -1543,5 +1651,6 @@ export function pickMassing(input: PickMassingInput): MassingResult {
     v.roofHeight = clampRoofHeight(v.width, v.depth, v.roofHeight, v.roofStyle)
   }
 
-  return { volumes, primaryFace: 'z+' }
+  traceStage(traceId, input.definitionId, 'roofClamp', volumes, ctx.footW, ctx.footD)
+  return { volumes, primaryFace: 'z+', traceId }
 }

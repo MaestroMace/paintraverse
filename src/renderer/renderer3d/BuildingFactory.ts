@@ -15,7 +15,7 @@ import type { ObjectDefinition, PlacedObject } from '../core/types'
 import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
-import { pickMassing, volumeFloors } from './architecture/Massing'
+import { pickMassing, volumeFloors, traceStage, clipToFootprint } from './architecture/Massing'
 import { gableMath } from './architecture/Roofs'
 import { emitVolume, localToWorld, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
 import { pickPaletteForStyle } from './architecture/PaletteBias'
@@ -241,6 +241,17 @@ export interface BuildingScale {
   doorW: number
   windowH: number
   windowW: number
+  /**
+   * False for masonry — a bridge pier, a boundary wall. humanscale.mjs grades
+   * a storey against what a ROOM measures, and once the habitable minimum
+   * stopped inflating walls to 2.9m the audit turned red on 59 of 307
+   * buildings: exactly the 53 precinct walls and 6 bridges, now correctly
+   * 1.6m and being counted as storeys under head height. The tool's two
+   * halves have to count the same population — same lesson as the 182%
+   * doorstep rate, and as urbanform reporting boundary walls on their own
+   * line rather than as buildings.
+   */
+  habitable: boolean
 }
 
 const FAILURE_LOG_CAP = 30
@@ -293,6 +304,15 @@ export function buildBuildingMeshes(
   let attempted = 0, succeeded = 0, failed = 0
 
   for (const obj of objects) {
+    // Clear FIRST. The envelope is a module global and this loop only sets it
+    // a few hundred lines down, so anything emitted before then was being
+    // scored against the PREVIOUS building's box — and after the loop, every
+    // prop in town was. That stale state is what made slivers.mjs report
+    // props protruding 71m when propscale measures the same geometry at 3.6m
+    // at its largest. recordSliver already has a NO-ENVELOPE bucket for
+    // unattributed geometry; a leftover envelope walks straight past it and
+    // answers confidently instead of admitting it does not know.
+    setBuildEnvelope(null)
     const def = defMap.get(obj.definitionId)
     if (!def) continue
     attempted++
@@ -591,6 +611,14 @@ export function buildBuildingMeshes(
         }
       }
     }
+    // wealthScale multiplies OFFSETS as well as extents, and the footprint it
+    // has to fit in does not scale — so a volume already at the edge walks
+    // straight back out, and the habitable re-floor above pushes it further.
+    // Re-clip, with the same function pickMassing uses. This is the last thing
+    // in the pipeline that may touch an extent, which is what makes the
+    // invariant hold instead of merely being intended.
+    clipToFootprint(massing.volumes, fp.w, fp.h, obj.definitionId)
+    traceStage(massing.traceId, obj.definitionId, 'wealthScale', massing.volumes, fp.w, fp.h)
 
     // Short 1-story buildings don't contribute meaningfully to the dusk
     // silhouette shadows — their 1.8m shadow is quickly lost under
@@ -801,6 +829,7 @@ export function buildBuildingMeshes(
         doorW: 0.95,
         windowH: 1.35,
         windowW: 1.0,
+        habitable: mainVol.habitable !== false,
       })
     }
 
@@ -2238,6 +2267,7 @@ export function buildBuildingMeshes(
     console.error(`[BuildingFactory] ${failed} of ${attempted} buildings failed to emit (succeeded=${succeeded}). See getBuildingDiagnostics() for details.`)
   }
 
+  setBuildEnvelope(null)
   return { wallMeshes: mergedWalls, batched, tops }
 }
 

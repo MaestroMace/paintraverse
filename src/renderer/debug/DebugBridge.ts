@@ -19,7 +19,7 @@
 import { useAppStore } from '../app/store'
 import { auditMapGeometry } from '../renderer3d/GeometryAudit'
 import { setFragmentAudit, getFragmentAudit, setSliverAudit, getSliverAudit } from '../renderer3d/BatchedMeshBuilder'
-import { overhangClamps, resetOverhangClamps } from '../renderer3d/architecture/Massing'
+import { overhangClamps, resetOverhangClamps, massingTrace, setMassingTrace } from '../renderer3d/architecture/Massing'
 import { auditRoofWinding } from '../renderer3d/architecture/Roofs'
 import { placeStats } from '../generation/TownGenerator'
 import * as THREE from 'three'
@@ -100,6 +100,14 @@ export function installDebugBridge(): void {
 
     /** Vertical extent of the built scene — catches runaway spire geometry. */
     sceneStats: () => getActiveThreeRenderer()?.debugSceneStats() ?? null,
+
+    /**
+     * GEOMETRY PROVENANCE — what the pipeline did to what the templates asked
+     * for, stage by stage. Turn on, regenerate, then read. See massingTrace:
+     * every other audit here grades a model, and this is the only one that
+     * asks whether the world matches the code's own declaration.
+     */
+    massingTrace: { enable: setMassingTrace, read: () => massingTrace.rows },
 
     // === COORDINATE CONTRACT ===
     // Horizontal arguments here are TILE coordinates, because everything that

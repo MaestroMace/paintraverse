@@ -1702,6 +1702,16 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   so it walks out until the projected footprint box fits. The magenta outline
   is not decoration — two rounds went on guessing which box in the frame was
   the subject. Both halves are `tools/lib/vantage.mjs` now.
+- `node tools/provenance.mjs [seed] [--all] [--def=]` — **is the geometry in
+  the world the geometry the code asked for?** The only audit here that grades
+  the pipeline against its own declarations rather than against a model or a
+  hand-written target, so it has no opinion to be wrong about. Snapshots the
+  volume array at every massing stage and diffs consecutive snapshots, so it
+  names the PASS that moved a dimension, not just that it moved. Also checks
+  the one hard invariant — that nothing ends up outside footprint +
+  MAX_OVERHANG — which a size table cannot see, because a pass that grows a
+  volume about its centre leaves the offset alone. Run it after touching any
+  massing template, clamp or repair pass.
 - `tools/lib/vantage.mjs` — **not a tool, the camera every tool should use.**
   `lookAt(win, box)` raycasts candidate vantages against the real scene and
   flies to the first with a clear line to the subject, returning where the
@@ -1845,6 +1855,92 @@ warm pale colour family — which `streets.mjs` already reports and CLAUDE.md
 already files as an art-direction call. The lesson is the one propscale.mjs
 learned about its own targets, pointed at an eyeball report instead:
 **when a claim you made disagrees with a measurement, suspect the claim.**
+
+## THE ROOT CAUSE OF NOT BEING ABLE TO TELL — tools/provenance.mjs
+
+Told the bridges were STILL comically wrong after two rounds of me reporting
+them fixed, and asked to solve the root cause rather than the instance. This
+is it, and it is not perception.
+
+**Every audit in this repo grades a MODEL.** `audit.mjs` grades footprints and
+tile ids. `tenancy.mjs` grades adjacency. `propscale.mjs` grades built bounds
+against a target table written BY HAND from the id — wrong three times out of
+three. `humanscale.mjs` grades against what a real door measures. Not one of
+them asks the question that contains no judgement at all:
+
+> **is the geometry in the world the geometry the code asked for?**
+
+The templates declare their intent in metres, in the source. Nine passes then
+run over those numbers — two flat-top roof repairs, an overhang clip, a
+z-fight nudge, the habitable minimum in THREE places, wealthScale, two roof
+clamps — and nothing recorded that any of them had fired, let alone which.
+`tools/provenance.mjs` snapshots the volume array at every named stage and
+diffs consecutive snapshots, so attribution is exact rather than inferred.
+There is no target table to get wrong and no picture to misread.
+
+First run, and this is the finding that matters more than any single bug:
+
+    stage             volumes moved      mean move   worst
+    minHabitable       135 / 847    16%     x1.5      x2.0
+    overhangClip        15 / 847     2%     x2.9      x6.2
+    roofClamp          155 / 847    18%     x1.5      x2.6
+    wealthScale        543 / 847    64%     x1.1      x2.7
+
+**Three "repair" passes are rewriting a third of the town's geometry by about
+a factor of two.** They were written as backstops for outliers. They are the
+dominant sizing rule, and the templates — the only place that knows what a
+thing IS — are being overruled without anyone being told.
+
+### AND A CLAMP THAT IS NOT LAST IS NOT A CLAMP
+
+39 volumes a town ended up outside the footprint + `MAX_OVERHANG` box the
+overhang clip exists to enforce, up to **1.5m proud**, every one of them a
+`wing`. Ordinary row houses with a room-sized lump projecting into the street.
+
+The clip ran BEFORE the habitable minimum. The minimum grows a volume about
+its own centre and never touches the offset, so `tmplSideBay`'s **0.7m
+projecting bay window** — pinned 0.35m proud of the wall, as a bay window is —
+came out 2.6m deep and reaching 1.55m into the street.
+
+Nothing caught it for three reasons, all of them instructive:
+
+- **`overhangClamps` counts the clip FIRING, not the final state.** A counter
+  on a repair tells you the repair ran; it cannot tell you the repair held.
+- **The comment above the minimum argued it was safe** because it bounds the
+  SIZE by footprint + MAX_OVERHANG. True only for a volume centred on the
+  origin, which an attached one never is. A comment is not a test.
+- **`slivers.mjs` was lying** — see below.
+
+Fixed by ordering (`clipToFootprint` is now one exported function, called last
+in `pickMassing` AND again in BuildingFactory after wealthScale, which scales
+offsets and so walks an edge volume straight back out) and by declaration
+(`tmplSideBay`'s bay and the windmill's 16cm SAILS are `habitable: false` —
+a physical declaration, same argument as PropFactory's `physical(m, span)`).
+**39 volumes outside the box -> 0.**
+
+### AND slivers.mjs HAD BEEN CONFIDENTLY REPORTING PROPS 71 METRES LONG
+
+`PropFactory` never called `setBuildEnvelope`, and `BuildingFactory` set one
+per building and never cleared it. So every prop in town was measured against
+whatever BUILDING ran last, and `over` came out as the distance across the map
+to that building: `buildPropMeshes ... longest=71.35m`, dozens of them. No
+such geometry exists — `propscale.mjs` measures the same props at 3.6m at
+their largest, and the two tools had been disagreeing by a factor of twenty in
+silence.
+
+**A stale global is worse than a missing one.** `recordSliver` already has a
+`NO-ENVELOPE:` bucket, written after an earlier version scored unattributed
+geometry 0 and returned a confident "nothing found" while beams hung in the
+sky. Leftover state walks straight past that guard and produces the opposite
+lie with the same confidence. Both factories now clear the envelope at the top
+of each iteration and at the end of the function, so anything unbracketed
+lands in the honest bucket — which immediately showed **655 building pieces
+and 250 lantern pieces that the sliver audit has never graded at all.**
+
+Also worth keeping: the tool's own first metric was `|b-a| / max(a,b)`, which
+is bounded above by 1, so a FAIL line of "doubled" was unreachable by
+construction — it printed a x16 divergence three lines above a verdict of
+"0 failures". **A gate whose verdict cannot fire is not a gate.** Ratios now.
 
 ## HOW TO ACTUALLY LOOK AT SOMETHING — tools/lib/vantage.mjs
 

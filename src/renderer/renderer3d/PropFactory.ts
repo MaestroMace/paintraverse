@@ -9,7 +9,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
-import { BatchedMeshBuilder } from './BatchedMeshBuilder'
+import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { TILE } from './scale'
 
 // Heights tuned for FLOOR_HEIGHT=1.8. A 2-story building = 3.6m eaves,
@@ -193,6 +193,29 @@ export function buildPropMeshes(
     const elev = getHeight ? getHeight(ptx, ptz) : (obj.elevation || 0)
     const hash = simpleHash(obj.id)
     const _auditFrom = batch.count
+    // TELL THE SLIVER AUDIT WHOSE GEOMETRY THIS IS.
+    //
+    // Nothing here ever set an envelope, so every prop was measured against
+    // whatever BUILDING happened to run last — and `over` came out as the
+    // distance across town to that building. slivers.mjs was confidently
+    // reporting props protruding 71 metres, none of which exists: propscale
+    // measures the same geometry at 3.6m at its largest.
+    //
+    // A stale envelope is worse than a missing one. recordSliver already
+    // guards the null case with its own NO-ENVELOPE bucket, precisely because
+    // scoring unattributed geometry 0 once produced a confident "nothing
+    // found" while beams hung in the sky — and then the leftover-state case
+    // walked straight past that guard and produced the opposite lie.
+    //
+    // The allowance is generous on purpose: a lamppost's ground pool is a
+    // ~3m disc on a 1x1 tile and a tree crown oversails its trunk, so this is
+    // here to catch a prop sprawling across the map, not to police an eave.
+    setBuildEnvelope({
+      minX: px - fp.w / 2 - 3, maxX: px + fp.w / 2 + 3,
+      minZ: pz - fp.h / 2 - 3, maxZ: pz + fp.h / 2 + 3,
+      minY: elev - 2, maxY: elev + 14,
+      label: id,
+    })
 
     // Per-prop Y rotation. The generator can set obj.properties.facingY
     // (radians) to give the prop a *meaningful* orientation — face the
@@ -1745,8 +1768,10 @@ export function buildPropMeshes(
     // written. They had never been drawn before, so the rescale swept past
     // them: content with no way in cannot be caught by looking at the screen.
     recordPropSize(id, batch.boundsSince(_auditFrom))
+    setBuildEnvelope(null)
   }
 
+  setBuildEnvelope(null)
   // Build the single merged mesh
   const batched: THREE.Mesh[] = []
   const merged = batch.build()
