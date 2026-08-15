@@ -2450,8 +2450,13 @@ export class TownGenerator implements IMapGenerator {
       return true
     }
 
-    for (let y = 2; y < h - 2; y += 2) {
-      for (let x = 2; x < w - 2; x += 2) {
+    // Step by ONE. The first cut of this stepped by two on both axes, which
+    // silently discards three quarters of the bank: a crossing only exists
+    // where a road meets the water, those are rare, and skipping every other
+    // tile took a town from thirteen bridges to one. The `reserve` call below
+    // is what stops a bridge on every tile of a quay, not the loop stride.
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
         if (!roadMap[y][x] || waterMap[y][x]) continue
         for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
           // Water must start immediately: this tile is the bank, not a tile
@@ -2464,7 +2469,7 @@ export class TownGenerator implements IMapGenerator {
                  waterMap[y + dy * (n + 1)][x + dx * (n + 1)]) n++
           const farX = x + dx * (n + 1), farY = y + dy * (n + 1)
           // Still wet at the budget's end means we never found the far bank.
-          if (!dry(farX, farY)) continue
+          if (!dry(farX, farY)) { rejected('~bridgeTooWide'); continue }
           // Deck runs from this bank tile to the far bank tile inclusive.
           const len = n + 2
           const alongX = dx === 1
@@ -2473,8 +2478,13 @@ export class TownGenerator implements IMapGenerator {
           // The second row of the deck has to land on something at BOTH ends,
           // or half the bridge finishes over water.
           const sx = alongX ? 0 : 1, sy = alongX ? 1 : 0
-          if (!dry(x + sx, y + sy) || !dry(farX + sx, farY + sy)) continue
-          if (!reserve(x, y, fw, fh)) continue
+          if (!dry(x + sx, y + sy) || !dry(farX + sx, farY + sy)) { rejected('~bridgeSecondRow'); continue }
+          // Keep them apart: a quay road runs ALONG the water, so without a
+          // spacing rule every tile of it would look across and qualify.
+          if (bridges.some((b) => Math.abs(b.x - x) + Math.abs(b.y - y) < 7)) {
+            rejected('~bridgeTooClose'); continue
+          }
+          if (!reserve(x, y, fw, fh)) { rejected('~bridgeTaken'); continue }
           const obj = this.createObj('bridge', x, y)
           obj.footprint = { w: fw, h: fh }
           bridges.push(obj)

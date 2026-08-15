@@ -1837,6 +1837,40 @@ already files as an art-direction call. The lesson is the one propscale.mjs
 learned about its own targets, pointed at an eyeball report instead:
 **when a claim you made disagrees with a measurement, suspect the claim.**
 
+## AND I VERIFIED THE BRIDGES WITH A METRIC AND A DISTANT SKYLINE
+
+Told they still looked like planks after I had reported them fixed. They were
+— **one bridge in the whole of seed 31337**, down from thirteen — and the
+reason I did not know is that FOUR attempts to photograph one had failed and I
+fell back on a number plus my own reading of a 40-metre-away skyline. Both
+halves of that were bad practice and the picture would have taken one run.
+
+Two defects, one in the code and one in the harness:
+
+- **The new placer stepped `y += 2, x += 2`.** A crossing only exists where a
+  road tile touches water, those are rare, and skipping three quarters of the
+  bank took a town from 13 bridges to 1. Stepping by one restores it; the
+  reservation and a 7-tile minimum separation are what stop a bridge on every
+  tile of a quay, which is what the stride was doing by accident.
+- **`tools/bridgeshot.mjs` is the instrument that should have existed first.**
+  Every ground-level vantage picker in this repo fails on a bridge for the
+  same reason: `flyTo` does not test occupancy, a bridge sits over water, and
+  its own tiles are `passage`-tagged, so the camera lands inside a building or
+  underneath the deck. Stop fighting for a standable spot and go UP — at 44m
+  nothing but a spire is in the way. Note it is not enough to be above the
+  buildings: the whole RAY has to clear them, and the first cut at 26m looked
+  straight through a roofline.
+
+It takes two shots per bridge and prints the tiles beside them. The plan view
+proves the span REACHES; the profile — taken from over the CHANNEL, the one
+line through a town guaranteed to be free of buildings — shows whether it
+READS as a bridge. And the tile strip distinguishes deck-over-water from
+deck-over-dry-land, because the first version printed `#` for every deck tile
+and a bridge over the river looked identical to a bridge over a field in the
+output written to tell them apart.
+
+    LLL=###=LLL     land · abutment · deck over water · abutment · land
+
 ## THERE WERE NO BRIDGES — the geometry and the object lived in different layers
 
 Reported: "there are also essentially no bridges." `river.mjs` said 7.7
