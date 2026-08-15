@@ -1,0 +1,39 @@
+{
+  "registry": {
+    "problems": 0
+  },
+  "roofwinding": {
+    "inward": 0
+  },
+  "audit": {
+    "errors": 0
+  },
+  "spawn": {
+    "facingWall": 0
+  },
+  "provenance": {
+    "outsideBox": 0,
+    "doubled": 15,
+    "spireAtCap": 6,
+    "habitablePinned": 11
+  },
+  "humanscale": {
+    "subHuman": 0
+  },
+  "roofcheck": {
+    "openTops": 9
+  },
+  "odd": {
+    "overZ3": 36,
+    "bareWall": 26
+  },
+  "urbanform": {
+    "coverage": 45,
+    "partyWalls": 93,
+    "streetWidth": 12,
+    "frontage": 71
+  },
+  "districts": {
+    "character": 49
+  }
+}

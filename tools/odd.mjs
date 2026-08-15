@@ -52,6 +52,10 @@ const shots = Number(argv.find((a) => a.startsWith('--shots='))?.split('=')[1] ?
 const timeOfDay = Number(argv.find((a) => a.startsWith('--time='))?.split('=')[1] ?? 12)
 const doProps = argv.includes('--props')
 const showAll = argv.includes('--all')
+// Interrogate ONE feature. The ranking is dominated by whatever fires
+// hardest, and "show me every floating prop" is a different question from
+// "show me the worst thing in town".
+const onlyFeature = argv.find((a) => a.startsWith('--feature='))?.split('=')[1] ?? null
 mkdirSync('.shots/odd', { recursive: true })
 
 /* ------------------------------------------------------------------ */
@@ -170,18 +174,35 @@ function rank(items, features, keyOf) {
     const pop = usePeers ? peers : items
     let best = null
     for (const [name, get, twoSided] of features) {
+      if (!usePeers && !INTRINSIC.has(name)) continue
       const vals = pop.map(get).filter(Number.isFinite)
       const z = zOf(get(it), vals)
       const score = twoSided ? z : Math.abs(z)
       if (score <= 0) continue
       if (!best || score > best.score) {
-        best = { name, score, value: get(it), med: median(vals), against: usePeers ? keyOf(it) : 'the whole town' }
+        best = { name, score, value: get(it), med: median(vals), against: usePeers ? keyOf(it) : 'the whole town', usePeers }
       }
     }
     if (best) out.push({ it, ...best })
   }
   return out.sort((a, b) => b.score - a.score)
 }
+
+/**
+ * Features that mean something even with no peer group.
+ *
+ * The first run of the prop mode ranked two PIERS at the top for being 11m
+ * wide against a town median of 0.66 — a pier is supposed to be 11m wide, and
+ * with fewer than five of them in a town there is nothing to compare against
+ * but every barrel and flower box in the place. Fences and docks did the same.
+ * That is the sample-count lesson: a metric that suddenly has an opinion about
+ * a population of two has not got an opinion worth having.
+ *
+ * SIZE is only meaningful against peers. Whether a thing FLOATS, is BURIED, or
+ * is twenty times wider than it is tall is a fact about the object alone, so
+ * those still count for a type with no peers. Everything else waits for five.
+ */
+const INTRINSIC = new Set(['floating', 'buried', 'flatness', 'bareShare', 'roofless'])
 
 /* ------------------------------------------------------------------ */
 /* Report                                                             */
@@ -203,13 +224,18 @@ console.log('Ranked by how unlike its own peers each thing is. No targets, no')
 console.log('thresholds — just robust deviations from the population median.')
 console.log('An outlier is SUSPICION, not a verdict: a cathedral should be odd.\n')
 
+if (onlyFeature) {
+  ranked = ranked.filter((r) => r.name === onlyFeature)
+  console.log(`(filtered to --feature=${onlyFeature}: ${ranked.length} of them)\n`)
+}
 const head = showAll ? ranked : ranked.slice(0, Math.max(shots, 14))
 console.log(`${label} — worst first:`)
 console.log('   z     what             value   peer median   against')
 for (const r of head) {
   const name = doProps ? r.it.id : r.it.def
+  const caveat = r.usePeers ? '' : '  [no peer group]'
   console.log(`  ${r.score.toFixed(1).padStart(5)}  ${r.name.padEnd(14)} ` +
-    `${fmt(r.value).padStart(8)}  ${fmt(r.med).padStart(11)}   ${name} vs ${r.against}`)
+    `${fmt(r.value).padStart(8)}  ${fmt(r.med).padStart(11)}   ${name} vs ${r.against}${caveat}`)
 }
 
 // WHICH FEATURE IS FIRING, across the whole town. One building at z=9 is an

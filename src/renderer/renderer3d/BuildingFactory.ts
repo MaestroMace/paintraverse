@@ -825,6 +825,13 @@ export function buildBuildingMeshes(
         o !== v && o.bottomY >= v.bottomY + v.height - 0.05 &&
         Math.abs(o.offsetX - v.offsetX) < (o.width + v.width) / 2 &&
         Math.abs(o.offsetZ - v.offsetZ) < (o.depth + v.depth) / 2)
+      // MASONRY IS MEANT TO END IN SKY. A parapet, a curtain wall and a bridge
+      // pier are flat-topped by design, and once `habitable: false` stopped
+      // the repair pass roofing them this count went 15 -> 23 on the same
+      // three seeds — a tool grading correct geometry as a defect. Exactly the
+      // category error humanscale made counting a 1.6m wall as a storey under
+      // head height. A tool's two halves have to count the same population.
+      if (v.habitable === false) continue
       if (isFlatTop && !covered && v.height >= 2.0) flatToppedTallVolumes++
     }
     // Horizontal extents travel with the vertical ones for the same reason

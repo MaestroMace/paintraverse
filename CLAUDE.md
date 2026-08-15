@@ -1873,6 +1873,36 @@ already files as an art-direction call. The lesson is the one propscale.mjs
 learned about its own targets, pointed at an eyeball report instead:
 **when a claim you made disagrees with a measurement, suspect the claim.**
 
+## RUN THE BATTERY — tools/harness.mjs
+
+**Start here.** `node tools/harness.mjs` runs the gates and the tracked metrics,
+diffs them against `tools/harness-baseline.json`, and exits non-zero on a gate
+failure, a regression outside the metric's noise band, or an extractor that
+could not parse its tool. `--save` records the current readings; `--quick`
+skips everything needing Electron; `--only=audit,odd` narrows it.
+
+Twenty-eight instruments and no way to run them was not a cosmetic problem — it
+is the most expensive failure this project has had. District character was
+recorded at 55%, nothing re-ran the town battery for the whole river arc, and
+it read 36% by the end: eighteen points to one commit's side effect, found only
+by bisecting HEAD's tool against every commit's source. **A pile of instruments
+with no dashboard is a pile of instruments you will stop reading.**
+
+Two things it has to get right, both already on the record here:
+
+- **A check that cannot parse its tool FAILS.** Extractors are regexes over
+  another program's stdout and they rot. A silently-skipped metric is a green
+  board that has never looked at anything — exactly what `npm run typecheck`
+  did for months while compiling zero files.
+- **A noise band, not an exact match.** Generation is not bit-identical between
+  runs on the same seed, so demanding equality would cry wolf until nobody read
+  it. Each metric declares how much movement is nothing, and `dir: 0` means
+  tracked but never failed on, because "is 47% coverage better than 45%" is an
+  argument and not a fact.
+
+Both failure paths were tested by breaking them on purpose and watching the
+board go red before it was trusted — feed a check a known-bad input once.
+
 ## THE PERCEPTION HARNESS — provenance + odd + vantage, and why it is three tools
 
 Asked to make the correctness harness strong enough that we stop having
