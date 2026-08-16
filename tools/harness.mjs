@@ -172,6 +172,14 @@ const CHECKS = [
     band: { roofToWallMed: 10, roofOver80: 10, dwellingsOver4: 8, wallLuma: 25, roofBlackPct: 12 },
   },
   {
+    name: 'facade',
+    why: '3D detail nailed to a wall, against the openings PAINTED on it',
+    electron: true,
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/facade.mjs', '31337']],
+    extract: (o) => ({ overOpening: num(o, /VERDICT: (\d+) member-over-opening collisions/) }),
+    dir: { overOpening: -1 }, band: { overOpening: 6 },
+  },
+  {
     name: 'humanscale',
     why: 'a storey, a door and a window against what those things measure',
     electron: true,

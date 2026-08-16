@@ -16,6 +16,7 @@ import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
 import { pickMassing, volumeFloors, traceStage, clipToFootprint } from './architecture/Massing'
+import { facadeOpenings, quantizeWallM } from './FacadeTexture'
 import { gableMath, clampRoofHeight } from './architecture/Roofs'
 import { emitVolume, localToWorld, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
 import { pickPaletteForStyle } from './architecture/PaletteBias'
@@ -180,6 +181,41 @@ export interface BuildingTop {
   roofStyles: string[]
 }
 
+/**
+ * ONE THING ON A FACADE, in WALL-LOCAL METRES.
+ *
+ * The class the harness could not see. Every instrument so far works on
+ * volumes or on pixels at a distance; nothing knew where the PAINTED openings
+ * are, so nothing could tell that a timber stud runs straight across a window.
+ * Reported from the device as "lumber beams crossing over window and door
+ * textures", and true: the studs sit at a 1.7m bay pitch while the openings
+ * sit at facadeOpenings' ~2.4m column pitch, so the two grids beat against
+ * each other and a full-height stud crosses a window row on most walls.
+ *
+ * FacadeTexture's own comment already says the 3D window TRIM must quantise
+ * identically to the texture or the lintels land on the wrong columns — and
+ * VolumeRenderer does exactly that. The timber frame is the sibling that never
+ * got the same treatment. A bug in a gate is a bug in a pattern.
+ *
+ * x is metres from the wall's horizontal centre, y is metres above the wall's
+ * base, so an opening and a member are directly comparable.
+ */
+export interface FacadePart {
+  id: string; def: string; kind: string
+  x0: number; x1: number; y0: number; y1: number
+}
+export const facadeParts: FacadePart[] = []
+function recordPart(
+  id: string, def: string, kind: string,
+  cx: number, cy: number, w: number, h: number,
+): void {
+  facadeParts.push({
+    id, def, kind,
+    x0: +(cx - w / 2).toFixed(3), x1: +(cx + w / 2).toFixed(3),
+    y0: +(cy - h / 2).toFixed(3), y1: +(cy + h / 2).toFixed(3),
+  })
+}
+
 /** One built volume's world box — see the note at the push site. */
 export interface VolumeBox {
   id: string; def: string; role: string; habitable: boolean
@@ -310,6 +346,7 @@ export function buildBuildingMeshes(
   const wallMeshes: THREE.Mesh[] = []
   const tops: BuildingTop[] = []
   volumeBoxes.length = 0
+  facadeParts.length = 0
   const roofStyles: Record<string, number> = {}
   const scaleSamples: BuildingScale[] = []
   const featureCounts: Record<string, number> = {}
@@ -1098,6 +1135,24 @@ export function buildBuildingMeshes(
         const baseLocalY = v.bottomY
 
         if (wantsTimberPosts) {
+          // WHERE THE PAINTED OPENINGS ARE. Same call the texture, the
+          // emissive map and VolumeRenderer's window trim all make, so the
+          // frame is finally looking at the same grid everything else uses
+          // instead of an independent bay pitch.
+          const _openW = quantizeWallM(v.width, 'front')
+          const _openCells = facadeOpenings(
+            volumeFloors(v), _openW, quantizeWallM(v.height, 'front', 1.5),
+            'front', v.wallColor)
+          for (const c of _openCells) {
+            recordPart(obj.id, obj.definitionId, 'window',
+              (c.u - 0.5) * v.width, c.vCenter * v.height,
+              c.uW * v.width, c.vH * v.height)
+          }
+          // The door: FacadeTexture centres a 0.95 x 2.05m opening on the
+          // front wall's base. Hardcoded there, so hardcoded here — and if
+          // that ever drifts, tools/facade.mjs is what will say so.
+          recordPart(obj.id, obj.definitionId, 'door', 0, 2.05 / 2, 0.95, 2.05)
+
           // === EXPOSED TIMBER FRAME ===
           //
           // This is the "giant floating accent timbers" reported from the
@@ -1149,10 +1204,47 @@ export function buildBuildingMeshes(
           const studT = postT * 0.62
           const bays = Math.max(1, Math.round((v.width - postT) / BAY))
           const studDepth = studT
-          if (bays >= 2) {
-            const step = (v.width - postT) / bays
-            for (let b = 1; b < bays; b++) {
-              const studX = v.offsetX - (v.width - postT) / 2 + b * step
+          // === STUDS GO BETWEEN THE OPENINGS, NOT ON A GRID OF THEIR OWN ===
+          //
+          // Reported as "lumber beams crossing over window and door
+          // textures", and measured at 285 crossings on 31 of 66 framed
+          // buildings. The frame nailed studs at a 1.7m bay pitch while
+          // FacadeTexture paints openings on a ~2.4m column pitch: two grids
+          // that do not divide each other, so they beat, and a full-height
+          // stud walks across a window on most walls.
+          //
+          // FacadeTexture's own note says the 3D window TRIM must quantise
+          // IDENTICALLY to the texture, and VolumeRenderer obeys it by calling
+          // facadeOpenings. The frame is the sibling that never did. Derive
+          // the bays from the openings instead: take the wall minus every
+          // opening, and stand a stud in the middle of each surviving gap.
+          const _blocked = _openCells
+            .map((c) => {
+              const cx = (c.u - 0.5) * v.width
+              const half = (c.uW * v.width) / 2 + studT / 2 + 0.04
+              return [cx - half, cx + half]
+            })
+            .concat([[-0.95 / 2 - studT / 2 - 0.04, 0.95 / 2 + studT / 2 + 0.04]])
+            .sort((a, b) => a[0] - b[0])
+          const _gaps: Array<[number, number]> = []
+          {
+            let cursor = -(v.width - postT) / 2
+            const end = (v.width - postT) / 2
+            for (const [b0, b1] of _blocked) {
+              if (b0 > cursor) _gaps.push([cursor, Math.min(b0, end)])
+              cursor = Math.max(cursor, b1)
+            }
+            if (cursor < end) _gaps.push([cursor, end])
+          }
+          // Widest gaps first, so a wide wall still gets its frame subdivided
+          // and a narrow one does not grow a stud in a 5cm sliver.
+          const _studXs = _gaps
+            .filter(([g0, g1]) => g1 - g0 > studT + 0.25)
+            .sort((a, b) => (b[1] - b[0]) - (a[1] - a[0]))
+            .slice(0, Math.max(0, bays - 1))
+            .map(([g0, g1]) => v.offsetX + (g0 + g1) / 2)
+          if (_studXs.length) {
+            for (const studX of _studXs) {
               for (const sz of [-1, 1]) {
                 const stud = new THREE.BoxGeometry(studT, postH, studDepth)
                 stud.translate(0, postH / 2, 0)
@@ -1160,6 +1252,10 @@ export function buildBuildingMeshes(
                   v.offsetZ + sz * seatZ(studDepth),
                   leanX, leanZ, rotationY, wx, wy, wz)
                 ornamentBatch.addPositioned(stud, 0x3a2418)
+                if (sz === 1) {
+                  recordPart(obj.id, obj.definitionId, 'stud',
+                    studX - v.offsetX, postH / 2, studT, postH)
+                }
               }
             }
           }
@@ -2168,11 +2264,22 @@ export function buildBuildingMeshes(
         (isTradeBldg ? Math.max(0.35, 0.6 * (0.55 + 0.45 * tw)) : 0.7 * tw)
     ) {
       tallyIn('awning', district)
-      const awningY = Math.min(2.0, FLOOR_HEIGHT * 0.95)
+      // HANG IT ABOVE THE DOOR HEAD. This was 2.0m against a door that
+      // FacadeTexture paints 2.05m tall, so the canvas sliced the top off the
+      // doorway and crossed the ground-floor glazing — 30 awning-over-window
+      // crossings a town before tools/facade.mjs put a number on it. An awning
+      // goes over a shopfront, not through it.
+      const awningY = Math.min(2.6, Math.max(2.35, FLOOR_HEIGHT * 0.9))
       const awningW = Math.min(2.6, frontWallHalfW * 1.1)
       const awningD = 0.55
       // Front-edge dip so the awning slopes downward away from the wall.
-      const slopeRot = -0.12  // ~7° down at front edge
+      //
+      // THE SIGN WAS INVERTED. rotateX(t) sends (y,z) -> (y cos t - z sin t,
+      // ...), so a strip translated to +Z and rotated by a NEGATIVE angle has
+      // y' = -z sin(t) = +6.6cm: the front edge went UP. The comment right
+      // here said "~7 deg down at front edge" and the geometry did the
+      // opposite, which is what "the angles for the main piece is wrong" was.
+      const slopeRot = 0.12  // ~7° down at the front edge
       // Striped canvas — emit the awning as 5 vertical strips alternating
       // between two colors. Reads unambiguously as a market awning at any
       // distance, where a solid block reads as a shelf. Two-color picks
@@ -2194,6 +2301,10 @@ export function buildBuildingMeshes(
         localToWorld(stripGeo, stripX, awningY, frontWallZ,
           leanX, leanZ, rotationY, wx, wy, wz)
         ornamentBatch.addPositioned(stripGeo, stripColor)
+        if (s === 0) {
+          recordPart(obj.id, obj.definitionId, 'awning',
+            0, awningY - mainVol.bottomY, awningW, 0.04)
+        }
       }
       // Two simple vertical posts at the front corners — implies tied-down canvas.
       // Post top must clear the awning's sloped underside at the post's Z. The
@@ -2204,7 +2315,11 @@ export function buildBuildingMeshes(
       // bottom face, then ~3cm of headroom.
       const postZRel = awningD - 0.04
       const postZ = frontWallZ + postZRel
-      const awningBottomDrop = postZRel * Math.sin(-slopeRot) + 0.02
+      // ...and the post height inherited the same sign error, subtracting a
+      // drop that never happened, so the posts fell ~16cm short of the canvas
+      // they are supposed to hold up. A second piece of code derived from a
+      // wrong assumption is how a sign error becomes two visible defects.
+      const awningBottomDrop = postZRel * Math.sin(slopeRot) + 0.02
       const postH = Math.max(0.5, awningY - awningBottomDrop - 0.03)
       for (const px of [-awningW * 0.42, awningW * 0.42]) {
         const post = new THREE.BoxGeometry(0.04, postH, 0.04)

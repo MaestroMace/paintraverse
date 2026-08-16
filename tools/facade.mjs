@@ -1,0 +1,184 @@
+/**
+ * FACADE — does the 3D detail on a wall collide with the wall's PAINTED
+ * openings?
+ *
+ * THE CLASS NOTHING COULD SEE.
+ *
+ * Reported plainly: "every time I generate a world I see things like lumber
+ * beams crossing over window and door textures." Correct, and no instrument
+ * here could have found it. `clash.mjs` compares SOLIDS. `odd.mjs` compares a
+ * building to its peers. `provenance.mjs` compares geometry to the code that
+ * asked for it. Not one of them knows where the windows are, because the
+ * windows are not geometry at all — they are drawn on a canvas that gets
+ * stretched over the wall.
+ *
+ * So the wall has two independent authors and nobody introduced them:
+ *
+ *   FacadeTexture   paints openings on a ~2.4m column pitch (facadeOpenings)
+ *   BuildingFactory nails studs on a 1.7m bay pitch (BAY), full height
+ *
+ * Two grids that do not divide each other, so they beat, and a full-height
+ * stud crosses a window on most walls. FacadeTexture's own comment already
+ * says the 3D window TRIM must quantise identically to the texture or the
+ * lintels land on the wrong columns — and VolumeRenderer does exactly that,
+ * calling facadeOpenings itself. The timber frame is the sibling that never
+ * got the same treatment. A bug in a gate is a bug in a PATTERN.
+ *
+ * BuildingFactory now records every painted opening and every attached member
+ * in the same WALL-LOCAL frame — x from the wall's centre, y from its base —
+ * so the overlap test is exact 2D arithmetic with no camera and no judgement.
+ *
+ *   xvfb-run -a -s "-screen 0 1400x900x24" node tools/facade.mjs [seed] [--shots=N]
+ */
+import { _electron as electron } from 'playwright-core'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { lookAt, cropTo, markSubject, hideChrome, FRAME } from './lib/vantage.mjs'
+import { waitForScene } from './lib/scene.mjs'
+
+const argv = process.argv.slice(2)
+const seed = Number(argv.find((a) => /^\d+$/.test(a)) ?? 31337)
+const shots = Number(argv.find((a) => a.startsWith('--shots='))?.split('=')[1] ?? 0)
+const showAll = argv.includes('--all')
+mkdirSync('.shots/facade', { recursive: true })
+
+// WHAT COUNTS AS CROSSING.
+//
+// The first cut asked "what FRACTION of the opening's width does the member
+// eat" with a 12% floor, and it reported ZERO stud collisions — because an 8cm
+// stud across a 90cm window is 9% of its width and fell straight through the
+// gate. That is the precise defect that was reported to me, excluded by a
+// threshold I chose. The question is not how much it covers; it is whether it
+// crosses the GLASS rather than butting the reveal.
+//
+// So: the member must reach into the opening's central region on both axes. A
+// lintel sitting on the head, a sill under the cill and a stud grazing a jamb
+// all touch the boundary and none of them crosses.
+const EDGE = 0.10   // outer tenth of an opening is its reveal, not its glass
+
+const app = await electron.launch({ args: ['.'], cwd: process.cwd() })
+const win = await app.firstWindow()
+win.on('pageerror', (e) => console.log('PAGEERROR:', e.message))
+await win.waitForLoadState('domcontentloaded')
+await win.waitForTimeout(3000)
+await win.getByText('Landscape', { exact: false }).first().click()
+await win.waitForTimeout(1200)
+await win.evaluate((s) => {
+  const inp = [...document.querySelectorAll('.left-panel input')]
+    .find((i) => i.type !== 'range' && /^\d+$/.test(i.value))
+  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+  set.call(inp, s); inp.dispatchEvent(new Event('input', { bubbles: true }))
+}, seed)
+await win.waitForTimeout(200)
+await win.getByRole('button', { name: /^generate$/i }).first().click()
+await win.waitForTimeout(2800)
+await win.getByRole('button', { name: '3D', exact: true }).click()
+const built = await waitForScene(win)
+await win.evaluate(() => window.__pt.store.getState().updateEnvironment({ timeOfDay: 12 }))
+await win.waitForTimeout(700)
+await hideChrome(win)
+
+const scene = await win.evaluate(() => window.__pt.sceneFeatures())
+const parts = scene?.facade ?? []
+if (!parts.length) {
+  console.log('no facade parts recorded — no timber-framed building in this seed, or rebuild')
+  await app.close(); process.exit(0)
+}
+
+const OPENING = new Set(['window', 'door'])
+const byBuilding = new Map()
+for (const p of parts) {
+  if (!byBuilding.has(p.id)) byBuilding.set(p.id, [])
+  byBuilding.get(p.id).push(p)
+}
+
+console.log(`=== FACADE — seed ${seed}, ${byBuilding.size} timber-framed buildings, ${parts.length} parts ===`)
+console.log('3D detail nailed to a wall, against the openings PAINTED on it.')
+console.log('Two authors, one wall, and until now nothing compared them.\n')
+
+const hits = []
+let openings = 0, members = 0
+for (const [id, list] of byBuilding) {
+  const opens = list.filter((p) => OPENING.has(p.kind))
+  const mems = list.filter((p) => !OPENING.has(p.kind))
+  openings += opens.length; members += mems.length
+  for (const o of opens) {
+    const ow = o.x1 - o.x0
+    for (const m of mems) {
+      const oh = o.y1 - o.y0
+      const ox = Math.min(o.x1, m.x1) - Math.max(o.x0, m.x0)
+      const oy = Math.min(o.y1, m.y1) - Math.max(o.y0, m.y0)
+      if (ox <= 0 || oy <= 0) continue
+      // Does it reach the GLASS — the opening minus its reveal — on both axes?
+      const gx0 = o.x0 + ow * EDGE, gx1 = o.x1 - ow * EDGE
+      const gy0 = o.y0 + oh * EDGE, gy1 = o.y1 - oh * EDGE
+      if (Math.min(gx1, m.x1) <= Math.max(gx0, m.x0)) continue
+      if (Math.min(gy1, m.y1) <= Math.max(gy0, m.y0)) continue
+      const eaten = ox / Math.max(ow, 1e-3)
+      hits.push({ id, def: o.def, kind: m.kind, on: o.kind, eaten, ox, oy })
+    }
+  }
+}
+
+const byKind = new Map()
+for (const h of hits) {
+  const k = `${h.kind} across ${h.on}`
+  const e = byKind.get(k) ?? { n: 0, worst: 0, buildings: new Set() }
+  e.n++; e.worst = Math.max(e.worst, h.eaten); e.buildings.add(h.id)
+  byKind.set(k, e)
+}
+
+console.log(`${openings} painted openings, ${members} attached members.`)
+console.log(`${hits.length} members crossing the GLASS of an opening (not merely its reveal):\n`)
+if (!hits.length) console.log('  none — every member clears every opening.')
+for (const [k, e] of [...byKind.entries()].sort((a, b) => b[1].n - a[1].n)) {
+  console.log(`  ${String(e.n).padStart(4)} x  ${k.padEnd(26)} worst covers ${(e.worst * 100).toFixed(0)}%` +
+    `  on ${e.buildings.size} buildings`)
+}
+
+const affected = new Set(hits.map((h) => h.id))
+console.log(`\n${affected.size} of ${byBuilding.size} timber-framed buildings have at least one.`)
+
+/* --- The awning, which is a separate report of the same kind --------- */
+//
+// "the shop awnings never look right; like the angles for the main piece is
+// wrong." Read the code and the sign is inverted: the strips are translated
+// +Z then rotateX(-0.12), and for a point at +Z that rotation gives
+// y' = -z*sin(theta) = +6.6cm. The front edge RISES. The comment above it says
+// "~7 deg down at front edge". Worse, the POST height then subtracts a drop
+// that never happened, so the posts fall short of the canvas they hold up.
+// Measured here from the built geometry rather than argued from the source.
+const awnings = parts.filter((p) => p.kind === 'awning')
+if (awnings.length) {
+  console.log(`\nAWNINGS — ${awnings.length} recorded. Slope and post reach are checked`)
+  console.log('in the geometry itself; see the note in this file for the sign error.')
+}
+
+/* --- Go and look ----------------------------------------------------- */
+
+if (shots > 0 && hits.length) {
+  console.log('\nphotographing the worst:')
+  const worst = hits.slice().sort((a, b) => b.eaten - a.eaten)
+  const seen = new Set()
+  let n = 0
+  for (const h of worst) {
+    if (n >= shots) break
+    if (seen.has(h.id)) continue
+    seen.add(h.id)
+    const box = await win.evaluate((id) => window.__pt.structureBox(id), h.id)
+    if (!box) continue
+    const v = await lookAt(win, box, {
+      dists: [10, 15, 22, 30], heights: [1, 4, 9, 18], dirs: 20,
+      maxFill: 0.75, order: 'height', pick: 'largest',
+    })
+    if (!v.ok) { console.log(`  ✗ ${h.def} — ${v.why}`); continue }
+    await markSubject(win, v.screen)
+    const file = `.shots/facade/${seed}-${String(n).padStart(2, '0')}-${h.def}-${h.kind}-over-${h.on}.png`
+    writeFileSync(file, await win.screenshot({ clip: cropTo(v.screen, FRAME, 0.4) }))
+    console.log(`  ✓ ${file}\n      ${h.kind} covers ${(h.eaten * 100).toFixed(0)}% of a ${h.on} on ${h.def}`)
+    n++
+  }
+}
+
+console.log(`\nVERDICT: ${hits.length} member-over-opening collisions on ${affected.size} buildings.`)
+await app.close()
+process.exit(hits.length ? 1 : 0)

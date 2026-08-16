@@ -1711,6 +1711,15 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   which nothing else asks and which is the largest visible defect in the town
   (p90 199%). Read its note about apex vs wall height before quoting a storey
   count.
+- `node tools/facade.mjs [seed] [--shots=N]` — **does the 3D detail on a wall
+  collide with the openings PAINTED on it?** The fourth axis, and the one that
+  found the timber-over-windows defect: a wall has two authors, FacadeTexture
+  and BuildingFactory, and nothing compared them because the windows are not
+  geometry. BuildingFactory records every opening and every attached member in
+  the same WALL-LOCAL frame, so the test is exact 2D arithmetic. Read its note
+  on what counts as CROSSING — the first version asked what fraction of an
+  opening a member covers and a 12% floor excluded every stud, which is the
+  defect it was written to find.
 - `node tools/clash.mjs [seed] [--shots=N] [--all]` — **does the built geometry
   collide with itself, and does it stand on the ground?** The third axis:
   provenance grades a thing against the code, odd against its peers, and this
@@ -2122,6 +2131,53 @@ every street screenshot, measured two independent ways.
 `tools/eyeball.mjs` reports tone by surface class, split by raycast — sky,
 roof, wall, ground — because the aggregate hides it: a frame that is 40%
 brilliant paving and 40% black wall has a perfectly reasonable mean.
+
+### THE FOURTH AXIS — geometry against the TEXTURE (tools/facade.mjs)
+
+Reported plainly: "every time I generate a world I see things like lumber
+beams crossing over window and door textures", and "the shop awnings never
+look right; like the angles for the main piece is wrong". Both correct, and no
+instrument here could have found either — `clash` compares solids, `odd`
+compares peers, `provenance` compares geometry to the code. **None of them
+knows where the windows are, because the windows are not geometry.** They are
+painted on a canvas that gets stretched over the wall.
+
+So a wall has two independent authors and nobody had introduced them:
+
+    FacadeTexture    paints openings on a ~2.4m column pitch (facadeOpenings)
+    BuildingFactory  nails studs on a 1.7m bay pitch, full height
+
+Two grids that do not divide each other, so they beat. Measured: **315
+crossings on 31 of 66 timber-framed buildings** — 207 studs over windows, 78
+over doors, 30 awnings over windows.
+
+FacadeTexture's own comment already says the 3D window TRIM must quantise
+IDENTICALLY to the texture or the lintels land on the wrong columns, and
+VolumeRenderer obeys it by calling `facadeOpenings` itself. **The timber frame
+is the sibling that never got the same treatment.** Studs now come from the
+wall MINUS its openings: take the gaps, stand a stud in the middle of the
+widest ones. 315 -> 10.
+
+**And the threshold I first chose excluded the exact defect I was hunting.**
+The first cut asked what FRACTION of an opening a member covers, with a 12%
+floor — and an 8cm stud across a 90cm window is 9%, so it reported ZERO stud
+collisions. The question is not how much it covers, it is whether it crosses
+the GLASS rather than butting the reveal.
+
+The awning was three bugs stacked, and reading the code found all three before
+the instrument ran:
+
+- **The slope sign was inverted.** `rotateX(t)` sends `(y,z) -> (y cos t - z
+  sin t, ...)`, so a strip translated to +Z and rotated by a NEGATIVE angle has
+  `y' = -z sin t = +6.6cm` — the front edge went UP, while the comment
+  immediately above it said "~7 deg down at front edge".
+- **The post height inherited the same sign**, subtracting a drop that never
+  happened, so the posts fell ~16cm short of the canvas they hold up. A second
+  piece of code derived from a wrong assumption turns one sign error into two
+  visible defects.
+- **It hung at 2.0m against a door FacadeTexture paints 2.05m tall**, so the
+  canvas sliced the top off the doorway and crossed the ground-floor glazing.
+  An awning goes over a shopfront, not through it.
 
 ### THE THIRD AXIS — a thing against its NEIGHBOURS (tools/clash.mjs)
 
