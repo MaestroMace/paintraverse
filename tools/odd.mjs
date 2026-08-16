@@ -181,11 +181,34 @@ function rank(items, features, keyOf) {
     for (const [name, get, twoSided] of features) {
       if (!usePeers && !INTRINSIC.has(name)) continue
       const vals = pop.map(get).filter(Number.isFinite)
-      const z = zOf(get(it), vals)
+      const v = get(it)
+      const z = zOf(v, vals)
       const score = twoSided ? z : Math.abs(z)
       if (score <= 0) continue
+      const med = median(vals)
+      // A HIGH z IS NOT THE SAME AS A BIG DIFFERENCE, and the first version of
+      // this conflated them. `lean_to` heights are so tightly clustered that
+      // MAD is nearly zero, so 6.4m against a median of 3.8m scored z=85 —
+      // while a 50m tower against a 29m median, the same 1.7x, scored 8.8 and
+      // was buried underneath eleven lean-tos. Ranking by z alone is ranking by
+      // which population has the smallest spread.
+      //
+      // So require the difference to be REAL as well as unusual. Below this it
+      // is a statistical curiosity about a uniform population, which is
+      // provenance.mjs's department (a clamp everyone is pinned to), not a
+      // thing worth photographing.
+      const ratio = med === 0 ? (Math.abs(v) > 1e-6 ? Infinity : 1)
+        : Math.max(Math.abs(v), Math.abs(med)) / Math.max(Math.min(Math.abs(v), Math.abs(med)), 1e-6)
+      // 1.25 was still far too loose: the board came back topped by a x1.2
+      // staircase footprint and a x1.4 lean-to, both z>18 and both completely
+      // unremarkable to look at. If a person would not notice the difference,
+      // a photograph of it is a wasted minute.
+      if (ratio < 1.6 && Math.abs(v - med) < 1.0) continue
       if (!best || score > best.score) {
-        best = { name, score, value: get(it), med: median(vals), against: usePeers ? keyOf(it) : 'the whole town', usePeers }
+        best = {
+          name, score, value: v, med, ratio,
+          against: usePeers ? keyOf(it) : 'the whole town', usePeers,
+        }
       }
     }
     if (best) out.push({ it, ...best })
@@ -229,17 +252,24 @@ console.log('Ranked by how unlike its own peers each thing is. No targets, no')
 console.log('thresholds — just robust deviations from the population median.')
 console.log('An outlier is SUSPICION, not a verdict: a cathedral should be odd.\n')
 
+// KEEP THE UNFILTERED RANKING. The control samples ordinary items from it, and
+// filtering first silently emptied that sample — so a --feature run lost its
+// baseline and every verdict fell back to "in line with an ordinary building",
+// which is the confident-wrong failure this whole design exists to avoid. A
+// missing control must read as MISSING, never as a pass.
+const rankedAll = ranked
 if (onlyFeature) {
   ranked = ranked.filter((r) => r.name === onlyFeature)
   console.log(`(filtered to --feature=${onlyFeature}: ${ranked.length} of them)\n`)
 }
 const head = showAll ? ranked : ranked.slice(0, Math.max(shots, 14))
 console.log(`${label} — worst first:`)
-console.log('   z     what             value   peer median   against')
+console.log('   z   ratio  what             value   peer median   against')
 for (const r of head) {
   const name = doProps ? r.it.id : r.it.def
   const caveat = r.usePeers ? '' : '  [no peer group]'
-  console.log(`  ${r.score.toFixed(1).padStart(5)}  ${r.name.padEnd(14)} ` +
+  const rx = Number.isFinite(r.ratio) ? `x${r.ratio.toFixed(1)}` : 'new'
+  console.log(`  ${r.score.toFixed(1).padStart(5)}  ${rx.padStart(5)}  ${r.name.padEnd(14)} ` +
     `${fmt(r.value).padStart(8)}  ${fmt(r.med).padStart(11)}   ${name} vs ${r.against}${caveat}`)
 }
 
@@ -278,8 +308,13 @@ async function inspect(st, cheap = false) {
     // subject is usually a WALL, and a shot from 28m looking down cannot show
     // you one — the first cut of this tool took exactly that shot to grade
     // whether a facade was textured.
-    dists: [0.7, 1.0, 1.5, 2.2, 3.2].map((k) => Math.round(k * dia)),
-    heights: [1, 4, 10, 20, 32], dirs: cheap ? 8 : 16, maxFill: 0.7, order: 'height',
+    dists: [0.7, 1.0, 1.5, 2.2, 3.2].map((k) => Math.max(2, k * dia)),
+    heights: doProps ? [0.5, 1.6, 3, 6] : [1, 4, 10, 20, 32],
+    dirs: cheap ? 8 : 16, maxFill: 0.7, minFill: doProps ? 0.05 : 0.1, order: 'height',
+    // Broadside, not merely unoccluded. A 16cm-deep shop sign photographed
+    // edge-on is a black stick, and that picture cannot answer the question it
+    // was taken to answer.
+    pick: cheap ? 'first' : 'largest',
   })
   if (!v.ok) return { v }
   // Every candidate lookAt rejects costs a raycast against the whole scene,
@@ -297,8 +332,8 @@ async function inspect(st, cheap = false) {
 // outlier means nothing, and I would rather find that out here than in a
 // confident paragraph.
 let base = null
-if (shots > 0 && !doProps) {
-  const typical = ranked.filter((r) => Math.abs(r.score) < 1.2 && r.it.box)
+if (shots > 0) {
+  const typical = rankedAll.filter((r) => Math.abs(r.score) < 1.2 && r.it.box)
   const step = Math.max(1, Math.floor(typical.length / 6))
   const sample = []
   for (let i = 0; i < typical.length && sample.length < 6; i += step) sample.push(typical[i])
@@ -319,7 +354,20 @@ if (shots > 0 && !doProps) {
   }
 }
 
-if (shots > 0 && !doProps) {
+/**
+ * A prop has no BuildingTop and so no structureBox — but it has an emitted
+ * AABB, which is the same thing and arguably better, because it is measured
+ * from the geometry rather than from the massing's intent. Without this the
+ * prop mode was numbers only, which is exactly the half of the problem this
+ * whole exercise exists to fix.
+ */
+const propBox = (p) => ({
+  min: [p.x - p.w / 2, p.y - p.h / 2, p.z - p.d / 2],
+  max: [p.x + p.w / 2, p.y + p.h / 2, p.z + p.d / 2],
+})
+for (const p of scene.props) p.box = propBox(p)
+
+if (shots > 0) {
   console.log('\nphotographing the worst — the number says something is odd, only the')
   console.log('picture says whether it is wrong:')
   let taken = 0
@@ -328,22 +376,24 @@ if (shots > 0 && !doProps) {
     const s = r.it
     if (!s.box) continue
     const { v, px: pxEarly } = await inspect(s)
-    if (!v.ok) { console.log(`  ✗ ${s.def} z=${r.score.toFixed(1)} — ${v.why}`); continue }
+    if (!v.ok) { console.log(`  ✗ ${s.def ?? s.id} z=${r.score.toFixed(1)} — ${v.why}`); continue }
     const px = pxEarly     // measured before the marker is drawn over it
     await markSubject(win, v.screen)
-    const file = `.shots/odd/${seed}-${String(taken).padStart(2, '0')}-${s.def}-${r.name}.png`
+    const file = `.shots/odd/${seed}-${doProps ? 'prop-' : ''}${String(taken).padStart(2, '0')}-${s.def ?? s.id}-${r.name}.png`
     writeFileSync(file, await win.screenshot({ clip: cropTo(v.screen, FRAME, 0.5) }))
     console.log(`  ✓ ${file}`)
     console.log(`      z=${r.score.toFixed(1)} ${r.name} ${fmt(r.value)} vs ${fmt(r.med)} · ` +
-      `${s.def} in ${s.district} · ${s.height}m tall on ${s.spanW}x${s.spanD}m · ` +
-      `${s.volumes} volumes, ${s.texturedVolumes} textured`)
+      (doProps
+        ? `${s.id} · ${s.w.toFixed(2)}x${s.d.toFixed(2)}x${s.h.toFixed(2)}m · gap ${s.gap.toFixed(2)}m`
+        : `${s.def} in ${s.district} · ${s.height}m tall on ${s.spanW}x${s.spanD}m · ` +
+          `${s.volumes} volumes, ${s.texturedVolumes} textured`))
     if (px?.sparse) {
       console.log(`      pixels: only ${(px.cover * 100).toFixed(0)}% of the box is the subject — too little to grade`)
     } else if (px) {
       // The picture's own opinion, over SUBJECT PIXELS ONLY (raycast mask), so
       // the verdict is neither my eyeball nor a crop full of neighbours — and
       // graded against the CONTROL, so it is not a threshold I invented.
-      let verdict = 'in line with an ordinary building here'
+      let verdict = 'NO CONTROL — cannot grade this, do not read it as a pass'
       if (base) {
         const eR = px.edges / Math.max(base.edges, 1e-3)
         const lR = px.luma / Math.max(base.luma, 1e-3)

@@ -1984,6 +1984,36 @@ Four design points, each of which was wrong in the first cut:
   diagonal now; "unoccluded candidates were too close" is the thirty-pixels
   failure wearing its opposite face.
 
+### WHAT A FULL SWEEP ACTUALLY FOUND — including three bugs in the harness
+
+Run across two seeds with photographs, the honest ledger is short, and that is
+itself the result. **The pixel pass CLEARS most outliers**, which is what a
+suspicion-ranker is supposed to do: lean-to slenderness, staircase footprint,
+tall row houses and every one of the sixteen "floating" props read in line.
+The only confirmed visual discrepancies are the CATHEDRAL at 0.26x the detail
+density of an ordinary building — a 42m plain grey box — and the MILL at 0.40x
+with 0 of 3 volumes textured.
+
+Three defects were in the instrument, and all three are the same shape as
+defects it was built to catch:
+
+- **The camera framed a 16cm shop sign EDGE-ON**, correctly and unoccludedly,
+  and the photograph could not answer the question it was taken to answer.
+  `lookAt` took the first clear bearing; `pick: 'largest'` finishes the tier and
+  keeps the broadest view.
+- **z alone ranks by which population has the smallest spread.** `lean_to`
+  heights cluster so tightly that 6.4m against a median of 3.8m scored z=85,
+  while a 50m tower against a 29m median — the same 1.7x — scored 8.8 and sat
+  eleven rows below it. A ratio gate is now required as well as a high z:
+  statistically unusual and physically identical is provenance.mjs's
+  department, not this one.
+- **`--feature=` silently killed the CONTROL.** It filtered the ranking before
+  the control sampled ordinary items from it, so the baseline vanished and
+  every verdict fell back to the string "in line with an ordinary building" —
+  a missing measurement reading as a pass, which is the exact failure the
+  control exists to prevent. It samples the unfiltered ranking now and says
+  NO CONTROL when it has none.
+
 First run found a CLASS rather than an instance, which is the whole point:
 **38 structures a town carry 40-105m² of bare untextured wall while their peer
 median is zero** — legal in every dimension, invisible to every geometry audit,

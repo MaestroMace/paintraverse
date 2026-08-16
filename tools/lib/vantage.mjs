@@ -80,6 +80,13 @@ export async function lookAt(win, box, opts = {}) {
     // wall, and the first version of this tool cheerfully took one to grade
     // whether a facade was textured.
     order: opts.order ?? 'dist',
+    // 'first' takes the first clear candidate. 'largest' finishes the tier and
+    // keeps the one where the subject covers the most screen — which for a
+    // FLAT subject is the difference between a picture and a stick. The prop
+    // hunt framed a two-post shop sign 16cm edge-on, correctly and
+    // unoccludedly, and the resulting photograph could not answer the question
+    // it was taken to answer.
+    pick: opts.pick ?? 'first',
   }
   return win.evaluate(async ({ box, cfg }) => {
     const pt = window.__pt, three = pt.renderer(), THREE = pt.THREE
@@ -189,6 +196,7 @@ export async function lookAt(win, box, opts = {}) {
     {
       for (const [dist, hUp] of pairs) {
         for (const i of order) {
+          if (cfg.pick === 'largest' && win_ && (win_.dist !== dist || win_.up !== hUp)) break search
           const a = (i / cfg.dirs) * Math.PI * 2
           const eye = new THREE.Vector3(
             target.x + Math.cos(a) * dist, target.y + hUp, target.z + Math.sin(a) * dist)
@@ -205,7 +213,14 @@ export async function lookAt(win, box, opts = {}) {
               Math.min(...p.ys) < -1 || Math.max(...p.ys) > 1) {
             nearMiss ??= 'runs off the edge of frame'; continue
           }
-          win_ = { eye, dist, up: hUp, bearing: a }
+          const area = w * h
+          if (cfg.pick === 'largest') {
+            // Keep scanning THIS tier for a broader view; do not walk further
+            // out, because distance costs more than bearing does.
+            if (!win_ || area > win_.area) win_ = { eye, dist, up: hUp, bearing: a, area }
+            continue
+          }
+          win_ = { eye, dist, up: hUp, bearing: a, area }
           break search
         }
       }
