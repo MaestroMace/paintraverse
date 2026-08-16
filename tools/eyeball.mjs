@@ -96,6 +96,7 @@ console.log('What FILLS THE FRAME at eye level, chosen by screen presence rather
 console.log('than by any audit\'s opinion. This is what a person sees first.\n')
 
 const tally = new Map()   // definitionId -> { frames, area, maxH }
+const tone = { sky: [], roof: [], wall: [], ground: [], other: [] }
 let totalHit = 0, totalSamples = 0
 
 for (let i = 0; i < spots.length; i++) {
@@ -115,16 +116,35 @@ for (let i = 0; i < spots.length; i++) {
       if (mats.every((m) => !m || m.depthWrite === false)) return
       blockers.push(o)
     })
+    // Read the FRAME's own pixels alongside the geometry. Every pixel measure
+    // in this harness so far is RELATIVE to a control, and a town that is
+    // uniformly too dark has a perfectly healthy relative distribution — the
+    // one defect a peer comparison can never report. This is the absolute
+    // question: at noon, how bright is this actually.
+    const cv = three.renderer.domElement
+    const cw = cv.width, ch = cv.height
+    const c2 = document.createElement('canvas')
+    c2.width = cw; c2.height = ch
+    const g2 = c2.getContext('2d', { willReadFrequently: true })
+    g2.drawImage(cv, 0, 0)
+    const px = g2.getImageData(0, 0, cw, ch).data
+
     const ray = new THREE.Raycaster()
     const ndc = new THREE.Vector2()
     const pts = []
     for (let gy = 0; gy < grid; gy++) {
       for (let gx = 0; gx < grid; gx++) {
-        ndc.set(((gx + 0.5) / grid) * 2 - 1, -(((gy + 0.5) / grid) * 2 - 1))
+        const u = (gx + 0.5) / grid, v = (gy + 0.5) / grid
+        ndc.set(u * 2 - 1, -(v * 2 - 1))
         ray.setFromCamera(ndc, three.camera)
         ray.near = 0; ray.far = 300
         const h = ray.intersectObjects(blockers, false)[0]
-        pts.push(h ? [+h.point.x.toFixed(2), +h.point.y.toFixed(2), +h.point.z.toFixed(2)] : null)
+        const ix = (Math.min(ch - 1, Math.floor(v * ch)) * cw + Math.min(cw - 1, Math.floor(u * cw))) * 4
+        const L = (0.2126 * px[ix] + 0.7152 * px[ix + 1] + 0.0722 * px[ix + 2]) / 255
+        pts.push(h
+          ? { p: [+h.point.x.toFixed(2), +h.point.y.toFixed(2), +h.point.z.toFixed(2)],
+              up: h.face ? +Math.abs(h.face.normal.y).toFixed(2) : 0, L: +L.toFixed(3) }
+          : { p: null, up: 0, L: +L.toFixed(3) })
       }
     }
     return pts
@@ -133,18 +153,30 @@ for (let i = 0; i < spots.length; i++) {
   // Attribute each sample to the structure whose volume box contains it.
   const frameTally = new Map()
   let inFrame = 0
-  for (const p of hits) {
+  for (const s of hits) {
     totalSamples++
-    if (!p) continue
+    const p = s.p
+    if (!p) { tone.sky.push(s.L); continue }
     let owner = null
     for (const v of scene.volumes) {
       if (p[0] >= v.x0 - 0.2 && p[0] <= v.x1 + 0.2 &&
           p[2] >= v.z0 - 0.2 && p[2] <= v.z1 + 0.2 &&
           p[1] >= v.y0 - 0.2 && p[1] <= v.y1 + 0.2) { owner = v; break }
     }
-    if (!owner) continue
+    if (!owner) {
+      // No volume owns it: terrain, water, a prop or a wall mesh. Split by
+      // orientation — a horizontal face down here is the ground you walk on.
+      tone[s.up > 0.7 ? 'ground' : 'other'].push(s.L)
+      continue
+    }
     totalHit++; inFrame++
     frameTally.set(owner.id, (frameTally.get(owner.id) ?? 0) + 1)
+    // Roof or wall: above the main body's wall top is roof. The distinction
+    // matters because they are lit completely differently and a dark roof on a
+    // lit wall is the silhouette problem, not a global exposure problem.
+    const st = byId.get(owner.id)
+    const wallTopY = st ? st.baseY + st.wallTop : owner.y1
+    tone[p[1] > wallTopY - 0.1 ? 'roof' : 'wall'].push(s.L)
   }
 
   const ranked = [...frameTally.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4)
@@ -168,6 +200,29 @@ for (let i = 0; i < spots.length; i++) {
 }
 
 /* ------------------------------------------------------------------ */
+
+// === ABSOLUTE TONE ===
+//
+// Not relative to anything. odd.mjs grades a building against its peers and
+// subjectPixels grades a subject against a control, and BOTH are blind to the
+// case where the whole town is too dark — a uniform failure has a healthy
+// distribution by construction. This is the one number in the harness with an
+// opinion about what a rendered scene should look like, and the opinion is
+// mild: at NOON, a sunlit surface should not read like a night shot.
+const tq = (a, f) => { const s2 = a.slice().sort((x, y) => x - y); return s2.length ? s2[Math.floor(s2.length * f)] : 0 }
+console.log(`\nTONE AT ${String(timeOfDay).padStart(2, '0')}:00 — absolute luma, by surface:`)
+console.log('  surface   samples   p10    med    p90   share under 0.06 (reads black)')
+for (const k of ['sky', 'roof', 'wall', 'ground', 'other']) {
+  const a = tone[k]
+  if (!a.length) continue
+  const black = a.filter((x) => x < 0.06).length / a.length
+  const flag = k !== 'sky' && tq(a, 0.5) < 0.14 ? '   <-- reads as night' : ''
+  console.log(`  ${k.padEnd(9)} ${String(a.length).padStart(6)}   ${tq(a, 0.1).toFixed(3)}  ` +
+    `${tq(a, 0.5).toFixed(3)}  ${tq(a, 0.9).toFixed(3)}   ${(black * 100).toFixed(0)}%${flag}`)
+}
+console.log('  For reference: mid-grey is ~0.22 and a sunlit pale wall 0.45-0.7.')
+console.log('  A roof darker than its own wall by a wide margin is a silhouette,')
+console.log('  not a roof, and no relative metric in this harness can say so.')
 
 console.log(`\nWHAT DOMINATES THE TOWN'S OWN STREETS — summed over ${spots.length} views:`)
 console.log('  type              views  total frame share  tallest')

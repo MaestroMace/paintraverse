@@ -2086,6 +2086,43 @@ part of this worse: `riseForSpan` derives those rises from the span and
 `MAX_ROOF_SPAN_RATIO.spire` went 3.0 -> 3.8, and neither change ever checked
 the result against the wall.
 
+### AND THE ONE MEASURE WITH NO CONTROL — ABSOLUTE TONE
+
+Every pixel number in this harness is RELATIVE. `odd` grades a building
+against its peers; `subjectPixels` grades a subject against six ordinary
+buildings. Both are blind by construction to the case where the WHOLE TOWN is
+wrong in the same direction, and that is the case: at NOON, over five street
+views,
+
+    surface   p10    med    p90   reads black
+    sky       0.233  0.256  0.432    0%
+    ground    0.376  0.646  0.676    1%
+    wall      0.016  0.087  0.214   25%
+    roof      0.014  0.061  0.148   47%
+
+**The ground is seven times brighter than the walls standing on it, and half
+of all roof pixels are effectively black at midday.** Mid-grey is 0.22; a
+sunlit pale wall is 0.45-0.7. That single fact has been contaminating every
+pixel measurement in this session — the cathedral reading 0.26x detail, the
+mill reading blank, the bridge reading as a slab. You cannot see detail in
+black.
+
+**And the day/night A/B cleared the light rig, which I nearly blamed.** At
+09:00 the ground HALVES (0.646 -> 0.327) and the walls RISE (0.087 -> 0.132),
+which is exactly what a lower sun should do to a horizontal and a vertical
+surface. Sun 1.2 / ambient 0.42 / hemi 0.52 are all behaving. What is left is
+absolute: even with a low sun favouring them, walls sit at 0.13 against a real
+0.45+, and roofs get WORSE at 09:00 (0.029, 66% black) because a low sun leaves
+a steep pitch in shade.
+
+So the roof finding above and this one are the same defect seen twice: the
+roofs are enormous AND they are black. That is the black-triangle silhouette in
+every street screenshot, measured two independent ways.
+
+`tools/eyeball.mjs` reports tone by surface class, split by raycast — sky,
+roof, wall, ground — because the aggregate hides it: a frame that is 40%
+brilliant paving and 40% black wall has a perfectly reasonable mean.
+
 ### THE THIRD AXIS — a thing against its NEIGHBOURS (tools/clash.mjs)
 
 provenance grades a thing against the CODE and odd grades it against its PEERS.

@@ -161,9 +161,15 @@ const CHECKS = [
       roofToWallMed: num(o, /p10 \d+%\s+med (\d+)%/),
       roofOver80: num(o, /over 80% \(roof nearly as tall as the house\): \d+ \((\d+)%\)/),
       dwellingsOver4: num(o, /over 4 storeys \(11\.6m\): \d+ \((\d+)%\)/),
+      // ABSOLUTE tone, x1000 so the board stays integer. The one measure here
+      // with an opinion about what a rendered scene should look like — every
+      // other pixel number is relative to a control and so is blind to the
+      // whole town being too dark.
+      wallLuma: pct1000(o, /^\s+wall\s+\d+\s+[\d.]+\s+([\d.]+)/m),
+      roofBlackPct: num(o, /^\s+roof\s+\d+\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+(\d+)%/m),
     }),
-    dir: { roofToWallMed: -1, roofOver80: -1, dwellingsOver4: -1 },
-    band: { roofToWallMed: 10, roofOver80: 10, dwellingsOver4: 8 },
+    dir: { roofToWallMed: -1, roofOver80: -1, dwellingsOver4: -1, wallLuma: 1, roofBlackPct: -1 },
+    band: { roofToWallMed: 10, roofOver80: 10, dwellingsOver4: 8, wallLuma: 25, roofBlackPct: 12 },
   },
   {
     name: 'humanscale',
@@ -223,6 +229,12 @@ const CHECKS = [
     dir: { character: 1 }, band: { character: 6 },
   },
 ]
+
+/** A 0..1 reading carried as an integer, so the board and its bands stay whole. */
+function pct1000(out, re) {
+  const m = out.match(re)
+  return m ? Math.round(Number(m[1]) * 1000) : null
+}
 
 function num(out, re) {
   const m = out.match(re)
