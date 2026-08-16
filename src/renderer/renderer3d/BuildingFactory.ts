@@ -180,6 +180,14 @@ export interface BuildingTop {
   roofStyles: string[]
 }
 
+/** One built volume's world box — see the note at the push site. */
+export interface VolumeBox {
+  id: string; def: string; role: string; habitable: boolean
+  x0: number; x1: number; z0: number; z1: number; y0: number; y1: number
+  groundY: number
+}
+export const volumeBoxes: VolumeBox[] = []
+
 export interface BuildingBatchResult {
   wallMeshes: THREE.Mesh[]       // individual (textured, emissive)
   batched: THREE.Mesh[]          // merged roof/detail/feature meshes
@@ -301,6 +309,7 @@ export function buildBuildingMeshes(
   const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
   const wallMeshes: THREE.Mesh[] = []
   const tops: BuildingTop[] = []
+  volumeBoxes.length = 0
   const roofStyles: Record<string, number> = {}
   const scaleSamples: BuildingScale[] = []
   const featureCounts: Record<string, number> = {}
@@ -555,6 +564,23 @@ export function buildBuildingMeshes(
             centerTileZ * TILE + rz,
           )
           detailBatch.addPositioned(col, 0x6a5a48) // stone foundation
+          // Record it, because tools/clash.mjs asked "is this building
+          // standing on anything" and got 32 false positives: the plinth is
+          // not one of massing.volumes, so a test over the volume array cannot
+          // see the very thing that exists to close that gap. A building is
+          // deliberately placed at the HIGHEST corner of its footprint, so on
+          // any slope the massing bottom IS above the ground and the plinth
+          // steps down to meet it.
+          const ph = (TILE * 1.08) / 2
+          volumeBoxes.push({
+            id: obj.id, def: obj.definitionId, role: 'plinth', habitable: false,
+            x0: +(centerTileX * TILE + rx - ph).toFixed(3),
+            x1: +(centerTileX * TILE + rx + ph).toFixed(3),
+            z0: +(centerTileZ * TILE + rz - ph).toFixed(3),
+            z1: +(centerTileZ * TILE + rz + ph).toFixed(3),
+            y0: +tileGround.toFixed(3), y1: +(tileGround + colH).toFixed(3),
+            groundY: +tileGround.toFixed(3),
+          })
         }
       }
     }
@@ -864,6 +890,36 @@ export function buildBuildingMeshes(
         windowH: 1.35,
         windowW: 1.0,
         habitable: mainVol.habitable !== false,
+      })
+    }
+
+    // === WORLD BOXES, FOR THE CLASH AUDIT ===
+    //
+    // The placement audit checks FOOTPRINTS — tile rectangles — and a footprint
+    // invariant is not a geometry invariant: two buildings can own disjoint
+    // tiles and still have a wing driven through each other's walls, which is
+    // "buildings colliding" as reported from the device. Nothing has ever
+    // compared the built solids. Record each volume's yaw-aligned world box
+    // here, where the transform is already in scope, so tools/clash.mjs can.
+    for (const v of massing.volumes) {
+      const c = Math.abs(Math.cos(rotationY)), sn = Math.abs(Math.sin(rotationY))
+      const hx = (v.width / 2) * c + (v.depth / 2) * sn
+      const hz = (v.width / 2) * sn + (v.depth / 2) * c
+      const cx = wx + (v.offsetX * Math.cos(rotationY) - v.offsetZ * Math.sin(rotationY))
+      const cz = wz + (v.offsetX * Math.sin(rotationY) + v.offsetZ * Math.cos(rotationY))
+      volumeBoxes.push({
+        id: obj.id, def: obj.definitionId, role: v.role,
+        habitable: v.habitable !== false,
+        x0: +(cx - hx).toFixed(3), x1: +(cx + hx).toFixed(3),
+        z0: +(cz - hz).toFixed(3), z1: +(cz + hz).toFixed(3),
+        y0: +(wy + v.bottomY).toFixed(3),
+        y1: +(wy + v.bottomY + v.height + v.roofHeight).toFixed(3),
+        // Ground under this volume's own centre, so "is it standing on
+        // anything" is answerable without re-sampling the height map.
+        // getHeight speaks TILES, the boxes are in metres — see scale.ts. This
+        // exact confusion has silently sampled the height map at a third of
+        // the intended place before now.
+        groundY: +(getHeight ? getHeight(cx / TILE, cz / TILE) : wy).toFixed(3),
       })
     }
 

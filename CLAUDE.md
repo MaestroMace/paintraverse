@@ -1702,6 +1702,14 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   so it walks out until the projected footprint box fits. The magenta outline
   is not decoration — two rounds went on guessing which box in the frame was
   the subject. Both halves are `tools/lib/vantage.mjs` now.
+- `node tools/clash.mjs [seed] [--shots=N] [--all]` — **does the built geometry
+  collide with itself, and does it stand on the ground?** The third axis:
+  provenance grades a thing against the code, odd against its peers, and this
+  against its NEIGHBOURS. Exact AABB tests over the built solids. Reads ~100
+  interpenetrations deeper than 0.5m a town, up to 1.9m — invisible to
+  `audit.mjs`, which checks tile footprints, because two buildings can own
+  disjoint tiles and still share space. Measures DEPTH not area, or every
+  party wall in a 93%-terraced town would read as a collision.
 - `node tools/provenance.mjs [seed] [--all] [--def=]` — **is the geometry in
   the world the geometry the code asked for?** The only audit here that grades
   the pipeline against its own declarations rather than against a model or a
@@ -2019,6 +2027,40 @@ First run found a CLASS rather than an instance, which is the whole point:
 median is zero** — legal in every dimension, invisible to every geometry audit,
 and to a person a grey slab. The tool tallies how many things share a top
 feature precisely so a class cannot be mistaken for an instance.
+
+### THE THIRD AXIS — a thing against its NEIGHBOURS (tools/clash.mjs)
+
+provenance grades a thing against the CODE and odd grades it against its PEERS.
+Neither can see a thing in relation to what stands next to it, and two very
+visible families live exactly there.
+
+**Interpenetration: ~100 pairs a town overlap by more than 0.5m, worst 1.9m.**
+`audit.mjs` checks FOOTPRINTS, and a footprint invariant is not a geometry
+invariant: two buildings can own disjoint tiles and still share space, because
+a volume may legally overhang its footprint by MAX_OVERHANG and two neighbours
+may both do it toward each other. That is "buildings colliding", reported from
+the device long ago and never once measured. The test is depth, not area — a
+terrace SHARES a party wall by design and 93% of this town does, so grading
+contact would condemn the thing the urban-form arc achieved. Two houses sharing
+a 6m wall overlap hugely in area and by 3cm in depth; a wing driven through a
+neighbour overlaps a small area and a metre deep, and only `min(overlapX,
+overlapZ)` tells them apart.
+
+**And the ground-contact half REFUTED ITSELF, twice, which is the more useful
+result.** It first read "32 structures standing on air" and the very first
+photograph showed a stone plinth filling the gap: BuildingFactory emits a
+stair-step FOUNDATION of per-tile columns that is not in `massing.volumes`, and
+a building is deliberately placed at the HIGHEST corner of its footprint, so on
+any slope the massing bottom is above the ground BY CONSTRUCTION and the plinth
+exists to close it. Then the fix was wrong too — a raycast down from under the
+volume read 0 plinthed, because it starts INSIDE the plinth and the batched
+material is FrontSide, so every face of the solid it is standing in is
+back-facing and unhittable. Recording the plinth's boxes where they are emitted
+settled it: 16 of 33 are plinthed, and the residual is a volume OVERHANGING its
+footprint, since the plinth only spans footprint tiles.
+
+**Two false positives in one afternoon, both caught by looking.** A new
+instrument's first numbers should be treated as a hypothesis, not a finding.
 
 ## THE ROOT CAUSE OF NOT BEING ABLE TO TELL — tools/provenance.mjs
 

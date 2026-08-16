@@ -137,6 +137,22 @@ const CHECKS = [
     band: { doubled: 4, spireAtCap: 14, habitablePinned: 3 },
   },
   {
+    name: 'clash',
+    why: 'does the built geometry collide with itself, and stand on the ground',
+    electron: true,
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/clash.mjs', '31337']],
+    extract: (o) => ({
+      deepClash: num(o, /VERDICT: (\d+) interpenetrations deeper than 0\.5m/),
+      onAir: num(o, /(\d+) structures on air/),
+      buried: num(o, /(\d+) buried\./),
+    }),
+    // Not gates yet: the class was only just discovered and the count is 100.
+    // A gate at zero would be red on every run and read as noise. Tracked, so
+    // it cannot drift further while somebody decides what to do about it.
+    dir: { deepClash: -1, onAir: -1, buried: -1 },
+    band: { deepClash: 20, onAir: 8, buried: 3 },
+  },
+  {
     name: 'humanscale',
     why: 'a storey, a door and a window against what those things measure',
     electron: true,

@@ -42,7 +42,7 @@ const PLAYER_RADIUS = 0.35
 const DOUBLE_TAP_MS = 300
 const MOUSE_YAW_SENS = 0.0025
 const MOUSE_PITCH_SENS = 0.002
-import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, type BuildingBatchResult, type BuildingTop, FLOOR_HEIGHT } from './BuildingFactory'
+import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, volumeBoxes, type BuildingBatchResult, type BuildingTop, FLOOR_HEIGHT } from './BuildingFactory'
 import { tickWallEmissive } from './architecture/VolumeRenderer'
 import { buildLanternStrings, buildWallLanterns, setLanternEmissiveIntensity, tickLanternEmissive } from './LanternStrings'
 import { buildPropMeshes, setLampPoolOpacity, propSizes, propInstances, type PropBatchResult } from './PropFactory'
@@ -1963,7 +1963,7 @@ export class ThreeRenderer {
    * aggregates where the massing is in scope (see BuildingTop) and PropFactory
    * records each prop's emitted box and its gap to the ground.
    */
-  debugSceneFeatures(): { structures: unknown[]; props: unknown[] } {
+  debugSceneFeatures(): { structures: unknown[]; props: unknown[]; volumes: unknown[] } {
     const structures: unknown[] = []
     for (const t of this._buildingTops.values()) {
       const box = this.debugStructureBox(t.id)
@@ -1981,7 +1981,7 @@ export class ThreeRenderer {
         box,
       })
     }
-    return { structures, props: propInstances.map((p) => ({ ...p })) }
+    return { structures, props: propInstances.map((p) => ({ ...p })), volumes: volumeBoxes.map((v) => ({ ...v })) }
   }
 
   /**
