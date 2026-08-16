@@ -1702,6 +1702,15 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   so it walks out until the projected footprint box fits. The magenta outline
   is not decoration — two rounds went on guessing which box in the frame was
   the subject. Both halves are `tools/lib/vantage.mjs` now.
+- `node tools/eyeball.mjs [seed] [--views=N]` — **what FILLS a street view.**
+  Selection by SCREEN PRESENCE rather than by data anomaly, which is the one
+  thing every other tool here gets backwards: they pick a subject by z-score,
+  crop to it and box it, so the big obvious thing in the frame is never the
+  subject. Raycasts a grid over the whole frame at eye level and attributes
+  every sample to the structure it hit. Also reports the ROOF-TO-WALL ratio,
+  which nothing else asks and which is the largest visible defect in the town
+  (p90 199%). Read its note about apex vs wall height before quoting a storey
+  count.
 - `node tools/clash.mjs [seed] [--shots=N] [--all]` — **does the built geometry
   collide with itself, and does it stand on the ground?** The third axis:
   provenance grades a thing against the code, odd against its peers, and this
@@ -2027,6 +2036,55 @@ First run found a CLASS rather than an instance, which is the whole point:
 median is zero** — legal in every dimension, invisible to every geometry audit,
 and to a person a grey slab. The tool tallies how many things share a top
 feature precisely so a class cannot be mistaken for an instance.
+
+### MISSING THE TREES FOR THE FOREST — tools/eyeball.mjs
+
+Told, correctly, that something is often obviously wrong in a screenshot while
+I am hyper-focused on something else. It is structural, and it is built into
+the harness I made:
+
+**Every tool selects a subject by DATA ANOMALY, crops tightly to it, and draws
+a magenta box round it.** Three mechanisms all aiming my attention at the thing
+the number already cared about, and `subjectPixels` masks the rest of the frame
+away on purpose. So I read each picture to confirm or deny ONE hypothesis. I
+photographed a 1.52m interpenetration and reported it while three of the five
+buildings in the same frame were thirty-metre slabs.
+
+`eyeball.mjs` inverts the selection: stand at eye level in a street, raycast a
+grid over the WHOLE frame, attribute every sample to the structure it hit, and
+report what FILLS THE VIEW whatever the audits think of it. Then aggregate —
+one tall thing in one frame is a building, the same type dominating six of
+eight street views is what the town looks like.
+
+**AND MY FIRST FINDING FROM IT WAS WRONG, WHICH IS THE OTHER HALF OF THE
+LESSON.** I reported "69% of ordinary dwellings are over four storeys" and it
+was my own metric: I divided APEX height by a storey, so every roof pitch was
+counted as extra floors. Wall height is median 7.5m — 2.6 storeys, p90 4.3.
+The storey count was fine all along. Being told I miss the obvious is not a
+licence to overstate the first thing I finally notice.
+
+The real finding was in the gap between those two numbers — median wall 7.5m
+against median apex 13.5m:
+
+    ROOF as a fraction of the WALL it sits on
+      p10 31%   med 62%   p90 199%   max 413%
+      33% of dwellings have a roof nearly as tall as the house or taller
+
+A real gable on a two- or three-storey house rises 30-50% of its wall. One
+dwelling in ten here carries a roof TWICE the height of the building under it,
+and at dusk that is a black triangle with a cottage beneath it — which is what
+every street screenshot has been showing for the entire session.
+
+**No prior tool asked this.** `humanscale` grades a storey, a door and a
+window. `roofcheck` asks whether a roof EXISTS. `provenance` asks whether the
+rise obeys its own cap — and the cap is against the volume's SPAN, so a wide
+building is permitted an enormous roof no matter how short its walls are. Every
+part is individually legal and the proportion is nobody's job. It is now.
+
+Note honestly that the spire/pointed work earlier in this same session made
+part of this worse: `riseForSpan` derives those rises from the span and
+`MAX_ROOF_SPAN_RATIO.spire` went 3.0 -> 3.8, and neither change ever checked
+the result against the wall.
 
 ### THE THIRD AXIS — a thing against its NEIGHBOURS (tools/clash.mjs)
 

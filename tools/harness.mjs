@@ -153,6 +153,19 @@ const CHECKS = [
     band: { deepClash: 20, onAir: 8, buried: 3 },
   },
   {
+    name: 'eyeball',
+    why: 'what FILLS a street view — chosen by screen presence, not by any audit',
+    electron: true,
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/eyeball.mjs', '31337', '--views=4']],
+    extract: (o) => ({
+      roofToWallMed: num(o, /p10 \d+%\s+med (\d+)%/),
+      roofOver80: num(o, /over 80% \(roof nearly as tall as the house\): \d+ \((\d+)%\)/),
+      dwellingsOver4: num(o, /over 4 storeys \(11\.6m\): \d+ \((\d+)%\)/),
+    }),
+    dir: { roofToWallMed: -1, roofOver80: -1, dwellingsOver4: -1 },
+    band: { roofToWallMed: 10, roofOver80: 10, dwellingsOver4: 8 },
+  },
+  {
     name: 'humanscale',
     why: 'a storey, a door and a window against what those things measure',
     electron: true,
