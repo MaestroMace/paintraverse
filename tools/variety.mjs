@@ -68,8 +68,28 @@ await win.getByRole('button', { name: '3D', exact: true }).click()
 await waitForScene(win)
 
 const scene = await win.evaluate(() => window.__pt.sceneFeatures())
+// A BARRIER IS SUPPOSED TO REPEAT, AND COUNTING IT CONDEMNS THE RIGHT THING.
+//
+// First run read 36% and it was mostly wall: 104 of 307 "structures" were
+// stone_wall / stone_wall_v / precinct_wall segments, and a town wall made of
+// 28 identical pieces is a WALL, not a copy-paste failure. That is the third
+// time this repo has counted barriers as buildings — urbanform inflated party
+// walls with them and districts scored them as not distinctive to their own
+// quarter — and it is written down twice. I read it and built the bug anyway,
+// which is the argument for the filter living in one place rather than in each
+// tool's head. Same test both of those use: category or tag.
+const defs = await win.evaluate(() =>
+  window.__pt.store.getState().objectDefinitions.map((d) =>
+    ({ id: d.id, category: d.category, tags: d.tags ?? [] })))
 await app.close()
-const all = scene?.structures ?? []
+const defById = new Map(defs.map((d) => [d.id, d]))
+const isBarrier = (o) => {
+  const d = defById.get(o.def)
+  return d?.category === 'infrastructure' || (d?.tags ?? []).includes('barrier')
+}
+const every = scene?.structures ?? []
+const all = every.filter((s) => !isBarrier(s))
+const barriers = every.length - all.length
 if (!all.length) { console.log('no structures — the 3D renderer never built'); process.exit(1) }
 
 // What the eye actually copy-pastes: the silhouette and the roof. Wall colour
@@ -91,7 +111,8 @@ const twins = (a, b) =>
   a.def === b.def && a.volumes === b.volumes && roofKey(a) === roofKey(b) &&
   SILHOUETTE.every(([, get]) => near(get(a), get(b)))
 
-console.log(`=== VARIETY — ${all.length} structures, seed ${seed} ===`)
+console.log(`=== VARIETY — ${all.length} buildings, seed ${seed} ` +
+  `(${barriers} barrier segments excluded) ===`)
 console.log('Two buildings are TWINS when the eye cannot tell them apart: same')
 console.log(`type, same volume count, same roof styles, and every silhouette`)
 console.log(`dimension within ${(TOL * 100).toFixed(0)}%. Not "similar" — interchangeable.\n`)

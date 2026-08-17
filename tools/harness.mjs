@@ -50,10 +50,31 @@
  * deterministic. Everything noisy reads the BUILT SCENE. Part of that was a
  * race — every tool waited a guessed number of milliseconds for the 3D view,
  * and lib/scene.mjs polls for completion instead, which took habitablePinned
- * from spread 1 to 0. The rest is structural: overZ3, bareWall and spireAtCap
- * are COUNTS OVER A THRESHOLD whose scale is computed from the same
- * population, so a small shift moves a cluster of items across the line at
- * once. Those get wide bands and are not gates.
+ * from spread 1 to 0.
+ *
+ * AND THE REST WAS NOT STRUCTURAL, WHICH IS WHAT THIS PARAGRAPH USED TO SAY.
+ *
+ * It said overZ3, bareWall and spireAtCap are counts over a threshold whose
+ * scale comes from the same population, so a small shift moves a cluster of
+ * items across the line at once — true of the metric, and not the cause. The
+ * cause was that `obj.id` is a UUID and every renderer seeded a building's
+ * entire architecture from `simpleHash(obj.id)`, so each generate produced the
+ * same streets with different buildings standing on them. `districts` was
+ * stable BECAUSE it reads the map, which is precisely the observation used
+ * here to rule the generator out.
+ *
+ * With `stableHash(obj)` (core/types.ts) the same command reads:
+ *
+ *     provenance  outsideBox  0, 0, 0        doubled  14, 14, 14
+ *     clash       deepClash   124, 124, 124  onAir    16, 16, 16
+ *     roofcheck   openTops    16, 16, 16
+ *     odd         overZ3      22, 22, 22     bareWall  9,  9,  9
+ *
+ * spread 0 on every one. The bands below came down accordingly. Left the wrong
+ * paragraph's reasoning visible above rather than deleting it: every step of
+ * it was true except the conclusion, and that is the failure worth recognising
+ * next time — when you have fixed one cause and a residual remains, the
+ * residual is a new question, not a footnote on the old answer.
  */
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
@@ -81,6 +102,26 @@ const BASELINE = 'tools/harness-baseline.json'
  * not graded — printed so a human notices, never failed on, because "is 47%
  * coverage better than 45%" is an argument and not a fact.
  */
+// EVERY BAND HERE WAS SIZED FOR A NOISE FLOOR THAT TURNED OUT TO BE A BUG.
+//
+// `--repeat=3` used to read openTops 14/13/16, overZ3 39/48/41, bareWall
+// 28/40/31, and the bands were widened to swallow it. The cause was not noise:
+// obj.id is a UUID and every renderer seeded a building's whole architecture
+// from it, so each generate produced the same streets with different buildings
+// on them (see stableHash in core/types.ts). With that fixed the same command
+// reads spread 0 on every metric it was run against:
+//
+//   provenance  outsideBox 0,0,0   doubled 14,14,14   spireAtCap 0,0,0
+//   clash       deepClash 124,124,124   onAir 16,16,16
+//   roofcheck   openTops 16,16,16
+//   odd         overZ3 22,22,22    bareWall 9,9,9
+//
+// So the bands come down to 0-2. A wide band on a deterministic metric is not
+// caution, it is a regression detector switched off: the old openTops band of
+// 12 would have sat quietly through a change that doubled the open roofs.
+// eyeball keeps a wider band because its numbers come from rendered pixels and
+// it has NOT been through --repeat since the fix — an unverified band, marked
+// as such rather than quietly tightened on the assumption it is fine.
 const CHECKS = [
   {
     name: 'registry',
@@ -134,7 +175,7 @@ const CHECKS = [
     // spireAtCap is a count over a threshold on a population of ~29 spires, so
     // two buildings moving swings it 7 points. It is kept because the SHAPE of
     // the finding mattered (96% -> single digits) and dropped as a gate.
-    band: { doubled: 4, spireAtCap: 14, habitablePinned: 3 },
+    band: { doubled: 1, spireAtCap: 1, habitablePinned: 1 },
   },
   {
     name: 'clash',
@@ -150,7 +191,7 @@ const CHECKS = [
     // A gate at zero would be red on every run and read as noise. Tracked, so
     // it cannot drift further while somebody decides what to do about it.
     dir: { deepClash: -1, onAir: -1, buried: -1 },
-    band: { deepClash: 20, onAir: 8, buried: 3 },
+    band: { deepClash: 2, onAir: 1, buried: 0 },
   },
   {
     name: 'eyeball',
@@ -209,13 +250,29 @@ const CHECKS = [
     electron: true,
     cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/roofcheck.mjs', '4242', '777', '31337']],
     extract: (o) => ({ openTops: num(o, /TOTAL OPEN-TOPPED VOLUMES ACROSS \d+ SEEDS:\s*(\d+)/) }),
-    // --repeat=3 measured 14,13,16 and I set the band from that spread of 3.
-    // Across the session the same command on the same build has read 9, 13,
-    // 14, 16, 17, 22 and 23 — and two runs inside ONE sweep read 9 then 17.
-    // THREE SAMPLES ESTIMATE A LOWER BOUND ON NOISE, not the noise. The band
-    // is the observed RANGE now, and the number to act on is the trend across
-    // several runs, never a single reading.
-    dir: { openTops: -1 }, band: { openTops: 12 },
+    // This one carried the loudest wrong lesson on the board. It read 9, 13,
+    // 14, 16, 17, 22 and 23 across a session on the SAME build, and two runs
+    // inside one sweep read 9 then 17 — so the note here concluded that three
+    // samples estimate a lower bound on noise and widened the band to the
+    // observed range. The sampling point stands and the conclusion did not:
+    // none of it was noise. It was a different town each run (see stableHash).
+    // 16, 16, 16 now.
+    dir: { openTops: -1 }, band: { openTops: 1 },
+  },
+  {
+    name: 'variety',
+    why: 'can the eye copy-paste one building onto another — the axis odd is blind to',
+    electron: true,
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/variety.mjs', '31337']],
+    extract: (o) => ({
+      // The NEIGHBOUR rate is the one that matters. A twin across town is a
+      // housing type; a twin in the same frame is a copy-paste, and scattering
+      // cannot move it. The global rate is tracked but never graded — a real
+      // terrace repeats on purpose and 93% of this town shares a party wall.
+      twinNear: num(o, /VERDICT: (\d+)% of structures have an interchangeable twin/),
+      twinAny: num(o, /; (\d+)% have one anywhere/),
+    }),
+    dir: { twinNear: -1, twinAny: 0 }, band: { twinNear: 2, twinAny: 3 },
   },
   {
     name: 'odd',
@@ -233,7 +290,7 @@ const CHECKS = [
     // across z=3 at once. That is jumpy by construction, not a bug in the
     // scene, and the honest response is a band wide enough to say so rather
     // than a tighter one that would cry wolf every run.
-    dir: { overZ3: -1, bareWall: -1 }, band: { overZ3: 14, bareWall: 16 },
+    dir: { overZ3: -1, bareWall: -1 }, band: { overZ3: 2, bareWall: 2 },
   },
   {
     name: 'urbanform',

@@ -1055,7 +1055,10 @@ Run these before believing anything about where the project is.
 | geometry protrusion | slivers.mjs | 0 pieces outside envelope | clean |
 | detail over painted glass | facade.mjs | 0 crossings (was 48, of which 40 were the tool) | clean |
 | openings off their own wall | facade.mjs | 0 (was 44 — a NEW check, new class) | clean |
-| bare untextured wall | odd.mjs | 10 over z=3, was 36 — a jettied ground floor authored blank | improving |
+| awning slope | facade.mjs | 6.8° down, p10 = med = p90, 0 tilting up | clean |
+| bare untextured wall | odd.mjs | 9 over z=3, was 36 — a jettied ground floor authored blank | improving |
+| copy-paste twins | variety.mjs | 9% have an interchangeable twin within 15m | healthy |
+| **build determinism** | **harness --repeat=3** | **spread 0 on every metric, was up to 12** | **fixed** |
 | open-topped volumes | roofcheck.mjs | ~6 per town | near-clean |
 | human scale | humanscale.mjs | door 2.05m, window 1.35m, storey 2.90m, 0% sub-human | clean |
 | street emptiness | emptiness.mjs | median 3m, 0% over 12m | satisfiable by scatter — see below |
@@ -2093,6 +2096,67 @@ Byte-identical, percentiles included. **Every A/B in this repo before this
 commit was measuring its change plus an unknown amount of reshuffled
 architecture**, and "pin the seed" was the discipline that was supposed to
 prevent exactly that.
+
+`--repeat=3` afterwards, on the four checks that used to move most:
+
+    provenance  outsideBox 0,0,0   doubled 14,14,14   spireAtCap 0,0,0
+    clash       deepClash 124,124,124   onAir 16,16,16   buried 0,0,0
+    roofcheck   openTops 16,16,16
+    odd         overZ3 22,22,22    bareWall 9,9,9
+
+Spread 0 on every one, so the harness bands came down from 4-20 to 0-2.
+**A wide band on a deterministic metric is not caution, it is a regression
+detector switched off** — the old `openTops` band of 12 would have sat quietly
+through a change that doubled the open roofs. `eyeball` keeps a wide band and
+is labelled UNVERIFIED, because its numbers come from rendered pixels and it
+has not been through `--repeat` since the fix.
+
+### AND THE FIRST THING THE DETERMINISM PAID FOR WAS CATCHING ME
+
+`deepClash` is 124/124/124. The commit before had reported it **118 -> 91,
+"the splinters were CAUSING collisions, not avoiding them"** — a delta measured
+across two reshuffled towns, which is to say not measured at all. Re-run as a
+proper single-variable A/B (the slide disabled by turning one `if` into
+`if (false)` on each axis, everything else byte-identical):
+
+| | shave | slide |
+|---|---|---|
+| deepClash | 125 | **124** |
+| wall width p10 | 1.84m | **2.60m** |
+| walls under 1.6m | 15 | **10** |
+| worst aspect | **14.4:1** (0.70 x 10.08m bakery) | **7.1:1** (1.21 x 8.55m row_house) |
+
+**The change is good and the mechanism claimed for it was wrong.** Sliding a
+volume back inside the box instead of shaving it lifts the tenth-percentile
+wall by 41% and halves the worst aspect ratio, which is exactly what it was
+written to do. It does essentially nothing to interpenetration. Both halves of
+that are worth keeping: the fix stays, the sentence about collisions does not.
+
+### THE VARIETY READING, AND ITS FIRST NUMBER WAS ALSO WRONG
+
+`tools/variety.mjs` read **36% of structures have an interchangeable twin
+within 15m** and the headline was mostly wall: 104 of 307 "structures" were
+`stone_wall` / `stone_wall_v` / `precinct_wall` segments, and a town wall made
+of 28 identical pieces is a WALL. **Third time this repo has counted barriers
+as buildings** — `urbanform` inflated party walls with them, `districts` scored
+them as not distinctive to their own quarter — and it is written down twice.
+The filter belongs in one place, not in each tool's head.
+
+Barriers excluded, on 197 buildings:
+
+    has a twin ANYWHERE      39%
+    has a twin within 15m     9%     <-- the one that matters
+    row_house  62 built, 50 distinct silhouettes (81%)
+    bakery 93%   building_small 94%   shop / tower / mausoleum 100%
+    archway    6 built,  4 distinct (67%)  <-- worst, and a small population
+
+**That REFUTES the prediction that motivated the tool.** `provenance` reports
+40% of habitable volumes pinned at exactly `MIN_HABITABLE_W`, which looked like
+the copy-paste failure made visible — and it is not, because the floor pins
+WIDTH only while height, depth, volume count and roof style still vary. The
+town does not read as repetitive because its buildings are interchangeable.
+Whatever "pseudo-random assets dropped around" is, it is not this, and that is
+worth knowing before more effort goes into varying silhouettes.
 
 ## THE PERCEPTION HARNESS — provenance + odd + vantage, and why it is three tools
 
