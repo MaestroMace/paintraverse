@@ -1073,6 +1073,7 @@ Run these before believing anything about where the project is.
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
 | prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
 | interpenetration | clash.mjs | **15 pairs over 0.5m, was 124** — see THE OVERHANG BUDGET | fixed |
+| bridges you can walk onto | bridgeshot.mjs | **0.34-0.58m step up, was 2.2-2.4m over head** | fixed |
 | **the river** | **river.mjs** | **bank relief 0.67m med / 1.28m max (was 0.03m), drop +3.6m** | **fixed** |
 | river severance | site.mjs | 0 of 5 seeds have an unreachable district, was 2 | clean |
 | waterfront dressing | (see dressWaterfront) | 10 maritime/natural types at the bank, was 2 | improving |
@@ -2580,6 +2581,63 @@ wrong, because `volumeFloors` refuses an explicit count implying a storey under
 2.2m and recomputes, but the number lands in `scaleSamples` and **a dead number
 in a diagnostic sends the next person after the wrong bug**. A bug in a gate is
 a bug in a PATTERN; grep the siblings the same day.
+
+### A BRIDGE WAS A DAM WITH AN UNREACHABLE WALKWAY ON IT
+
+Reported from the device: "you modeled them as a walkway with pillars into the
+water which is normal, but the whole assembly from the base of the pillars
+starts at ground level and not river bed level, so the walkway is above the
+human scale head." Correct, and the measurement found it worse. One bridge:
+
+    plinth    11 columns   y 2.58 -> 4.68   the river, filled to bank height
+    mainBody   6 piers     y 4.68 -> 6.42   piers standing on that fill
+    trim       3 pieces    y 6.42 -> 7.47   deck 1.85m above the bank
+
+**One root cause and three symptoms.** `wy` — the Y a building is placed at —
+is the MAX terrain height across its footprint, "so the building sits on the
+highest ground covered" with a stair-step plinth filling under the rest. Right
+for a house on a slope and exactly wrong for a span, because the highest tile a
+bridge covers is the BANK. `tmplStoneBridge` then measured `deckY = 1.85`
+UPWARD from there — its comment said "clear of the waterline with headroom for
+a skiff underneath", and that headroom is real but belongs BELOW the deck, not
+above the bank. The plinth, gated only on `maxTH - minTH > 0.08`, poured stone
+into the gap underneath.
+
+**The value it needed already existed.** `MassingContext.groundDrop` is the
+maxTH/minTH pair BuildingFactory already computed to size the plinth; it simply
+never reached the templates. Same shape as `PlacedObject.footprint`,
+`BuildingTop` and `frontWallZ` — when a whole category of work keeps not
+happening, look for the handle it would need.
+
+Piers take a NEGATIVE `bottomY` and descend to the bed; the deck lands a 0.22m
+camber above the bank, because a real bridge rises to its crown and a step you
+can take is the point.
+
+**The plinth exemption is DERIVED, not a type list**: if the massing already
+sends a volume below the placement base it has taken responsibility for the
+drop. That meant moving the plinth emission to AFTER `pickMassing` — it ran
+first and therefore could not ask the one question deciding whether it should
+exist at all.
+
+| | before | after |
+|---|---|---|
+| climb from bank to deck | 2.20-2.40m | **0.34-0.58m** |
+| decks above a 1.6m eye height | 6 of 6 | **0 of 6** |
+| piers stopping short of the bed | 6 of 6 | **0 of 6** |
+| plinth columns in the channel | 11 each | **0** |
+
+**And no instrument here could have found it.** `bridgeshot` photographed the
+span and printed the tiles under it, `river.mjs` measures the channel, `clash`
+asks whether a thing stands on the ground. None asked how far you must CLIMB to
+get on — the first thing a person on the bank notices. It does now, and the
+first cut of that check measured the assembly BASE, read 0.13-0.38m, and would
+have passed all six: the base IS near bank level; everything above it was not.
+
+**A FOUNDATION IS NOT A BUILDING THAT SANK.** Fixing it lit up `clash buried`
+6, all six bridges — an abutment is founded ~2m into the bank, which is what an
+abutment is. Exempted by the same `descends` declaration, NOT by widening SINK,
+and still printed on a `FOUNDED` line so an excused class cannot go quiet. A
+threshold moved to 2.1m would have swallowed a genuinely sunk building too.
 
 ### THE OVERHANG BUDGET DID NOT KNOW THE GAP WAS SHARED — 124 -> 15
 
