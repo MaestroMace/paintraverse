@@ -96,11 +96,18 @@ for (const seed of seeds) {
     const feats = pt.sceneFeatures()
     const terr = st.map.layers.find((l) => l.type === 'terrain').terrainTiles
 
-    // Terrain surface at every tile centre — what sampleGroundY would give the
-    // player standing there. heightAt speaks TILE coordinates (see scale.ts).
+    // WHAT THE PLAYER STANDS ON at every tile centre — `standAt`, not
+    // `heightAt`. The two are different questions and this tool exists because
+    // of the difference: heightAt is the TERRAIN and standAt is terrain or a
+    // deck above it. Reading heightAt here would grade a walkable-deck fix
+    // against the very surface the fix was about and report no change, which
+    // is the byte-identical-output trap wearing a new hat.
     const gnd = new Float32Array(W * H)
+    const hasStand = typeof pt.standAt === 'function'
     for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) gnd[y * W + x] = pt.heightAt(x + 0.5, y + 0.5)
+      for (let x = 0; x < W; x++) {
+        gnd[y * W + x] = hasStand ? pt.standAt(x + 0.5, y + 0.5) : pt.heightAt(x + 0.5, y + 0.5)
+      }
     }
     const free = (x, y) => x >= 0 && y >= 0 && x < W && y < H && mask[y * W + x] === 0
 
@@ -277,6 +284,7 @@ for (const seed of seeds) {
     }
 
     return {
+      hasStand,
       W, H, walkable, reached, reachedFlat, spawn: { x: sx, y: sy },
       passages,
       steps: steps.sort((a, b) => a - b),
@@ -290,6 +298,10 @@ for (const seed of seeds) {
 
   console.log(`\n=== TRAVERSE — seed ${seed}, ${data.W}x${data.H}, ` +
     `${data.walkable} walkable tiles ===`)
+  if (!data.hasStand) {
+    console.log('WARNING: no __pt.standAt — stale bundle. Falling back to TERRAIN')
+    console.log('height, which cannot see a walkable deck. Rebuild before believing this.')
+  }
   console.log('Graded against a PERSON, not against the engine: updateCamera snaps')
   console.log('the camera to the ground every frame, so the engine itself permits')
   console.log(`climbing a cliff. A person steps ${STEP_EASY}m and clambers ${STEP_MAX}m.\n`)

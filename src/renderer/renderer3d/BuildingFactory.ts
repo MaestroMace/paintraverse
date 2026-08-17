@@ -331,6 +331,8 @@ export interface VolumeBox {
    * harness exists to prevent.
    */
   descends: boolean
+  /** The template declared this a surface a player can stand on — a deck. */
+  walkable: boolean
   groundY: number
 }
 export const volumeBoxes: VolumeBox[] = []
@@ -809,6 +811,7 @@ export function buildBuildingMeshes(
             cx: +(centerTileX * TILE + rx).toFixed(3),
             cz: +(centerTileZ * TILE + rz).toFixed(3),
             hw: +ph.toFixed(3), hd: +ph.toFixed(3), yaw: 0, descends: false,
+            walkable: false,
             y0: +tileGround.toFixed(3), y1: +(tileGround + colH).toFixed(3),
             groundY: +tileGround.toFixed(3),
           })
@@ -1203,6 +1206,7 @@ export function buildBuildingMeshes(
         cx: +cx.toFixed(3), cz: +cz.toFixed(3),
         hw: +(v.width / 2).toFixed(3), hd: +(v.depth / 2).toFixed(3),
         yaw: +rotationY.toFixed(5), descends: v.bottomY < -0.05,
+        walkable: v.walkable === true,
         y0: +(wy + v.bottomY).toFixed(3),
         y1: +(wy + v.bottomY + v.height + v.roofHeight).toFixed(3),
         // Ground under this volume's own centre, so "is it standing on

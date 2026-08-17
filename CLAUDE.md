@@ -1074,7 +1074,7 @@ Run these before believing anything about where the project is.
 | prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
 | interpenetration | clash.mjs | **15 pairs over 0.5m, was 124** — see THE OVERHANG BUDGET | fixed |
 | bridges you can walk onto | bridgeshot.mjs | **0.34-0.58m step up, was 2.2-2.4m over head** | fixed |
-| **can a person get there** | **traverse.mjs** | **58-85% of the town reachable from spawn; 25 crossings impassable** | **OPEN — worst metric on the board** |
+| **can a person get there** | **traverse.mjs** | **95% reachable from spawn, was 58%; 0 impassable crossings, was 11** | **fixed** |
 | **the river** | **river.mjs** | **bank relief 0.67m med / 1.28m max (was 0.03m), drop +3.6m** | **fixed** |
 | river severance | site.mjs | 0 of 5 seeds have an unreachable district, was 2 | clean |
 | waterfront dressing | (see dressWaterfront) | 10 maritime/natural types at the bank, was 2 | improving |
@@ -2648,6 +2648,48 @@ read as "all of this is a way through".
 **Grade it against a person, not against the engine.** `updateCamera` snaps the
 camera to `sampleGroundY` every frame and has no step limit at all, so the
 engine itself permits ascending a cliff. That is a finding, not a standard.
+
+### AND THEN A STRUCTURE BECAME A FLOOR
+
+Given the choice between teaching bridges to write their deck into the height
+map (cheap, bridge-only, leaves stairs broken) and making structures walking
+surfaces (the general answer), the second. Four pieces:
+
+- **`Volume.walkable`** — declared per VOLUME by the template, for the reason
+  `habitable` exists. `passage` cannot answer this: it is true of a bridge you
+  walk OVER and an archway you walk UNDER. Only the template knows which of
+  its pieces is the deck, and a roof can never become a floor by accident.
+- **`walkSurface`**, a per-tile map built from the walkable volumes after
+  `buildBuildingMeshes` — the geometry does not exist before then, which is
+  why the collision mask could never have done this itself.
+- **`terrainYAt` split from `sampleGroundY`.** The terrain query keeps its own
+  name and `debugHeightAt` keeps calling it, because `__pt.heightAt` means THE
+  GROUND to river.mjs, relief.mjs, rivershot.mjs and bridgeshot.mjs. Folding
+  decks into it would have redefined that word for five tools at once — the
+  terrain-table drift, one level up. Players get `standAt`.
+- **Solid geometry under a `passage` tag re-blocks its tile.** The tag clears
+  the whole FOOTPRINT, so a town gate's tower legs were walkable at 0.43m of
+  clearance inside the masonry. "There is a way through here" is not "all of
+  this is a way through".
+
+| | before | after |
+|---|---|---|
+| crossings you cannot walk through | 11/16 | **0/16** |
+| reachable from spawn | 58% | **95%** |
+| what the step limit costs | 39% | **0%** |
+| steep pairs (at the water) | 66 (55) | **27 (13)** |
+| tiles under 1.9m headroom | 37 | **0** |
+| largest unreachable pocket | 479 tiles | 23 |
+
+**The tool had to be taught the fix or it would have graded it against the old
+surface.** traverse.mjs read `heightAt`, which is terrain; a walkable deck is
+invisible to it. It reads `standAt` now and prints a WARNING when the bundle
+is too old to have one — a missing measurement must not read as a pass.
+
+`tmplFootbridge` carried the identical bed-relative bug and was fixed by the
+sibling sweep rather than by a second measurement: `deckY = 1.15` up from the
+bank, trestles at `bottomY: 0`. A bug in one template is a bug in the PATTERN,
+and the two crossings are the pattern.
 
 ### A BRIDGE WAS A DAM WITH AN UNREACHABLE WALKWAY ON IT
 

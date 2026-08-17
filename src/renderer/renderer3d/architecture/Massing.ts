@@ -50,6 +50,24 @@ export interface Volume {
   /** Integer floors for facade texture; defaults to derived from height. */
   floors?: number
   /**
+   * A SURFACE THE PLAYER CAN STAND ON.
+   *
+   * `sampleGroundY` reads the terrain height map and nothing else, so until
+   * this existed NO structure was ever a floor — not a bridge, not a stair,
+   * not an elevated walkway. A previous session read the `passage` tag and
+   * cleared the collision MASK over crossings, which lets you walk onto the
+   * tile, and then the ground-follow put you on the river bed underneath.
+   * Two authors of one floor. tools/traverse.mjs measured 58% of a town
+   * reachable on foot because of it.
+   *
+   * Declared per VOLUME rather than inferred from a role or a tag, for the
+   * reason `habitable` exists: `passage` means "a way through here" and is
+   * true of a bridge you walk OVER and an archway you walk UNDER, so it
+   * cannot answer this question. Only the template knows which of its pieces
+   * is the deck.
+   */
+  walkable?: boolean
+  /**
    * MASONRY, NOT A ROOM. Default (undefined) means the habitability rules
    * below apply by role — a `mainBody` is somewhere a person stands, so it is
    * floored at MIN_HABITABLE_W wide and STOREY_HEIGHT tall, and it grows a
@@ -1049,7 +1067,15 @@ function tmplStackedTower(ctx: MassingContext): Volume[] {
  * ground height would therefore be underwater. The piers lift it clear.
  */
 function tmplFootbridge(ctx: MassingContext): Volume[] {
-  const deckY = 1.15
+  // SAME DEFECT AS THE STONE BRIDGE, and found by the sibling sweep rather
+  // than by a second measurement: `deckY = 1.15` measured UP from a placement
+  // base that is the highest ground the footprint covers — the bank — with
+  // trestles starting there instead of at the bed. A bug in one template is a
+  // bug in the PATTERN; the two crossings are the pattern.
+  const CAMBER = 0.16
+  const deckT = 0.16
+  const drop = Math.min(6, Math.max(0.6, ctx.groundDrop))
+  const deckY = drop + CAMBER - deckT   // trestle top, measured from the BED
   const span = Math.max(ctx.footW, 2.4)
   const wood = 0x7a6244
   const vols: Volume[] = []
@@ -1059,7 +1085,7 @@ function tmplFootbridge(ctx: MassingContext): Volume[] {
       role: 'mainBody',
       offsetX: s * (span * 0.32), offsetZ: 0,
       width: 0.22, depth: 0.22,
-      bottomY: 0, height: deckY,
+      bottomY: -drop, height: deckY,
       roofStyle: 'none', roofHeight: 0, roofAxis: 'x',
       wallColor: 0x5a4a34, roofColor: 0x5a4a34,
       textured: false, cornice: false, floors: 1,
@@ -1069,9 +1095,10 @@ function tmplFootbridge(ctx: MassingContext): Volume[] {
   // one continuous run rather than a dotted line of separate planks.
   vols.push({
     role: 'trim',
+    walkable: true,
     offsetX: 0, offsetZ: 0,
     width: span + 0.12, depth: ctx.footD + 0.12,
-    bottomY: deckY, height: 0.16,
+    bottomY: CAMBER - deckT, height: deckT,
     roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
     wallColor: wood, roofColor: wood,
     textured: false, cornice: false, floors: 1,
@@ -1082,7 +1109,7 @@ function tmplFootbridge(ctx: MassingContext): Volume[] {
       role: 'trim',
       offsetX: 0, offsetZ: s * (ctx.footD / 2),
       width: span + 0.12, depth: 0.08,
-      bottomY: deckY + 0.16, height: 0.62,
+      bottomY: CAMBER, height: 0.62,
       roofStyle: 'none', roofHeight: 0, roofAxis: 'x',
       wallColor: 0x6a5640, roofColor: 0x6a5640,
       textured: false, cornice: false, floors: 1,
@@ -1162,6 +1189,7 @@ function tmplStoneBridge(ctx: MassingContext): Volume[] {
   // rather than a dotted line — the same trick the footbridge uses.
   vols.push({
     role: 'trim',
+    walkable: true,
     offsetX: 0, offsetZ: 0,
     width: (longAxisX ? span : wide) + 0.14,
     depth: (longAxisX ? wide : span) + 0.14,

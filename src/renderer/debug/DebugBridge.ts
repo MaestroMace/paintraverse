@@ -121,6 +121,17 @@ export function installDebugBridge(): void {
     heightAt: (tx: number, tz: number) =>
       getActiveThreeRenderer()?.debugHeightAt(tx * TILE, tz * TILE) ?? null,
 
+    /**
+     * WHAT A PLAYER STANDING HERE WOULD BE ON — terrain, or a deck above it.
+     *
+     * Deliberately NOT folded into `heightAt`. That one means the terrain and
+     * five tools read it that way; a walkable deck is a different question and
+     * gets a different name. traverse.mjs has to use THIS one or it would
+     * grade the fix against the surface the fix was about.
+     */
+    standAt: (tx: number, tz: number) =>
+      getActiveThreeRenderer()?.debugStandAt(tx * TILE, tz * TILE) ?? null,
+
     /** Stand the walk camera on the ground at a TILE coordinate. */
     teleport: (tx: number, tz: number) =>
       getActiveThreeRenderer()?.debugTeleport(tx * TILE, tz * TILE) ?? null,

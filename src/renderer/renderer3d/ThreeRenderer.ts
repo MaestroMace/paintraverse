@@ -216,6 +216,8 @@ export class ThreeRenderer {
   // Collision mask for walk-mode: 1 byte per tile, non-zero = blocked
   // (building footprint, water, out-of-bounds). Populated in loadMap.
   private collisionMask: Uint8Array | null = null
+  /** Per-tile height of any DECK a player may stand on — see sampleGroundY. */
+  private walkSurface: Float32Array | null = null
   private gridW = 0
   private gridH = 0
 
@@ -779,6 +781,73 @@ export class ThreeRenderer {
         m.castShadow = false
         m.receiveShadow = true
         this.buildingGroup.add(m)
+      }
+
+      // === THE FLOOR THE PLAYER GETS, AND THE ONE THEY DO NOT ===
+      //
+      // Two passes over the built volumes, both of which need geometry that
+      // does not exist until buildBuildingMeshes has run — which is why the
+      // collision mask above could not do either of them.
+      //
+      // 1. WALKABLE DECKS become a standing surface. Only volumes a template
+      //    DECLARED walkable, so a roof can never become a floor by accident.
+      // 2. SOLID GEOMETRY UNDER A `passage` TAG re-blocks its tile. The tag
+      //    clears the whole FOOTPRINT, so a town gate's tower legs were
+      //    walkable — traverse.mjs measured 0.43m of clearance inside the
+      //    masonry. "There is a way through here" is not "all of this is a way
+      //    through", and only the built volumes know which tiles are the hole.
+      {
+        const surf = new Float32Array(this.gridW * this.gridH).fill(-Infinity)
+        const mask = this.collisionMask
+        const inBox = (v: typeof volumeBoxes[number], wx: number, wz: number): boolean => {
+          const dx = wx - v.cx, dz = wz - v.cz
+          const c = Math.cos(-v.yaw), sn = Math.sin(-v.yaw)
+          return Math.abs(dx * c - dz * sn) <= v.hw && Math.abs(dx * sn + dz * c) <= v.hd
+        }
+        for (const v of volumeBoxes) {
+          if (!v.walkable) continue
+          const tx0 = Math.max(0, Math.floor(v.x0 / TILE))
+          const tx1 = Math.min(this.gridW - 1, Math.floor(v.x1 / TILE))
+          const tz0 = Math.max(0, Math.floor(v.z0 / TILE))
+          const tz1 = Math.min(this.gridH - 1, Math.floor(v.z1 / TILE))
+          for (let tz = tz0; tz <= tz1; tz++) {
+            for (let tx = tx0; tx <= tx1; tx++) {
+              const i = tz * this.gridW + tx
+              if (v.y1 > surf[i]) surf[i] = v.y1
+            }
+          }
+        }
+        this.walkSurface = surf
+
+        if (mask) {
+          const passageTiles: Array<[number, number]> = []
+          for (const obj of structLayerForMask?.objects ?? []) {
+            const d = defMap.get(obj.definitionId)
+            if (!d?.tags?.includes('passage')) continue
+            const fp = footprintOf(obj, d)
+            for (let dy = 0; dy < fp.h; dy++) {
+              for (let dx = 0; dx < fp.w; dx++) passageTiles.push([obj.x + dx, obj.y + dy])
+            }
+          }
+          const solid = volumeBoxes.filter((v) => !v.walkable && v.role !== 'plinth')
+          let reblocked = 0
+          for (const [tx, tz] of passageTiles) {
+            if (tx < 0 || tz < 0 || tx >= this.gridW || tz >= this.gridH) continue
+            const i = tz * this.gridW + tx
+            if (mask[i] !== 0) continue
+            const wx = (tx + 0.5) * TILE, wz = (tz + 0.5) * TILE
+            const floor = this.sampleGroundY(wx, wz)
+            for (const v of solid) {
+              // Anything occupying the band a body needs is a wall, whatever
+              // the tag on the object says.
+              if (v.y1 < floor + 0.25 || v.y0 > floor + 1.7) continue
+              if (!inBox(v, wx, wz)) continue
+              mask[i] = 1; reblocked++
+              break
+            }
+          }
+          if (reblocked) this.collisionMask = mask
+        }
       }
 
       // Collect chimney positions for smoke particles. X/Z still mirrors the
@@ -1777,9 +1846,47 @@ export class ThreeRenderer {
    *  eye then jumped by the full tile rise at each boundary instead of walking
    *  up the slope — and at 3m tiles you get three metres of travel between
    *  steps, so it reads as the ground lurching. */
-  private sampleGroundY(x: number, z: number): number {
+  /**
+   * The TERRAIN surface. What the ground mesh draws, and nothing else.
+   *
+   * Kept separate from `sampleGroundY` on purpose. `debugHeightAt` — and so
+   * `__pt.heightAt`, which river.mjs, relief.mjs, rivershot.mjs and
+   * bridgeshot.mjs all read as "the ground" — must keep meaning the terrain.
+   * Folding decks into it would have silently redefined that word for five
+   * tools at once, which is how three copies of the terrain table drifted into
+   * disagreeing about what a tile MEANS.
+   */
+  private terrainYAt(x: number, z: number): number {
     if (!this.terrainHeightMap) return 0
     return groundYAtWorld(this.terrainHeightMap, x, z)
+  }
+
+  /**
+   * WHAT THE PLAYER IS STANDING ON — terrain, or a deck above it.
+   *
+   * This used to be the terrain alone, so no structure was ever a floor. The
+   * collision mask said a bridge tile was walkable (the `passage` tag clears
+   * it) and then the ground-follow put the player on the river bed two metres
+   * beneath the deck. Two authors of one floor, and tools/traverse.mjs put a
+   * number on it: 58% of a town reachable on foot.
+   *
+   * `walkSurface` is a per-tile map built from volumes the templates DECLARE
+   * walkable, so a roof or a wall top can never become a floor by accident.
+   *
+   * SINGLE LEVEL, and that is a real limitation rather than an oversight: it
+   * takes the max of terrain and deck, so if a walkway is ever thrown over a
+   * street the player would be lifted onto it while walking underneath. Only
+   * crossings declare `walkable` today and a crossing has nothing beneath it
+   * but water. A second level needs a query that knows which one you are on.
+   */
+  private sampleGroundY(x: number, z: number): number {
+    const terrain = this.terrainYAt(x, z)
+    const w = this.walkSurface
+    if (!w) return terrain
+    const tx = Math.floor(x / TILE), tz = Math.floor(z / TILE)
+    if (tx < 0 || tz < 0 || tx >= this.gridW || tz >= this.gridH) return terrain
+    const deck = w[tz * this.gridW + tx]
+    return deck > terrain ? deck : terrain
   }
 
   /**
@@ -1974,6 +2081,11 @@ export class ThreeRenderer {
 
   /** Terrain surface height at a world x/z — the same sample placement uses. */
   debugHeightAt(x: number, z: number): number {
+    return this.terrainYAt(x, z)
+  }
+
+  /** What a PLAYER standing here would be on: terrain, or a deck above it. */
+  debugStandAt(x: number, z: number): number {
     return this.sampleGroundY(x, z)
   }
 
@@ -2039,7 +2151,7 @@ export class ThreeRenderer {
     const hz = t.spanHalfW * s + t.spanHalfD * c
     // About the ORIGIN, not the main body — for a bridge the main body is one
     // pier at one end of the span, and a box centred there frames the pier.
-    const baseY = this.sampleGroundY(t.originX, t.originZ)
+    const baseY = this.terrainYAt(t.originX, t.originZ)
     return {
       min: [t.originX - hx, Math.min(baseY, t.mainWallTopY - 0.5), t.originZ - hz],
       max: [t.originX + hx, t.apexY, t.originZ + hz],
