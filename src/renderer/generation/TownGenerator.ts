@@ -243,6 +243,84 @@ const NEVER_TERRACED = new Set([
   'gatehouse', 'archway', 'town_gate', 'mill', 'guild_hall', 'warehouse',
 ])
 
+/**
+ * VIGNETTES — small groups of props that imply an ACTIVITY and share an owner.
+ *
+ * The dressing pass places ONE prop per chosen spot, so a house gets about one
+ * object outside it (tenancy.mjs: row_house 62 buildings -> 58 props) and no
+ * object explains any other. A lone barrel says nothing. A woodpile with a
+ * crate beside it says somebody heats this house; a cart with crates stacked
+ * off it says somebody is unloading.
+ *
+ * That is what "lived in" means mechanically, and it is measurable: every part
+ * of a vignette sits on the same building's perimeter, so it lands as EXPLAINED
+ * in tenancy.mjs rather than as another prop nobody asked for. The metric was
+ * 46% before this.
+ *
+ * COMPOSED FROM THE EXISTING VOCABULARY on purpose. The store already defines
+ * 42 props and this repo has repeatedly found finished geometry with no way
+ * in; the shortage was never assets, it was a reason for two of them to be
+ * near each other.
+ *
+ * `front` gates the group to the side the player sees: a washing line and a
+ * woodpile belong out of sight, a bench and a flower box are presented to the
+ * street. That split already exists in propForRole and is the one thing the
+ * placer knew and was not using for composition.
+ */
+/**
+ * Somewhere a household lives. Hoisted out of propForRole so the vignettes and
+ * the single-prop picker cannot drift about what counts as a home — a value
+ * two places derive independently is a value that drifts, silently.
+ */
+const DWELLINGS = new Set([
+  'row_house', 'building_small', 'cottage', 'half_timber',
+  'balcony_house', 'corner_building', 'building_large', 'townhouse',
+  'narrow_house', 'tenement', 'lean_to', 'almshouse',
+])
+
+interface Vignette {
+  id: string
+  /** true = street side only, false = back/side only, null = either. */
+  front: boolean | null
+  districts?: DistrictType[]
+  /** First part goes on the anchor spot; the rest take adjacent free tiles. */
+  parts: string[]
+  /**
+   * Only on somewhere a household lives.
+   *
+   * The first cut gated on DISTRICT alone and tenancy.mjs caught it at once:
+   * explained fell 46% -> 30%, because a cemetery is a district and a
+   * mausoleum is in it, so the placer cheerfully hung washing beside a tomb.
+   * A district says what the quarter is FOR; only the building type says
+   * whether anybody lives there.
+   */
+  home?: boolean
+}
+const VIGNETTES: Vignette[] = [
+  // Domestic, out of sight — the evidence that somebody lives here.
+  { id: 'woodpile', home: true, front: false, parts: ['woodpile', 'crate'] },
+  { id: 'washday', home: true, front: false, parts: ['cloth_line', 'barrel'] },
+  { id: 'waterbutt', home: true, front: false, parts: ['rain_barrel', 'woodpile'] },
+  // Domestic, presented to the street.
+  { id: 'doorstep', home: true, front: true, parts: ['bench', 'potted_plant'] },
+  { id: 'windowgarden', home: true, front: true, parts: ['flower_box', 'planter_box'] },
+  // Trade — something half-done, which reads as activity rather than storage.
+  { id: 'delivery', front: true, districts: ['market', 'artisan', 'harbor'],
+    parts: ['cart', 'crate_stack', 'barrel'] },
+  { id: 'stallside', front: true, districts: ['market'],
+    parts: ['market_stall', 'crate', 'barrel_stack'] },
+  { id: 'forgeyard', front: null, districts: ['artisan'],
+    parts: ['forge_brazier', 'rubble_pile', 'barrel'] },
+  // Waterfront working gear.
+  { id: 'quaygear', front: true, districts: ['harbor', 'waterfront'],
+    parts: ['rope_coil', 'crate_stack', 'fish_rack'] },
+  { id: 'drying', front: false, districts: ['harbor', 'waterfront'],
+    parts: ['fish_rack', 'barrel'] },
+  // Rural.
+  { id: 'hayrick', home: true, front: false, districts: ['garden', 'residential'],
+    parts: ['hay_bale', 'cart'] },
+]
+
 const DISTRICT_PROPS: Record<DistrictType, string[]> = {
   market: ['market_stall', 'market_tent', 'crate', 'crate_stack', 'barrel', 'hanging_sign', 'wagon', 'sign', 'cafe_table', 'cart', 'market_tent', 'bunting_pole'],
   residential: ['potted_plant', 'bench', 'well', 'fence', 'planter_box', 'flower_box', 'cloth_line', 'rain_barrel', 'woodpile'],
@@ -3661,6 +3739,30 @@ export class TownGenerator implements IMapGenerator {
       // Building center (used to compute "facing away from wall").
       const bcx = b.x + fp.w / 2, bcy = b.y + fp.h / 2
 
+      // A DESIGNED GROUP GETS THE PERIMETER FIRST.
+      //
+      // The reject counters said noRoom killed 50 of 85 attempts — 59% — and
+      // the reason is ordering, not geometry: single props were consuming the
+      // perimeter tile by tile and a two-part group then had nowhere adjacent
+      // left. This repo already has the rule, learned three times in one day
+      // on the waterfront, the quay lip and the main square: a designed place
+      // must be dressed BEFORE the scatter runs, because the scatter only
+      // knows whether a spot is bare and the owner knows what belongs there.
+      //
+      // One attempt per building, at the moment the perimeter is still empty.
+      {
+        const pool0 = streetSpots.length > 0 ? streetSpots : backSpots
+        if (pool0.length > 0 && rng() < 0.75) {
+          const k = Math.floor(rng() * pool0.length)
+          const anchor = pool0[k]
+          if (anchor && this.tryVignette(anchor, streetSpots.length > 0,
+                dTypeForProps, b.definitionId, streetSpots, backSpots, occupied,
+                props, bcx, bcy, w, h, rng)) {
+            pool0.splice(pool0.indexOf(anchor), 1)
+          }
+        }
+      }
+
       for (let i = 0; i < numProps; i++) {
         // Which side of the building this spot is on decides what goes there,
         // so remember it rather than just which pool it came from.
@@ -3670,6 +3772,13 @@ export class TownGenerator implements IMapGenerator {
         const idx = Math.floor(rng() * pool.length)
         const spot = pool.splice(idx, 1)[0]
         if (spot) {
+          // A GROUP BEFORE A SINGLE OBJECT. One prop per spot is why a house
+          // gets one barrel and the barrel explains nothing; a vignette puts
+          // two or three related things on the same building's perimeter so
+          // the arrangement implies somebody doing something. Only tried on
+          // spots the mandatory building-specific props have not claimed, and
+          // only when the neighbouring perimeter tiles are actually free — it
+          // degrades to the single prop below rather than forcing itself in.
           const propId = i < buildingSpecificProps.length
             ? buildingSpecificProps[i]
             : this.propForRole(b.definitionId, dTypeForProps, front, propPalette, rng)
@@ -4840,14 +4949,86 @@ export class TownGenerator implements IMapGenerator {
    * — and the placer already knows which side a spot is on, because it sorts
    * frontage spots ahead of back ones so dressing lands where players walk.
    */
+  /**
+   * Place a whole vignette anchored on `spot`, or report that none fitted.
+   *
+   * Parts after the first take tiles from the SAME building's remaining
+   * perimeter pool, which is what keeps them owned — a part that wandered onto
+   * a neighbour's frontage would read as somebody else's clutter and would
+   * score against tenancy rather than for it. Consuming from `pool` also stops
+   * the outer loop handing the same tile to a second prop.
+   *
+   * All-or-nothing: a two-part group with one part placed is just a prop, and
+   * a three-part group missing its cart is a pile of crates in the road.
+   */
+  private tryVignette(
+    spot: { x: number; y: number }, front: boolean, dType: DistrictType,
+    defId: string,
+    streetSpots: Array<{ x: number; y: number }>,
+    backSpots: Array<{ x: number; y: number }>, occupied: boolean[][],
+    props: PlacedObject[], bcx: number, bcy: number,
+    w: number, h: number, rng: () => number
+  ): boolean {
+    // TALLY THE CLAUSE THAT REJECTED IT, not just the ones that passed. Four
+    // vignettes fired exactly zero times across two seeds and guessing why was
+    // already wrong twice — a counting metric buys guesses, an explaining one
+    // buys the answer.
+    rejected(`vig~roll:${dType}:${front ? 'front' : 'back'}`)
+    const home = DWELLINGS.has(defId)
+    const fits = VIGNETTES.filter(v =>
+      (v.front === null || v.front === front) &&
+      (!v.home || home) &&
+      (!v.districts || v.districts.includes(dType)))
+    if (!fits.length) { rejected(`vig~noFit:${dType}:${home ? 'home' : defId}`); return false }
+    const v = fits[Math.floor(rng() * fits.length)]
+
+    // Claim the anchor plus one adjacent perimeter tile per extra part.
+    //
+    // Searched across the WHOLE perimeter, not just the pool the anchor came
+    // from. The first cut restricted parts to the same pool and the census
+    // caught it immediately: 47 props in a vignette out of 356, and every
+    // street-side group — doorstep, delivery, stallside, quaygear — firing
+    // exactly zero times, because a terraced house presents one or two tiles
+    // to the street while its whole rear is free. The SIDE the anchor is on
+    // should decide which group belongs there; it should not also decide how
+    // much room the group has. Every part still lands on this building's own
+    // perimeter, which is what keeps it owned.
+    const need = v.parts.length - 1
+    const free = (t: { x: number; y: number }): boolean =>
+      t.x >= 0 && t.y >= 0 && t.x < w && t.y < h && !occupied[t.y][t.x]
+    if (!free(spot)) return false
+    const perimeter = [...streetSpots, ...backSpots]
+    const near = perimeter
+      .filter(t => free(t) && Math.abs(t.x - spot.x) <= 1 && Math.abs(t.y - spot.y) <= 1)
+      .slice(0, need)
+    if (near.length < need) { rejected(`vig~noRoom:${v.id}`); return false }
+
+    const place = (id: string, t: { x: number; y: number }): void => {
+      const obj = this.createObj(id, t.x, t.y)
+      obj.properties.facingY = Math.atan2((t.y + 0.5) - bcy, (t.x + 0.5) - bcx) + Math.PI
+      // Every part carries the group it belongs to, so a census can ask which
+      // vignettes actually fire — the ghost check this repo needs on any new
+      // gated content, before anyone claims the feature exists.
+      obj.properties.vignette = v.id
+      props.push(obj)
+      occupied[t.y][t.x] = true
+    }
+    rejected(`vigOk:${v.id}`)
+    place(v.parts[0], spot)
+    for (let k = 0; k < need; k++) {
+      place(v.parts[k + 1], near[k])
+      for (const pl of [streetSpots, backSpots]) {
+        const idx = pl.indexOf(near[k])
+        if (idx >= 0) pl.splice(idx, 1)
+      }
+    }
+    return true
+  }
+
   private propForRole(
     defId: string, dType: DistrictType, front: boolean,
     palette: string[], rng: () => number
   ): string {
-    const DWELLINGS = new Set([
-      'row_house', 'building_small', 'cottage', 'half_timber',
-      'balcony_house', 'corner_building', 'building_large', 'townhouse',
-    ])
     if (!DWELLINGS.has(defId)) {
       return palette[Math.floor(rng() * palette.length)]
     }

@@ -47,12 +47,29 @@ for (const seed of seeds) {
     const INF = 1e9
     const dist = new Int32Array(W * H).fill(INF)
     const q = []
+    // TWO FIELDS, because the existing one cannot answer the question that
+    // matters for CONTENT. It seeds from props AND building frontage, and a
+    // town is wall-to-wall buildings, so "distance to the nearest thing" reads
+    // a comfortable 3m median while the ground you actually walk on is bare —
+    // which is what a street-level screenshot plainly shows. CLAUDE.md already
+    // records this tool being satisfiable by scatter; this is the same blind
+    // spot pointed at furniture instead of enclosure.
+    //
+    // Distance to the nearest PROP can only be moved by putting something in
+    // the street. A building cannot satisfy it and neither can a facade.
+    const distProp = new Int32Array(W * H).fill(INF)
+    const qProp = []
+    const seedProp = (x, y) => {
+      if (x < 0 || y < 0 || x >= W || y >= H) return
+      const i = y * W + x
+      if (distProp[i] !== 0) { distProp[i] = 0; qProp.push(i) }
+    }
     const seed = (x, y) => {
       if (x < 0 || y < 0 || x >= W || y >= H) return
       const i = y * W + x
       if (dist[i] !== 0) { dist[i] = 0; q.push(i) }
     }
-    for (const p of props) seed(Math.round(p.x), Math.round(p.y))
+    for (const p of props) { seed(Math.round(p.x), Math.round(p.y)); seedProp(Math.round(p.x), Math.round(p.y)) }
     // Building frontages count as "something to look at" too — a street lined
     // with doors is not empty even without furniture.
     for (const b of structs) seed(Math.round(b.x), Math.round(b.y))
@@ -71,7 +88,18 @@ for (const seed of seeds) {
         if (dist[ni] > dist[i] + 1) { dist[ni] = dist[i] + 1; q.push(ni) }
       }
     }
+    for (let head = 0; head < qProp.length; head++) {
+      const i = qProp[head], x = i % W, y = (i / W) | 0
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue
+        if (!walk(nx, ny)) continue
+        const ni = ny * W + nx
+        if (distProp[ni] > distProp[i] + 1) { distProp[ni] = distProp[i] + 1; qProp.push(ni) }
+      }
+    }
     const byKind = { street: [], plaza: [] }
+    const byKindProp = { street: [], plaza: [] }
     let walkTiles = 0
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
@@ -81,9 +109,11 @@ for (const seed of seeds) {
         if (d >= 1e9) continue
         const t = terrain[y][x]
         ;(t === 8 || t === 9 ? byKind.street : byKind.plaza).push(d)
+        const dp = distProp[y * W + x]
+        if (dp < 1e9) (t === 8 || t === 9 ? byKindProp.street : byKindProp.plaza).push(dp)
       }
     }
-    return { walkTiles, props: props.length, byKind }
+    return { walkTiles, props: props.length, byKind, byKindProp }
   })
   if (!r) { console.log(`seed ${seed}: no terrain`); continue }
   console.log(`seed ${seed}: ${r.walkTiles} walkable tiles, ${r.props} props`)
@@ -91,6 +121,9 @@ for (const seed of seeds) {
     const a = agg.get(k) ?? []
     a.push(...r.byKind[k])
     agg.set(k, a)
+    const b = agg.get(k + ':prop') ?? []
+    b.push(...r.byKindProp[k])
+    agg.set(k + ':prop', b)
   }
   await win.waitForTimeout(200)
 }
@@ -99,7 +132,11 @@ await app.close()
 const TILE = 3.0
 const pct = (s, p) => s[Math.min(s.length - 1, Math.round((p / 100) * (s.length - 1)))]
 console.log('\n=== DISTANCE FROM WALKABLE GROUND TO THE NEAREST THING ===')
-console.log('(metres; a furnished street has something within ~6m almost everywhere)\n')
+console.log('(metres; a furnished street has something within ~6m almost everywhere)')
+console.log('The `:prop` rows exclude BUILDINGS. The plain rows count a facade as')
+console.log('something, and a town is wall-to-wall facades, so they read comfortable')
+console.log('however bare the ground is — which is what a street-level shot shows.')
+console.log('Only putting something IN the street moves a :prop row.\n')
 console.log('surface   tiles     med    p75    p90    p99    max   over 12m')
 console.log('-'.repeat(66))
 for (const [k, arr] of agg) {

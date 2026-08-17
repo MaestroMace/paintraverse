@@ -123,11 +123,27 @@ for (const seed of seeds) {
       // first draft of this list invented washing_line, firewood, broom and
       // bucket, none of which exist, so no domestic prop could ever score as
       // explained and the metric under-reported itself.
+      // EVERY TYPE THE GENERATOR TREATS AS A HOME, not the five I happened to
+      // list. TownGenerator's DWELLINGS set is what decides where domestic
+      // dressing goes; this table decides whether that dressing counts as
+      // explained. When they disagree the metric marks the generator's own
+      // correct behaviour as a failure — the numerator and the denominator
+      // counting different populations, which is the mistake this file's own
+      // history already records (the first draft invented prop ids that do
+      // not exist, so no domestic prop could score at all).
+      //
+      // Keep in step with DWELLINGS in TownGenerator.ts.
       row_house: DOMESTIC,
       building_small: DOMESTIC,
       cottage: DOMESTIC,
       townhouse: DOMESTIC,
       corner_building: DOMESTIC,
+      balcony_house: DOMESTIC,
+      building_large: DOMESTIC,
+      narrow_house: DOMESTIC,
+      tenement: DOMESTIC,
+      lean_to: DOMESTIC,
+      almshouse: DOMESTIC,
     }
 
     let ownedN = 0, explainedN = 0, orphanN = 0, insideN = 0, civicN = 0
