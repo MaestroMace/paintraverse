@@ -2161,6 +2161,59 @@ town does not read as repetitive because its buildings are interchangeable.
 Whatever "pseudo-random assets dropped around" is, it is not this, and that is
 worth knowing before more effort goes into varying silhouettes.
 
+## THE WHOLE TONE ARC WAS MEASURED AT THE WRONG HOUR
+
+DESIGN.md's north star is one sentence: **"Can the player stand in this town at
+dusk and feel like they're somewhere?"** The app's own default `timeOfDay` is
+18.5. `eyeball.mjs` defaults to `--time=12`, and every tone measurement in this
+repo — the ambient and hemisphere lift, the paving pull-down, the roof palette,
+the prop tone floor — was taken at NOON.
+
+The two hours are not close. Same seed, same build, same six street views:
+
+    surface    noon med / black      dusk 18.5 med / black
+    wall        0.210    4%           0.068   47%
+    roof        0.171   10%           0.047   57%
+    other       0.106   16%           0.029   92%
+    ground      0.682    0%           0.170    8%
+
+**Walls at dusk read 0.068, which is exactly the figure the tone arc started
+from and believed it had tripled.** Props are effectively invisible: 92% of
+their pixels are black at the hour the design is graded on.
+
+Part of that is correct and wanted — pillar 1 says warm amber windows against
+DARK SILHOUETTES should dominate, so a dark wall at dusk is the look. What is
+not wanted is 92% on props, because it means every piece of street dressing,
+including content added specifically to make the town feel lived in, is not
+visible at the test view. Pillar 5 asks for three layers of warm light and the
+props are not reaching any of them.
+
+`harness.mjs` grades `eyeball` at 18.5 now. Noon is one flag away and still
+worth checking — the pair is informative, because a surface that is fine at
+noon and black at dusk is a LIGHTING problem while one that is dark at both is
+a PALETTE problem, and the two want opposite fixes. But the number the board
+carries should be the hour the design is written against.
+
+**The general lesson, and it is the same one this file keeps recording in other
+clothes: a measurement taken under conditions nobody experiences is a
+measurement of nothing.** The instrument was honest, repeatable and pointed
+somewhere the player never stands.
+
+### AND ONLY LAMPPOSTS EVER GLOWED
+
+Found while asking what content survives dusk. `lampEmissiveGeos` — the array
+feeding the one emissive mesh in the prop path — has exactly ONE producer, the
+lamppost branch. Meanwhile `forge_brazier` carries a comment saying its ember
+glow "shares the lantern emissive driver (reused via a constant emissive that
+bloom picks up at dusk) so forges light up with the rest of the town", and what
+it actually did was paint 0xffb060 into the ordinary vertex-coloured Lambert
+batch. At dusk that is a dark orange dot.
+
+A comment describing a feature that does not exist is the GHOST failure with
+documentation attached, which is worse than an undocumented ghost: the next
+person reads the comment and crosses it off the list. `emitGlow` is the sibling
+of `emitRot` that routes into the emissive mesh, and the brazier uses it.
+
 ## THE PERCEPTION HARNESS — provenance + odd + vantage, and why it is three tools
 
 Asked to make the correctness harness strong enough that we stop having

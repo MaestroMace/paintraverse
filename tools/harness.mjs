@@ -202,7 +202,16 @@ const CHECKS = [
     // be in frame, so a small sample swings hard: wallLuma read 222 and then
     // 180 on the same build inside one sweep. More views is the cheap half of
     // the fix; the wider band below is the honest half.
-    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/eyeball.mjs', '31337', '--views=6']],
+    // GRADED AT DUSK, because that is the view the design is written against.
+    // DESIGN.md's north star is "can the player stand in this town at dusk and
+    // feel like they're somewhere", the app's own default timeOfDay is 18.5,
+    // and this check ran at NOON for the whole tone arc. The two hours are not
+    // close: walls read 0.210 with 4% of their pixels black at noon and 0.068
+    // with 47% black at dusk — which is exactly the figure the tone work
+    // started from and thought it had fixed. Props are 16% black at noon and
+    // 92% at dusk. Grading at an hour nobody plays at is how a whole arc of
+    // measurements came out flattering. Noon is still one flag away.
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/eyeball.mjs', '31337', '--views=6', '--time=18.5']],
     extract: (o) => ({
       roofToWallMed: num(o, /p10 \d+%\s+med (\d+)%/),
       roofOver80: num(o, /over 80% \(roof nearly as tall as the house\): \d+ \((\d+)%\)/),

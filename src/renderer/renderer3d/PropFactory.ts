@@ -295,6 +295,28 @@ export function buildPropMeshes(
       g.translate(px, elev, pz)
       batch.addPositioned(g, color)
     }
+    /**
+     * Same placement, but into the EMISSIVE mesh rather than the lit batch.
+     *
+     * `lampEmissiveGeos` had exactly one producer — the lamppost — so a
+     * lamppost was the only thing in the entire town that glowed. The brazier's
+     * own comment claims its embers "share the lantern emissive driver ... so
+     * forges light up with the rest of the town" and they did not: the glow was
+     * an orange dot painted into the ordinary vertex-coloured Lambert batch,
+     * which at dusk is a dark orange dot.
+     *
+     * That matters more than it sounds. DESIGN.md's test view is dusk — "can
+     * the player stand in this town at dusk and feel like they're somewhere" —
+     * and pillar 5 asks for three layers of warm light. A prop that reads at
+     * noon and vanishes at the hour the design is graded on is content that
+     * fails where it is measured.
+     */
+    const emitGlow = (g: THREE.BufferGeometry, dx: number, dy: number, dz: number) => {
+      g.translate(dx, dy, dz)
+      if (propRot !== 0) g.rotateY(propRot)
+      g.translate(px, elev, pz)
+      lampEmissiveGeos.push(g)
+    }
 
     if (id === 'tree' || id === 'orchard_tree') {
       // If no species set, hash-pick one so tree clusters aren't all identical.
@@ -1574,7 +1596,6 @@ export function buildPropMeshes(
       // driver (reused via a constant emissive that bloom picks up at
       // dusk) so forges light up with the rest of the town.
       const stone = 0x605850
-      const embers = 0xe04020
       // Tripod legs
       for (let li = 0; li < 3; li++) {
         const ang = (li / 3) * Math.PI * 2
@@ -1590,12 +1611,12 @@ export function buildPropMeshes(
       emitRot(rim, 0, 0.67, 0, 0x4a4238)
       // Ember core — small hot orange cylinder visible inside the bowl
       const ember = new THREE.CylinderGeometry(0.18, 0.14, 0.08, 6)
-      emitRot(ember, 0, 0.64, 0, embers)
+      emitGlow(ember, 0, 0.64, 0)
       // A couple of glow dots on top for floaters/sparks frozen in stone
       for (let i = 0; i < 3; i++) {
         const ang = (i / 3) * Math.PI * 2 + hash
         const glow = new THREE.SphereGeometry(0.05, 5, 4)
-        emitRot(glow, Math.cos(ang) * 0.1, 0.72 + i * 0.02, Math.sin(ang) * 0.1, 0xffb060)
+        emitGlow(glow, Math.cos(ang) * 0.1, 0.72 + i * 0.02, Math.sin(ang) * 0.1)
       }
 
     } else if (id === 'rubble_pile') {
