@@ -120,6 +120,44 @@ export function footprintOf(
   return { w: Math.max(1, f?.w ?? 1), h: Math.max(1, f?.h ?? 1) }
 }
 
+/**
+ * THE STABLE ARCHITECTURAL SEED for a placed object. THE one way to ask.
+ *
+ * Every renderer decides a building's whole character from `simpleHash(obj.id)`
+ * — massing template, landmark promotion, timber versus quoins, roof style,
+ * chimneys, awnings, wealthScale, and every `rand01(hash, salt)` under them.
+ * And `obj.id` IS A UUID, freshly minted on every generate. So the town's
+ * LAYOUT was perfectly deterministic while its ARCHITECTURE was reseeded every
+ * single run:
+ *
+ *     layoutHash  3211781608  3211781608  3211781608   identical
+ *     idHash      3902668415  4159138546  3050480396   never the same
+ *
+ * That is the real source of the harness noise floor, and it had already been
+ * measured and MISATTRIBUTED. `--repeat=3` recorded districts perfectly stable
+ * at 49 while odd's counts swung by 12, and the note reasoned: districts reads
+ * the MAP so the generator is deterministic, therefore the movement must be a
+ * timing race plus counts sitting on a threshold. Half of that was right — the
+ * race was real and fixing it took habitablePinned to spread 0 — and the
+ * residual was explained structurally when the truth is simpler and worse: it
+ * was a different town every time. Same streets, different buildings on them.
+ *
+ * Everything downstream inherited it. "Pin the seed" was the discipline, and
+ * the seed only ever pinned the layout, so every A/B in this repo has been
+ * measuring its change plus an unknown amount of reshuffled architecture.
+ *
+ * Position is the right key: the seeded generator decides it, footprints do
+ * not overlap within a layer, and it survives save/load — where a regenerated
+ * UUID would silently repaint the whole town. Definition id is folded in so a
+ * prop and the building under it do not share a seed.
+ */
+export function stableHash(obj: { definitionId: string; x: number; y: number }): number {
+  const s = `${obj.definitionId}|${obj.x},${obj.y}`
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
+  return Math.abs(h)
+}
+
 // === OBJECT DEFINITIONS ===
 
 export interface ObjectDefinition {

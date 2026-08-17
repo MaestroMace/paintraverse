@@ -9,6 +9,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
+import { stableHash } from '../core/types'
 import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { TILE } from './scale'
 
@@ -116,12 +117,6 @@ function getGeo() {
   return _geo
 }
 
-function simpleHash(s: string): number {
-  let h = 0
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
-  return Math.abs(h)
-}
-
 /** Deterministic 0..1 pseudo-random from an integer hash and a salt. */
 function rand01(hash: number, salt: number): number {
   const n = (hash * 2654435761 + salt * 1597334677) >>> 0
@@ -223,7 +218,7 @@ export function buildPropMeshes(
     // available (the generator stored it in raw heightMap units, which would
     // double-count the terrain).
     const elev = getHeight ? getHeight(ptx, ptz) : (obj.elevation || 0)
-    const hash = simpleHash(obj.id)
+    const hash = stableHash(obj)
     const _auditFrom = batch.count
     // TELL THE SLIVER AUDIT WHOSE GEOMETRY THIS IS.
     //

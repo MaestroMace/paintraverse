@@ -10,7 +10,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
-import { footprintOf } from '../core/types'
+import { footprintOf, stableHash } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { buildTerrainMesh, getTerrainHeight, groundYAtWorld, tickWater, setWaterSky, TERRAIN_WORLD_SCALE } from './TerrainMesh'
 import { TILE } from './scale'
@@ -90,12 +90,6 @@ function patchHeightFog(material: THREE.Material): void {
   }
   material.customProgramCacheKey = () => 'heightFog'
   material.needsUpdate = true
-}
-
-function simpleHash(id: string): number {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0
-  return Math.abs(h)
 }
 
 const NO_JITTER_MAP = new Set<string>([
@@ -794,7 +788,7 @@ export class ThreeRenderer {
       // drifted every time massing changed (see BuildingTop).
       const topById = new Map(result.tops.map(t => [t.id, t]))
       for (const obj of structureLayer.objects) {
-        const hash = simpleHash(obj.id)
+        const hash = stableHash(obj)
         if (hash % 5 >= 2) continue
         const def = defMap.get(obj.definitionId)
         if (!def) continue

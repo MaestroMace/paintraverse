@@ -12,6 +12,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
+import { stableHash } from '../core/types'
 import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
@@ -89,12 +90,6 @@ const HEIGHT_MULT: Record<string, number> = {
   tower: 2.0, clock_tower: 2.4, bell_tower: 2.6, bell_tower_tall: 3.0,
   watchtower: 2.2, cathedral: 2.0, lighthouse: 3.0, chapel: 1.5,
   temple: 1.5, town_gate: 1.8, archway: 1.5, round_tower: 2.4,
-}
-
-function simpleHash(id: string): number {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0
-  return Math.abs(h)
 }
 
 /** Deterministic 0..1 pseudo-random from an integer hash and a salt. */
@@ -248,13 +243,29 @@ function recordPart(
  */
 function sideProfile(geo: THREE.BufferGeometry): { drop: number; proj: number } {
   const pos = geo.getAttribute('position')
-  let nearZ = Infinity, farZ = -Infinity, nearY = 0, farY = 0
+  let nearZ = Infinity, farZ = -Infinity
+  for (let i = 0; i < pos.count; i++) {
+    const z = pos.getZ(i)
+    if (z < nearZ) nearZ = z
+    if (z > farZ) farZ = z
+  }
+  // TAKE THE MIDLINE OF EACH END, not one arbitrary corner. A box has four
+  // vertices at each extreme, half on the top face and half on the bottom, and
+  // picking whichever the loop met first put the canvas THICKNESS into the
+  // answer: 4cm over a 51cm reach is 4.5 degrees, which is most of the ~7 the
+  // slope is supposed to be. An instrument whose noise is the size of its
+  // signal reports nothing, confidently.
+  const eps = Math.max(1e-4, (farZ - nearZ) * 0.01)
+  let nearSum = 0, nearN = 0, farSum = 0, farN = 0
   for (let i = 0; i < pos.count; i++) {
     const z = pos.getZ(i), y = pos.getY(i)
-    if (z < nearZ) { nearZ = z; nearY = y }
-    if (z > farZ) { farZ = z; farY = y }
+    if (z <= nearZ + eps) { nearSum += y; nearN++ }
+    if (z >= farZ - eps) { farSum += y; farN++ }
   }
-  return { drop: nearY - farY, proj: farZ - nearZ }
+  return {
+    drop: (nearN ? nearSum / nearN : 0) - (farN ? farSum / farN : 0),
+    proj: farZ - nearZ,
+  }
 }
 
 /**
@@ -473,7 +484,7 @@ export function buildBuildingMeshes(
     const plotRotated = !!obj.properties.plotRotated
     const fpT = plotRotated ? { w: fpRaw.h, h: fpRaw.w } : fpRaw
     const fp = { w: fpT.w * TILE, h: fpT.h * TILE }
-    const hash = simpleHash(obj.id)
+    const hash = stableHash(obj)
     const style = (obj.properties.style as string) || 'standard'
     const district = (obj.properties.district as string) || 'residential'
 
@@ -2487,14 +2498,19 @@ export function buildBuildingMeshes(
         stripGeo.rotateX(slopeRot)
         const stripX = -awningW / 2 + (s + 0.5) * stripW
         const stripColor = s % 2 === 0 ? awnPrimary : awnAccent
+        // MEASURE BEFORE IT LEAVES WALL-LOCAL SPACE. The first cut took the
+        // profile after localToWorld, which applies rotationY — so on a
+        // building facing east the awning projects along world X and the
+        // "near/far Z" pair straddled its WIDTH instead of its reach. It read
+        // a median 2.0 degrees with ten awnings apparently tilting up, and the
+        // geometry was fine. A scan has to know what it is scanning.
+        const prof = sideProfile(stripGeo)
         localToWorld(stripGeo, stripX, awningY, frontWallZ,
           leanX, leanZ, rotationY, wx, wy, wz)
         ornamentBatch.addPositioned(stripGeo, stripColor)
         if (s === 0) {
-          // Measured from the rotated strip, so the audit grades the built
-          // canvas rather than the constant that was meant to tilt it.
           recordPart(obj.id, obj.definitionId, volKey(mainVol), 'awning',
-            0, awningY - mainVol.bottomY, awningW, 0.04, sideProfile(stripGeo))
+            0, awningY - mainVol.bottomY, awningW, 0.04, prof)
         }
       }
       // Two simple vertical posts at the front corners — implies tied-down canvas.
@@ -2624,7 +2640,7 @@ export function buildBuildingMeshes(
           objectId: obj.id,
           definitionId: obj.definitionId,
           district: dist,
-          hash: simpleHash(obj.id),
+          hash: stableHash(obj),
           message: e?.message || String(err),
           stack: e?.stack,
         })

@@ -12,6 +12,7 @@
 
 import * as THREE from 'three'
 import type { MapDocument, ObjectDefinition } from '../core/types'
+import { stableHash } from '../core/types'
 import { getTerrainHeight } from './TerrainMesh'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 import type { BuildingTop } from './BuildingFactory'
@@ -110,7 +111,7 @@ export function buildWallLanterns(
   for (const obj of structureLayer.objects) {
     if (EXCLUDE.has(obj.definitionId)) continue
     // Hash-based 18% pick so same seed → same lantern placements.
-    const h = simpleHash(obj.id)
+    const h = stableHash(obj)
     if (h % 100 >= 18) continue
     const def = defMap.get(obj.definitionId)
     const fpT = def?.footprint ?? { w: 1, h: 1 }
@@ -187,13 +188,6 @@ function supportRadius(
   const lx = ux * c - uz * s
   const lz = ux * s + uz * c
   return b.halfW * Math.abs(lx) + b.halfD * Math.abs(lz)
-}
-
-/** Simple string hash for obj.id → integer. */
-function simpleHash(s: string): number {
-  let n = 0
-  for (let i = 0; i < s.length; i++) n = ((n << 5) - n + s.charCodeAt(i)) | 0
-  return Math.abs(n)
 }
 
 export function buildLanternStrings(

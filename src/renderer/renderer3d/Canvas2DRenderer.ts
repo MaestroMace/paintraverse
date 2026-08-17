@@ -5,6 +5,7 @@
  */
 
 import type { MapDocument, ObjectDefinition, PlacedObject, RenderCamera, EnvironmentState } from '../core/types'
+import { stableHash } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { SpatialGrid } from './SpatialGrid'
 import { TERRAIN_COLORS } from '../core/terrain'
@@ -839,7 +840,7 @@ function addBuildingDrawables(
   project: (x: number, y: number, z: number) => Projected | null,
   lighting: Lighting, time: number, lights: LightSource[]
 ) {
-  const hash = simpleHash(obj.id)
+  const hash = stableHash(obj)
   const palette = palettes[hash % palettes.length]
 
   // ── BLUEPRINT BUILDINGS — use 3D primitive composition ──
@@ -1734,7 +1735,7 @@ function addPropDrawables(
 
     const accentColor = shadeFace(colors.accent!, 0, 1, 0, lighting)
     const foggedAccent = applyFog(accentColor, base.depth, lighting)
-    const treeHash = simpleHash(obj.id)
+    const treeHash = stableHash(obj)
     // Species-specific canopy colors
     const canopyHue = species === 'birch' ? lighten(foggedAccent, 0.06) :
       species === 'pine' ? darken(foggedAccent, 0.08) :
@@ -1852,7 +1853,7 @@ function addPropDrawables(
     })
   } else if (def.id === 'bush' || def.id === 'hedge') {
     const bushR = Math.max(3, Math.abs(top.sy - base.sy) * 0.5 + 3)
-    const bushHash = simpleHash(obj.id)
+    const bushHash = stableHash(obj)
     drawables.push({
       depth: base.depth,
       draw: (ctx) => {
@@ -1933,7 +1934,7 @@ function addPropDrawables(
         const isLit = lighting.isNight || lighting.isDusk
         const glowColor = applyFog(colors.accent || 0xffdd44, base.depth, lighting)
         ctx.fillStyle = hexToCSS(glowColor)
-        const flickerMod = 1 + Math.sin(time * 3 + simpleHash(obj.id) * 0.1) * 0.15
+        const flickerMod = 1 + Math.sin(time * 3 + stableHash(obj) * 0.1) * 0.15
         const r = (isLit ? Math.max(5, Math.abs(lampTop.sy - base.sy) * 0.25) : Math.max(2, Math.abs(lampTop.sy - base.sy) * 0.1)) * flickerMod
         ctx.beginPath()
         ctx.arc(base.sx, lampTop.sy, r, 0, Math.PI * 2)
@@ -2067,10 +2068,10 @@ function addPropDrawables(
           }
         }
         // Cat sitting on wall (~20% chance)
-        if (simpleHash(obj.id) % 5 === 0) {
-          const catX = base.sx + (simpleHash(obj.id) % 3 - 1) * 2
+        if (stableHash(obj) % 5 === 0) {
+          const catX = base.sx + (stableHash(obj) % 3 - 1) * 2
           const catY = base.sy - fenceH - 1
-          ctx.fillStyle = simpleHash(obj.id) % 2 === 0 ? 'rgba(40,30,20,0.7)' : 'rgba(180,120,40,0.7)'
+          ctx.fillStyle = stableHash(obj) % 2 === 0 ? 'rgba(40,30,20,0.7)' : 'rgba(180,120,40,0.7)'
           ctx.fillRect(catX - 1, catY - 1, 2, 1.5) // body
           ctx.fillRect(catX - 1.5, catY - 2, 1, 1) // head
           ctx.fillRect(catX + 1, catY - 1.5, 1.5, 0.5) // tail
@@ -2148,7 +2149,7 @@ function addPropDrawables(
         ctx.lineWidth = 0.5
         ctx.strokeRect(base.sx + 1, base.sy - signH * 1.1, 6, signH * 0.5)
         // Sign icon (varied per hash)
-        const signType = simpleHash(obj.id) % 4
+        const signType = stableHash(obj) % 4
         const iconX = base.sx + 4, iconY = base.sy - signH * 0.9
         ctx.fillStyle = hexToCSS(darken(accentFogged, 0.4))
         if (signType === 0) {
@@ -2239,7 +2240,7 @@ function addPropDrawables(
         ctx.fillStyle = hexToCSS(darken(foggedBody, 0.15))
         ctx.fillRect(base.sx + wW / 2, base.sy - wH * 0.7, wW * 0.2, 1.5)
         // Cargo on wagon (varied)
-        const cargoType = simpleHash(obj.id) % 3
+        const cargoType = stableHash(obj) % 3
         if (cargoType === 0) {
           // Hay/grain sacks
           ctx.fillStyle = hexToCSS(applyFog(0xc8a850, base.depth, lighting))
@@ -2301,7 +2302,7 @@ function addPropDrawables(
         ctx.fillStyle = hexToCSS(foggedBody)
         ctx.fillRect(base.sx - msW / 2, base.sy - msH * 0.35, msW, msH * 0.35)
         // Canopy (angled fabric)
-        const canopyColor = applyFog([0xaa3333, 0x336633, 0x334466, 0xaa6633][simpleHash(obj.id) % 4], base.depth, lighting)
+        const canopyColor = applyFog([0xaa3333, 0x336633, 0x334466, 0xaa6633][stableHash(obj) % 4], base.depth, lighting)
         ctx.fillStyle = hexToCSS(canopyColor)
         ctx.beginPath()
         ctx.moveTo(base.sx - msW / 2 - 1, base.sy - msH * 0.5)
@@ -2315,7 +2316,7 @@ function addPropDrawables(
         ctx.beginPath(); ctx.moveTo(base.sx - msW / 2, base.sy); ctx.lineTo(base.sx - msW / 2, base.sy - msH * 0.9); ctx.stroke()
         ctx.beginPath(); ctx.moveTo(base.sx + msW / 2, base.sy); ctx.lineTo(base.sx + msW / 2, base.sy - msH * 0.85); ctx.stroke()
         // Goods on counter — varied per stall
-        const stallType = simpleHash(obj.id) % 4
+        const stallType = stableHash(obj) % 4
         if (stallType === 0) {
           // Fruit/vegetable stall
           const fruitColors = [0xcc3333, 0xffaa22, 0x44aa33]
@@ -2668,7 +2669,7 @@ function addPropDrawables(
           const fruitColor = applyFog(0xcc3333, base.depth, lighting)
           ctx.fillStyle = hexToCSS(fruitColor)
           for (let fi = 0; fi < 3; fi++) {
-            const fa = (fi / 3) * Math.PI * 2 + simpleHash(obj.id) * 0.5
+            const fa = (fi / 3) * Math.PI * 2 + stableHash(obj) * 0.5
             ctx.beginPath()
             ctx.arc(trunkTop.sx + Math.cos(fa) * r * 0.5, trunkTop.sy - r * 0.2 + Math.sin(fa) * r * 0.4, 0.7, 0, Math.PI * 2)
             ctx.fill()
@@ -3931,11 +3932,3 @@ function lerpColor(a: number, b: number, t: number): number {
   return (r << 16) | (g << 8) | bl
 }
 
-function simpleHash(str: string): number {
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash) + str.charCodeAt(i)
-    hash |= 0
-  }
-  return Math.abs(hash)
-}
