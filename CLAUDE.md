@@ -2103,16 +2103,26 @@ All three measured before and after on seed 31337.
 the term a wall in a street actually sees), and the paving pulled down from
 0xb09878 to 0x9c8770 because the RATIO was the defect, not either number alone.
 
-    surface   before                  after
-    wall      0.084  (24% black)      0.158  (11% black)
-    roof      0.032  (72% black)      0.098  (31% black)
-    other     0.036  (68% black)      0.130  (37% black)
-    ground    0.639                   0.675
+Measured as a clean A/B — the pre-fix `src/` checked out, built, and shot from
+the same vantages, then HEAD built and shot again, rather than two runs a
+session apart:
 
-Walls nearly doubled, roofs tripled, the black share more than halved, and the
-ground:wall ratio went 7.6x -> 4.3x. The ground rose slightly despite the
-darker paving, so the skylight lift outran it; p90 0.700 is close enough to
-clipping that the next move is more paving and less ambient, not more of both.
+    surface   before                  after
+    wall      0.068  (44% black)      0.203  ( 8% black)
+    roof      0.045  (61% black)      0.087  (33% black)
+    other     0.031  (62% black)      0.085  (41% black)
+    ground    0.646                   0.675
+
+**Walls read three times brighter and the share of them that is effectively
+black went 44% -> 8%.** Roofs nearly doubled with the black share cut from 61%
+to 33%, and props — the "other" row, a barrel that was a dark lump and is now a
+barrel with staves — nearly tripled. The ground:wall ratio went **9.5x -> 3.3x**.
+
+The ground still rose slightly despite the darker paving, so the skylight lift
+outran it; p90 0.700 is close enough to clipping that the next move is more
+paving and less ambient, not more of both. Roofs at 33% black are the remaining
+outlier: a steep pitch gets neither the direct sun a flat roof gets nor the
+sideways skylight a wall gets.
 
 **THE ROOF CAP — the roofs were fine and my metric was wrong.** `clampRoofToWall`
 is in (a third clamp, applied last, after the span floor and the span cap) and
