@@ -315,6 +315,22 @@ export interface VolumeBox {
   x0: number; x1: number; z0: number; z1: number; y0: number; y1: number
   /** The ORIENTED box — centre, half-extents and yaw. Use this to test. */
   cx: number; cz: number; hw: number; hd: number; yaw: number
+  /**
+   * The massing deliberately sent this volume BELOW the placement base.
+   *
+   * Only a span does it — a bridge pier reaching the bed, and at the ends an
+   * abutment founded into the bank. `clash.mjs` grades the lowest volume of
+   * each building against the ground under it and calls anything more than
+   * 1.2m down BURIED, which is the right question for a house sunk into a
+   * hillside and the wrong one for a foundation that declares itself. Same
+   * derived rule the plinth uses: a volume that descends has taken
+   * responsibility for the drop.
+   *
+   * Reported separately rather than dropped, so exempting a class cannot make
+   * it go quiet — a green board that stopped looking is the failure this
+   * harness exists to prevent.
+   */
+  descends: boolean
   groundY: number
 }
 export const volumeBoxes: VolumeBox[] = []
@@ -792,7 +808,7 @@ export function buildBuildingMeshes(
             // oriented box is its axis-aligned one.
             cx: +(centerTileX * TILE + rx).toFixed(3),
             cz: +(centerTileZ * TILE + rz).toFixed(3),
-            hw: +ph.toFixed(3), hd: +ph.toFixed(3), yaw: 0,
+            hw: +ph.toFixed(3), hd: +ph.toFixed(3), yaw: 0, descends: false,
             y0: +tileGround.toFixed(3), y1: +(tileGround + colH).toFixed(3),
             groundY: +tileGround.toFixed(3),
           })
@@ -1186,7 +1202,7 @@ export function buildBuildingMeshes(
         // ...and the box as it actually stands, so a test can be exact.
         cx: +cx.toFixed(3), cz: +cz.toFixed(3),
         hw: +(v.width / 2).toFixed(3), hd: +(v.depth / 2).toFixed(3),
-        yaw: +rotationY.toFixed(5),
+        yaw: +rotationY.toFixed(5), descends: v.bottomY < -0.05,
         y0: +(wy + v.bottomY).toFixed(3),
         y1: +(wy + v.bottomY + v.height + v.roofHeight).toFixed(3),
         // Ground under this volume's own centre, so "is it standing on

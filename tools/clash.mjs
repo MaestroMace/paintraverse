@@ -303,11 +303,24 @@ for (const v of grounded) {
   const e = perBuilding.get(v.id)
   if (!e || v.y0 < e.y0) perBuilding.set(v.id, v)
 }
-const candidates = [], sunk = []
+// A FOUNDATION IS NOT A BUILDING THAT SANK.
+//
+// This grades each building's LOWEST volume against the ground under it, which
+// is the right question for a house driven into a hillside and the wrong one
+// for a bridge. A span's piers reach the bed on purpose, and at the ends an
+// abutment is founded into the BANK — ground two metres above the pier's
+// bottom — so fixing the bridges lit up six "buried" structures that are all
+// doing exactly what they should.
+//
+// Exempted by the massing's own declaration (VolumeBox.descends), not by a
+// type list and not by widening the threshold. Never raise a budget to make a
+// red run green: the count is kept and printed on its own line, so a class
+// that was excused cannot quietly grow.
+const candidates = [], sunk = [], founded = []
 for (const v of perBuilding.values()) {
   const d = v.y0 - v.groundY
   if (d > GAP) candidates.push({ v, d })
-  else if (d < -SINK) sunk.push({ v, d: -d })
+  else if (d < -SINK) (v.descends ? founded : sunk).push({ v, d: -d })
 }
 
 // ASK ABOUT THE PLINTH, NOT JUST THE MASSING.
@@ -365,6 +378,11 @@ for (const f of floating.slice(0, showAll ? 999 : 8)) {
     `  @(${((f.v.x0 + f.v.x1) / 2).toFixed(0)}, ${((f.v.z0 + f.v.z1) / 2).toFixed(0)})`)
 }
 console.log(`  ${sunk.length} buried by more than ${SINK}m`)
+if (founded.length) {
+  console.log(`  ${founded.length} FOUNDED — volumes the massing sends below its base on purpose` +
+    ` (bridge piers into the bed, abutments into the bank), deepest ` +
+    `${Math.max(...founded.map((f) => f.d)).toFixed(2)}m. Not counted as buried.`)
+}
 for (const f of sunk.slice(0, showAll ? 999 : 8)) {
   console.log(`    ${f.d.toFixed(2)}m below grade  ${f.v.def}:${f.v.role}` +
     `  @(${((f.v.x0 + f.v.x1) / 2).toFixed(0)}, ${((f.v.z0 + f.v.z1) / 2).toFixed(0)})`)
