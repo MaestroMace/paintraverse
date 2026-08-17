@@ -3244,7 +3244,34 @@ xvfb-run -a node tools/webshot.mjs --mobile   # Pixel-sized preview, no device
 - `tools/webshot.mjs --device=` has presets (pixel, pixel-land, pixel-pro,
   fold, tablet). Testing one shape is what let that through; check landscape.
 - Toolchain needed for the APK: JDK 21, Android SDK platform 34 +
-  build-tools 34.0.0 (`sdkmanager "platforms;android-34" "build-tools;34.0.0"`),
-  and `android/local.properties` pointing `sdk.dir` at the SDK.
+  build-tools 34.0.0, and `android/local.properties` pointing `sdk.dir` at the
+  SDK. **A fresh container has the JDK and no SDK**, and this is the recipe
+  that works — recorded because the requirement was already written down and
+  the commands were not, which is the difference between a five-minute setup
+  and a half-hour one:
+
+      cd /opt && curl -sSL -o cmdline-tools.zip \
+        https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+      mkdir -p /opt/android-sdk/cmdline-tools
+      cd /opt/android-sdk/cmdline-tools && unzip -q /opt/cmdline-tools.zip \
+        && mv cmdline-tools latest
+      export ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
+      yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+      $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+        "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+      printf 'sdk.dir=/opt/android-sdk\n' > android/local.properties
+      ANDROID_HOME=/opt/android-sdk npm run android:apk
+
+  ~2.5GB of SDK and gradle cache, about six minutes end to end, gradle itself
+  downloads fine through the proxy. `android/local.properties` is already
+  gitignored, so the machine path cannot be committed.
+- **Verify the APK carries the source you think it does.** `android:apk` runs
+  `build:web` first, so the check is that nothing in `src/` is newer than
+  `dist-web/index.html` (`find src -newer dist-web/index.html`) plus a grep for
+  a symbol you just added. A stale `dist-web` would ship silently — the same
+  trap as a failing `npm run build` leaving the previous bundle in `dist/`.
+- The web bundle has no favicon, so a browser preview logs one 404 for
+  `/favicon.ico`. Cosmetic and irrelevant in a WebView; the LAUNCHER icon is a
+  separate asset and comes from `android/app/src/main/res/mipmap-*`.
 - The debug APK is signed with the throwaway debug key, so it installs only
   with "install unknown apps" enabled. A release build needs a real keystore.
