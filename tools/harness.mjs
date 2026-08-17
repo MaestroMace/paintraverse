@@ -119,9 +119,10 @@ const BASELINE = 'tools/harness-baseline.json'
 // So the bands come down to 0-2. A wide band on a deterministic metric is not
 // caution, it is a regression detector switched off: the old openTops band of
 // 12 would have sat quietly through a change that doubled the open roofs.
-// eyeball keeps a wider band because its numbers come from rendered pixels and
-// it has NOT been through --repeat since the fix — an unverified band, marked
-// as such rather than quietly tightened on the assumption it is fine.
+// eyeball was left wide and marked UNVERIFIED until it had actually been run
+// twice; it has now, byte-identical, so it comes down too. Marking a band as
+// unverified and then tightening it anyway would have been the same mistake as
+// a green gate that has never failed.
 const CHECKS = [
   {
     name: 'registry',
@@ -214,7 +215,14 @@ const CHECKS = [
       roofBlackPct: num(o, /^\s+roof\s+\d+\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+(\d+)%/m),
     }),
     dir: { roofToWallMed: -1, roofOver80: -1, dwellingsOver4: -1, wallLuma: 1, roofBlackPct: -1 },
-    band: { roofToWallMed: 14, roofOver80: 10, dwellingsOver4: 8, wallLuma: 50, roofBlackPct: 18 },
+    // VERIFIED. Two runs on the current build are byte-identical — same sample
+    // counts (491 sky / 710 roof / 6631 wall / 3424 ground) and same
+    // percentiles — so the 157/187/222/229 wallLuma swing was the UUID bug
+    // across builds, not pixel noise, and this band comes down with the rest.
+    // A couple of points of slack is kept because these come off a rasteriser
+    // and a driver change could move a boundary pixel; the metric itself has
+    // no randomness left in it.
+    band: { roofToWallMed: 2, roofOver80: 2, dwellingsOver4: 2, wallLuma: 4, roofBlackPct: 2 },
   },
   {
     name: 'facade',
