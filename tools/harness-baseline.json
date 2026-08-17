@@ -45,8 +45,8 @@
     "roofToWallMed": 73,
     "roofOver80": 10,
     "dwellingsOver4": 13,
-    "wallLuma": 210,
-    "roofBlackPct": 10
+    "wallLuma": 68,
+    "roofBlackPct": 57
   },
   "facade": {
     "overOpening": 0,
