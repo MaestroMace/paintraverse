@@ -1074,6 +1074,7 @@ Run these before believing anything about where the project is.
 | prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
 | interpenetration | clash.mjs | **15 pairs over 0.5m, was 124** — see THE OVERHANG BUDGET | fixed |
 | bridges you can walk onto | bridgeshot.mjs | **0.34-0.58m step up, was 2.2-2.4m over head** | fixed |
+| **can a person get there** | **traverse.mjs** | **58-85% of the town reachable from spawn; 25 crossings impassable** | **OPEN — worst metric on the board** |
 | **the river** | **river.mjs** | **bank relief 0.67m med / 1.28m max (was 0.03m), drop +3.6m** | **fixed** |
 | river severance | site.mjs | 0 of 5 seeds have an unreachable district, was 2 | clean |
 | waterfront dressing | (see dressWaterfront) | 10 maritime/natural types at the bank, was 2 | improving |
@@ -2581,6 +2582,72 @@ wrong, because `volumeFloors` refuses an explicit count implying a storey under
 2.2m and recomputes, but the number lands in `scaleSamples` and **a dead number
 in a diagnostic sends the next person after the wrong bug**. A bug in a gate is
 a bug in a PATTERN; grep the siblings the same day.
+
+### AND YOU HAVE NEVER WALKED ON ONE — tools/traverse.mjs
+
+Asked how the bridge discovery should improve the harness, with the suggestion
+"player pathing awareness". Correct, and testing the idea immediately showed
+the bridge fix above was **incomplete**. Standing on a bridge tile:
+
+    deck top   4.95   4.89   4.89
+    terrain    2.71   2.57   2.59      the river BED
+    you are on 2.71   2.57   2.59      the river BED
+
+`sampleGroundY` reads `terrainHeightMap` and nothing else, so **no structure is
+ever a walking surface** — not a bridge, not a stair, not an elevated walkway.
+A previous session read the `passage` tag and cleared the collision mask over
+crossings, which is half the fix and the half that is visible; the other half
+is that once you are on the tile the ground-follow puts you on the bed. **Two
+authors of one floor**, exactly the shape of FacadeTexture versus
+BuildingFactory, and nothing had ever held them up against each other.
+
+**The general point is that every instrument here grades the world against
+ITSELF** — provenance against the code, odd against its peers, clash against
+its neighbours, facade against the texture, eyeball against the frame. None
+grades it against the PLAYER'S BODY, and the bridge passed all five while being
+unusable. `spawn.mjs` models the player for exactly one frame.
+
+`traverse.mjs` asks four questions and they triangulate:
+
+| | 4242 | 777 | 31337 |
+|---|---|---|---|
+| crossings you cannot walk through | 4/11 | 10/20 | 11/16 |
+| reachable from spawn, human step | 85% | 84% | **58%** |
+| ...ignoring height (mask alone) | 85% | 97% | 96% |
+| tile pairs needing a clamber | 7 | 68 | 66 |
+| walkable tiles under 1.9m headroom | 4 | 35 | 37 |
+
+The chain: `passage` clears the tile, so the MASK reads 96% connected; the
+ground-follow drops you to the bed; bank-to-bed is ~2m; no person makes that
+step; **39% of the town is unreachable**, the largest pocket 479 tiles across
+the river.
+
+Three design points, each of which was wrong in the first cut:
+
+- **The first version of check 1 was a heuristic, not a measurement.** It took
+  each structure's widest volume as "the surface it meant you to walk on" —
+  true of a bridge, whose deck IS that volume, and nonsense for an archway,
+  where the widest volume is the arch 20m overhead and the way through is the
+  hole underneath. It reported six archways with "a deck over your head".
+  CLEARANCE needs no such guess: a bridge reads 0.4m and an archway reads its
+  opening, same arithmetic, no notion of what the thing is.
+- **The reachability number needs a CONTROL or it cannot be attributed.**
+  Running the same flood fill with no step limit separates "cut by terrain"
+  from "disconnected in the mask", and the two seeds differ: 4242's shortfall
+  is mask (85% = 85%) while 31337's is entirely the step. Without it I could
+  not tell a real severance from a step threshold I chose.
+- **"Cut off by terrain" is not an answer until you know WHERE.** Splitting the
+  steep pairs by water adjacency gives 55 at the water's edge against 11
+  inland, which names the bank-to-bed drop rather than leaving it as hills.
+
+It also found a second, unrelated defect: the `passage` tag clears the whole
+FOOTPRINT, so a town gate's solid tower legs are walkable — 0.43m of clearance
+inside the masonry. A tag that means "there is a way through here" is being
+read as "all of this is a way through".
+
+**Grade it against a person, not against the engine.** `updateCamera` snaps the
+camera to `sampleGroundY` every frame and has no step limit at all, so the
+engine itself permits ascending a cliff. That is a finding, not a standard.
 
 ### A BRIDGE WAS A DAM WITH AN UNREACHABLE WALKWAY ON IT
 

@@ -268,6 +268,22 @@ const CHECKS = [
     dir: { openTops: -1 }, band: { openTops: 1 },
   },
   {
+    name: 'traverse',
+    why: 'can a PERSON get there — the axis every other tool is missing',
+    electron: true,
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/traverse.mjs']],
+    extract: (o) => ({
+      // Reachability is the one that cannot be faked: scattering props cannot
+      // move it, only a town a person can actually walk across.
+      reachPct: num(o, /worst reachability (\d+)%/),
+      noPass: num(o, /VERDICT: (\d+) crossings you cannot walk through/),
+      clamber: num(o, /crossings you cannot walk through, (\d+) tile pairs/),
+      lowHead: num(o, /(\d+) walkable tiles have under/),
+    }),
+    dir: { reachPct: 1, noPass: -1, clamber: -1, lowHead: -1 },
+    band: { reachPct: 2, noPass: 1, clamber: 2, lowHead: 2 },
+  },
+  {
     name: 'variety',
     why: 'can the eye copy-paste one building onto another — the axis odd is blind to',
     electron: true,
