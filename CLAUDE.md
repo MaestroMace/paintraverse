@@ -2580,6 +2580,57 @@ wrong, because `volumeFloors` refuses an explicit count implying a storey under
 in a diagnostic sends the next person after the wrong bug**. A bug in a gate is
 a bug in a PATTERN; grep the siblings the same day.
 
+### THE OVERHANG BUDGET DID NOT KNOW THE GAP WAS SHARED — 124 -> 15
+
+`deepClash` sat at ~100-124 for the whole session, the largest tracked defect
+left, and it was one cause the entire time. Two steps got there, and the first
+step was the tool.
+
+**Classify before you fix.** `clash.mjs` now splits every deep pair by what the
+reserved tile footprints say: TOUCHING, a tile or more APART, or OVERLAPPING.
+The answer came in one run — **all of them touch.** None apart, none
+overlapping, none unknown. So these were never placement bugs and `audit.mjs`
+is right to be clean; they are `MAX_OVERHANG` being a per-BUILDING budget spent
+into a SHARED gap, two neighbours reaching 0.6m each toward the other.
+
+**And the arithmetic then convicted the instrument.** Two touching footprints
+permit 1.2m of overlap at most and the tool reported 1.62m. A number above a
+ceiling the code enforces is a free bug report about the measurement — the same
+tell as the facade audit's 100%-covered window. `BuildingFactory` records
+`hx = (w/2)|cos| + (d/2)|sin|`, the box AROUND a rotated volume rather than the
+volume, and 55% of buildings carry an off-axis wobble (±3° where a road aligns
+them, ±12° where none does). A 6m volume at 12° inflates its hull by 1.25m, so
+buildings whose walls are nowhere near each other overlapped as hulls. The
+comment above that code called it "yaw-aligned", which it is not. `VolumeBox`
+carries the ORIENTED box now, the hull is demoted to broad-phase bucketing, and
+the narrow phase is separating-axis on two rectangles. **124 -> 97 with no
+change to the town.**
+
+**Then the fix, which is one line of architecture: a jetty overhangs the
+STREET, not next door.** `clipToFootprint` takes a per-side allowance — full
+`MAX_OVERHANG` where the adjacent tiles are free, zero where a neighbour has
+reserved them, because a wall that stops at the plot line IS a party wall and
+93% of this town has one. Applied only on the FINAL clip in BuildingFactory,
+which is the last thing to touch an extent; `pickMassing` cannot do it because
+it sizes one building knowing nothing about the street. The local frame maps to
+the world by rounding `rotationY` to a quarter turn, which is exact for
+`baseRot` — and the ±π/2 case is already restricted to square-ish footprints
+precisely so a rotation cannot swap the reserved rectangle's axes.
+
+    deepClash   124 -> 97    the instrument (AABB hulls of rotated boxes)
+                 97 -> 15    the fix (per-side overhang)
+
+**And I deleted a check I had added an hour earlier**, because it was the
+morning's lesson repeated. It compared each volume's world AABB against its
+footprint plus `MAX_OVERHANG` and printed "OVER BY 1.12m" — wrong twice: the
+AABB is a hull, and a permitted plot rectangle only means anything in the
+building's OWN frame, where a plot is axis-aligned. A building legitimately
+rotated inside its plot pokes past an axis-aligned plot box without breaking
+anything. `provenance.mjs` already owns that invariant, tests it in the local
+frame, and reads 0. **I built a second weaker copy of an existing check and
+believed it over the stricter one, three hours after writing "compare their
+strictness before you debug either" into THE METHOD.**
+
 ### THE THIRD AXIS — a thing against its NEIGHBOURS (tools/clash.mjs)
 
 provenance grades a thing against the CODE and odd grades it against its PEERS.

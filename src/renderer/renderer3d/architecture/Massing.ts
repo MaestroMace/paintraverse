@@ -226,7 +226,7 @@ function roofAxisFor(w: number, d: number): RoofAxis {
  *  overhangs 0.3-0.6m. Small and medium buildings keep their full jetty
  *  (footW * 1.15 only exceeds this above ~8m frontage); only the large ones
  *  get trimmed, which is where the sails came from anyway. */
-const MAX_OVERHANG = 0.6
+export const MAX_OVERHANG = 0.6
 
 /** How many volumes the overhang cap has trimmed since the last reset, by
  *  template role. Exposed through the debug bridge: if a template starts
@@ -1445,11 +1445,29 @@ export interface PickMassingInput {
  * MAX_OVERHANG. The hard invariant of the massing pipeline, and therefore the
  * LAST thing that may touch an extent — see the note at its call site.
  */
+/**
+ * Per-side overhang allowance, in METRES, in the building's LOCAL frame.
+ *
+ * MAX_OVERHANG is a per-building budget and the gap between two buildings is
+ * SHARED, so two neighbours each spending 0.6m toward each other produce 1.2m
+ * of interpenetrating geometry — and tools/clash.mjs says every one of the 97
+ * deep overlaps in a town is exactly that: a pair whose reserved footprints
+ * touch. The cap was never wrong about one building; it had no way to know
+ * anyone was on the other side.
+ *
+ * A jetty overhangs the STREET. Where a neighbour stands, the wall stops at
+ * the plot line, which is what a party wall is.
+ */
+export interface OverhangAllowance { nx: number; px: number; nz: number; pz: number }
+
 export function clipToFootprint(
   volumes: Volume[], footW: number, footD: number, definitionId: string,
+  allow?: OverhangAllowance,
 ): void {
-  const halfW = footW / 2 + MAX_OVERHANG
-  const halfD = footD / 2 + MAX_OVERHANG
+  const axLo = allow?.nx ?? MAX_OVERHANG, axHi = allow?.px ?? MAX_OVERHANG
+  const azLo = allow?.nz ?? MAX_OVERHANG, azHi = allow?.pz ?? MAX_OVERHANG
+  const loX = -footW / 2 - axLo, hiX = footW / 2 + axHi
+  const loZ = -footD / 2 - azLo, hiZ = footD / 2 + azHi
   for (const v of volumes) {
     // chimneyVol is anchored to a roof slope and is small by construction.
     if (v.role === 'chimneyVol') continue
@@ -1470,25 +1488,25 @@ export function clipToFootprint(
     // multiplies offsets as well as extents — that walks it out. Shaving is
     // kept for the case it was written for: a volume genuinely WIDER than the
     // box, where there is nowhere to slide to.
-    let loX = v.offsetX - v.width / 2, hiX = v.offsetX + v.width / 2
-    let loZ = v.offsetZ - v.depth / 2, hiZ = v.offsetZ + v.depth / 2
-    if (v.width <= halfW * 2) {
-      const slide = Math.max(0, -halfW - loX) - Math.max(0, hiX - halfW)
-      loX += slide; hiX += slide
+    let vLoX = v.offsetX - v.width / 2, vHiX = v.offsetX + v.width / 2
+    let vLoZ = v.offsetZ - v.depth / 2, vHiZ = v.offsetZ + v.depth / 2
+    if (v.width <= hiX - loX) {
+      const slide = Math.max(0, loX - vLoX) - Math.max(0, vHiX - hiX)
+      vLoX += slide; vHiX += slide
     }
-    if (v.depth <= halfD * 2) {
-      const slide = Math.max(0, -halfD - loZ) - Math.max(0, hiZ - halfD)
-      loZ += slide; hiZ += slide
+    if (v.depth <= hiZ - loZ) {
+      const slide = Math.max(0, loZ - vLoZ) - Math.max(0, vHiZ - hiZ)
+      vLoZ += slide; vHiZ += slide
     }
-    v.offsetX = (loX + hiX) / 2
-    v.offsetZ = (loZ + hiZ) / 2
+    v.offsetX = (vLoX + vHiX) / 2
+    v.offsetZ = (vLoZ + vHiZ) / 2
     // CLIP to the allowed box rather than shrinking symmetrically. Shrinking
     // width by the overhang pulls BOTH edges in, which walks a wing away from
     // the wall it is attached to and leaves it floating. Recomputing the
     // extents and the offset from them moves only the edge that was outside.
-    const nLoX = Math.max(loX, -halfW), nHiX = Math.min(hiX, halfW)
-    const nLoZ = Math.max(loZ, -halfD), nHiZ = Math.min(hiZ, halfD)
-    if (nLoX > loX || nHiX < hiX || nLoZ > loZ || nHiZ < hiZ) {
+    const nLoX = Math.max(vLoX, loX), nHiX = Math.min(vHiX, hiX)
+    const nLoZ = Math.max(vLoZ, loZ), nHiZ = Math.min(vHiZ, hiZ)
+    if (nLoX > vLoX || nHiX < vHiX || nLoZ > vLoZ || nHiZ < vHiZ) {
       const key = `${definitionId}:${v.role}`
       overhangClamps[key] = (overhangClamps[key] ?? 0) + 1
       v.width = Math.max(0.1, nHiX - nLoX)

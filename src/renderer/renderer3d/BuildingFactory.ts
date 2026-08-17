@@ -16,7 +16,7 @@ import { stableHash } from '../core/types'
 import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
-import { pickMassing, volumeFloors, traceStage, clipToFootprint } from './architecture/Massing'
+import { pickMassing, volumeFloors, traceStage, clipToFootprint, MAX_OVERHANG as MAX_OVERHANG_M } from './architecture/Massing'
 import { facadeOpenings, quantizeWallM } from './FacadeTexture'
 import { gableMath, clampRoofHeight, clampRoofToWall } from './architecture/Roofs'
 import { emitVolume, localToWorld, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
@@ -476,6 +476,32 @@ export function buildBuildingMeshes(
   const detailBatch = new BatchedMeshBuilder()
   const ornamentBatch = new BatchedMeshBuilder()
 
+  // WHICH TILES ARE SPOKEN FOR, so the overhang can tell a street from a
+  // neighbour. MAX_OVERHANG is a per-building budget and the gap between two
+  // buildings is SHARED: tools/clash.mjs classified every one of the 97 deep
+  // interpenetrations in a town as a pair whose reserved footprints TOUCH, two
+  // neighbours each spending 0.6m into the same space. Built once here rather
+  // than per building, because it is O(objects) and the loop is O(objects).
+  const occupied = new Set<string>()
+  for (const o of objects) {
+    const d = defMap.get(o.definitionId)
+    const f = o.footprint ?? d?.footprint ?? { w: 1, h: 1 }
+    for (let dy = 0; dy < Math.max(1, f.h); dy++) {
+      for (let dx = 0; dx < Math.max(1, f.w); dx++) occupied.add(`${o.x + dx},${o.y + dy}`)
+    }
+  }
+  /** Is any tile along one side of this rectangle claimed by someone else? */
+  const sideTaken = (
+    ox: number, oy: number, w: number, h: number, dx: number, dy: number,
+  ): boolean => {
+    for (let i = 0; i < (dx !== 0 ? h : w); i++) {
+      const tx = dx !== 0 ? (dx < 0 ? ox - 1 : ox + w) : ox + i
+      const ty = dy !== 0 ? (dy < 0 ? oy - 1 : oy + h) : oy + i
+      if (occupied.has(`${tx},${ty}`)) return true
+    }
+    return false
+  }
+
   // Reset diagnostics for this run.
   const failures: BuildingDiagnostics['failures'] = []
   let attempted = 0, succeeded = 0, failed = 0
@@ -816,7 +842,40 @@ export function buildBuildingMeshes(
     // Re-clip, with the same function pickMassing uses. This is the last thing
     // in the pipeline that may touch an extent, which is what makes the
     // invariant hold instead of merely being intended.
-    clipToFootprint(massing.volumes, fp.w, fp.h, obj.definitionId)
+    // A JETTY OVERHANGS THE STREET, NOT NEXT DOOR.
+    //
+    // Per-side now: full MAX_OVERHANG where the adjacent tiles are free, and
+    // nothing where a neighbour has reserved them — a wall that stops at the
+    // plot line IS a party wall, which is what 93% of this town has. Applied
+    // only on this final clip, which is the last thing to touch an extent and
+    // therefore the one that governs; pickMassing cannot do it because it
+    // sizes one building with no knowledge of the street.
+    //
+    // The LOCAL frame is what the clip works in, and rotationY maps it to the
+    // world. baseRot is 0, PI or +-PI/2, and the +-PI/2 case is already
+    // restricted to square-ish footprints precisely so a rotation cannot swap
+    // the reserved rectangle's axes — so rounding to the nearest quarter turn
+    // is exact for the base and off by only the wobble (+-3 deg where a road
+    // aligns the building, which is 55% of them).
+    {
+      const q = ((Math.round(rotationY / (Math.PI / 2)) % 4) + 4) % 4
+      // World sides, in the order local -X, +X, -Z, +Z after q quarter-turns.
+      const worldFree = [
+        !sideTaken(obj.x, obj.y, fpT.w, fpT.h, -1, 0),
+        !sideTaken(obj.x, obj.y, fpT.w, fpT.h, 1, 0),
+        !sideTaken(obj.x, obj.y, fpT.w, fpT.h, 0, -1),
+        !sideTaken(obj.x, obj.y, fpT.w, fpT.h, 0, 1),
+      ]
+      // q=0: (-X,+X,-Z,+Z)  q=1: local -X is world -Z ... rotate the mapping.
+      const order = [[0, 1, 2, 3], [2, 3, 1, 0], [1, 0, 3, 2], [3, 2, 0, 1]][q]
+      const A = MAX_OVERHANG_M
+      clipToFootprint(massing.volumes, fp.w, fp.h, obj.definitionId, {
+        nx: worldFree[order[0]] ? A : 0,
+        px: worldFree[order[1]] ? A : 0,
+        nz: worldFree[order[2]] ? A : 0,
+        pz: worldFree[order[3]] ? A : 0,
+      })
+    }
     // And re-cap the roofs, because the clip may have narrowed a volume and a
     // roof sized for the original span is the floating-finial bug this repo
     // already fixed once by ordering: buildRoof re-clamps against the real
