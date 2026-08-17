@@ -106,15 +106,28 @@ function rand01(hash: number, salt: number): number {
   return n / 0xffffffff
 }
 
+// ROOFS LIFTED, and for a measured reason rather than taste.
+//
+// tools/eyeball.mjs reads absolute luma by surface. After the skylight fix the
+// walls sit at 0.203 and the roofs at 0.087 with a THIRD of every roof pixel
+// still effectively black at midday. That is not the light rig — the day/night
+// A/B cleared it — and it is not a colour-space bug: bakeVertexColor goes
+// through new THREE.Color(hex), which converts sRGB to linear correctly. It is
+// simply the palette. 0xe8d8b8 is 0.808 linear and 0x8b4513 is 0.258, a 3.1x
+// albedo gap against a 2.3x measured render gap, which is as close as
+// orientation lets those two numbers get.
+//
+// Real tile and slate in daylight are mid tones. These keep their hue and
+// their character and stop being silhouettes.
 const DEFAULT_BUILDING_PALETTES = [
-  { wall: 0xe8d8b8, roof: 0x8b4513, door: 0x5a4030 },  // warm cream + brown roof
-  { wall: 0xd8c8a0, roof: 0x7a3020, door: 0x4a3020 },  // tan + dark red roof
-  { wall: 0xf0e8d8, roof: 0x6a4a3a, door: 0x6a4a30 },  // white stucco + terracotta
-  { wall: 0xc0a880, roof: 0x505868, door: 0x3a3a42 },  // sandstone + slate roof
-  { wall: 0xb87050, roof: 0x5a3020, door: 0x4a3020 },  // red brick
-  { wall: 0xd8d0c0, roof: 0x4a7a5a, door: 0x3a5a4a },  // pale + green copper roof
-  { wall: 0xa09888, roof: 0x484858, door: 0x3a3a42 },  // grey stone + dark slate
-  { wall: 0xe0d0b0, roof: 0x8a5a40, door: 0x5a4030 },  // buttercream + wood
+  { wall: 0xe8d8b8, roof: 0xb0602c, door: 0x5a4030 },  // warm cream + terracotta
+  { wall: 0xd8c8a0, roof: 0xa04530, door: 0x4a3020 },  // tan + red tile
+  { wall: 0xf0e8d8, roof: 0x8f6a52, door: 0x6a4a30 },  // white stucco + brown tile
+  { wall: 0xc0a880, roof: 0x6f7889, door: 0x3a3a42 },  // sandstone + slate
+  { wall: 0xb87050, roof: 0x82492f, door: 0x4a3020 },  // red brick
+  { wall: 0xd8d0c0, roof: 0x6a9e7c, door: 0x3a5a4a },  // pale + green copper
+  { wall: 0xa09888, roof: 0x676a7c, door: 0x3a3a42 },  // grey stone + dark slate
+  { wall: 0xe0d0b0, roof: 0xac7856, door: 0x5a4030 },  // buttercream + wood shingle
 ]
 
 // Sky dome shader — gradient hemisphere from horizon to zenith

@@ -26,6 +26,23 @@ interface FacadeConfig {
   hasAwning: boolean
   hasShutters: boolean
   hasFlowerBox: boolean
+  /**
+   * IS THIS A WALL SOMEBODY LIVES BEHIND?
+   *
+   * The door was gated on `face === 'front'` alone, and every masonry volume
+   * in the town has a front. `tools/facade.mjs` found 44 doors a town painted
+   * OUTSIDE the wall carrying them — 29 along boundary walls, 6 on bridges —
+   * because a 2.05m door on a 1.45m precinct wall is anchored to the canvas
+   * base and simply clipped, so it fills the wall top to bottom with its head
+   * cut off. A churchyard wall with a front door every metre.
+   *
+   * THIRD INSTANCE of `role: 'mainBody'` carrying two meanings. It already
+   * meant both "the principal volume" and "a room, so apply the habitability
+   * rules", which was fixed for SIZING with `Volume.habitable = false`. The
+   * door is the sibling that kept reading the role. Derive it from the same
+   * declaration rather than from the role.
+   */
+  hasDoor: boolean
   style: string // 'ornate' | 'standard' | 'rustic' | 'weathered'
   /** Optional override color for the ground-floor band — paints the lower
    *  TEXTURE_SCALE pixels of the canvas in this color, simulating the
@@ -146,12 +163,18 @@ function facadeKey(config: FacadeConfig, face: FacadeFace): string {
   // into the same texture/material, allowing coalesceWalls to merge their
   // wall meshes. The CANVAS still paints with the full-fidelity colors
   // (see createFacadeTexture below) — only the cache identity is quantized.
+  //
+  // EVERY FIELD THE DRAWING READS MUST BE IN HERE. A flag that changes what
+  // is painted but not the key hands the second caller the first caller's
+  // canvas, which is a wrong texture with no error anywhere — `hasDoor`
+  // would have put a door back on half the boundary walls it was added to
+  // remove one from, at random, depending on build order.
   const wq = quantizeColor(config.wallColor)
   const dq = quantizeColor(config.doorColor)
   const gfc = config.groundFloorColor !== undefined
     ? quantizeColor(config.groundFloorColor).toString(16)
     : 'none'
-  return `${config.floors}_${Math.round(config.width * 2)}_${Math.round(config.wallH * 2)}_${wq.toString(16)}_${dq.toString(16)}_${config.hasTimber}_${config.hasAwning}_${config.hasShutters}_${config.hasFlowerBox}_${config.style}_${gfc}_${face}`
+  return `${config.floors}_${Math.round(config.width * 2)}_${Math.round(config.wallH * 2)}_${wq.toString(16)}_${dq.toString(16)}_${config.hasTimber}_${config.hasAwning}_${config.hasShutters}_${config.hasFlowerBox}_${config.hasDoor}_${config.style}_${gfc}_${face}`
 }
 
 function hexToRGB(color: number): [number, number, number] {
@@ -281,6 +304,18 @@ export function facadeOpenings(
   // floor is dropped when the wall is not tall enough to hold it rather than
   // every floor being compressed to fit.
   const floorsThatFit = Math.max(1, Math.min(floors, Math.floor(wallHm / STOREY_M)))
+  // ...EXCEPT THAT `max(1, ...)` FORCES A STOREY ONTO A WALL THAT CANNOT HOLD
+  // ONE. The comment above is true of floors 2 and up and defeated for floor
+  // 0: the lowest window's head sits at SILL_M + WIN_H_M = 2.30m whatever the
+  // wall does, so a 1.5m volume — a porch, an outshot, a lean-to, a coping —
+  // was painted with a window whose top is 0.80m ABOVE ITS OWN ROOFLINE.
+  //
+  // This is the exact sibling of the width defect below, one axis over, and it
+  // was found by asking the same question vertically rather than by a new
+  // measurement. A bug in a gate is a bug in a PATTERN — and `uW` and `vH` are
+  // the same unclamped `size / wall` fraction written twice.
+  const HEAD_M = 0.25   // lintel plus a course of wall above it
+  if (SILL_M + WIN_H_M + HEAD_M > wallHm) return []
   // Ground-floor flanks stay blind — that is where the party wall, the
   // buttress and the lean-to go. A blind base with openings above is what
   // makes a side wall read as a side wall rather than a second front.
@@ -297,8 +332,32 @@ export function facadeOpenings(
   }
   const blockRate = face === 'front' ? 0 : (face === 'back' ? 0.14 : 0.22)
 
+  // A WINDOW CANNOT BE THE WHOLE WALL.
+  //
+  // `uW` is `WIN_W_M / wallWm` — a fraction with no ceiling — and both ends of
+  // that ratio are 1.0 at the bottom of the range: WIN_W_M is 1.0m and
+  // quantizeWallM floors at 1.0m. So every volume 1.25m or narrower was
+  // painted with an opening running corner to corner, at every storey. On the
+  // 1.20m x 10.49m wings that turned up in the audit that is a three-storey
+  // glass slot with no wall left to be a wall, and the structural corner posts
+  // standing straight down the middle of it.
+  //
+  // It reported as "a post covers 11% of a window", which is the small half of
+  // the finding and the only half a collision count can express. The window
+  // being 100% of its wall is not a collision at all, so nothing was ever
+  // going to say it — the same shape as MIN_OPENING_W at the other end of the
+  // range, where a fraction of a sliver came out as a 13cm "window".
+  //
+  // A window needs a pier either side, and the corner post lives in that pier.
+  // If one will not fit, the wall is too narrow to be pierced — which is what
+  // a real narrow outbuilding elevation is: masonry.
+  const PIER_M = 0.28          // pier each side, wide enough to hold the post
+  const MIN_WIN_W_M = 0.5      // narrower than this is an arrow slit, not a window
+  const winWm = Math.min(WIN_W_M, wallWm - 2 * PIER_M)
+  if (winWm < MIN_WIN_W_M) return []
+
   // Half a window plus a corner post's width, as a fraction of the wall.
-  const marginU = Math.min(0.45, (0.24 + WIN_W_M / 2) / wallWm)
+  const marginU = Math.min(0.45, (0.24 + winWm / 2) / wallWm)
 
   const cells: WinCell[] = []
   for (let floor = firstFloor; floor < floorsThatFit; floor++) {
@@ -312,7 +371,7 @@ export function facadeOpenings(
       // where the collision was.
       u: Math.min(1 - marginU, Math.max(marginU, (col + 1) / (cols + 1))),
         vCenter: (floor * STOREY_M + SILL_M + WIN_H_M / 2) / wallHm,
-        uW: WIN_W_M / wallWm,
+        uW: winWm / wallWm,
         vH: WIN_H_M / wallHm,
         floor,
         col,
@@ -556,8 +615,15 @@ export function createFacadeTexture(config: FacadeConfig, face: FacadeFace): THR
     }
   }
 
-  // Door (front face only)
-  if (face === 'front') {
+  // Door (front face only, and only on a wall that can hold one).
+  //
+  // The height test is not redundant with `hasDoor` — it is the exact form of
+  // the same question, and it catches the case the declaration cannot: a
+  // habitable volume can still be shorter than a door. `doorY = h - doorH`
+  // anchors to the canvas base, so when the wall is shorter the door is drawn
+  // from above the top edge and CLIPPED, which reads as a slab, not a door.
+  const DOOR_LINTEL_M = 0.18
+  if (face === 'front' && config.hasDoor && 2.05 + DOOR_LINTEL_M <= h / M) {
     // A door you can walk through: 0.95m x 2.05m.
     const doorW = 0.95 * M
     const doorH = 2.05 * M
@@ -602,9 +668,16 @@ export function createFacadeTexture(config: FacadeConfig, face: FacadeFace): THR
   // darker, and crucially OFF THE AXIS: a rear door sits beside the stair or
   // the scullery, never centred on the elevation. A centred rear door is the
   // single tell that a building has been mirrored rather than finished.
-  if (face === 'back') {
+  //
+  // SAME GATE AS THE FRONT. `doorY = h - doorH` with no height test, written
+  // twice — so the rear elevation put a clipped 1.95m batten door on every
+  // boundary wall and bridge pier exactly as the front did. The audit records
+  // only front openings and could not have found this one; the sibling sweep
+  // did. A bug in a gate is a bug in a PATTERN.
+  const REAR_DOOR_H_M = 1.95
+  if (face === 'back' && config.hasDoor && REAR_DOOR_H_M + 0.18 <= h / M) {
     const doorW = 0.85 * M
-    const doorH = 1.95 * M
+    const doorH = REAR_DOOR_H_M * M
     // Off-centre, but deterministically so — the texture is cached.
     const leftish = ((config.wallColor >> 4) & 1) === 0
     const doorX = leftish ? w * 0.28 - doorW / 2 : w * 0.72 - doorW / 2

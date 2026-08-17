@@ -201,19 +201,49 @@ export interface BuildingTop {
  * base, so an opening and a member are directly comparable.
  */
 export interface FacadePart {
-  id: string; def: string; kind: string
+  id: string; def: string; vol: string; kind: string
   x0: number; x1: number; y0: number; y1: number
 }
 export const facadeParts: FacadePart[] = []
 function recordPart(
-  id: string, def: string, kind: string,
+  id: string, def: string, vol: string, kind: string,
   cx: number, cy: number, w: number, h: number,
 ): void {
   facadeParts.push({
-    id, def, kind,
+    id, def, vol, kind,
     x0: +(cx - w / 2).toFixed(3), x1: +(cx + w / 2).toFixed(3),
     y0: +(cy - h / 2).toFixed(3), y1: +(cy + h / 2).toFixed(3),
   })
+}
+
+/**
+ * WHICH WALL A PART IS NAILED TO — and why a part needs to say so.
+ *
+ * The frame above is wall-local: x from the wall's centre, y above the wall's
+ * base. That frame belongs to a VOLUME, and a building has several. The audit
+ * keyed parts by `obj.id` alone and therefore cross-multiplied every opening
+ * of every volume against every member of every other one — so a tower's
+ * full-width head plate "covered 100%" of a window painted on the main body
+ * two metres away and on a different wall plane.
+ *
+ * The tell was that BuildingFactory's own `_clearsOpenings` guard and the
+ * audit DISAGREED. That guard is a strict AABB test with no reveal tolerance,
+ * so it is strictly harsher than the audit's glass test; a member it passes
+ * cannot fail the audit. Two checks of the same thing where the stricter one
+ * says clean and the looser one says dirty is arithmetic telling you they are
+ * not looking at the same thing.
+ *
+ * Same lesson as the phantom door — a tool's two halves must count the same
+ * population — one level further down: there the population was the wrong
+ * BUILDINGS, here it is the wrong WALLS within one building. Keyed by the
+ * geometry that defines the frame rather than by an index, so it stays stable
+ * across passes that reorder the volume array.
+ */
+function volKey(v: {
+  role: string; offsetX: number; offsetZ: number; width: number; bottomY: number
+}): string {
+  return `${v.role}@${v.offsetX.toFixed(2)},${v.offsetZ.toFixed(2)}` +
+    `,${v.width.toFixed(2)},${v.bottomY.toFixed(2)}`
 }
 
 /** One built volume's world box — see the note at the push site. */
@@ -1135,34 +1165,52 @@ export function buildBuildingMeshes(
         const halfD = v.depth / 2
         const baseLocalY = v.bottomY
 
-        if (wantsTimberPosts) {
-          // WHERE THE PAINTED OPENINGS ARE. Same call the texture, the
-          // emissive map and VolumeRenderer's window trim all make, so the
-          // frame is finally looking at the same grid everything else uses
-          // instead of an independent bay pitch.
-          const _openW = quantizeWallM(v.width, 'front')
-          const _openCells = facadeOpenings(
-            volumeFloors(v), _openW, quantizeWallM(v.height, 'front', 1.5),
-            'front', v.wallColor)
-          for (const c of _openCells) {
-            recordPart(obj.id, obj.definitionId, 'window',
-              (c.u - 0.5) * v.width, c.vCenter * v.height,
-              c.uW * v.width, c.vH * v.height)
-          }
-          // The door: FacadeTexture centres a 0.95 x 2.05m opening on the
-          // front wall's base. Hardcoded there, so hardcoded here — and if
-          // that ever drifts, tools/facade.mjs is what will say so.
-          //
-          // ONLY THE MAIN BODY HAS ONE. The first cut recorded a door for
-          // every framed volume, so a tower's four corner posts each "crossed"
-          // a door that is not painted on it — 50 phantom collisions on a
-          // single building. A tool's two halves have to count the same
-          // population, and this half was inventing members of it.
-          const _hasDoor = v.role === 'mainBody'
-          if (_hasDoor) {
-            recordPart(obj.id, obj.definitionId, 'door', 0, 2.05 / 2, 0.95, 2.05)
-          }
+        // WHERE THE PAINTED OPENINGS ARE. Same call the texture, the emissive
+        // map and VolumeRenderer's window trim all make, so the frame is
+        // finally looking at the same grid everything else uses instead of an
+        // independent bay pitch.
+        //
+        // RECORDED FOR EVERY WALL, NOT ONLY THE TIMBERED ONES. This sat inside
+        // `if (wantsTimberPosts)` and so did the audit's entire view of the
+        // town: a quoined stone elevation painted its openings through exactly
+        // the same function and nothing ever looked at them. That is the
+        // "measured a fifth of the frame" mistake — which took the collision
+        // count 118 -> 550 members when it was fixed for the members — sitting
+        // unnoticed on the OPENINGS half of the same tool.
+        //
+        // Every part below is in THIS volume's wall frame — see volKey.
+        const _vk = volKey(v)
+        const _openW = quantizeWallM(v.width, 'front')
+        const _openCells = facadeOpenings(
+          volumeFloors(v), _openW, quantizeWallM(v.height, 'front', 1.5),
+          'front', v.wallColor)
+        // The wall itself, so the audit can ask the one question that needs no
+        // threshold at all: is what we painted actually ON it? Both defects
+        // this pass fixed — a window as wide as its wall, and a window whose
+        // head sits 0.80m above its own roofline — are containment failures,
+        // and neither is a collision, so a collision count could never have
+        // reported either. An exact test beats a heuristic proxy.
+        recordPart(obj.id, obj.definitionId, _vk, 'wall', 0, v.height / 2, v.width, v.height)
+        for (const c of _openCells) {
+          recordPart(obj.id, obj.definitionId, _vk, 'window',
+            (c.u - 0.5) * v.width, c.vCenter * v.height,
+            c.uW * v.width, c.vH * v.height)
+        }
+        // The door: FacadeTexture centres a 0.95 x 2.05m opening on the
+        // front wall's base. Hardcoded there, so hardcoded here — and if
+        // that ever drifts, tools/facade.mjs is what will say so.
+        //
+        // ONLY THE MAIN BODY HAS ONE. The first cut recorded a door for
+        // every framed volume, so a tower's four corner posts each "crossed"
+        // a door that is not painted on it — 50 phantom collisions on a
+        // single building. A tool's two halves have to count the same
+        // population, and this half was inventing members of it.
+        const _hasDoor = v.role === 'mainBody' && v.habitable !== false
+        if (_hasDoor) {
+          recordPart(obj.id, obj.definitionId, _vk, 'door', 0, 2.05 / 2, 0.95, 2.05)
+        }
 
+        if (wantsTimberPosts) {
           // === EXPOSED TIMBER FRAME ===
           //
           // This is the "giant floating accent timbers" reported from the
@@ -1204,7 +1252,7 @@ export function buildBuildingMeshes(
                 leanX, leanZ, rotationY, wx, wy, wz)
               ornamentBatch.addPositioned(post, 0x3a2418) // dark oak
               if (sz === 1) {
-                recordPart(obj.id, obj.definitionId, 'post',
+                recordPart(obj.id, obj.definitionId, _vk, 'post',
                   sx * cornerX, postH / 2, postT, postH)
               }
             }
@@ -1303,7 +1351,7 @@ export function buildBuildingMeshes(
                   leanX, leanZ, rotationY, wx, wy, wz)
                 ornamentBatch.addPositioned(stud, 0x3a2418)
                 if (sz === 1) {
-                  recordPart(obj.id, obj.definitionId, 'stud',
+                  recordPart(obj.id, obj.definitionId, _vk, 'stud',
                     studX - v.offsetX, postH / 2, studT, postH)
                 }
               }
@@ -1332,7 +1380,7 @@ export function buildBuildingMeshes(
                 leanX, leanZ, rotationY, wx, wy, wz)
               ornamentBatch.addPositioned(beam, 0x3a2418)
               if (sz === 1) {
-                recordPart(obj.id, obj.definitionId, 'headPlate',
+                recordPart(obj.id, obj.definitionId, _vk, 'headPlate',
                   0, beamY - baseLocalY, v.width, 0.10)
               }
             }
@@ -1376,7 +1424,7 @@ export function buildBuildingMeshes(
                   leanX, leanZ, rotationY, wx, wy, wz)
                 ornamentBatch.addPositioned(fl, 0x3a2418)
                 if (sz === 1) {
-                  recordPart(obj.id, obj.definitionId, 'floorBeam',
+                  recordPart(obj.id, obj.definitionId, _vk, 'floorBeam',
                     0, flBeamY - baseLocalY, v.width, flBeamH)
                 }
               }
@@ -1416,7 +1464,7 @@ export function buildBuildingMeshes(
                   // axes. Approximating a diagonal by its box over-reports a
                   // little and under-reports nothing, which is the right way
                   // round for an audit.
-                  recordPart(obj.id, obj.definitionId, 'brace',
+                  recordPart(obj.id, obj.definitionId, _vk, 'brace',
                     sx * (cornerX - braceRun / 2), floorH - braceRun / 2,
                     braceRun + braceT, braceRun + braceT)
                 }
@@ -2402,7 +2450,7 @@ export function buildBuildingMeshes(
           leanX, leanZ, rotationY, wx, wy, wz)
         ornamentBatch.addPositioned(stripGeo, stripColor)
         if (s === 0) {
-          recordPart(obj.id, obj.definitionId, 'awning',
+          recordPart(obj.id, obj.definitionId, volKey(mainVol), 'awning',
             0, awningY - mainVol.bottomY, awningW, 0.04)
         }
       }
@@ -2455,11 +2503,20 @@ export function buildBuildingMeshes(
         localToWorld(cg, colLocalX, colH / 2, frontWallZ + 0.25,
           0, 0, rotationY, wx, wy, wz)
         detailBatch.addPositioned(cg, 0xc0b8a8)
+        // A THIRD GRID ON THE SAME WALL. Columns sit at mainVol.width /
+        // (numCols + 1) — about a 1.9m pitch — while facadeOpenings paints on
+        // ~2.4m, so the colonnade beats against the windows exactly as the
+        // studs did, and a column is 24-68cm thick against a stud's 8cm.
+        recordPart(obj.id, obj.definitionId, volKey(mainVol), 'column',
+          colLocalX - mainVol.offsetX, colH / 2 - mainVol.bottomY,
+          colR * 2, colH)
       }
       const bg = new THREE.BoxGeometry(mainVol.width + 0.2, 0.12, 0.25)
       localToWorld(bg, 0, colH + 0.06, frontWallZ + 0.25,
         0, 0, rotationY, wx, wy, wz)
       detailBatch.addPositioned(bg, 0xc0b8a8)
+      recordPart(obj.id, obj.definitionId, volKey(mainVol), 'entablature',
+        -mainVol.offsetX, colH + 0.06 - mainVol.bottomY, mainVol.width + 0.2, 0.12)
     }
 
     // === BALCONY → batched ===
@@ -2486,6 +2543,12 @@ export function buildBuildingMeshes(
       localToWorld(pg, 0, balcY, frontWallZ + balcD / 2,
         leanX, leanZ, rotationY, wx, wy, wz)
       detailBatch.addPositioned(pg, 0x705a40)
+      // balcY is FLOOR_HEIGHT * 1.1 * heightMult, and heightMult is not a
+      // quantity facadeOpenings knows about — so the slab and its rail can
+      // land across the first-floor glazing on a building whose multiplier
+      // runs high. Recorded as one band, slab through rail top.
+      recordPart(obj.id, obj.definitionId, volKey(mainVol), 'balcony',
+        -mainVol.offsetX, balcY + 0.11 - mainVol.bottomY, balcW, 0.34)
       const rg = new THREE.BoxGeometry(balcW, 0.25, 0.04)
       localToWorld(rg, 0, balcY + 0.15, frontWallZ + balcD,
         leanX, leanZ, rotationY, wx, wy, wz)

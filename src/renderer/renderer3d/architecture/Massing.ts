@@ -1442,8 +1442,35 @@ export function clipToFootprint(
   for (const v of volumes) {
     // chimneyVol is anchored to a roof slope and is small by construction.
     if (v.role === 'chimneyVol') continue
-    const loX = v.offsetX - v.width / 2, hiX = v.offsetX + v.width / 2
-    const loZ = v.offsetZ - v.depth / 2, hiZ = v.offsetZ + v.depth / 2
+    // SLIDE BEFORE YOU SHAVE.
+    //
+    // The clip must run last — that ordering is what took 39 volumes-outside-
+    // the-box to 0 — but "last" only decides WHEN, not HOW, and shaving was
+    // the wrong how. A volume hanging off one edge lost everything past it,
+    // floored at 0.1m, so a 2.6m wing pushed out by wealthScale came back as a
+    // 1.20m x 10.49m splinter: an aspect of nearly 9:1, standing on an
+    // ordinary row house. tools/facade.mjs found them sideways, as a window
+    // painted corner to corner on a wall too narrow to hold one.
+    //
+    // A volume that FITS in the box and merely sits in the wrong place does
+    // not need to lose anything; it needs to move. Sliding is also a
+    // restoration rather than a distortion here, because the templates author
+    // a wing flush inside the footprint and it is wealthScale — which
+    // multiplies offsets as well as extents — that walks it out. Shaving is
+    // kept for the case it was written for: a volume genuinely WIDER than the
+    // box, where there is nowhere to slide to.
+    let loX = v.offsetX - v.width / 2, hiX = v.offsetX + v.width / 2
+    let loZ = v.offsetZ - v.depth / 2, hiZ = v.offsetZ + v.depth / 2
+    if (v.width <= halfW * 2) {
+      const slide = Math.max(0, -halfW - loX) - Math.max(0, hiX - halfW)
+      loX += slide; hiX += slide
+    }
+    if (v.depth <= halfD * 2) {
+      const slide = Math.max(0, -halfD - loZ) - Math.max(0, hiZ - halfD)
+      loZ += slide; hiZ += slide
+    }
+    v.offsetX = (loX + hiX) / 2
+    v.offsetZ = (loZ + hiZ) / 2
     // CLIP to the allowed box rather than shrinking symmetrically. Shrinking
     // width by the overhang pulls BOTH edges in, which walks a wing away from
     // the wall it is attached to and leaves it floating. Recomputing the

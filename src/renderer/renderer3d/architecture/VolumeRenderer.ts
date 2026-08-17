@@ -356,6 +356,12 @@ export function emitVolume(
         hasAwning: false,
         hasShutters: ctx.hasShutters,
         hasFlowerBox: ctx.hasFlowerBox,
+        // A door belongs to a room, not to a role. `mainBody` means both "the
+        // principal volume" and "somewhere a person stands", and the second
+        // meaning is what `habitable: false` was introduced to withdraw — for
+        // sizing. The door kept reading the role, so bridges and boundary
+        // walls got one. See FacadeConfig.hasDoor.
+        hasDoor: v.role === 'mainBody' && v.habitable !== false,
         style: ctx.style,
         groundFloorColor,
       }

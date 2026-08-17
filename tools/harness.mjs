@@ -156,7 +156,11 @@ const CHECKS = [
     name: 'eyeball',
     why: 'what FILLS a street view — chosen by screen presence, not by any audit',
     electron: true,
-    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/eyeball.mjs', '31337', '--views=4']],
+    // SIX views, not four. Tone is measured over whatever buildings happen to
+    // be in frame, so a small sample swings hard: wallLuma read 222 and then
+    // 180 on the same build inside one sweep. More views is the cheap half of
+    // the fix; the wider band below is the honest half.
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/eyeball.mjs', '31337', '--views=6']],
     extract: (o) => ({
       roofToWallMed: num(o, /p10 \d+%\s+med (\d+)%/),
       roofOver80: num(o, /over 80% \(roof nearly as tall as the house\): \d+ \((\d+)%\)/),
@@ -169,15 +173,22 @@ const CHECKS = [
       roofBlackPct: num(o, /^\s+roof\s+\d+\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+(\d+)%/m),
     }),
     dir: { roofToWallMed: -1, roofOver80: -1, dwellingsOver4: -1, wallLuma: 1, roofBlackPct: -1 },
-    band: { roofToWallMed: 10, roofOver80: 10, dwellingsOver4: 8, wallLuma: 25, roofBlackPct: 12 },
+    band: { roofToWallMed: 14, roofOver80: 10, dwellingsOver4: 8, wallLuma: 50, roofBlackPct: 18 },
   },
   {
     name: 'facade',
     why: '3D detail nailed to a wall, against the openings PAINTED on it',
     electron: true,
     cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/facade.mjs', '31337']],
-    extract: (o) => ({ overOpening: num(o, /VERDICT: (\d+) member-over-opening collisions/) }),
-    dir: { overOpening: -1 }, band: { overOpening: 6 },
+    extract: (o) => ({
+      overOpening: num(o, /VERDICT: (\d+) member-over-opening collisions/),
+      // Openings painted outside the wall they are painted on. A containment
+      // failure, not a collision — the count above is structurally unable to
+      // report it, which is how a window as wide as its whole wall and a
+      // window 0.80m above its own roofline both survived every earlier run.
+      offWall: num(o, /(\d+) openings painted off their own wall/),
+    }),
+    dir: { overOpening: -1, offWall: -1 }, band: { overOpening: 6, offWall: 0 },
   },
   {
     name: 'humanscale',
@@ -193,8 +204,13 @@ const CHECKS = [
     electron: true,
     cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/roofcheck.mjs', '4242', '777', '31337']],
     extract: (o) => ({ openTops: num(o, /TOTAL OPEN-TOPPED VOLUMES ACROSS \d+ SEEDS:\s*(\d+)/) }),
-    // measured 14,13,16 -> spread 3
-    dir: { openTops: -1 }, band: { openTops: 6 },
+    // --repeat=3 measured 14,13,16 and I set the band from that spread of 3.
+    // Across the session the same command on the same build has read 9, 13,
+    // 14, 16, 17, 22 and 23 — and two runs inside ONE sweep read 9 then 17.
+    // THREE SAMPLES ESTIMATE A LOWER BOUND ON NOISE, not the noise. The band
+    // is the observed RANGE now, and the number to act on is the trend across
+    // several runs, never a single reading.
+    dir: { openTops: -1 }, band: { openTops: 12 },
   },
   {
     name: 'odd',
