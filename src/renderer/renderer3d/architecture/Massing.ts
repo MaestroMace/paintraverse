@@ -256,6 +256,27 @@ interface MassingContext {
   floors: number
   wallColor: number
   roofColor: number
+  /**
+   * HOW FAR THE GROUND FALLS ACROSS THIS FOOTPRINT, in world metres.
+   *
+   * `wy` — the Y a building is placed at — is the MAX terrain height over its
+   * footprint, so it sits on the highest ground it covers and a stair-step
+   * plinth fills in under the rest. That is right for a house on a slope and
+   * exactly wrong for a span across a channel: the highest tile a bridge
+   * covers is the BANK, so the whole assembly starts at bank level, the piers
+   * never reach the water, and the deck is stacked on top of that.
+   *
+   * Measured on seed 31337 before the fix, all six bridges: decks 2.2-2.4m
+   * above the bank (over a 1.6m eye height — you would climb over your own
+   * head to board one), piers stopping 1.0-2.3m short of the bed, and ELEVEN
+   * plinth columns per bridge filling the channel from bed to bank. Not a
+   * bridge: a dam with an unreachable walkway on it.
+   *
+   * A template that spans a gap needs to know how deep the gap is. This is
+   * maxTH - minTH, the same pair BuildingFactory already computes to size the
+   * plinth — the value existed and simply never reached the templates.
+   */
+  groundDrop: number
 }
 
 /* ------------------------------------------------------------------ */
@@ -1094,9 +1115,25 @@ function tmplStoneBridge(ctx: MassingContext): Volume[] {
   const longAxisX = ctx.footW >= ctx.footD
   const span = longAxisX ? ctx.footW : ctx.footD
   const wide = longAxisX ? ctx.footD : ctx.footW
-  // Clear of the waterline with headroom for a skiff underneath.
-  const deckY = 1.85
+  // THE DECK MEETS THE BANK; THE PIERS GO DOWN TO THE BED.
+  //
+  // This used to read `const deckY = 1.85` — "clear of the waterline with
+  // headroom for a skiff underneath" — measured UP from the placement base.
+  // But the base is the highest ground the footprint covers, which for a
+  // crossing is the bank, so the deck ended up 2.2-2.4m above the ground you
+  // walk in from and the piers hung 1-2.3m above the water they are supposed
+  // to stand in. The headroom the old constant was buying is real and it
+  // belongs BELOW the deck, not above the bank.
+  //
+  // So the deck lands a short camber above the bank — a real bridge rises
+  // slightly to its crown, and a step you can take is the whole point — and
+  // the piers are as tall as the drop to the bed plus that camber.
+  const CAMBER = 0.22
   const deckT = 0.34
+  // Clamped so a crossing on nearly flat ground still reads as a bridge rather
+  // than a kerb, and a freak drop does not build a viaduct.
+  const drop = Math.min(6, Math.max(0.8, ctx.groundDrop))
+  const deckY = drop + CAMBER - deckT   // pier top, measured from the BED
   const stone = 0x8a8478
   const parapet = 0x7b7466
   const vols: Volume[] = []
@@ -1112,7 +1149,10 @@ function tmplStoneBridge(ctx: MassingContext): Volume[] {
       offsetZ: longAxisX ? 0 : off,
       width: longAxisX ? 0.7 : wide * 0.72,
       depth: longAxisX ? wide * 0.72 : 0.7,
-      bottomY: 0, height: deckY,
+      // NEGATIVE, because the placement base is the bank and the bed is below
+      // it. Nothing else in the massing library descends; a bridge is the one
+      // thing that has to.
+      bottomY: -drop, height: deckY,
       roofStyle: 'none', roofHeight: 0, roofAxis: 'x',
       wallColor: stone, roofColor: stone,
       textured: false, cornice: false, floors: 1,
@@ -1125,7 +1165,7 @@ function tmplStoneBridge(ctx: MassingContext): Volume[] {
     offsetX: 0, offsetZ: 0,
     width: (longAxisX ? span : wide) + 0.14,
     depth: (longAxisX ? wide : span) + 0.14,
-    bottomY: deckY, height: deckT,
+    bottomY: CAMBER - deckT, height: deckT,
     roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
     wallColor: stone, roofColor: stone,
     textured: false, cornice: false, floors: 1,
@@ -1139,7 +1179,7 @@ function tmplStoneBridge(ctx: MassingContext): Volume[] {
       offsetZ: longAxisX ? sgn * (wide / 2 - 0.16) : 0,
       width: longAxisX ? span + 0.14 : 0.32,
       depth: longAxisX ? 0.32 : span + 0.14,
-      bottomY: deckY + deckT, height: 0.78,
+      bottomY: CAMBER, height: 0.78,
       roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
       wallColor: parapet, roofColor: parapet,
       textured: false, cornice: false, floors: 1,
@@ -1437,6 +1477,8 @@ export interface PickMassingInput {
   floors: number
   wallColor: number
   roofColor: number
+  /** Ground fall across the footprint — see MassingContext.groundDrop. */
+  groundDrop?: number
 }
 
 
@@ -1524,6 +1566,7 @@ export function pickMassing(input: PickMassingInput): MassingResult {
     footW: input.footW, footD: input.footD,
     wallH: input.wallH, floors: input.floors,
     wallColor: input.wallColor, roofColor: input.roofColor,
+    groundDrop: Math.max(0, input.groundDrop ?? 0),
   }
 
   const override = DEF_OVERRIDE[input.definitionId]

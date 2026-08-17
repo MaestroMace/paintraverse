@@ -92,9 +92,36 @@ const info = await win.evaluate(() => {
       // identical in the output meant to tell them apart.
       strip += onDeck ? (wet(x, y) ? '#' : '=') : (wet(x, y) ? '~' : 'L')
     }
+    // CAN YOU WALK ONTO IT? The question this tool never asked.
+    //
+    // Reported from the device: "the whole assembly from the base of the
+    // pillars starts at ground level and not river bed level, so the walkway
+    // is above the human scale head." Correct, and no instrument here could
+    // have said so — bridgeshot photographed the span and printed the tiles
+    // under it, river.mjs measures the channel, clash asks whether it stands
+    // on the ground. None of them asked how far you have to CLIMB to get on.
+    //
+    // The deck's world height comes from structureBox outside this evaluate;
+    // here we record the two ground heights it has to be compared against: the
+    // BANK the player walks in from, and the BED the piers should reach down
+    // to. `heightAt` speaks TILE coordinates — see scale.ts.
+    const hAt = (x, y) => window.__pt.heightAt(x + 0.5, y + 0.5)
+    let bank = -Infinity, bed = Infinity
+    for (let i = -3; i < len + 3; i++) {
+      const x = mx + dx * i, y = my + dy * i
+      if (x < 0 || y < 0 || x >= W || y >= H) continue
+      const h = hAt(x, y)
+      if (!Number.isFinite(h)) continue
+      // Land beside the crossing is the bank you approach from; the wet tiles
+      // under the deck are the bed the piers are supposed to stand in.
+      if (!wet(x, y) && (i < 0 || i >= len)) bank = Math.max(bank, h)
+      if (wet(x, y)) bed = Math.min(bed, h)
+    }
     return {
       id: o.definitionId, oid: o.id, x: o.x, y: o.y, fw: f.w, fh: f.h, alongX, len,
       cx: o.x + f.w / 2, cy: o.y + f.h / 2, strip,
+      bank: Number.isFinite(bank) ? +bank.toFixed(2) : null,
+      bed: Number.isFinite(bed) ? +bed.toFixed(2) : null,
     }
   })
 })
@@ -104,6 +131,69 @@ console.log(`${info.length} bridges in seed ${seed}`)
 console.log('key: L land · ~ open water · # deck OVER WATER · = deck over dry land\n')
 
 const TL = await win.evaluate(() => window.__pt.TILE)
+
+/* --- CAN YOU WALK ONTO IT, AND DO THE PIERS REACH THE WATER? -------- */
+//
+// Reported from the device, and correct: "the whole assembly from the base of
+// the pillars starts at ground level and not river bed level, so the walkway
+// is above the human scale head."
+//
+// `wy` for any building is the MAX terrain height over its footprint — "so the
+// building sits on the highest ground covered", which is right for a house on
+// a slope and exactly wrong for a span across a channel, because the highest
+// tile a bridge covers is the BANK. tmplStoneBridge then authors its piers at
+// bottomY 0 and stacks the deck 1.85m ON TOP, so the deck ends up over head
+// height above the bank while the piers stop short of the bed entirely.
+//
+// TWO questions, because they have different answers and one number hides
+// that: how far you must CLIMB to get on the deck, and how far the piers stop
+// SHORT of the bed. The first cut of this block measured the assembly base
+// instead of the deck, read 0.13-0.38m, and would have reported the bridge
+// fine — the base IS near bank level; it is everything above it that is not.
+{
+  const EYE = 1.6
+  const rows = []
+  for (const b of info) {
+    if (b.bank === null || b.bed === null) continue
+    // Read the BUILT volumes rather than re-deriving from template constants.
+    // The deck is the widest piece of trim; the piers are the mainBody roles.
+    const v = await win.evaluate((id) => {
+      const all = window.__pt.sceneFeatures().volumes.filter((q) => q.id === id)
+      if (!all.length) return null
+      const trim = all.filter((q) => q.role === 'trim')
+      const piers = all.filter((q) => q.role === 'mainBody')
+      const area = (q) => (q.x1 - q.x0) * (q.z1 - q.z0)
+      const deck = trim.sort((a, c) => area(c) - area(a))[0]
+      return {
+        deckTop: deck ? deck.y1 : null,
+        pierBottom: piers.length ? Math.min(...piers.map((q) => q.y0)) : null,
+      }
+    }, b.oid)
+    if (!v || v.deckTop === null) continue
+    rows.push({
+      def: b.id, bank: b.bank, bed: b.bed,
+      deck: +v.deckTop.toFixed(2),
+      climb: +(v.deckTop - b.bank).toFixed(2),
+      short: v.pierBottom === null ? null : +(v.pierBottom - b.bed).toFixed(2),
+    })
+  }
+  if (rows.length) {
+    console.log('THE DECK AGAINST THE GROUND IT CROSSES:')
+    console.log('   bank    bed   deck top   climb from bank   piers stop above bed')
+    for (const r of rows.sort((a, c) => c.climb - a.climb)) {
+      const flag = r.climb > EYE ? '   <-- deck is over head height'
+        : r.climb > 0.45 ? '   <-- a clamber, not a landing' : ''
+      console.log(`  ${String(r.bank).padStart(5)} ${String(r.bed).padStart(6)} ` +
+        `${String(r.deck).padStart(10)} ${String(r.climb).padStart(17)} ` +
+        `${String(r.short ?? '-').padStart(22)}${flag}`)
+    }
+    const overHead = rows.filter((r) => r.climb > EYE).length
+    const floating = rows.filter((r) => r.short !== null && r.short > 0.3).length
+    console.log(`  ${overHead} of ${rows.length} decks sit above a ${EYE}m eye height.`)
+    console.log(`  ${floating} of ${rows.length} have piers that never reach the bed.\n`)
+  }
+}
+
 
 for (let i = 0; i < Math.min(want, info.length); i++) {
   const b = info[i]

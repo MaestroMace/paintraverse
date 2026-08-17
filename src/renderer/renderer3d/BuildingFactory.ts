@@ -709,6 +709,28 @@ export function buildBuildingMeshes(
       if (rand01(hash, 407) < 0.5) leanX = -leanX
     }
 
+
+    // === PARAMETRIC MASSING ===
+    // styleVector / dominantArchetype / palette were already computed at
+    // the TOP of the loop so all per-decision code below has access to
+    // them. pickMassing turns the style vector into a Volume[] composition.
+    const massing = pickMassing({
+      definitionId: obj.definitionId,
+      dominantArchetype,
+      sv: styleVector,
+      hash,
+      footW: fp.w, footD: fp.h,
+      wallH, floors,
+      wallColor: palette.wall, roofColor: palette.roof,
+      // The gap a span has to cross — see MassingContext.groundDrop.
+      groundDrop: getHeight ? maxTH - minTH : 0,
+    })
+
+    // THE PLINTH IS EMITTED HERE, AFTER THE MASSING, AND THAT ORDER IS THE
+    // POINT. It used to run before it, so it could not ask the one question
+    // that decides whether it should exist at all: has the massing already
+    // taken responsibility for the drop? Only a span does, and the plinth was
+    // damming every river in the town under every bridge.
     // Foundation plinth — emitted as per-tile stone columns so the foundation
     // STEPS with the terrain rather than sitting as one flat block. Each
     // footprint tile gets its own column from that tile's ground up to the
@@ -716,7 +738,20 @@ export function buildBuildingMeshes(
     // Columns overlap slightly (1.08 vs 1.0) so interior seams don't z-fight
     // and outer edges extend past the wall face, matching the old plinth's
     // +0.06 overhang on each side.
-    if (getHeight && maxTH - minTH > 0.08) {
+    // A PLINTH FILLS A GAP. A BRIDGE SPANS ONE.
+    //
+    // This gate was `maxTH - minTH > 0.08` and nothing else, so every bridge
+    // got ELEVEN stone columns running from the river bed up to bank height —
+    // the channel dammed solid, with the piers standing on the dam. Measured
+    // on seed 31337, and it is most of why bridges have never read as bridges.
+    //
+    // Derived rather than a type list, which is this repo's rule: if the
+    // massing already sends something BELOW the placement base, it has taken
+    // responsibility for the drop and does not want stonework poured under it.
+    // Only the bridge templates descend, so only they are exempt — and any
+    // future template that reaches down gets the same treatment for free.
+    const massingDescends = massing.volumes.some((v) => v.bottomY < -0.05)
+    if (getHeight && maxTH - minTH > 0.08 && !massingDescends) {
       const cos = Math.cos(rotationY), sin = Math.sin(rotationY)
       for (let fy = 0; fy < fpT.h; fy++) {
         for (let fx = 0; fx < fpT.w; fx++) {
@@ -764,20 +799,6 @@ export function buildBuildingMeshes(
         }
       }
     }
-
-    // === PARAMETRIC MASSING ===
-    // styleVector / dominantArchetype / palette were already computed at
-    // the TOP of the loop so all per-decision code below has access to
-    // them. pickMassing turns the style vector into a Volume[] composition.
-    const massing = pickMassing({
-      definitionId: obj.definitionId,
-      dominantArchetype,
-      sv: styleVector,
-      hash,
-      footW: fp.w, footD: fp.h,
-      wallH, floors,
-      wallColor: palette.wall, roofColor: palette.roof,
-    })
 
     // (rotationY already computed above — before plinth emission — so
     // the plinth rotates with the building. Reused here for the volume
