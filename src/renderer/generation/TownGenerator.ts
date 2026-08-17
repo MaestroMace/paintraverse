@@ -319,6 +319,16 @@ const VIGNETTES: Vignette[] = [
   // Rural.
   { id: 'hayrick', home: true, front: false, districts: ['garden', 'residential'],
     parts: ['hay_bale', 'cart'] },
+  // FIRE IN THE PUBLIC SPACE, and it is here for the test view rather than for
+  // the plan view. DESIGN.md grades this town at dusk and pillar 5 asks for
+  // three layers of warm light; the two that exist — lamp pools and hung
+  // lanterns — are both overhead, so the walkable ground between them has no
+  // light of its own. A brazier is the one prop in the vocabulary that emits,
+  // now that its ember core actually reaches the emissive mesh instead of
+  // being painted into the lit batch, and a fire basket in a market or on a
+  // quay is what a medieval town put out when the sun went down.
+  { id: 'nightfire', front: true, districts: ['market', 'harbor', 'waterfront', 'fortress'],
+    parts: ['forge_brazier', 'crate'] },
 ]
 
 const DISTRICT_PROPS: Record<DistrictType, string[]> = {
