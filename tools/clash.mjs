@@ -101,6 +101,86 @@ vols.forEach((v, idx) => {
   }
 })
 
+// WHY, NOT JUST HOW MANY.
+//
+// "124 interpenetrations" has been the reading all session and it buys
+// guesses. The depths cluster at 1.18-1.27m with a tail, and MAX_OVERHANG is
+// 0.6m per building, so two neighbours each spending their whole budget toward
+// each other is 1.2m exactly — a clean hypothesis and no more than that.
+// Counting cannot settle it; classifying can. A pair whose reserved footprints
+// TOUCH has a shared-budget explanation that the overhang cap permits by
+// construction. A pair whose footprints are a tile or more APART does not, and
+// that is a different bug wearing the same number.
+//
+// Same move that took unbuilt street frontage from one number to six causes,
+// and gate censuses from "it does not fire" to "noRoomBehind on 55%".
+const foot = await win.evaluate(() => {
+  const st = window.__pt.store.getState()
+  const defs = new Map(st.objectDefinitions.map((d) => [d.id, d]))
+  const layer = st.map.layers.find((l) => l.type === 'structure')
+  const out = {}
+  for (const o of layer?.objects ?? []) {
+    const f = o.footprint ?? defs.get(o.definitionId)?.footprint ?? { w: 1, h: 1 }
+    out[o.id] = { x: o.x, y: o.y, w: Math.max(1, f.w), h: Math.max(1, f.h) }
+  }
+  return out
+})
+/** Gap between two reserved tile rectangles: 0 = touching, <0 = overlapping. */
+const tileGap = (ida, idb) => {
+  const A = foot[ida], B = foot[idb]
+  if (!A || !B) return null
+  const gx = Math.max(B.x - (A.x + A.w), A.x - (B.x + B.w))
+  const gy = Math.max(B.y - (A.y + A.h), A.y - (B.y + B.h))
+  return Math.max(gx, gy)
+}
+
+/**
+ * EXACT OVERLAP OF TWO ORIENTED RECTANGLES — separating-axis, 2D.
+ *
+ * This tool compared world AABBs for its whole life, and the boxes it was
+ * handed are the axis-aligned HULLS of rotated volumes: BuildingFactory
+ * computes hx = (w/2)|cos| + (d/2)|sin|, which is the box AROUND the volume,
+ * not the volume. 55% of buildings carry an off-axis wobble (+-3 deg where a
+ * road aligns them, +-12 deg where none does), and a 6m volume at 12 deg
+ * inflates its hull by 1.25m in the short axis. So two buildings whose walls
+ * are nowhere near each other overlap as hulls, and the reading was inflated
+ * by an amount that grows with the wobble and with the volume's length.
+ *
+ * The tell was arithmetic, exactly as it was for the facade audit: two
+ * touching footprints permit 0.6m of overhang each, so 1.2m is the deepest
+ * overlap the clip can physically produce, and the tool was reporting 1.62m.
+ * A number above a ceiling that the code enforces is a free bug report about
+ * the measurement. provenance says outsideBox = 0 and provenance tests in the
+ * building's own frame, which is the stricter and correct one — when the
+ * stricter check says clean and the looser says dirty, they are not looking at
+ * the same thing.
+ *
+ * SAT on two rectangles needs only four axes (two per box, the other two being
+ * parallel), and the minimum overlap across them IS the penetration depth —
+ * which is the quantity this tool already argued for over area, because a
+ * terrace shares a party wall by design.
+ */
+function obbOverlap(a, b) {
+  const axes = [
+    [Math.cos(a.yaw), Math.sin(a.yaw)], [-Math.sin(a.yaw), Math.cos(a.yaw)],
+    [Math.cos(b.yaw), Math.sin(b.yaw)], [-Math.sin(b.yaw), Math.cos(b.yaw)],
+  ]
+  const dx = b.cx - a.cx, dz = b.cz - a.cz
+  let min = Infinity
+  for (const [ax, az] of axes) {
+    // Projected half-width of a rotated rectangle onto an arbitrary axis.
+    const proj = (o) => {
+      const ux = Math.cos(o.yaw), uz = Math.sin(o.yaw)
+      return Math.abs(o.hw * (ux * ax + uz * az)) +
+             Math.abs(o.hd * (-uz * ax + ux * az))
+    }
+    const overlap = proj(a) + proj(b) - Math.abs(dx * ax + dz * az)
+    if (overlap <= 0) return 0          // a separating axis: they do not touch
+    if (overlap < min) min = overlap
+  }
+  return min
+}
+
 const seenPair = new Set()
 const clashes = []
 for (const list of grid.values()) {
@@ -126,15 +206,67 @@ for (const list of grid.values()) {
       // huge area and 3cm of depth; a wing driven through a neighbour overlaps
       // a small area and a metre of depth. The second is the defect, and only
       // the shallower horizontal axis distinguishes them.
-      const depth = Math.min(ox, oz)
+      // The AABB test above is the BROAD phase and nothing more — it is the
+      // hull of a rotated box. Narrow-phase on the oriented rectangles.
+      const depth = (va.yaw === undefined || vb.yaw === undefined)
+        ? Math.min(ox, oz)                       // stale bundle: old behaviour
+        : obbOverlap(va, vb)
       if (depth <= TOUCH) continue
-      clashes.push({ a: va, b: vb, depth, ox, oz, oy,
+      clashes.push({ a: va, b: vb, depth, ox, oz, oy, gap: tileGap(va.id, vb.id),
         x: (Math.max(va.x0, vb.x0) + Math.min(va.x1, vb.x1)) / 2,
         z: (Math.max(va.z0, vb.z0) + Math.min(va.z1, vb.z1)) / 2 })
     }
   }
 }
 clashes.sort((p, q) => q.depth - p.depth)
+
+// SPLIT BY CAUSE BEFORE PRINTING THE LIST.
+{
+  const deep = clashes.filter((c) => c.depth > 0.5)
+  const cls = { touching: [], apart: [], overlapping: [], unknown: [] }
+  for (const c of deep) {
+    if (c.gap === null) cls.unknown.push(c)
+    else if (c.gap < 0) cls.overlapping.push(c)
+    else if (c.gap === 0) cls.touching.push(c)
+    else cls.apart.push(c)
+  }
+  const line = (k, label, note) => {
+    const a = cls[k]
+    if (!a.length) return
+    const worst = Math.max(...a.map((c) => c.depth))
+    console.log(`  ${String(a.length).padStart(4)}  ${label.padEnd(34)} worst ${worst.toFixed(2)}m   ${note}`)
+  }
+  console.log(`WHY THEY OVERLAP — ${deep.length} pairs deeper than 0.5m, by what the`)
+  console.log('reserved tile footprints say about the two buildings:')
+  line('touching', 'footprints TOUCH', 'two 0.6m overhangs meeting, plus any yaw')
+  line('apart', 'footprints a tile or more APART', 'NOT explained by the overhang cap')
+  line('overlapping', 'footprints OVERLAP', 'audit.mjs should have caught this')
+  line('unknown', 'footprint not found', 'the tool cannot say — treat as a bug in it')
+  // THE "PERMITTED BOX" CHECK THAT WAS HERE IS DELETED, AND THAT IS THE POINT.
+  //
+  // It compared each volume's world AABB against its footprint inflated by
+  // MAX_OVERHANG and printed "OVER BY 1.12m" — which is nonsense for a rotated
+  // building twice over. The AABB is the hull of the rotated box, and the
+  // permitted rectangle is only meaningful in the building's OWN frame, where
+  // a plot is axis-aligned. A building legitimately rotated inside its plot
+  // pokes past an axis-aligned plot box without breaking anything.
+  //
+  // provenance.mjs already owns that invariant, tests it in the local frame,
+  // and reads 0. I built a second, weaker copy of a check that already existed
+  // and believed it over the stricter one — the exact mistake this session
+  // spent a morning diagnosing in the facade audit, committed again three
+  // hours later. When a number disagrees with an existing check, find out
+  // which is stricter before adding a third.
+
+  if (cls.apart.length) {
+    console.log('  the unexplained ones, worst first:')
+    for (const c of cls.apart.sort((x, y) => y.depth - x.depth).slice(0, 8)) {
+      console.log(`      ${c.depth.toFixed(2)}m  ${c.a.def}:${c.a.role} x ${c.b.def}:${c.b.role}` +
+        `  ${c.gap} tile gap  @(${Math.round(c.x)}, ${Math.round(c.z)})`)
+    }
+  }
+  console.log('')
+}
 
 console.log(`INTERPENETRATION — geometry from two different structures sharing space,`)
 console.log(`deeper than ${TOUCH}m (a party wall and the 2cm z-fight nudge pass):`)

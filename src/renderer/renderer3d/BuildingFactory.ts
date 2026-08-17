@@ -301,7 +301,20 @@ function volKey(v: {
 /** One built volume's world box — see the note at the push site. */
 export interface VolumeBox {
   id: string; def: string; role: string; habitable: boolean
+  /**
+   * The AXIS-ALIGNED hull, kept for cheap broad-phase bucketing only.
+   *
+   * It is NOT the volume. `hx = (w/2)|cos| + (d/2)|sin|` is the axis-aligned
+   * box AROUND a rotated rectangle, and 55% of buildings carry an off-axis
+   * wobble (+-3 deg where a road aligns them, +-12 deg where none does). A 6m
+   * volume at 12 deg inflates its hull by 1.25m, so an AABB-vs-AABB test
+   * reports overlap between two buildings whose actual walls are nowhere near
+   * each other. tools/clash.mjs read ~124 deep interpenetrations all session
+   * on exactly that basis.
+   */
   x0: number; x1: number; z0: number; z1: number; y0: number; y1: number
+  /** The ORIENTED box — centre, half-extents and yaw. Use this to test. */
+  cx: number; cz: number; hw: number; hd: number; yaw: number
   groundY: number
 }
 export const volumeBoxes: VolumeBox[] = []
@@ -714,6 +727,11 @@ export function buildBuildingMeshes(
             x1: +(centerTileX * TILE + rx + ph).toFixed(3),
             z0: +(centerTileZ * TILE + rz - ph).toFixed(3),
             z1: +(centerTileZ * TILE + rz + ph).toFixed(3),
+            // A plinth column is emitted per TILE and never rotated, so its
+            // oriented box is its axis-aligned one.
+            cx: +(centerTileX * TILE + rx).toFixed(3),
+            cz: +(centerTileZ * TILE + rz).toFixed(3),
+            hw: +ph.toFixed(3), hd: +ph.toFixed(3), yaw: 0,
             y0: +tileGround.toFixed(3), y1: +(tileGround + colH).toFixed(3),
             groundY: +tileGround.toFixed(3),
           })
@@ -1085,6 +1103,10 @@ export function buildBuildingMeshes(
         habitable: v.habitable !== false,
         x0: +(cx - hx).toFixed(3), x1: +(cx + hx).toFixed(3),
         z0: +(cz - hz).toFixed(3), z1: +(cz + hz).toFixed(3),
+        // ...and the box as it actually stands, so a test can be exact.
+        cx: +cx.toFixed(3), cz: +cz.toFixed(3),
+        hw: +(v.width / 2).toFixed(3), hd: +(v.depth / 2).toFixed(3),
+        yaw: +rotationY.toFixed(5),
         y0: +(wy + v.bottomY).toFixed(3),
         y1: +(wy + v.bottomY + v.height + v.roofHeight).toFixed(3),
         // Ground under this volume's own centre, so "is it standing on
