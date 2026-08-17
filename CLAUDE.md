@@ -1072,6 +1072,7 @@ Run these before believing anything about where the project is.
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
 | prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
+| interpenetration | clash.mjs | **15 pairs over 0.5m, was 124** — see THE OVERHANG BUDGET | fixed |
 | **the river** | **river.mjs** | **bank relief 0.67m med / 1.28m max (was 0.03m), drop +3.6m** | **fixed** |
 | river severance | site.mjs | 0 of 5 seeds have an unreachable district, was 2 | clean |
 | waterfront dressing | (see dressWaterfront) | 10 maritime/natural types at the bank, was 2 | improving |
@@ -2619,6 +2620,42 @@ precisely so a rotation cannot swap the reserved rectangle's axes.
 
     deepClash   124 -> 97    the instrument (AABB hulls of rotated boxes)
                  97 -> 15    the fix (per-side overhang)
+
+**THE HONEST LEDGER, and it is the first one in this repo taken on a build
+where a two-point move means something.** Two metrics moved the wrong way and
+both are consequences rather than surprises:
+
+| metric | before | after | |
+|---|---|---|---|
+| clash deepClash | 124 | **15** | the point |
+| variety twinNear | 9% | **6%** | free |
+| variety twinAny | 39% | **28%** | free |
+| eyeball roofBlackPct | 14% | **10%** | free |
+| urbanform coverage / party / frontage | 45 / 93 / 71 | **45 / 93 / 71** | unmoved |
+| provenance spireAtCap | 0% | 6% | cost |
+| eyeball wallLuma | 0.229 | 0.206 | cost, and see below |
+
+**Coverage, party walls and frontage did not move by a single point**, which is
+the result that mattered: the worry with tightening an overhang is that it
+costs built form, and it costs none. The variety gain is free and makes sense —
+a volume clipped by which neighbours it actually has varies more than one
+clipped by a constant.
+
+`spireAtCap` 0% -> 6% is `clampRoofHeight` biting on the narrower base a
+tighter clip produces. Six percent at a cap is a tail doing what a backstop
+should; the pathology this file records was 96%, where p10 = med = p90.
+
+**And the wall reading is not a lighting change.** The whole table:
+
+    surface    med before -> after     reads black     p10 / p90 (after)
+    wall           0.229 -> 0.206      3% -> 4%        0.081 / 0.411
+    roof           0.161 -> 0.175      14% -> 10%      0.054 / 0.234
+
+The tails are identical and the black share is flat — only the middle moved,
+and the roofs improved. That is what this change does: **walls previously
+buried inside a neighbour are now on screen**, shaded party-wall junctions
+included. The old 0.229 was partly measuring wall that should never have been
+visible. Grade `reads black` here, not the median.
 
 **And I deleted a check I had added an hour earlier**, because it was the
 morning's lesson repeated. It compared each volume's world AABB against its
