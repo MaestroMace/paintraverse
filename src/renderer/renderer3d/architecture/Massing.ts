@@ -11,7 +11,7 @@
 import type { StyleVector } from './StyleVector'
 import type { ArchetypeId } from './Archetypes'
 import type { RoofStyle, RoofAxis } from './Roofs'
-import { clampRoofHeight, ensureRoofPitch, riseForSpan } from './Roofs'
+import { clampRoofHeight, ensureRoofPitch, riseForSpan, clampRoofToWall } from './Roofs'
 import { STOREY_HEIGHT, MIN_HABITABLE_W } from '../scale'
 
 export type VolumeRole =
@@ -1668,6 +1668,9 @@ export function pickMassing(input: PickMassingInput): MassingResult {
     // them this way cannot produce a roof that violates either.
     v.roofHeight = ensureRoofPitch(v.width, v.depth, v.roofHeight, v.roofStyle)
     v.roofHeight = clampRoofHeight(v.width, v.depth, v.roofHeight, v.roofStyle)
+    // Proportion last. Both clamps above are against the SPAN, which is why a
+    // 2.9m wall could carry a 12m roof and still pass every check.
+    v.roofHeight = clampRoofToWall(v.height, v.roofHeight, v.roofStyle)
   }
 
   traceStage(traceId, input.definitionId, 'roofClamp', volumes, ctx.footW, ctx.footD)

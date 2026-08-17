@@ -297,11 +297,20 @@ export function facadeOpenings(
   }
   const blockRate = face === 'front' ? 0 : (face === 'back' ? 0.14 : 0.22)
 
+  // Half a window plus a corner post's width, as a fraction of the wall.
+  const marginU = Math.min(0.45, (0.24 + WIN_W_M / 2) / wallWm)
+
   const cells: WinCell[] = []
   for (let floor = firstFloor; floor < floorsThatFit; floor++) {
     for (let col = 0; col < cols; col++) {
       cells.push({
-        u: (col + 1) / (cols + 1),
+      // KEEP THE OUTERMOST COLUMN OFF THE CORNER. A timber-framed wall has a
+      // corner post at its edge and it is structural, so it cannot move out of
+      // a window's way — tools/facade.mjs measured 34 posts a town crossing
+      // one, the worst covering 93% of it. On a wide wall (col+1)/(cols+1)
+      // already clears; this only bites on the narrow ones, which is exactly
+      // where the collision was.
+      u: Math.min(1 - marginU, Math.max(marginU, (col + 1) / (cols + 1))),
         vCenter: (floor * STOREY_M + SILL_M + WIN_H_M / 2) / wallHm,
         uW: WIN_W_M / wallWm,
         vH: WIN_H_M / wallHm,

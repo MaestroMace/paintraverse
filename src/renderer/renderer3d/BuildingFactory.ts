@@ -17,7 +17,7 @@ import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
 import { pickMassing, volumeFloors, traceStage, clipToFootprint } from './architecture/Massing'
 import { facadeOpenings, quantizeWallM } from './FacadeTexture'
-import { gableMath, clampRoofHeight } from './architecture/Roofs'
+import { gableMath, clampRoofHeight, clampRoofToWall } from './architecture/Roofs'
 import { emitVolume, localToWorld, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
 import { pickPaletteForStyle } from './architecture/PaletteBias'
 import { TILE, STOREY_HEIGHT, MIN_HABITABLE_W } from './scale'
@@ -707,6 +707,7 @@ export function buildBuildingMeshes(
     // clampRoofHeight is idempotent, so last is safe.
     for (const v of massing.volumes) {
       v.roofHeight = clampRoofHeight(v.width, v.depth, v.roofHeight, v.roofStyle)
+      v.roofHeight = clampRoofToWall(v.height, v.roofHeight, v.roofStyle)
     }
     traceStage(massing.traceId, obj.definitionId, 'wealthScale', massing.volumes, fp.w, fp.h)
 

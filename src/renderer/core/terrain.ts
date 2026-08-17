@@ -35,7 +35,11 @@ export const TERRAIN_COLORS: Record<number, number> = {
   5: 0x3a7a28,  // dark grass — forest green
   6: 0x5aae4a,  // light grass — more saturated vivid green
   7: 0xb0a898,  // rocky ground / gravel — warm light grey
-  8: 0xb09878,  // cobblestone STREET — warm orange-grey
+  // Paving pulled DOWN, not for its own sake but for the ratio: at noon the
+  // ground measured 0.639 against walls at 0.084 (tools/eyeball.mjs), and a
+  // town where the floor is seven times brighter than the buildings reads as
+  // silhouettes on a beach. Real cobble is a mid tone; this was near-white.
+  8: 0x9c8770,  // cobblestone STREET — warm orange-grey
   9: 0x584838,  // dark cobblestone ALLEY — deep warm brown
   10: 0x70a060, // garden
   11: 0x7a5c3a, // mud — saturated brown
@@ -45,14 +49,14 @@ export const TERRAIN_COLORS: Record<number, number> = {
   // tile is circulation or just paved open space — a building fronting a
   // plaza stands on paving, it does not block a street. Paler and warmer
   // than street cobble so squares read as their own space.
-  14: 0xc9b9a2,
+  14: 0xb0a189,   // plaza flagstone — see the note on 8
   // District GROUND paving — market and harbor districts are cobbled all
   // over, which is a material choice, not circulation. Deliberately the same
   // colours as 8/9 so nothing looks different; they exist so the data can say
   // whether a cobbled tile is a street or merely a cobbled district.
   // paintDistrictTerrain lays these down before the street network, so real
   // roads overwrite them with 8/9 exactly where roads actually run.
-  15: 0xb09878, // district cobble (matches 8)
+  15: 0x9c8770, // district cobble (matches 8)
   16: 0x584838, // dark district cobble (matches 9)
 }
 

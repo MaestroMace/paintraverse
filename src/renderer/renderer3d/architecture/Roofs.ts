@@ -148,6 +148,44 @@ const SPAN_PITCH: Partial<Record<RoofStyle, [number, number]>> = {
   pointed: [1.3, 2.35],
 }
 
+/**
+ * AND A CEILING AGAINST THE WALL IT SITS ON.
+ *
+ * MAX_ROOF_SPAN_RATIO caps the rise against the volume's SPAN, so a wide
+ * building is permitted an enormous roof however short its walls are — and
+ * riseForSpan above, which fixed the spire uniformity, derives the ask from
+ * the span too. Nothing ever compared the roof to the building under it:
+ *
+ *     ROOF as a fraction of the WALL, before this
+ *       p10 32%   med 74%   p90 313%   max 412%
+ *       42% of dwellings carried a roof as tall as the house or taller
+ *
+ * A real gable on a two- or three-storey house rises 30-50% of its wall. One
+ * dwelling in ten had a roof THREE TIMES the height of the building under it,
+ * and at dusk that is a black triangle with a cottage beneath it. Every part
+ * was individually legal and the proportion was nobody's job.
+ *
+ * Generous on purpose: a barn legitimately carries a roof taller than its
+ * walls, and the tall styles are supposed to be tall. This is here to cut the
+ * tail, not to flatten the town — the median barely moves.
+ */
+const MAX_ROOF_WALL_RATIO: Record<RoofStyle, number> = {
+  none: 0, flat: 0,
+  hipped: 0.85, gabled: 0.95, mansard: 0.80, dome: 0.90,
+  steep: 1.25, pointed: 1.70, spire: 2.60,
+}
+
+/**
+ * Cap a roof against the wall under it. Applied LAST, after the span floor and
+ * the span cap, because it is the one that knows about proportion — and a
+ * clamp that is not last is not a clamp. Floored at 0.6m so cutting a runaway
+ * can never produce a flat slab, which is the opposite defect.
+ */
+export function clampRoofToWall(wallH: number, h: number, style: RoofStyle): number {
+  const cap = wallH * MAX_ROOF_WALL_RATIO[style]
+  return cap > 0 && h > cap ? Math.max(0.6, cap) : h
+}
+
 /** Rise for a span-dominated style, or null if this style is not one. */
 export function riseForSpan(
   w: number, d: number, style: RoofStyle, roofPitch: number, jitter = 0,

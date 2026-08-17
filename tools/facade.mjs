@@ -85,6 +85,12 @@ if (!parts.length) {
 }
 
 const OPENING = new Set(['window', 'door'])
+// AN OPENING TOO SMALL TO READ AS ONE IS NOT A DEFECT WHEN SOMETHING CROSSES
+// IT. `uW = WIN_W_M / quantizeWallM(width)` times the volume's REAL width, so
+// on a sliver of a volume the painted "window" comes out a few centimetres
+// across — and a 13cm corner post then covers 92% of a 14cm window, which is
+// arithmetically true and invisible. Grade only openings a person could see.
+const MIN_OPENING_W = 0.45
 const byBuilding = new Map()
 for (const p of parts) {
   if (!byBuilding.has(p.id)) byBuilding.set(p.id, [])
@@ -96,9 +102,11 @@ console.log('3D detail nailed to a wall, against the openings PAINTED on it.')
 console.log('Two authors, one wall, and until now nothing compared them.\n')
 
 const hits = []
-let openings = 0, members = 0
+let openings = 0, members = 0, skipped = 0
 for (const [id, list] of byBuilding) {
-  const opens = list.filter((p) => OPENING.has(p.kind))
+  const opens = list.filter((p) => OPENING.has(p.kind) && p.x1 - p.x0 >= MIN_OPENING_W)
+  const tiny = list.filter((p) => OPENING.has(p.kind) && p.x1 - p.x0 < MIN_OPENING_W).length
+  skipped += tiny
   const mems = list.filter((p) => !OPENING.has(p.kind))
   openings += opens.length; members += mems.length
   for (const o of opens) {
@@ -127,7 +135,8 @@ for (const h of hits) {
   byKind.set(k, e)
 }
 
-console.log(`${openings} painted openings, ${members} attached members.`)
+console.log(`${openings} painted openings, ${members} attached members` +
+  `${skipped ? ` (${skipped} openings under ${MIN_OPENING_W}m wide excluded — too small to read as one)` : ''}.`)
 console.log(`${hits.length} members crossing the GLASS of an opening (not merely its reveal):\n`)
 if (!hits.length) console.log('  none — every member clears every opening.')
 for (const [k, e] of [...byKind.entries()].sort((a, b) => b[1].n - a[1].n)) {

@@ -271,12 +271,26 @@ console.log(`  over 8 storeys (23.2m): ${over(23.2)} (${Math.round(100 * over(23
 // No existing audit asks this. humanscale grades a storey, a door and a
 // window; roofcheck asks whether a roof EXISTS; provenance asks whether the
 // rise matches its own cap. Nothing compares the roof to the building.
+// TWO DIFFERENT QUESTIONS, and the first version conflated them. `height` is
+// the APEX of the whole building, so height - wallTop is everything above the
+// main body — its roof AND any tower, spire or penthouse stacked on it. That
+// is a real silhouette measure, but it is not the roof, and capping roof rise
+// moved it by one point while I was expecting it to move by fifty.
 const ratios = dwellings
+  .filter((s) => s.wallTop > 1)
+  .map((s) => s.roofH / s.wallTop)
+  .sort((a, b) => a - b)
+const stacked = dwellings
   .filter((s) => s.wallTop > 1)
   .map((s) => (s.height - s.wallTop) / s.wallTop)
   .sort((a, b) => a - b)
 const rq = (f) => ratios[Math.min(ratios.length - 1, Math.floor(ratios.length * f))]
-console.log(`\n  ROOF as a fraction of the WALL it sits on:`)
+const sq = (f) => stacked[Math.min(stacked.length - 1, Math.floor(stacked.length * f))]
+console.log(`\n  EVERYTHING ABOVE THE MAIN BODY, as a fraction of its wall`)
+console.log(`  (its roof PLUS any tower or spire stacked on it — the silhouette):`)
+console.log(`    p10 ${(sq(0.1) * 100).toFixed(0)}%  med ${(sq(0.5) * 100).toFixed(0)}%` +
+  `  p90 ${(sq(0.9) * 100).toFixed(0)}%  max ${(stacked[stacked.length - 1] * 100).toFixed(0)}%`)
+console.log(`\n  THE MAIN BODY'S OWN ROOF as a fraction of the WALL it sits on:`)
 console.log(`    p10 ${(rq(0.1) * 100).toFixed(0)}%  med ${(rq(0.5) * 100).toFixed(0)}%` +
   `  p90 ${(rq(0.9) * 100).toFixed(0)}%  max ${(ratios[ratios.length - 1] * 100).toFixed(0)}%`)
 console.log(`    over 80% (roof nearly as tall as the house): ` +

@@ -1321,11 +1321,28 @@ export class ThreeRenderer {
       this.sunLight.intensity = 1.2
       this.sunLight.color.setHex(0xfff4e0)
       this.sunLight.position.set(sunX, sunY, sunZ)
-      this.ambientLight.intensity = 0.42
-      this.ambientLight.color.setHex(0x606880)
+      // === WHY THESE WENT UP ===
+      //
+      // tools/eyeball.mjs measures ABSOLUTE luma by surface, which is the one
+      // question a peer comparison can never ask. At noon it read:
+      //
+      //     ground 0.639    wall 0.084 (24% black)    roof 0.032 (72% black)
+      //
+      // The ground was seven times brighter than the walls standing on it and
+      // most of every roof was effectively black at MIDDAY. The day/night A/B
+      // cleared the rig's BEHAVIOUR — at 09:00 the ground halves and the walls
+      // rise, exactly as a lower sun should do — so the shape was right and
+      // the level was not. With the sun overhead a vertical face gets almost
+      // no direct term, and ambient + hemisphere were carrying it alone.
+      //
+      // The hemisphere is the term that matters here: it is skylight, and a
+      // wall in a street sees a lot of sky. Ambient follows it up a little so
+      // the deepest shadows stop clipping to black.
+      this.ambientLight.intensity = 0.62
+      this.ambientLight.color.setHex(0x707890)
       this.hemiLight.color.setHex(0xd0e0f0)
-      this.hemiLight.groundColor.setHex(0x5a5240)
-      this.hemiLight.intensity = 0.52
+      this.hemiLight.groundColor.setHex(0x6a6250)
+      this.hemiLight.intensity = 0.95
       this._fog.color.setHex(0xd0e0f0); this._fog.density = 0.004
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x4488cc)
@@ -1973,6 +1990,12 @@ export class ThreeRenderer {
         baseY: t.baseY,
         height: +(t.apexY - t.baseY).toFixed(2),
         wallTop: +(t.mainWallTopY - t.baseY).toFixed(2),
+        // The MAIN BODY's own roof, as distinct from everything stacked above
+        // it. eyeball's roof-to-wall ratio used apex-minus-wallTop, which also
+        // counts a tower or a spire sitting on the building — so capping roof
+        // RISE moved it by one point and I nearly concluded the clamp did
+        // nothing. Two different questions wearing one number.
+        roofH: +t.mainRoofH.toFixed(2),
         spanW: +(t.spanHalfW * 2).toFixed(2), spanD: +(t.spanHalfD * 2).toFixed(2),
         volumes: t.volumeCount,
         texturedVolumes: t.texturedVolumes,

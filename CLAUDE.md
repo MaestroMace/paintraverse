@@ -2095,6 +2095,49 @@ part of this worse: `riseForSpan` derives those rises from the span and
 `MAX_ROOF_SPAN_RATIO.spire` went 3.0 -> 3.8, and neither change ever checked
 the result against the wall.
 
+### THE THREE ART-DIRECTION FIXES, AND ONE OF THEM WAS AIMED AT A PHANTOM
+
+All three measured before and after on seed 31337.
+
+**TONE — worked.** Ambient 0.42 -> 0.62, hemisphere 0.52 -> 0.95 (skylight is
+the term a wall in a street actually sees), and the paving pulled down from
+0xb09878 to 0x9c8770 because the RATIO was the defect, not either number alone.
+
+    surface   before                  after
+    wall      0.084  (24% black)      0.158  (11% black)
+    roof      0.032  (72% black)      0.098  (31% black)
+    other     0.036  (68% black)      0.130  (37% black)
+    ground    0.639                   0.675
+
+Walls nearly doubled, roofs tripled, the black share more than halved, and the
+ground:wall ratio went 7.6x -> 4.3x. The ground rose slightly despite the
+darker paving, so the skylight lift outran it; p90 0.700 is close enough to
+clipping that the next move is more paving and less ambient, not more of both.
+
+**THE ROOF CAP — the roofs were fine and my metric was wrong.** `clampRoofToWall`
+is in (a third clamp, applied last, after the span floor and the span cap) and
+it does trim the tail — max roof is now exactly 170%, which is `pointed`'s cap,
+so it is binding. But the p90 313% I reported as a roof was never a roof:
+
+    main body's own roof / its wall     p10  0%  med 41%  p90  85%  max 170%
+    EVERYTHING stacked above it / wall  p10 32%  med 75%  p90 333%  max 412%
+
+`eyeball` computed apex minus wallTop, which counts a TOWER or SPIRE sitting on
+the building as well as its roof. A real gable is 30-50% and the median roof
+here is 41% — textbook. **The black triangles are stacked volumes, not
+oversized roofs**, which is the landmark promotion (28% of generic buildings
+get a dramatic vertical template) that I noticed early and then talked myself
+out of. Corrected in the tool: it reports both, labelled.
+
+**THE COLUMN INSET — aimed at an artefact.** `facadeOpenings` now keeps its
+outermost column clear of the corner post, which is harmless and mildly right,
+and it changed nothing: posts still read 40 crossings at "92% coverage". The
+92% was arithmetic on a sliver — `uW = WIN_W_M / quantizeWallM(width)` times
+the volume's REAL width paints a 13cm "window" on a narrow volume, and a 13cm
+post covers 92% of it. Excluding openings under 0.45m — too small to read as a
+window at all — the worst post coverage is **13%**, a corner post grazing a
+reveal. The defect was in the denominator.
+
 ### AND THE ONE MEASURE WITH NO CONTROL — ABSOLUTE TONE
 
 Every pixel number in this harness is RELATIVE. `odd` grades a building
