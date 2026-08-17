@@ -501,6 +501,25 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 2, h: 1 },
     styleSetSlots: []
   },
+  // THE ONE PROP GEOMETRY WITH NO WAY IN. PropFactory has a dedicated
+  // picket-fence branch — pointed slats with a rail behind them, distinct from
+  // the plain `fence` boards — and it is reached only by the literal id
+  // `picket_fence`, which nothing defined. So the branch could never run and
+  // the geometry had never once been drawn.
+  //
+  // Fifth instance of content-with-no-way-in in this repo, and the cheapest:
+  // an eight-line definition. A painted picket round a yard is also one of the
+  // strongest "somebody owns this" signals available — a boundary says a
+  // household drew a line, which is exactly the read the lived-in work wants.
+  {
+    id: 'picket_fence',
+    name: 'Picket Fence',
+    category: 'infrastructure',
+    tags: ['barrier', 'garden'],
+    color: '#E8D8B8',
+    footprint: { w: 2, h: 1 },
+    styleSetSlots: []
+  },
   // Low boundary wall round a sparse quarter — a churchyard, graveyard or
   // garden edge, not a fortification. 1x1 so it can follow an irregular
   // district boundary tile by tile; the two variants carry the AXIS, since a

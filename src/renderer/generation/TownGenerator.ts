@@ -298,27 +298,40 @@ interface Vignette {
 }
 const VIGNETTES: Vignette[] = [
   // Domestic, out of sight — the evidence that somebody lives here.
-  { id: 'woodpile', home: true, front: false, parts: ['woodpile', 'crate'] },
-  { id: 'washday', home: true, front: false, parts: ['cloth_line', 'barrel'] },
-  { id: 'waterbutt', home: true, front: false, parts: ['rain_barrel', 'woodpile'] },
+  { id: 'woodpile', home: true, front: false,
+    parts: ['woodpile', 'crate|barrel|rubble_pile'] },
+  { id: 'washday', home: true, front: false,
+    parts: ['cloth_line|rain_barrel', 'barrel|crate|woodpile'] },
+  { id: 'waterbutt', home: true, front: false,
+    parts: ['rain_barrel', 'woodpile|crate|bush'] },
   // Domestic, presented to the street.
-  { id: 'doorstep', home: true, front: true, parts: ['bench', 'potted_plant'] },
-  { id: 'windowgarden', home: true, front: true, parts: ['flower_box', 'planter_box'] },
+  { id: 'doorstep', home: true, front: true,
+    // The anchor needs options too: a bench is 2x1 and lost 18 groups to a
+    // tile it could not sit on, while a pot beside a door is the same idea
+    // in one tile. Every part with a multi-tile footprint wants a fallback.
+    parts: ['bench|potted_plant', 'potted_plant|flower_box|planter_box'] },
+  { id: 'windowgarden', home: true, front: true,
+    parts: ['flower_box|flower_bed', 'planter_box|potted_plant'] },
   // Trade — something half-done, which reads as activity rather than storage.
   { id: 'delivery', front: true, districts: ['market', 'artisan', 'harbor'],
-    parts: ['cart', 'crate_stack', 'barrel'] },
+    parts: ['cart|wagon|crate_stack', 'crate_stack|barrel_stack|crate', 'barrel|crate'] },
   { id: 'stallside', front: true, districts: ['market'],
-    parts: ['market_stall', 'crate', 'barrel_stack'] },
+    parts: ['market_stall|market_tent', 'crate|crate_stack', 'barrel_stack|barrel'] },
   { id: 'forgeyard', front: null, districts: ['artisan'],
     parts: ['forge_brazier', 'rubble_pile', 'barrel'] },
   // Waterfront working gear.
   { id: 'quaygear', front: true, districts: ['harbor', 'waterfront'],
-    parts: ['rope_coil', 'crate_stack', 'fish_rack'] },
+    parts: ['rope_coil|crate_stack', 'crate_stack|barrel_stack|barrel', 'fish_rack|crate'] },
   { id: 'drying', front: false, districts: ['harbor', 'waterfront'],
-    parts: ['fish_rack', 'barrel'] },
+    parts: ['fish_rack', 'barrel|crate|rope_coil'] },
   // Rural.
   { id: 'hayrick', home: true, front: false, districts: ['garden', 'residential'],
-    parts: ['hay_bale', 'cart'] },
+    parts: ['hay_bale', 'cart|woodpile|crate'] },
+  // A drawn boundary is the cheapest "somebody owns this" there is.
+  { id: 'yardfence', home: true, front: false,
+    parts: ['picket_fence|flower_bed', 'flower_bed|bush|potted_plant'] },
+  { id: 'kitchengarden', home: true, front: false, districts: ['garden', 'residential', 'noble'],
+    parts: ['planter_box|flower_bed', 'picket_fence|bush'] },
   // FIRE IN THE PUBLIC SPACE, and it is here for the test view rather than for
   // the plan view. DESIGN.md grades this town at dusk and pillar 5 asks for
   // three layers of warm light; the two that exist — lamp pools and hung
@@ -328,7 +341,7 @@ const VIGNETTES: Vignette[] = [
   // being painted into the lit batch, and a fire basket in a market or on a
   // quay is what a medieval town put out when the sun went down.
   { id: 'nightfire', front: true, districts: ['market', 'harbor', 'waterfront', 'fortress'],
-    parts: ['forge_brazier', 'crate'] },
+    parts: ['forge_brazier', 'crate|barrel|rubble_pile'] },
 ]
 
 const DISTRICT_PROPS: Record<DistrictType, string[]> = {
@@ -5013,6 +5026,13 @@ export class TownGenerator implements IMapGenerator {
       .slice(0, need)
     if (near.length < need) { rejected(`vig~noRoom:${v.id}`); return false }
 
+    // A PART MAY OFFER ALTERNATIVES, written 'crate|barrel|rubble_pile' and
+    // chosen per instance. Pillar 2 asks that the eye never be able to
+    // copy-paste one thing onto another, and a group repeated verbatim beside
+    // forty houses is that failure at arrangement scale rather than silhouette
+    // scale — the woodpile always had exactly one crate next to it. One line
+    // here buys the whole table variation, and it keeps the alternatives
+    // visible where a reader is already looking at what the group means.
     const place = (id: string, t: { x: number; y: number }): void => {
       const obj = this.createObj(id, t.x, t.y)
       obj.properties.facingY = Math.atan2((t.y + 0.5) - bcy, (t.x + 0.5) - bcx) + Math.PI
@@ -5021,12 +5041,52 @@ export class TownGenerator implements IMapGenerator {
       // gated content, before anyone claims the feature exists.
       obj.properties.vignette = v.id
       props.push(obj)
-      occupied[t.y][t.x] = true
+      const f = this.getFootprint(id)
+      if (f.w === 1 && f.h === 1) occupied[t.y][t.x] = true
+      else this.markArea(occupied, t.x, t.y, f.w, f.h, w, h)
     }
+
+    // RESOLVE AND VALIDATE EVERY PART BEFORE PLACING ANY OF THEM.
+    //
+    // The first cut assumed one part meant one tile, marked a single cell
+    // occupied and moved on. picket_fence is 2x1 — the single-prop path
+    // beside this one has always checked areaFree for anything bigger than a
+    // tile, and this one did not, so a fence would have been drawn across a
+    // neighbour's tile while the map believed that tile was free. Silent, and
+    // exactly the class of overlap the placement audit exists to catch.
+    //
+    // Validated up front because the group is all-or-nothing: discovering the
+    // third part does not fit after placing the first two leaves a pile of
+    // crates in the road with no cart.
+    const tiles = [spot, ...near]
+    // TRY THE ALTERNATIVES BEFORE GIVING UP. Many props are 2x1 — bench,
+    // cloth_line, picket_fence — so requiring the first roll to fit rejected
+    // whole groups on a tile that a different, equally good part would have
+    // sat on: doorstep lost 9 and washday 8 in one town. The `|` options exist
+    // to vary the group, and they serve just as well as room to manoeuvre.
+    const chosen: string[] = []
+    for (let k = 0; k < v.parts.length; k++) {
+      const opts = v.parts[k].split('|')
+      // Start at a random option so the fallback order does not itself become
+      // a bias toward whichever part happens to be listed first.
+      const off = Math.floor(rng() * opts.length)
+      let ok: string | null = null
+      for (let j = 0; j < opts.length; j++) {
+        const cand = opts[(off + j) % opts.length]
+        const f = this.getFootprint(cand)
+        if ((f.w === 1 && f.h === 1) ||
+            this.areaFree(occupied, tiles[k].x, tiles[k].y, f.w, f.h, w, h)) {
+          ok = cand; break
+        }
+      }
+      if (!ok) { rejected(`vig~noFootprint:${v.id}`); return false }
+      chosen.push(ok)
+    }
+
     rejected(`vigOk:${v.id}`)
-    place(v.parts[0], spot)
+    place(chosen[0], spot)
     for (let k = 0; k < need; k++) {
-      place(v.parts[k + 1], near[k])
+      place(chosen[k + 1], near[k])
       for (const pl of [streetSpots, backSpots]) {
         const idx = pl.indexOf(near[k])
         if (idx >= 0) pl.splice(idx, 1)
