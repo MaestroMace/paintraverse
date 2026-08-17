@@ -56,5 +56,11 @@
   "variety": {
     "twinNear": 6,
     "twinAny": 28
+  },
+  "traverse": {
+    "reachPct": 85,
+    "noPass": 0,
+    "clamber": 64,
+    "lowHead": 4
   }
 }
