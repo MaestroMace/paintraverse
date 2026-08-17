@@ -283,7 +283,7 @@ export function buildLanternStrings(
   // Build rope segments as a batched mesh with baked colors. Lanterns go
   // into a separate batch — their material has emissive + vertex colors
   // don't help us because we want real emissive intensity modulation.
-  const ropeBatch = new BatchedMeshBuilder()
+  const ropeBatch = Object.assign(new BatchedMeshBuilder(), { toneFloor: 0.12 })
   const lanternGeos: THREE.BufferGeometry[] = []
 
   for (const s of strings) {

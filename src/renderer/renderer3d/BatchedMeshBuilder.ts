@@ -213,6 +213,27 @@ function callSite(): string {
   return 'unknown'
 }
 
+/**
+ * Raise a colour to a minimum LINEAR luma, keeping its hue and saturation.
+ *
+ * Scaling the sRGB channels toward white would wash the colour out; scaling
+ * them multiplicatively keeps the ratios between them, which is what carries
+ * hue. Anything already above the floor is returned untouched, so this can
+ * only ever brighten the tail.
+ */
+function liftToFloor(hex: number, floor: number): number {
+  if (floor <= 0) return hex
+  const toLin = (v: number): number => (v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4))
+  const r = ((hex >> 16) & 0xff) / 255, g = ((hex >> 8) & 0xff) / 255, b = (hex & 0xff) / 255
+  const lum = 0.2126 * toLin(r) + 0.7152 * toLin(g) + 0.0722 * toLin(b)
+  if (lum >= floor) return hex
+  // Work in sRGB space: a straight channel multiply keeps the hue, and the
+  // gamma curve means a modest factor buys a lot of perceived lift.
+  const k = Math.pow(floor / Math.max(lum, 1e-4), 1 / 2.4)
+  const ch = (v: number): number => Math.min(255, Math.round(v * 255 * k))
+  return (ch(r) << 16) | (ch(g) << 8) | ch(b)
+}
+
 function recordSliver(geo: THREE.BufferGeometry): void {
   geo.computeBoundingBox()
   const bb = geo.boundingBox
@@ -278,10 +299,30 @@ export class BatchedMeshBuilder {
     this.geos.push(clone)
   }
 
+  /**
+   * A TONE FLOOR FOR THIS BATCH — the darkest a colour in it may be authored.
+   *
+   * `eyeball.mjs` reports props as the darkest surface class in the town: 31%
+   * of their pixels read effectively black, against 4% for walls and 10% for
+   * roofs once the tone arc had lifted both. It is not a lighting bug — props
+   * are Lambert with vertex colours and take the same ambient and hemisphere
+   * every other surface does. It is the PALETTE: 25% of the authored prop
+   * colours sit under 0.05 linear luma, with 0x1a1a1a and 0x222222 among them.
+   * Paint that dark cannot be lit into visibility.
+   *
+   * Applied as a floor on the BATCH rather than by editing seventy-two call
+   * sites, so it is one number to tune and one place to revert, and so a new
+   * prop cannot reintroduce the problem by authoring another near-black. Hue
+   * and saturation are preserved — an iron lamp post stays iron-coloured, it
+   * just stops being a hole. Buildings do not set this: their tone was fixed
+   * by lighting and their palette is already in range.
+   */
+  toneFloor = 0
+
   /** Add a geometry that's already positioned (e.g. from translate() calls) with a color */
   addPositioned(geo: THREE.BufferGeometry, colorHex: number): void {
     const clone = normalizeForMerge(geo.clone())
-    bakeVertexColor(clone, new THREE.Color(colorHex))
+    bakeVertexColor(clone, new THREE.Color(liftToFloor(colorHex, this.toneFloor)))
     if (_sizeAudit) recordFragment(clone, colorHex)
     if (_sliverAudit) recordSliver(clone)
     // Drop detail too small to ever resolve. At the renderer's 0.4 internal

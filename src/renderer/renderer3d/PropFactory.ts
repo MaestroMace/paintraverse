@@ -80,7 +80,13 @@ export function setLampPoolOpacity(opacity: number): void {
 // as a separate draw call per part. With shared instances, we can merge all
 // non-emissive parts into the existing tree/bush batch and all emissive
 // bulbs into one mesh.
-const _lampPoleMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true })
+// 0x222222 was 0.016 linear luma — paint no amount of light rescues, on the
+// one prop that stands at eye level in every street. Lifted to the same floor
+// the prop batch applies (BatchedMeshBuilder.toneFloor), warm rather than
+// neutral so it reads as iron and not as plastic. This material is NOT in the
+// batch, so the floor could not reach it: a dedicated material is exactly
+// where a palette fix goes quietly missing.
+const _lampPoleMat = new THREE.MeshLambertMaterial({ color: 0x4a4642, flatShading: true })
 const _lampEmissiveMat = new THREE.MeshLambertMaterial({
   color: 0xffcc44, emissive: 0xffaa22, emissiveIntensity: 0.8,
 })
@@ -193,6 +199,13 @@ export function buildPropMeshes(
   const geo = getGeo()
   resetPropSizes()
   const batch = new BatchedMeshBuilder()
+  // NOTHING IN THE STREET IS ALLOWED TO BE A BLACK HOLE. eyeball.mjs reads
+  // props as the darkest surface class in the town — 31% of their pixels
+  // effectively black against 4% for walls — and the cause is the palette,
+  // not the light: a quarter of the authored prop colours are under 0.05
+  // linear luma. See BatchedMeshBuilder.toneFloor. 0.055 is a dark object
+  // that still reads as an object; below that a barrel is a silhouette.
+  batch.toneFloor = 0.12
   const lampposts: THREE.Object3D[] = []
   // Geometry for emissive lamp bulbs, accumulated per-lamppost with lamppost
   // position+rotation baked in. Merged into one mesh at the end.
