@@ -145,6 +145,39 @@ console.log(`  doors shorter than a ${HUMAN.stature}m person : ` +
 console.log(`  storeys under ${(HUMAN.stature + 0.4).toFixed(2)}m head-to-ceiling : ` +
   `${shorterStoreys}/${sh.length}  (${Math.round(shorterStoreys / sh.length * 100)}%)`)
 
+// OUT OF PLUMB — a lean you can see, in metres rather than in radians.
+//
+// The tilt is an angle, which is the correct scale-free way to author it, and
+// it survived the tile rescale untouched. The OPT-OUT did not: towers,
+// cathedrals and gates are excused by `definitionId`, which was a proxy for
+// "is this thing tall" — and landmark promotion hands 28% of ordinary
+// buildings a dramatic vertical template while leaving the id alone. A
+// `row_house` at 25m still leans, and 2 degrees is most of a metre up there.
+// A proxy agrees with its target right up until you change the target.
+//
+// A settled medieval house is maybe 10-30cm out at the eaves; the leaning
+// tower of Pisa is about 4m over 56m. Report the metres and the target writes
+// itself, which is the propscale lesson about hand-written targets.
+{
+  const plumb = all.map((s) => s.outOfPlumb).filter((v) => Number.isFinite(v) && v > 0.001)
+  if (plumb.length) {
+    plumb.sort((a, b) => a - b)
+    const leaners = all.filter((s) => Number.isFinite(s.outOfPlumb) && s.outOfPlumb > 0.001)
+    const bad = leaners.filter((s) => s.outOfPlumb > 0.45)
+      .sort((a, b) => b.outOfPlumb - a.outOfPlumb)
+    console.log(`\nout of plumb — ${plumb.length} of ${all.length} buildings lean ` +
+      `(${Math.round(plumb.length / all.length * 100)}%):`)
+    console.log(`  p10 ${pct(plumb, 10).toFixed(2)}m  med ${pct(plumb, 50).toFixed(2)}m  ` +
+      `p90 ${pct(plumb, 90).toFixed(2)}m  max ${plumb[plumb.length - 1].toFixed(2)}m`)
+    console.log(`  over 0.45m at the top — reads as falling over, not settled: ${bad.length}`)
+    for (const b of bad.slice(0, 6)) {
+      console.log(`      ${b.outOfPlumb.toFixed(2)}m on a ${b.totalH.toFixed(1)}m ${b.definitionId}`)
+    }
+  } else {
+    console.log('\nout of plumb — no lean recorded. Stale bundle, or the field is not populated.')
+  }
+}
+
 const failing = rows.filter((r) => r.share > 20)
 if (failing.length) {
   console.log('\nwhat a person would notice:')

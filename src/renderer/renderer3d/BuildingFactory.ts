@@ -381,6 +381,23 @@ export interface BuildingScale {
   floors: number
   /** wallH / floors — a real storey is 2.6-3.2m. */
   storeyH: number
+  /**
+   * HOW FAR OUT OF PLUMB THE TOP IS, in world metres — tan(lean) x totalH.
+   *
+   * The lean is an ANGLE, so it is correctly scale-free and survived the tile
+   * rescale untouched. What did not survive is the OPT-OUT: towers, cathedrals
+   * and gates are excused by `definitionId`, on the reasoning that a leaning
+   * landmark reads as broken rather than as charming-old. That was a proxy for
+   * "is this thing tall", and landmark PROMOTION broke it — 28% of ordinary
+   * buildings are handed a dramatic vertical template while keeping their id,
+   * so a `row_house` can be a 25m tower and still leans, at which point 2 deg
+   * is most of a metre at the parapet.
+   *
+   * The displacement is the honest quantity: an angle says nothing about what
+   * you see, and a settled medieval house is 10-30cm out at the eaves. Report
+   * the metres and the target writes itself.
+   */
+  outOfPlumb: number
   /** Painted opening sizes on the finished wall, world metres. */
   doorH: number
   doorW: number
@@ -809,6 +826,39 @@ export function buildBuildingMeshes(
     // skewed toward Tudor (always), commercial (often), and stone (rare —
     // stone buildings already use stone walls all the way up). Picks from
     // a small palette of contrasting tones so the cache stays bounded.
+    // CAP THE LEAN BY WHAT YOU CAN SEE, NOT BY WHAT TYPE IT IS.
+    //
+    // The tilt above is an ANGLE, which is the right scale-free way to author
+    // it. The opt-out is not: towers, cathedrals and gates are excused by
+    // `definitionId`, on the reasoning that a leaning landmark reads as broken
+    // rather than as charming-old — and that is a PROXY for "is this thing
+    // tall". Landmark promotion hands 28% of ordinary buildings a dramatic
+    // vertical template while leaving the id alone, so a `row_house` can come
+    // out 25m and still lean. A proxy agrees with its target right up until
+    // you change the target.
+    //
+    // Measured before fixing, and the measurement shrank the claim: 17% of
+    // buildings lean, median 0.31m out of plumb, which is a settled house and
+    // exactly right. Only FOUR exceeded 0.45m (max 0.64m on a 24.8m
+    // almshouse). So this is a tail, not a systemic defect — worth a clamp,
+    // not worth a redesign, and it does not explain anything else.
+    //
+    // Pinned to a physical displacement for the same reason MAX_OVERHANG is:
+    // the quantity a person sees is metres at the parapet, not radians.
+    {
+      const MAX_OUT_OF_PLUMB = 0.40
+      let apex = 0
+      for (const v of massing.volumes) {
+        apex = Math.max(apex, v.bottomY + v.height + v.roofHeight)
+      }
+      const out = Math.hypot(Math.tan(leanX), Math.tan(leanZ)) * apex
+      if (out > MAX_OUT_OF_PLUMB && apex > 0.01) {
+        const k = MAX_OUT_OF_PLUMB / out
+        leanX *= k
+        leanZ *= k
+      }
+    }
+
     let groundFloorColor: number | undefined
     const wantsGfBand =
       dominantArchetype === 'halfTimberTudor' ||
@@ -1005,6 +1055,9 @@ export function buildBuildingMeshes(
         totalH: +(apexLocalY).toFixed(2),
         floors: sFloors,
         storeyH: +(mainVol.height / sFloors).toFixed(2),
+        // Both tilts combined, at the apex. tan is right rather than the small
+        // angle itself, because the whole point is the metres you can see.
+        outOfPlumb: +(Math.hypot(Math.tan(leanX), Math.tan(leanZ)) * apexLocalY).toFixed(3),
         doorH: 2.05,
         doorW: 0.95,
         windowH: 1.35,
