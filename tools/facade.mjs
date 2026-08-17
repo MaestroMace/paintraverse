@@ -54,6 +54,7 @@ mkdirSync('.shots/facade', { recursive: true })
 // lintel sitting on the head, a sill under the cill and a stud grazing a jamb
 // all touch the boundary and none of them crosses.
 const EDGE = 0.10   // outer tenth of an opening is its reveal, not its glass
+let awnBad = 0      // awnings whose measured slope is not an awning's
 
 const app = await electron.launch({ args: ['.'], cwd: process.cwd() })
 const win = await app.firstWindow()
@@ -136,6 +137,31 @@ for (const [k, n] of [...census.entries()].sort((a, b) => b[1] - a[1])) {
   console.log(`  ${String(n).padStart(5)}  ${tag}  ${k}`)
 }
 console.log('')
+
+/* --- HOW BIG ARE THE WALLS WE ARE PAINTING ON? ----------------------- */
+//
+// The splinter finding arrived as a footnote — "wall=wing@...,1.20" in a hit
+// line — and the wall it named was a 1.20m x 10.49m volume, an aspect near
+// 9:1. Now that every wall declares its own extent, print the tail instead of
+// waiting for a collision to mention one. A wall too narrow to hold a window
+// is the interesting case whether or not anything crosses it, and after the
+// clip started sliding instead of shaving there should be very few.
+{
+  const walls = parts.filter((p) => p.kind === FRAME_KIND)
+    .map((p) => ({ w: p.x1 - p.x0, h: p.y1 - p.y0, def: p.def }))
+    .sort((a, b) => a.w - b.w)
+  if (walls.length) {
+    const at = (q) => walls[Math.min(walls.length - 1, Math.floor(q * walls.length))].w
+    const splinters = walls.filter((x) => x.w < 1.6)
+    console.log(`WALL WIDTHS — p10 ${at(0.1).toFixed(2)}m  med ${at(0.5).toFixed(2)}m  ` +
+      `p90 ${at(0.9).toFixed(2)}m  min ${walls[0].w.toFixed(2)}m`)
+    console.log(`  under 1.6m (too narrow for a window and its piers): ${splinters.length}` +
+      `${splinters.length ? '  ' + [...new Set(splinters.map((s) => s.def))].slice(0, 5).join(', ') : ''}`)
+    const worst = walls.slice().sort((a, b) => (b.h / b.w) - (a.h / a.w))[0]
+    console.log(`  worst aspect ${(worst.h / worst.w).toFixed(1)}:1  ` +
+      `(${worst.w.toFixed(2)}m wide x ${worst.h.toFixed(2)}m tall, ${worst.def})\n`)
+  }
+}
 
 /* --- IS WHAT WE PAINTED ACTUALLY ON THE WALL? ------------------------ */
 //
@@ -256,10 +282,43 @@ console.log(`\n${affected.size} of ${byBuilding.size} buildings have at least on
 // "~7 deg down at front edge". Worse, the POST height then subtracts a drop
 // that never happened, so the posts fall short of the canvas they hold up.
 // Measured here from the built geometry rather than argued from the source.
+// AND THIS BLOCK USED TO CHECK NOTHING. It printed "slope and post reach are
+// checked in the geometry itself; see the note in this file", which points at
+// a comment. A gate whose verdict cannot fire is worse than no gate, because
+// the line reads as a clean result — this repo already shipped one (a FAIL
+// branch guarded by a ratio bounded above by 1) and wrote the lesson down.
+//
+// The strips now carry a MEASURED side profile taken off their built vertices
+// after rotation, so an inverted sign shows up as a negative drop rather than
+// having to be argued from the source. Recomputing the drop from the angle
+// that produced it would be a proxy agreeing with itself.
+const AWN_MIN_DEG = 3, AWN_MAX_DEG = 20
 const awnings = parts.filter((p) => p.kind === 'awning')
-if (awnings.length) {
-  console.log(`\nAWNINGS — ${awnings.length} recorded. Slope and post reach are checked`)
-  console.log('in the geometry itself; see the note in this file for the sign error.')
+const withProfile = awnings.filter((p) => p.drop !== undefined && p.proj > 0.01)
+if (!awnings.length) {
+  console.log('\nAWNINGS — none in this seed.')
+} else if (!withProfile.length) {
+  // A MISSING MEASUREMENT MUST NOT READ AS A PASS. `--feature=` in odd.mjs
+  // silently killed the control and every verdict fell back to "in line with
+  // an ordinary building"; this is the same trap one tool over. Count them all
+  // as bad so the verdict cannot come out clean on no evidence.
+  console.log(`\nAWNINGS — ${awnings.length} recorded but NO measured profile.`)
+  console.log('  Stale bundle, or the recorder stopped passing one. NOT a pass.')
+  awnBad = awnings.length
+} else {
+  const degs = withProfile.map((p) => Math.atan2(p.drop, p.proj) * 180 / Math.PI).sort((a, b) => a - b)
+  const at = (q) => degs[Math.min(degs.length - 1, Math.floor(q * degs.length))]
+  const up = degs.filter((d) => d < 0).length
+  const flat = degs.filter((d) => d >= 0 && d < AWN_MIN_DEG).length
+  const steep = degs.filter((d) => d > AWN_MAX_DEG).length
+  console.log(`\nAWNINGS — ${withProfile.length} measured, slope of the canvas away from the wall`)
+  console.log(`  p10 ${at(0.1).toFixed(1)}°  med ${at(0.5).toFixed(1)}°  p90 ${at(0.9).toFixed(1)}°` +
+    `   (projection ${withProfile[0].proj.toFixed(2)}m)`)
+  console.log(`  tilting UP (the inverted-sign defect): ${up}`)
+  console.log(`  under ${AWN_MIN_DEG}° — reads as a flat shelf, not an awning: ${flat}`)
+  console.log(`  over ${AWN_MAX_DEG}° — reads as a lean-to roof: ${steep}`)
+  if (up + flat + steep === 0) console.log('  all within a canvas awning\'s range.')
+  awnBad = up + flat + steep
 }
 
 /* --- Go and look ----------------------------------------------------- */
@@ -289,6 +348,6 @@ if (shots > 0 && hits.length) {
 }
 
 console.log(`\nVERDICT: ${hits.length} member-over-opening collisions on ${affected.size} buildings,` +
-  ` ${escapes.length} openings painted off their own wall.`)
+  ` ${escapes.length} openings painted off their own wall, ${awnBad} awnings mis-sloped.`)
 await app.close()
-process.exit(hits.length + escapes.length ? 1 : 0)
+process.exit(hits.length + escapes.length + awnBad ? 1 : 0)

@@ -120,6 +120,46 @@ existence, which is the GHOST failure wearing a disguise good enough to survive
 several censuses. When auditing for ghosts, grep the ARGUMENTS at call sites,
 not just the gates inside functions.
 
+**A metric that ranks by deviation cannot see uniformity, and the fix is a
+second metric, not a better threshold.** `odd.mjs` scores each thing in robust
+deviations from its peers, so the most invisible possible reading is a town of
+three hundred identical houses: every one of them scores z ≈ 0. Its own blind
+spot note points at `provenance.mjs`, which grades the world against the CODE —
+and code that faithfully asks for three hundred identical houses passes. The
+missing question is not "is this thing unusual" but "is this thing
+interchangeable with the one next to it", and no tuning of the first ever
+becomes the second. Whenever a tool measures DISTANCE FROM A CENTRE, ask what
+sitting exactly on the centre would look like.
+
+**When two checks of the same thing disagree, compare their STRICTNESS before
+you debug either.** BuildingFactory's `_clearsOpenings` is a bare AABB overlap
+and `facade.mjs` insets each opening by a tenth before testing, so the guard is
+strictly harsher and a member it passes CANNOT fail the audit. It was passing
+members the audit called dirty. That is not a bug in either test, it is
+arithmetic proof they are looking at different things — and they were: the
+frame is per-VOLUME and the audit keyed it per-BUILDING, so a tower's head
+plate was crossing the main body's windows. 48 reported collisions, 8 real.
+This is faster than reading either implementation and it needs no picture.
+
+**Ask the containment question before the collision question — it has no
+threshold in it.** Three defects on one wall were invisible to a collision
+count because none of them IS a collision: a window painted as wide as its
+whole wall, a window whose head sits 0.80m above its own roofline, and 44 doors
+a town painted off the wall carrying them. All three are "is the thing we drew
+actually ON the surface we drew it on", which is exact arithmetic with nothing
+to tune, and the collision count could only ever report the first two sideways
+as "a corner post covers 11% of a window". When a tool grades how two things
+INTERACT, check first that each of them is where it claims to be.
+
+**A clamp that shaves when it could slide is throwing away the thing it is
+protecting.** `clipToFootprint` correctly runs last and correctly cut every
+volume back inside the box — by deleting whatever hung out, floored at 0.1m, so
+a 2.6m wing came back a 1.20m x 10.49m splinter. A volume that FITS the box and
+merely sits in the wrong place needs to MOVE, not to lose mass; shaving is only
+right when the volume is genuinely bigger than the box. Ordering fixes WHEN a
+clamp runs and says nothing about HOW it should act, and the second question
+went unasked for the whole arc that fixed the first.
+
 **Prefer an exact test to a heuristic proxy.** Proxies agree with their target
 right up until you change the target. The road painter inferred hierarchy from
 a neighbour COUNT, which tracked the tiers only while streets were fat and
@@ -992,6 +1032,9 @@ Run these before believing anything about where the project is.
 | placement invariants | audit.mjs | 0 err / 0 warn, 8 seeds | clean |
 | roof winding | roofwinding.mjs | 0 inward triangles | clean |
 | geometry protrusion | slivers.mjs | 0 pieces outside envelope | clean |
+| detail over painted glass | facade.mjs | 0 crossings (was 48, of which 40 were the tool) | clean |
+| openings off their own wall | facade.mjs | 0 (was 44 — a NEW check, new class) | clean |
+| bare untextured wall | odd.mjs | 10 over z=3, was 36 — a jettied ground floor authored blank | improving |
 | open-topped volumes | roofcheck.mjs | ~6 per town | near-clean |
 | human scale | humanscale.mjs | door 2.05m, window 1.35m, storey 2.90m, 0% sub-human | clean |
 | street emptiness | emptiness.mjs | median 3m, 0% over 12m | satisfiable by scatter — see below |
@@ -1720,6 +1763,35 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   on what counts as CROSSING — the first version asked what fraction of an
   opening a member covers and a 12% floor excluded every stud, which is the
   defect it was written to find.
+  It now reports **four** things and only the first is a collision, which is
+  the point: `OFF THE WALL` asks whether each painted opening lies inside the
+  wall carrying it (exact, no threshold, and it found a window as wide as its
+  whole wall, a window 0.80m above its own roofline and 44 doors a town on
+  boundary walls); `RECORDED` is a census of every part kind, so a kind that
+  never fires is distinguishable from one that never offends; and `AWNINGS`
+  measures the canvas slope off its BUILT vertices — that block used to print
+  a sentence pointing at a source comment and check nothing at all. Parts are
+  keyed by WALL, not by building: keyed by `obj.id` it cross-multiplied a
+  tower's members against the main body's windows and inflated 8 real hits to
+  48. `--all` prints every hit's geometry, which is what distinguishes "a hair
+  over the reveal" from "straight through the glass".
+- `node tools/variety.mjs [seed] [--near=15] [--all]` — **can the eye
+  copy-paste one building onto another?** The axis `odd.mjs` is blind to BY
+  CONSTRUCTION: odd ranks a thing by how UNLIKE its peers it is, so a building
+  that looks like everything else scores z ≈ 0, the most invisible reading
+  there is. Its own note says it cannot see a defect the whole population
+  shares and points at provenance.mjs — but provenance grades the world
+  against the CODE, so if the code faithfully asks for three hundred identical
+  houses both tools report a clean town. DESIGN.md's pillar 2 is exactly this
+  and nothing measured it. Two structures are TWINS when they are
+  interchangeable, not merely similar: same type, same volume count, same roof
+  styles, every silhouette dimension within 5%. **Read the NEIGHBOUR rate, not
+  the global one** — a real terrace repeats on purpose and 93% of this town
+  shares a party wall, so a global twin rate would condemn the thing the
+  urban-form arc achieved. Two identical houses across town is a housing type;
+  two in the same FRAME is a copy-paste, and scattering cannot move that
+  number. It states no target, for the reason propscale.mjs learned: three of
+  its hand-written targets were wrong on the first run.
 - `node tools/clash.mjs [seed] [--shots=N] [--all]` — **does the built geometry
   collide with itself, and does it stand on the ground?** The third axis:
   provenance grades a thing against the code, odd against its peers, and this
@@ -2258,6 +2330,134 @@ the instrument ran:
 - **It hung at 2.0m against a door FacadeTexture paints 2.05m tall**, so the
   canvas sliced the top off the doorway and crossed the ground-floor glazing.
   An awning goes over a shopfront, not through it.
+
+### AND THEN MOST OF WHAT IT WAS REPORTING WAS THE INSTRUMENT
+
+The 49 that pass claimed, and the 48 the harness tracked, were mostly phantom.
+**The real figure was 8**, and finding that out found three defects the tool
+was structurally incapable of reporting. Take the ledger in order, because each
+step only became visible once the one before it was fixed.
+
+**The audit was comparing walls that are not the same wall.** The wall-local
+frame — x from the wall's centre, y above its base — belongs to a VOLUME, and
+`facadeParts` was keyed by `obj.id` alone. So it cross-multiplied a tower's
+members against the main body's windows on planes metres apart, and a
+full-width head plate "covered 100%" of a window it cannot reach. **48 -> 8
+with no change to the town.**
+
+The tell was arithmetic and not a picture, which is the transferable part:
+BuildingFactory's own `_clearsOpenings` guard is a bare AABB overlap with no
+reveal tolerance, so it is STRICTLY HARSHER than the audit's glass test and a
+member it passes cannot fail the audit. It was passing members the audit called
+dirty. **When the stricter of two checks says clean and the looser says dirty,
+they are not looking at the same thing.** Same defect as the phantom door one
+level down: there the wrong buildings, here the wrong walls inside one.
+
+**Then the honest 8 named a much larger defect sideways.** Every one was a
+corner post grazing 11% of a window, on a wall keyed `wing@...,1.20` — a wall
+1.20m wide carrying a window painted x[-0.60,0.60]. Corner to corner. Two
+independent causes, and neither is a collision:
+
+- **`uW = WIN_W_M / wallWm` is a fraction with no ceiling**, and both ends are
+  1.0 at the bottom of the range: WIN_W_M is 1.0m and `quantizeWallM` floors at
+  1.0m. Every volume 1.25m or narrower took a window as wide as its whole wall,
+  at every storey. A window needs a PIER either side; if one will not fit, the
+  wall is too narrow to be pierced, which is what a narrow outbuilding
+  elevation actually is.
+- **`clipToFootprint` SHAVED where it should have SLID.** The clip must run
+  last — that ordering is what took 39 volumes-outside-the-box to 0 — but
+  "last" decides WHEN, not HOW. A volume hanging off one edge lost everything
+  past it, floored at 0.1m, so a 2.6m wing pushed out by wealthScale came back
+  a **1.20m x 10.49m splinter**: an aspect near 9:1 on an ordinary row house.
+  A volume that FITS the box and merely sits in the wrong place does not need
+  to lose anything, it needs to MOVE. Sliding is a restoration rather than a
+  distortion here, because the templates author a wing flush inside the
+  footprint and it is wealthScale that walks it out. Shaving is kept for the
+  case it was written for: a volume genuinely wider than the box.
+  **`deepClash` 118 -> 91** — the splinters were CAUSING collisions, not
+  avoiding them, which is the opposite of what I expected from the change.
+
+**Then the sibling, one axis over, found by asking the same question
+vertically rather than by any new measurement.** `floorsThatFit` is
+`max(1, ...)`, so a wall shorter than a storey still gets one, and the lowest
+window's head sits at a fixed `SILL_M + WIN_H_M` = 2.30m. A 1.5m outshot was
+painted with a window **0.80m above its own roofline**. `uW` and `vH` are the
+same unclamped `size / wall` fraction written twice.
+
+**None of those three is a COLLISION**, so a collision count could never have
+named any of them — it reported the first two as "a post covers 11% of a
+window", which is the small half of the finding, and the third not at all. The
+tool now asks the question with no threshold in it: **is the opening actually
+ON the wall?** Exact, no tolerance to tune, and it immediately found a fourth:
+
+    OFF THE WALL — 44 painted openings fall outside the wall they are on
+        29 x  door off a ~3.4x1.6m wall   (precinct_wall, precinct_wall_v)
+         6 x  door off a  3.9x1.7m wall   (bridge)
+
+A 2.05m door anchored at `doorY = h - doorH` on a 1.45m boundary wall is drawn
+from above the canvas and CLIPPED, so it fills the wall top to bottom with its
+head cut off. A churchyard wall with a front door every metre, and a bridge
+with six. **That is the THIRD instance of `role: 'mainBody'` carrying two
+meanings** — "the principal volume" and "a room, so apply the habitability
+rules" — already fixed for SIZING with `Volume.habitable = false`. The door
+kept reading the role. `FacadeConfig.hasDoor` derives from the same
+declaration, and **the REAR elevation had the identical bug written out a
+second time**; the audit records only front openings and could not have found
+that one. The sibling sweep did.
+
+Two fixes to the instrument itself, both the same shape as the bugs above:
+
+- **A kind with no collisions and a kind that was never recorded read the
+  same.** The colonnade was instrumented and predicted to beat against the
+  windows on a third grid; the report came back with no `column` line at all,
+  and nothing distinguished a clean result from an uninstrumented one. That is
+  the GHOST failure sitting inside the instrument built to find ghosts, and it
+  is `featureCounts` with no consumer all over again. The census says the
+  prediction was **wrong**: 8 columns, 1 entablature, zero collisions — and
+  one colonnaded building in the seed is too small a sample to close it either
+  way, which the census also makes visible.
+- **Opening recording lived inside `if (wantsTimberPosts)`.** A quoined stone
+  elevation paints its openings through the same function and nothing had ever
+  looked at them. That is the "measured a fifth of the frame" mistake — the one
+  that took members 118 -> 550 — sitting unnoticed on the OPENINGS half of the
+  same tool. **74 buildings -> 161, 235 walls, 1319 parts.**
+- `--all` was a declared-and-never-read flag, a ghost in the tool's own CLI.
+  Printing each hit's geometry is what turned "a post covers 11%" into "the
+  window is the whole wall" — **a count tells you a class exists; only the
+  numbers tell you whether the member is a hair over the reveal or straight
+  through the glass, and those want opposite fixes.**
+
+Final: **overOpening 0, offWall 0**, on more than double the population ever
+audited before.
+
+### THE LARGEST ANOMALY CLASS IN TOWN WAS A GROUND FLOOR AUTHORED BLANK
+
+`odd.mjs` read `bareWallArea` as **36 of 42 findings over z=3**, up to 109m² of
+flat untextured colour against a peer median of ZERO, on shops, bakeries and
+row houses all reading `2 volumes, 1 textured`. The arithmetic named it in one
+step: 109m² over a 32m perimeter is a 3.4m band, which is
+`tmplJettiedUpper`'s lower body.
+
+**It was authored `textured: false` on the reasoning that the body under a
+jetty is structural and hidden.** The jetty OVERHANGS it; it does not conceal
+it. That is the storey at eye level — the one the player walks past, and on a
+shop it is the shopfront. A blank one is a grey slab exactly where the 30ft
+read happens. `tmplGatehouse`'s chamber over the archway was the same call and
+the same answer: a room between two towers takes a facade. Only the bridge,
+footbridge and boundary-wall templates are genuinely masonry, and those declare
+`habitable: false` as well, so the two questions finally agree.
+
+    bareWallArea over z=3    36 -> 10
+    odd overZ3               42 -> 27      (baseline 32; the flagged
+                                            "regression" is now resolved)
+
+Swept while there: **seven templates still divided a height by `0.9`** to get a
+floor count, the pre-rescale divisor this file already records fixing in
+`tmplTallTowerHouse` — one instance found, seven left standing. Nothing drew
+wrong, because `volumeFloors` refuses an explicit count implying a storey under
+2.2m and recomputes, but the number lands in `scaleSamples` and **a dead number
+in a diagnostic sends the next person after the wrong bug**. A bug in a gate is
+a bug in a PATTERN; grep the siblings the same day.
 
 ### THE THIRD AXIS — a thing against its NEIGHBOURS (tools/clash.mjs)
 

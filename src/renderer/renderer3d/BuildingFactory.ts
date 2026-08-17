@@ -203,17 +203,58 @@ export interface BuildingTop {
 export interface FacadePart {
   id: string; def: string; vol: string; kind: string
   x0: number; x1: number; y0: number; y1: number
+  /**
+   * MEASURED SIDE PROFILE, for members that project from the wall.
+   *
+   * The wall-local rectangle above is a front elevation and a front elevation
+   * cannot see a slope. `tools/facade.mjs` printed "slope and post reach are
+   * checked in the geometry itself; see the note in this file" and checked
+   * NOTHING — it pointed at a comment. That is a gate whose verdict cannot
+   * fire, which this repo has already shipped once (a FAIL line reachable only
+   * by a ratio bounded above by 1) and which is worse than having no check,
+   * because the line reads as a clean result.
+   *
+   * `drop` is how far the projecting edge sits BELOW the wall edge, in metres,
+   * positive downward; `proj` is how far it reaches out. Both are read off the
+   * BUILT vertices after the rotation, not recomputed from the angle that
+   * produced them — recomputing would be a proxy agreeing with itself, and an
+   * inverted sign is precisely the failure being tested for.
+   */
+  drop?: number; proj?: number
 }
 export const facadeParts: FacadePart[] = []
 function recordPart(
   id: string, def: string, vol: string, kind: string,
   cx: number, cy: number, w: number, h: number,
+  profile?: { drop: number; proj: number },
 ): void {
   facadeParts.push({
     id, def, vol, kind,
     x0: +(cx - w / 2).toFixed(3), x1: +(cx + w / 2).toFixed(3),
     y0: +(cy - h / 2).toFixed(3), y1: +(cy + h / 2).toFixed(3),
+    ...(profile ? { drop: +profile.drop.toFixed(4), proj: +profile.proj.toFixed(4) } : {}),
   })
+}
+
+/**
+ * The side profile of a projecting member, read off its BUILT vertices.
+ *
+ * Takes the geometry AFTER whatever rotation was applied and before it is
+ * moved into world space, finds the vertex nearest the wall and the vertex
+ * furthest from it, and reports how far the far edge has fallen. An inverted
+ * rotation sign shows up here as a NEGATIVE drop — the awning tilting its
+ * front edge skyward, which is what "the angles for the main piece is wrong"
+ * turned out to be.
+ */
+function sideProfile(geo: THREE.BufferGeometry): { drop: number; proj: number } {
+  const pos = geo.getAttribute('position')
+  let nearZ = Infinity, farZ = -Infinity, nearY = 0, farY = 0
+  for (let i = 0; i < pos.count; i++) {
+    const z = pos.getZ(i), y = pos.getY(i)
+    if (z < nearZ) { nearZ = z; nearY = y }
+    if (z > farZ) { farZ = z; farY = y }
+  }
+  return { drop: nearY - farY, proj: farZ - nearZ }
 }
 
 /**
@@ -2450,17 +2491,23 @@ export function buildBuildingMeshes(
           leanX, leanZ, rotationY, wx, wy, wz)
         ornamentBatch.addPositioned(stripGeo, stripColor)
         if (s === 0) {
+          // Measured from the rotated strip, so the audit grades the built
+          // canvas rather than the constant that was meant to tilt it.
           recordPart(obj.id, obj.definitionId, volKey(mainVol), 'awning',
-            0, awningY - mainVol.bottomY, awningW, 0.04)
+            0, awningY - mainVol.bottomY, awningW, 0.04, sideProfile(stripGeo))
         }
       }
       // Two simple vertical posts at the front corners — implies tied-down canvas.
       // Post top must clear the awning's sloped underside at the post's Z. The
       // awning's local Z (relative to its translate) at the post is awningD-0.04
-      // ≈ 0.51. After rotateX(slopeRot), that point's Y is z' * sin(-slopeRot)
-      // below the awning's reference plane (slopeRot is negative so sin gives
-      // a small positive drop). Subtract another half-thickness for the
-      // bottom face, then ~3cm of headroom.
+      // ≈ 0.51. rotateX(t) sends (y,z) -> (y cos t - z sin t, ...), so with the
+      // sign now POSITIVE a point at +Z drops by z * sin(t). Subtract another
+      // half-thickness for the bottom face, then ~3cm of headroom.
+      //
+      // The two sentences this replaces still described the pre-fix world —
+      // "slopeRot is negative so sin gives a small positive drop" — which is
+      // the arithmetic that made the posts fall short. A comment left behind
+      // by a fix is the next person's evidence.
       const postZRel = awningD - 0.04
       const postZ = frontWallZ + postZRel
       // ...and the post height inherited the same sign error, subtracting a

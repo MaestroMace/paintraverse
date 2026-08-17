@@ -298,7 +298,15 @@ function tmplJettiedUpper(ctx: MassingContext): Volume[] {
       roofStyle: 'flat', roofHeight: 0,
       roofAxis: 'x',
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
-      textured: false, cornice: false,
+      // TEXTURED, because this is the GROUND FLOOR, not a hidden plinth.
+      // It was authored false on the reasoning that the body under a jetty is
+      // structural and hidden. The jetty overhangs it, it does not conceal it:
+      // this is the storey at eye level, the one a person walking the street
+      // looks straight at, and on a shop it is the shopfront. odd.mjs ranked
+      // it as the town's largest anomaly class — 36 of 42 findings, up to
+      // 109m2 of flat colour against a peer median of zero, on shops,
+      // bakeries and row houses reading "2 volumes, 1 textured".
+      textured: true, cornice: false,
       floors: 1,
     },
     {
@@ -421,7 +429,7 @@ function tmplCornerTower(ctx: MassingContext): Volume[] {
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: ctx.sv.cornice > 0.25,
       circular: rand01(ctx.hash, 19) < 0.35,
-      floors: Math.max(ctx.floors + 1, Math.round(towerH / 0.9)),
+      floors: Math.max(ctx.floors + 1, Math.round(towerH / STOREY_HEIGHT)),
     },
   ]
 }
@@ -455,7 +463,7 @@ function tmplSpireEnd(ctx: MassingContext): Volume[] {
       roofAxis: 'x',
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: true,
-      floors: Math.max(3, Math.round(spireH / 0.9)),
+      floors: Math.max(3, Math.round(spireH / STOREY_HEIGHT)),
     },
   ]
 }
@@ -591,7 +599,7 @@ function tmplCircularTower(ctx: MassingContext, lighthouse: boolean): Volume[] {
     wallColor: ctx.wallColor, roofColor: ctx.roofColor,
     textured: true, cornice: true,
     circular: true,
-    floors: Math.max(3, Math.round(ctx.wallH / 0.9)),
+    floors: Math.max(3, Math.round(ctx.wallH / STOREY_HEIGHT)),
   }]
 }
 
@@ -614,7 +622,7 @@ function tmplGatehouse(ctx: MassingContext): Volume[] {
       roofAxis: 'x',
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: true,
-      floors: Math.max(2, Math.round(towerH / 0.9)),
+      floors: Math.max(2, Math.round(towerH / STOREY_HEIGHT)),
     },
     {
       role: 'tower',
@@ -626,7 +634,7 @@ function tmplGatehouse(ctx: MassingContext): Volume[] {
       roofAxis: 'x',
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: true,
-      floors: Math.max(2, Math.round(towerH / 0.9)),
+      floors: Math.max(2, Math.round(towerH / STOREY_HEIGHT)),
     },
     {
       role: 'mainBody',
@@ -636,7 +644,10 @@ function tmplGatehouse(ctx: MassingContext): Volume[] {
       roofStyle: passageRoof, roofHeight: 0,
       roofAxis: 'x',
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
-      textured: false, cornice: true,
+      // The chamber OVER the archway — a room between two towers, so it takes
+      // a facade. Only the bridge, footbridge and boundary-wall templates are
+      // genuinely masonry, and those declare habitable: false as well.
+      textured: true, cornice: true,
       floors: 1,
     },
   ]
@@ -755,7 +766,7 @@ function tmplCrossPlan(ctx: MassingContext): Volume[] {
       roofAxis: 'x',
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: true,
-      floors: Math.max(3, Math.round(towerH / 0.9)),
+      floors: Math.max(3, Math.round(towerH / STOREY_HEIGHT)),
     },
   ]
 }
@@ -980,7 +991,7 @@ function tmplStackedTower(ctx: MassingContext): Volume[] {
       roofAxis: 'x',
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: true,
-      floors: Math.max(3, Math.round(towerH / 0.9)),
+      floors: Math.max(3, Math.round(towerH / STOREY_HEIGHT)),
     },
   ]
 }
@@ -1251,7 +1262,7 @@ function tmplWindmill(ctx: MassingContext): Volume[] {
     wallColor: ctx.wallColor, roofColor: ctx.roofColor,
     textured: false, cornice: true,
     circular: true,
-    floors: Math.max(3, Math.round(bodyH / 0.9)),
+    floors: Math.max(3, Math.round(bodyH / STOREY_HEIGHT)),
   }]
   // Sails.
   //

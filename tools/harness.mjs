@@ -187,8 +187,13 @@ const CHECKS = [
       // report it, which is how a window as wide as its whole wall and a
       // window 0.80m above its own roofline both survived every earlier run.
       offWall: num(o, /(\d+) openings painted off their own wall/),
+      // Awnings whose MEASURED slope is not an awning's — tilting up, flat as
+      // a shelf, or steep as a lean-to. The block that reports this used to
+      // print a sentence pointing at a source comment and check nothing.
+      awnBad: num(o, /(\d+) awnings mis-sloped/),
     }),
-    dir: { overOpening: -1, offWall: -1 }, band: { overOpening: 6, offWall: 0 },
+    dir: { overOpening: -1, offWall: -1, awnBad: -1 },
+    band: { overOpening: 6, offWall: 0, awnBad: 0 },
   },
   {
     name: 'humanscale',
