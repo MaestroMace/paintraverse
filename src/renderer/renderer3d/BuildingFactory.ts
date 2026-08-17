@@ -1151,7 +1151,16 @@ export function buildBuildingMeshes(
           // The door: FacadeTexture centres a 0.95 x 2.05m opening on the
           // front wall's base. Hardcoded there, so hardcoded here — and if
           // that ever drifts, tools/facade.mjs is what will say so.
-          recordPart(obj.id, obj.definitionId, 'door', 0, 2.05 / 2, 0.95, 2.05)
+          //
+          // ONLY THE MAIN BODY HAS ONE. The first cut recorded a door for
+          // every framed volume, so a tower's four corner posts each "crossed"
+          // a door that is not painted on it — 50 phantom collisions on a
+          // single building. A tool's two halves have to count the same
+          // population, and this half was inventing members of it.
+          const _hasDoor = v.role === 'mainBody'
+          if (_hasDoor) {
+            recordPart(obj.id, obj.definitionId, 'door', 0, 2.05 / 2, 0.95, 2.05)
+          }
 
           // === EXPOSED TIMBER FRAME ===
           //
@@ -1193,6 +1202,10 @@ export function buildBuildingMeshes(
                 v.offsetZ + sz * seatZ(postT) - sz * postT / 2,
                 leanX, leanZ, rotationY, wx, wy, wz)
               ornamentBatch.addPositioned(post, 0x3a2418) // dark oak
+              if (sz === 1) {
+                recordPart(obj.id, obj.definitionId, 'post',
+                  sx * cornerX, postH / 2, postT, postH)
+              }
             }
           }
 
@@ -1224,8 +1237,44 @@ export function buildBuildingMeshes(
               const half = (c.uW * v.width) / 2 + studT / 2 + 0.04
               return [cx - half, cx + half]
             })
-            .concat([[-0.95 / 2 - studT / 2 - 0.04, 0.95 / 2 + studT / 2 + 0.04]])
+            .concat(_hasDoor
+              ? [[-0.95 / 2 - studT / 2 - 0.04, 0.95 / 2 + studT / 2 + 0.04]]
+              : [])
             .sort((a, b) => a[0] - b[0])
+          // The vertical bands the openings occupy, merged. The horizontal
+          // gap logic below has a twin here because the FLOOR BEAMS span the
+          // full width at every floor line, and `floorH = v.height / floors`
+          // is not the same quantity facadeOpenings lays its rows out on — so
+          // the two grids beat vertically exactly as the studs and columns
+          // beat horizontally. 96 beams a town were crossing a window.
+          const _rowsRaw: Array<[number, number]> = _openCells
+            .map((c) => [(c.vCenter - c.vH / 2) * v.height,
+                         (c.vCenter + c.vH / 2) * v.height] as [number, number])
+            .concat(_hasDoor ? [[0, 2.05] as [number, number]] : [])   // the door
+            .sort((a, b) => a[0] - b[0])
+          const _rows: Array<[number, number]> = []
+          for (const r of _rowsRaw) {
+            const last = _rows[_rows.length - 1]
+            if (last && r[0] <= last[1] + 0.06) last[1] = Math.max(last[1], r[1])
+            else _rows.push([r[0], r[1]])
+          }
+          /** Does a wall-local rectangle clear every painted opening? */
+          const _clearsOpenings = (
+            cx: number, cy: number, mw: number, mh: number,
+          ): boolean => {
+            const x0 = cx - mw / 2, x1 = cx + mw / 2
+            const y0 = cy - mh / 2, y1 = cy + mh / 2
+            for (const c of _openCells) {
+              const ox = (c.u - 0.5) * v.width, ow = c.uW * v.width
+              const oy = c.vCenter * v.height, oh = c.vH * v.height
+              if (x1 > ox - ow / 2 && x0 < ox + ow / 2 &&
+                  y1 > oy - oh / 2 && y0 < oy + oh / 2) return false
+            }
+            // ...and the door, which FacadeTexture centres on the wall base.
+            if (_hasDoor && x1 > -0.95 / 2 && x0 < 0.95 / 2 && y1 > 0 && y0 < 2.05) return false
+            return true
+          }
+
           const _gaps: Array<[number, number]> = []
           {
             let cursor = -(v.width - postT) / 2
@@ -1262,8 +1311,18 @@ export function buildBuildingMeshes(
 
           // Head-plate beam across the front+back of this volume just below
           // the cornice. Skip if a heavy cornice will paint over it.
-          const beamY = baseLocalY + postH - 0.08 - postT / 2
-          const beamCovered = v.cornice && (v.role === 'tower' || v.role === 'spire')
+          // Clear of the topmost opening row. At postH - 0.08 - postT/2 the
+          // plate landed straight across the top-floor windows on 7 buildings,
+          // covering one of them entirely — the same two-grids failure as the
+          // studs and the floor beams, at the head of the wall.
+          let beamY = baseLocalY + postH - 0.08 - postT / 2
+          if (!_clearsOpenings(0, beamY - baseLocalY, v.width, 0.10)) {
+            const topRow = _rows.length ? _rows[_rows.length - 1][1] : 0
+            const lift = Math.min(postH - 0.06, topRow + 0.14)
+            if (_clearsOpenings(0, lift, v.width, 0.10)) beamY = baseLocalY + lift
+          }
+          const beamCovered = (v.cornice && (v.role === 'tower' || v.role === 'spire')) ||
+            !_clearsOpenings(0, beamY - baseLocalY, v.width, 0.10)
           if (!beamCovered) {
             const beamProj = postT * 0.45
             for (const sz of [-1, 1]) {
@@ -1271,6 +1330,10 @@ export function buildBuildingMeshes(
               localToWorld(beam, v.offsetX, beamY, v.offsetZ + sz * seatZ(beamProj),
                 leanX, leanZ, rotationY, wx, wy, wz)
               ornamentBatch.addPositioned(beam, 0x3a2418)
+              if (sz === 1) {
+                recordPart(obj.id, obj.definitionId, 'headPlate',
+                  0, beamY - baseLocalY, v.width, 0.10)
+              }
             }
             // Return the plate along the side walls so the frame closes at the
             // corners instead of stopping dead — the gap read as two beams
@@ -1289,13 +1352,32 @@ export function buildBuildingMeshes(
           if (volFloors >= 2) {
             const flBeamH = 0.08
             const flBeamProj = postT * 0.38
-            for (let f = 1; f < volFloors; f++) {
-              const flBeamY = baseLocalY + f * floorH
+            // Beam heights come from the gaps BETWEEN opening rows, so a
+            // floor line lands where the facade already has blank plaster.
+            // Falls back to the old even division when a wall has no openings
+            // at all, which is the case the grid was always right for.
+            const _beamYs: number[] = []
+            for (let r = 1; r < _rows.length; r++) {
+              const mid = (_rows[r - 1][1] + _rows[r][0]) / 2
+              if (_rows[r][0] - _rows[r - 1][1] > flBeamH + 0.12) _beamYs.push(mid)
+            }
+            if (!_beamYs.length) {
+              for (let f = 1; f < volFloors; f++) {
+                const y = f * floorH
+                if (_clearsOpenings(0, y, v.width, flBeamH)) _beamYs.push(y)
+              }
+            }
+            for (const _by of _beamYs) {
+              const flBeamY = baseLocalY + _by
               for (const sz of [-1, 1]) {
                 const fl = new THREE.BoxGeometry(v.width, flBeamH, flBeamProj)
                 localToWorld(fl, v.offsetX, flBeamY, v.offsetZ + sz * seatZ(flBeamProj),
                   leanX, leanZ, rotationY, wx, wy, wz)
                 ornamentBatch.addPositioned(fl, 0x3a2418)
+                if (sz === 1) {
+                  recordPart(obj.id, obj.definitionId, 'floorBeam',
+                    0, flBeamY - baseLocalY, v.width, flBeamH)
+                }
               }
             }
           }
@@ -1308,6 +1390,14 @@ export function buildBuildingMeshes(
             const braceRun = Math.min((v.width - postT) / bays, floorH * 0.8)
             const braceLen = Math.hypot(braceRun, braceRun)
             for (const sx of [-1, 1]) {
+              // A 45-degree brace sweeps a big square of wall, and it was the
+              // worst offender of the lot — 146 across windows and 86 across
+              // doors a town, some covering an opening entirely. It is pure
+              // decoration, so when it cannot clear the glass it simply does
+              // not get nailed on.
+              if (!_clearsOpenings(
+                sx * (cornerX - braceRun / 2), floorH - braceRun / 2,
+                braceRun + braceT, braceRun + braceT)) continue
               for (const sz of [-1, 1]) {
                 const brace = new THREE.BoxGeometry(braceLen, braceT, braceT)
                 // Rotate in the wall plane: 45 degrees, leaning toward the
@@ -1320,6 +1410,15 @@ export function buildBuildingMeshes(
                   v.offsetZ + sz * seatZ(braceT),
                   leanX, leanZ, rotationY, wx, wy, wz)
                 ornamentBatch.addPositioned(brace, 0x3a2418)
+                if (sz === 1) {
+                  // A 45-degree member's wall-local AABB is its run in both
+                  // axes. Approximating a diagonal by its box over-reports a
+                  // little and under-reports nothing, which is the right way
+                  // round for an audit.
+                  recordPart(obj.id, obj.definitionId, 'brace',
+                    sx * (cornerX - braceRun / 2), floorH - braceRun / 2,
+                    braceRun + braceT, braceRun + braceT)
+                }
               }
             }
           }

@@ -2164,6 +2164,33 @@ floor — and an 8cm stud across a 90cm window is 9%, so it reported ZERO stud
 collisions. The question is not how much it covers, it is whether it crosses
 the GLASS rather than butting the reveal.
 
+**And the first audit measured a fifth of the frame.** It recorded studs and
+awnings, because those were the two I happened to instrument — 118 members
+across 66 buildings, which is 1.8 each on walls that carry four corner posts,
+two head plates, a floor beam per storey and four braces. Recording all of them
+took the count 118 -> 550 and the true collision figure to **368**, with the
+studs I had already fixed sitting fifth on the list:
+
+    146  brace across window       worst covers 100%
+     96  floorBeam across window   worst covers 100%
+     86  brace across door
+     30  post across window
+      9  stud across window        (was 207 before the stud fix)
+
+The floor beams are the same two-grids failure rotated ninety degrees:
+`floorH = v.height / volumeFloors(v)` is not the quantity `facadeOpenings` lays
+its ROWS out on, so a full-width beam at every floor line walks across a window
+exactly as the studs walked across a column. Beams now sit in the gaps between
+opening ROWS, the head plate lifts clear of the top row, and a brace — pure
+decoration — is simply not nailed on when it cannot clear the glass.
+**368 -> 49.**
+
+**One of the remaining 49 was my instrument again.** `post across door` read 50
+hits on ONE building: the door was being recorded for EVERY framed volume, but
+FacadeTexture paints one only on the main body, so a tower's corner posts were
+crossing a door that does not exist on it. A tool's two halves have to count
+the same population and this half was inventing members of it.
+
 The awning was three bugs stacked, and reading the code found all three before
 the instrument ran:
 
