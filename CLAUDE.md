@@ -131,6 +131,19 @@ interchangeable with the one next to it", and no tuning of the first ever
 becomes the second. Whenever a tool measures DISTANCE FROM A CENTRE, ask what
 sitting exactly on the centre would look like.
 
+**"Pin the seed" pinned the LAYOUT and nothing else — check what your seed
+actually reaches.** Every `PlacedObject` gets a fresh UUID and
+`simpleHash(obj.id)` was the seed for every architectural decision in every
+renderer, so the streets were identical run to run and the buildings standing on
+them were not. `stableHash(obj)` keys on `definitionId|x,y` instead. The
+damning part is that this was MEASURED a session earlier and explained away:
+`--repeat=3` showed districts stable at 49/49/49 while odd swung 39/48/41, and
+the note reasoned "districts reads the MAP, so the generator is deterministic,
+so the rest must be a timing race plus counts on a threshold." The race was
+real, fixing it helped, and then the residual got a structural explanation that
+was plausible and wrong. **When you have fixed one cause and a residual
+remains, the residual is a new question, not a footnote on the old answer.**
+
 **When two checks of the same thing disagree, compare their STRICTNESS before
 you debug either.** BuildingFactory's `_clearsOpenings` is a bare AABB overlap
 and `facade.mjs` insets each opening by a tenth before testing, so the guard is
@@ -380,6 +393,14 @@ then either convict it or stop mentioning it.
 - `src/renderer/renderer3d/scale.ts` — `TILE = 3.0`, the horizontal tile ->
   world factor for the 3D walkaround, and the rule for when to apply it.
   **Read this before touching any 3D coordinate.**
+- `src/renderer/core/types.ts` — `footprintOf(obj, def)` and
+  `stableHash(obj)`, the two ways to ask a `PlacedObject` a question.
+  **Never seed anything from `obj.id` — it is a UUID, minted fresh on every
+  generate.** Five renderers each kept a private `simpleHash(obj.id)` and
+  between them they reseeded every building's architecture on every run, which
+  is where the whole harness noise floor came from. Both functions live here
+  for the same reason: a value ten files derive independently is a value that
+  drifts, and the drift is silent.
 
 ### Rendering (3D)
 - `src/renderer/renderer3d/ThreeRenderer.ts` — main renderer, scene, loop
@@ -2036,6 +2057,42 @@ only one of them was a bug:
 
 **A metric nobody has run twice has an unknown noise floor, and every A/B ever
 taken against it inherited that.** Run `--repeat` before believing a delta.
+
+### AND THAT SECOND BULLET WAS WRONG — IT WAS A DIFFERENT TOWN EVERY RUN
+
+**Left standing above, because being wrong in a plausible way is the finding.**
+The reasoning was: districts reads the MAP and is stable, so the generator is
+deterministic, so the residual must be counts sitting on a threshold. Every
+step is true except the conclusion, and it closed the question for a session.
+
+`facade.mjs` read 152 buildings / 1352 parts and then 148 / 1175 on an
+identical build and seed. Checksumming the map and the ids separately:
+
+    layoutHash  3211781608  3211781608  3211781608   identical every generate
+    idHash      3902668415  4159138546  3050480396   never the same
+    sampleId    566fa0d9-...   ba6d4779-...   723bedfa-...
+
+**Every `PlacedObject` carries a fresh UUID and `simpleHash(obj.id)` was the
+seed for every architectural decision in all five renderers** — massing
+template, landmark promotion, timber versus quoins, roof style, chimneys,
+awnings, wealthScale, every `rand01(hash, salt)` under them. Identical streets,
+different buildings on them, every single run. `districts` was stable *because*
+it reads the map, which is exactly the observation that was used to rule this
+out.
+
+`stableHash(obj)` lives in `core/types.ts` beside `footprintOf`, for the same
+reason: THE one way to ask. Keyed on `definitionId|x,y`, because the seeded
+generator decides position, footprints do not overlap within a layer, and it
+survives save/load — where a regenerated UUID would silently repaint a whole
+town. Five private copies of `simpleHash` deleted; one definition now.
+
+    before   152 / 240 / 1352   148 / 227 / 1175   156 / ... / 1213
+    after    156 / 227 / 1213   156 / 227 / 1213   156 / 227 / 1213
+
+Byte-identical, percentiles included. **Every A/B in this repo before this
+commit was measuring its change plus an unknown amount of reshuffled
+architecture**, and "pin the seed" was the discipline that was supposed to
+prevent exactly that.
 
 ## THE PERCEPTION HARNESS — provenance + odd + vantage, and why it is three tools
 
