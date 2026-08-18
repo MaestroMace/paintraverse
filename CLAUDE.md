@@ -431,6 +431,26 @@ a town total.** `MAX_PER_DISTRICT` is keyed by district instance and
 four wash houses under a cap of two is two quarters obeying it. That went into
 a draft as "the cap is leaking" — the right diagnosis for the wrong reading.
 
+**A GATE FIXED TWICE AND NEVER SWEPT WILL BE THERE A THIRD TIME.** The shop
+sign's `fp.w >= 2` was corrected to `max(w, h) >= 2`, then `stoopBench`'s
+`fpT.w >= 3` after it, and `grep 'fpT.w >='` still returned five more — of
+which `placard` admitted only three of its six eligible types (shop,
+apothecary and bakery are 2 wide and could never carry one) and `doorstep`
+excluded every 1-wide type, which is most of the town. Grep the PATTERN the
+same day you fix the instance, and prefer the exact quantity: all of these
+attach to the FRONT WALL, `frontWallHalfW` is that wall in metres and already
+in scope, and a tile count in one axis is a proxy that is also blind to
+orientation.
+
+**AN ACCIDENTAL EXCLUSION HIDES BEHIND A WRONG GATE, AND FIXING THE GATE
+RELEASES IT.** Widening the doorstep test took it to 97% — 820 steps against
+about 614 real buildings, so every precinct wall and bridge had acquired a
+threshold. `fpT.w >= 2` had been excluding them only because a precinct wall
+is 1x1, which is the worst kind of correct. **A count that exceeds its own
+population is a free bug report**, the same tell as a rate above 100%. The
+real predicate was already written: `habitable !== false`, which
+FacadeConfig.hasDoor reads for the same reason.
+
 **A lookup with a default has no ABSENT state.** `getFootprint` ends
 `|| { w: 1, h: 1 }`, so an id missing from the table is not unopinionated — it
 reserves one tile, and a 3x3 fountain was doing exactly that while being drawn
@@ -1181,6 +1201,7 @@ Run these before believing anything about where the project is.
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
 | prop tenancy | tenancy.mjs | **42% of props explained by their owner** (38% before vignettes; the older 46% predates a correction) | improving |
+| street dressing gates | features.mjs | 0 wallpaper, 2 ghosts and both correctly rare (temple/cathedral types) | clean |
 | props in a designed group | genlog `vigOk:` | 41/35/27 groups a town over 14 vignettes | new |
 | washing lines | (see buildLanternStrings) | 28-35 garments a town, 10 of 12 lines over walkable ground | new |
 | interpenetration | clash.mjs | **15 pairs over 0.5m, was 124** — see THE OVERHANG BUDGET | fixed |
