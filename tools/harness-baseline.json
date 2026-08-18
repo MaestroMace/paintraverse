@@ -62,5 +62,9 @@
     "noPass": 0,
     "clamber": 67,
     "lowHead": 4
+  },
+  "growth": {
+    "coreEdge100": 264,
+    "corePct": 58
   }
 }

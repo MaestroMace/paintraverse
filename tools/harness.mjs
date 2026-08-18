@@ -347,6 +347,29 @@ const CHECKS = [
     extract: (o) => ({ character: num(o, /CHARACTER\s+(\d+)% of buildings are a type distinctive/) }),
     dir: { character: 1 }, band: { character: 6 },
   },
+  {
+    name: 'growth',
+    why: 'dense core, sparse edges — the DESIGN.md principle nothing else can see',
+    electron: true,
+    // Tracked even though it currently PASSES. urbanform reports coverage as
+    // one town-wide figure, so a gradient collapsing into a uniform slab
+    // would move nothing anywhere else on this board — which is precisely why
+    // it is worth a row. Three seeds keeps the run short; the shape is stable
+    // across six.
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/growth.mjs', '4242', '777', '31337']],
+    extract: (o) => ({
+      coreEdge100: (() => {
+        const m = o.match(/median\s+(?:\s*\d+%)+\s+([\d.]+)x/)
+        return m ? Math.round(Number(m[1]) * 100) : null
+      })(),
+      corePct: num(o, /coverage falls -?\d+ points from core to edge \((\d+)%/),
+    }),
+    // `dir: 1` on the ratio: a town that thins is the goal, so a FALLING
+    // core/edge ratio is the regression. Banded wide because it is a ratio of
+    // two medians over three seeds and the outer ring carries the smallest
+    // sample of the five.
+    dir: { coreEdge100: 1, corePct: 0 }, band: { coreEdge100: 60, corePct: 6 },
+  },
 ]
 
 /** A 0..1 reading carried as an integer, so the board and its bands stay whole. */
