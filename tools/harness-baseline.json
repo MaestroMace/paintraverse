@@ -60,7 +60,7 @@
   "traverse": {
     "reachPct": 85,
     "noPass": 0,
-    "clamber": 64,
+    "clamber": 67,
     "lowHead": 4
   }
 }

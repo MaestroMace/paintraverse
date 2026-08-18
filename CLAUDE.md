@@ -2574,6 +2574,30 @@ outlier — a steep pitch gets neither direct sun nor sideways skylight — and
 the roof batch is the one batch in the renderer with **no `toneFloor` at all**,
 while props carry 0.12 and the laundry 0.30.
 
+**The full ledger for the two types, every row A/B'd by building both sides:**
+
+| metric | before | after | |
+|---|---|---|---|
+| residential character | 14 / 13 / 41% | **45 / 41 / 59%** | the point |
+| town character | 49% | **52%** | |
+| roofcheck openTops | 16 | **6** | free — a cottage always has a roof |
+| provenance spireAtCap | 6% | **3%** | free |
+| built coverage | 45% | 46% | |
+| achievable frontage | 78% | 78% | unmoved |
+| party walls | 93% | 91% | cost — 2x2 terraces less readily than 1x2 |
+| clash deepClash | 15 | 19 | cost |
+| odd overZ3 / bareWall | 21 / 10 | 27 / 14 | cost — two new proportions are new outliers |
+| provenance habitablePinned | 11% | 13% | cost |
+| traverse clamber | 64 | 67 | cost — see below |
+| eyeball roofToWallMed | 63 | 68 | cost |
+| eyeball roofBlackPct | 56% | 66% | **the one that matters** |
+
+`traverse clamber` is the only one whose mechanism needed the tool's own
+attribution as well as the A/B: the pairs split half at the water's edge and
+half inland, and `noPass`, `reachPct` and `lowHead` did not move at all. A
+building BLOCKS its footprint, so changing which buildings stand where exposes
+terrain steps that were previously under a house. Nothing became unreachable.
+
 **Three lessons, and the middle one is the expensive one:**
 
 - **A metric moving against your prediction is not evidence the metric is
