@@ -2160,7 +2160,33 @@ export function buildBuildingMeshes(
     // the simple single step. Multi-step entries narrow as they go up
     // (the bottom step is widest) so the silhouette reads as a stone
     // approach rather than a stack.
-    if (fpT.w >= 2) {
+    // GATED ON THE WALL, NOT ON A TILE COUNT IN ONE AXIS.
+    //
+    // `fpT.w >= 2` excluded every 1-wide type — row_house, tenement, lean_to,
+    // workshop, narrow_house — which between them are most of the town, and a
+    // row house obviously has a door and wants a step in front of it. It is
+    // also orientation-blind: a 1x3 narrow_house presenting its long side to
+    // the street has plenty of frontage and still failed.
+    //
+    // This is the THIRD instance of the same gate bug in this file. The shop
+    // sign's `fp.w >= 2` was fixed to `max(w, h) >= 2`, stoopBench's
+    // `fpT.w >= 3` after that, and the pattern was never swept. The right
+    // test is not a better tile expression at all: these features attach to
+    // the FRONT WALL, `frontWallHalfW` is that wall in metres, and asking the
+    // wall directly is exact where a footprint is a proxy.
+    const stepW0 = 0.85
+    // AND ONLY ON SOMETHING WITH A DOOR. Widening the gate above immediately
+    // put a step in front of every precinct wall and bridge: the census read
+    // 820 doorsteps against ~614 actual buildings, and a count exceeding its
+    // own population is a free bug report. `fpT.w >= 2` had been excluding
+    // them by ACCIDENT — a precinct wall is 1x1 — which is the worst kind of
+    // correct, because the moment the gate is fixed for the right reason the
+    // barriers walk through it.
+    //
+    // `mainVol.habitable !== false` is the same declaration FacadeConfig.hasDoor
+    // reads, and it exists because `role: 'mainBody'` was carrying two
+    // meanings. A wall does not get a threshold because a wall has no door.
+    if (mainVol.habitable !== false && frontWallHalfW * 2 >= stepW0 + 0.4) {
       tallyIn('doorstep', district)
       const wantsStepUp = (district === 'noble' || district === 'temple' ||
         styleVector.wealth > 0.65 || obj.definitionId === 'mansion' ||
@@ -2314,7 +2340,13 @@ export function buildBuildingMeshes(
       obj.definitionId === 'inn' || obj.definitionId === 'tavern' ||
       obj.definitionId === 'guild_hall' || obj.definitionId === 'apothecary' ||
       obj.definitionId === 'bakery' || obj.definitionId === 'shop'
-    ) && !mainVol.circular && fpT.w >= 3 &&
+    ) && !mainVol.circular &&
+      // Was `fpT.w >= 3`, which of the six eligible types above admitted only
+      // inn, tavern and guild_hall — apothecary (2x3), shop (2x3) and bakery
+      // (2x2) could never carry a placard, and `shop` is much the commonest
+      // of the six. The placard is 2.4m of painted board, so the honest
+      // question is whether the wall can hold it.
+      frontWallHalfW * 2 >= 2.4 + 0.5 &&
       !NO_JITTER.has(obj.definitionId) &&
       mainVol.height > 2.4
     if (wantsPlacard) {
