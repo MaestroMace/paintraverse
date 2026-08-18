@@ -6132,13 +6132,33 @@ export class TownGenerator implements IMapGenerator {
         if (!square) continue
         if (rng() < 0.7) continue
       }
-      const obj = this.createObj(pickFrom(square ? SQUARE_KIT : STREET_KIT), x, y)
+      // CHECK THE FOOTPRINT YOU ARE ABOUT TO PLACE, not a 1x1 stand-in.
+      //
+      // The guard above tests one tile, and this kit contains a 2x2
+      // market_stall and a 3x2 wagon. The 3x3 claim below happens to cover a
+      // 2x2 and a 2x1, so nothing showed in the audit — but it does not cover
+      // a wagon's third column, and "it happens to be covered" is not a rule.
+      // Sibling of the vignette overlap fixed in the commit before this one:
+      // a bug in a gate is a bug in a PATTERN, so grep the pattern the same
+      // day. Fall back through the kit rather than abandoning the tile, since
+      // a bare spot that can take a barrel should get one.
+      let id: string | null = null
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const cand = pickFrom(square ? SQUARE_KIT : STREET_KIT)
+        const f = this.getFootprint(cand)
+        if ((f.w === 1 && f.h === 1) || this.areaFree(occupied, x, y, f.w, f.h, w, h)) {
+          id = cand; break
+        }
+      }
+      if (!id) continue
+      const fp = this.getFootprint(id)
+      const obj = this.createObj(id, x, y)
       obj.properties.facingY = rng() * Math.PI * 2
       out.push(obj)
-      // Claim a small neighbourhood so the fill spreads instead of clumping
-      // into the single barest corner.
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
+      // Claim what it actually occupies, plus a one-tile ring, so the fill
+      // spreads instead of clumping into the single barest corner.
+      for (let dy = -1; dy <= fp.h; dy++) {
+        for (let dx = -1; dx <= fp.w; dx++) {
           this.markArea(occupied, x + dx, y + dy, 1, 1, w, h)
         }
       }
