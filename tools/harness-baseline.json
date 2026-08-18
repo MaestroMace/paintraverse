@@ -42,11 +42,11 @@
     "buried": 0
   },
   "eyeball": {
-    "roofToWallMed": 63,
-    "roofOver80": 10,
-    "dwellingsOver4": 12,
-    "wallLuma": 72,
-    "roofBlackPct": 56
+    "roofToWallMed": 68,
+    "roofOver80": 11,
+    "dwellingsOver4": 18,
+    "wallLuma": 75,
+    "roofBlackPct": 66
   },
   "facade": {
     "overOpening": 0,

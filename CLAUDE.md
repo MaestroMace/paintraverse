@@ -379,22 +379,22 @@ the same shape recurs: `PlacedObject.footprint` unblocked four failed plot
 attempts, `BuildingTop` unblocked the particle systems. When a whole category
 of work keeps not happening, look for the handle it would need.
 
-**When a change moves several metrics at once, DISABLE the change rather than
-reason about which moves belong to it.** Two new building types moved eight
-tracked numbers, and the plausible story — a low-wall type puts more roof on
-screen, roofs are dark at dusk — was wrong. Setting both types' weight to 0,
-so they exist and never place, took three metrics straight back to baseline
-and made the tone rows WORSE, which is the opposite of the story. The isolation
-is one number and one build; the reasoning would have gone into this file as
-fact.
+**The only honest A/B in a seeded generator is CHECKING OUT THE OTHER
+COMMIT'S SOURCE.** Disabling a feature in place looks equivalent and is not:
+setting two building types to weight 0 stops them being placed, and still
+perturbs the RNG stream, because the placer rolls over the whole table and
+splices misfits in a retry loop. The result is a near-neighbour town whose
+metrics land *close* to baseline — close enough to read as "snapped back" and
+conclude the opposite of the truth. `git checkout <commit> -- src/ && npm run
+build` is two commands and settles it.
 
-**And it exposed the tool: `eyeball` picks its street views by SCREEN
-PRESENCE, so any change to the town reshuffles which views it grades.** It is
-the one check never put through `--repeat` since the determinism fix, and it
-swings thirteen points with the town essentially unchanged. Every tone
-conclusion drawn from it inherits that. **Do not re-baseline a metric whose
-noise floor you have not measured** — that converts an unknown into a
-recorded fact.
+**A metric moving against your prediction is not evidence the metric is
+broken.** Faced with a tone number that would not fit the story, I wrote down
+that the tool was noisy and unrepeatable, and pushed it. `--repeat=3` then
+read spread 0 on all five of its metrics, and the baseline commit's source
+reproduced the baseline exactly. The instrument was fine; the story was
+wrong. This is the most tempting wrong turn in the whole method, because it
+explains any inconvenient number and costs nothing to assert.
 
 **A constant expressed as a fraction of a variable inherits that variable's
 range, which is the opposite of pinning it.** A cottage template asked for
@@ -1682,7 +1682,18 @@ The whole device problem list is fixed. What is left:
    SwiftShader software rendering with no GPU. Don't optimise against that
    number — get a debug dump from real hardware first. The narrowing added
    ~40 buildings per town, so this is more worth checking than it was.
-5. **The 3D walkaround has no equivalent of the pixel-art tone-mapping fix.**
+5. **ROOFS ARE THE LAST DARK SURFACE, and the roof batch is the only batch
+   with no tone floor.** `roofBlackPct` reads 66% at dusk 18.5 — two thirds of
+   all roof pixels effectively black — against walls at 75 and a documented
+   note that a steep pitch gets neither direct sun nor sideways skylight.
+   Props carry `toneFloor = 0.12` and the laundry 0.30; roofs carry nothing.
+   Adding one is a one-line change with a real risk attached, which is why it
+   was NOT bolted on at the end of the cottage arc as an offset: DESIGN.md
+   pillar 1 wants warm windows against DARK SILHOUETTES, so lifting roofs too
+   far breaks the look this project is for. It needs its own A/B at dusk on a
+   dense town, and `eyeball` is now known-deterministic (spread 0 on three
+   runs), so that A/B will be trustworthy.
+6. **The 3D walkaround has no equivalent of the pixel-art tone-mapping fix.**
    Its composer/bloom is disabled, so it dodged the problem, but if bloom is
    ever re-enabled check it against a dense dusk town, not a sparse one —
    that is exactly how the Canvas2D light map got away with being broken.
@@ -2536,23 +2547,45 @@ cottage touches its neighbours where a 1x2 row house did not, and two new
 proportions create new outliers in a metric that ranks by deviation from
 peers. Re-baselined with that evidence rather than absorbed quietly.
 
-**The tone rows do the opposite: they get WORSE with the cottages removed.**
-That is not a cottage effect at all, and the first explanation I had drafted —
-"a low-wall type puts more roof on screen and roofs are dark at dusk" — was
-wrong in a way that sounded right and would have gone into the file as fact if
-the A/B had not been run. It is the third time this session that a plausible
-attribution collapsed under one measurement.
+The tone rows read WORSE with the cottages removed, which looked like proof
+they were not a cottage effect. **That conclusion was wrong and it was
+published before it was checked.** Two follow-ups killed it:
 
-**`eyeball` picks its street views by screen presence, so any change to the
-town reshuffles WHICH views it grades.** Its own harness entry already carries
-a wide band labelled UNVERIFIED, because it is the one check that has never
-been through `--repeat` since the determinism fix. A metric that swings
-thirteen points while the town is essentially unchanged cannot grade anything,
-and every tone conclusion taken from it this session inherits that.
+- `--repeat=3` on eyeball reads **spread 0 on all five metrics**, and building
+  the baseline commit's own `src/` reproduces `63/10/12/72/56` exactly. So
+  eyeball is deterministic within a build AND across builds. The "it is a
+  noisy instrument, do not trust its tone rows" story was invented to explain
+  a number and is simply false.
+- **Weight 0 is not a clean isolation.** It stops the type being PLACED —
+  typemix confirms zero of each — but `pickTypeForSpace` rolls over the whole
+  table and splices misfits in a retry loop, so two extra entries can still be
+  selected as an index, fail, and consume an extra `rng()`. From that point
+  the stream is desynchronised and the town is a near-neighbour rather than
+  the same town. The three metrics that "snapped back" landed at 10/15/20-10
+  against a baseline of 11/15/21-10 — close, which is what a near-neighbour
+  looks like, not what an isolation proves.
 
-**Do not re-baseline a metric whose noise floor you have not measured.** The
-three attributable ones are re-baselined; the tone rows are left alone
-pending `--repeat`.
+So the honest reading is the plain one I drafted first and then talked myself
+out of: **a low-wall, big-roof type puts more ROOF and less WALL in a street
+view, and roofs at dusk are the darkest surface in this renderer.**
+roofToWallMed +5, roofBlackPct +10, dwellingsOver4 +6 all move the way that
+predicts. It amplifies a defect this file already lists as the remaining tone
+outlier — a steep pitch gets neither direct sun nor sideways skylight — and
+the roof batch is the one batch in the renderer with **no `toneFloor` at all**,
+while props carry 0.12 and the laundry 0.30.
+
+**Three lessons, and the middle one is the expensive one:**
+
+- **A metric moving against your prediction is not evidence the metric is
+  broken.** That is the most tempting wrong turn available, because it
+  explains any inconvenient number and costs nothing to assert.
+- **Disabling a feature is only an isolation if disabling it changes nothing
+  else.** In a seeded generator, adding a table entry perturbs the RNG stream
+  whether or not it is ever chosen. The real A/B is checking out the earlier
+  commit's source and building it, which is cheap and was available the whole
+  time.
+- **Do not re-baseline a metric whose noise floor you have not measured** —
+  and having measured it, do not invent noise you did not find.
 
 ### AND BOTH TEMPLATES KEYED THEIR "LOW WALL" TO A NUMBER THAT WAS NOT LOW
 
