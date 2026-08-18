@@ -13,15 +13,15 @@
   },
   "provenance": {
     "outsideBox": 0,
-    "doubled": 14,
-    "spireAtCap": 6,
+    "doubled": 15,
+    "spireAtCap": 3,
     "habitablePinned": 13
   },
   "humanscale": {
     "subHuman": 0
   },
   "roofcheck": {
-    "openTops": 16
+    "openTops": 6
   },
   "odd": {
     "overZ3": 27,
@@ -55,7 +55,7 @@
   },
   "variety": {
     "twinNear": 6,
-    "twinAny": 28
+    "twinAny": 33
   },
   "traverse": {
     "reachPct": 85,
