@@ -379,6 +379,24 @@ the same shape recurs: `PlacedObject.footprint` unblocked four failed plot
 attempts, `BuildingTop` unblocked the particle systems. When a whole category
 of work keeps not happening, look for the handle it would need.
 
+**`roofBlackPct` CONFLATES "dark by design" WITH "too dark", so the picture is
+the tiebreaker.** It counts roof pixels under 0.06 luma at dusk — and DESIGN.md
+pillar 1 asks for warm windows against DARK SILHOUETTES, so a dark roof is the
+look. It rose 61 -> 81 across the content batches and the A/B says why: roof
+SAMPLE COUNT went 788 -> 1370 because the new types are steep-roofed, so the
+town has more roof on screen, not darker roof. The skyline photograph at the
+same hour reads correctly — red roofs, warm windows, silhouetted spires.
+Treat this row as a composition descriptor, not a defect gate, and settle it
+with a screenshot rather than a sixth attribution.
+
+**A MECHANISM THAT COULD PRODUCE A NUMBER IS NOT EVIDENCE THAT IT DID.** The
+shutter palette measured 0.090-0.139 linear luma against a wall at 0.323 —
+genuinely three times darker, at exactly the height eyeball samples. Lifting
+it threefold moved `wallLuma` by ZERO. The measurement was correct and the
+inference was wrong, and this was the FIFTH such call in one session. The
+cheap discipline that would have caught every one of them: before writing the
+cause down, change the suspected thing and see whether the number moves.
+
 **A SETTER THAT IS ACCEPTED AND DISCARDED is the ghost failure with a type
 signature.** `BatchedMeshBuilder.toneFloor` was honoured by `addPositioned`
 and silently ignored by its sibling `addPositionedNoised`, so setting it on

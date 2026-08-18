@@ -42,11 +42,11 @@
     "buried": 0
   },
   "eyeball": {
-    "roofToWallMed": 68,
-    "roofOver80": 11,
-    "dwellingsOver4": 18,
-    "wallLuma": 75,
-    "roofBlackPct": 61
+    "roofToWallMed": 67,
+    "roofOver80": 12,
+    "dwellingsOver4": 13,
+    "wallLuma": 61,
+    "roofBlackPct": 81
   },
   "facade": {
     "overOpening": 0,
@@ -54,8 +54,8 @@
     "awnBad": 0
   },
   "variety": {
-    "twinNear": 6,
-    "twinAny": 33
+    "twinNear": 7,
+    "twinAny": 38
   },
   "traverse": {
     "reachPct": 85,
