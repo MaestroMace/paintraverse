@@ -1468,6 +1468,99 @@ export function buildPropMeshes(
         batch.addPositioned(cap, 0xc0a050)
       }
 
+    } else if (id === 'handcart') {
+      // A TWO-WHEEL BARROW LEFT WHERE SOMEBODY STOPPED PUSHING IT.
+      // Tipped forward onto its nose with the shafts in the air, which is how
+      // a handcart is actually parked and reads as "in use" rather than
+      // "stored". Real barrow size: 1.3m bed, 0.28m wheels.
+      const bedL = 1.3, bedW = 0.62, wheelR = 0.28
+      const cartWood = 0x7a5a34, cartIron = 0x3c3630
+      const bed = new THREE.BoxGeometry(bedW, 0.1, bedL)
+      bed.rotateX(-0.22)
+      emitRot(bed, 0, wheelR + 0.14, 0, cartWood)
+      for (const side of [-1, 1]) {
+        const sideBoard = new THREE.BoxGeometry(0.05, 0.26, bedL * 0.85)
+        sideBoard.rotateX(-0.22)
+        emitRot(sideBoard, side * bedW * 0.5, wheelR + 0.3, 0, cartWood)
+        const wheel = new THREE.CylinderGeometry(wheelR, wheelR, 0.07, 10)
+        wheel.rotateZ(Math.PI / 2)
+        emitRot(wheel, side * (bedW * 0.5 + 0.05), wheelR, 0.05, cartIron)
+        // Shafts angled up off the ground — the giveaway silhouette.
+        const shaft = new THREE.BoxGeometry(0.06, 0.06, 0.95)
+        shaft.rotateX(-0.5)
+        emitRot(shaft, side * bedW * 0.32, wheelR + 0.5, -bedL * 0.62, cartWood)
+      }
+    } else if (id === 'ladder') {
+      // Left leaning where the work stopped. `facingY` already points away
+      // from the owning wall, so leaning about X puts the top back toward it.
+      const ladLen = 2.9, ladW = 0.34, lean = 0.28
+      const ladWood = 0x8a6a3c
+      for (const side of [-1, 1]) {
+        const rail = new THREE.BoxGeometry(0.055, ladLen, 0.055)
+        rail.rotateX(lean)
+        emitRot(rail, side * ladW * 0.5, Math.cos(lean) * ladLen * 0.5, 0, ladWood)
+      }
+      for (let i = 1; i < 7; i++) {
+        const t = i / 7
+        const bar = new THREE.BoxGeometry(ladW, 0.04, 0.04)
+        bar.rotateX(lean)
+        emitRot(bar, 0, Math.cos(lean) * ladLen * t,
+          -Math.sin(lean) * ladLen * (t - 0.5), ladWood)
+      }
+    } else if (id === 'water_trough') {
+      // Stone trough, for the horse tied to the hitching posts that now stand
+      // at taverns, inns, stables and coach houses. The pair reads as a
+      // working frontage where either alone reads as a stray object.
+      const trL = 1.5, trW = 0.5, trH = 0.42
+      const trStone = 0x827c72, trWater = 0x3f5a63
+      const walls: Array<[number, number, number, number]> = [
+        [trL, 0.09, 0, trW * 0.5], [trL, 0.09, 0, -trW * 0.5],
+        [0.09, trW, trL * 0.5, 0], [0.09, trW, -trL * 0.5, 0],
+      ]
+      for (const [w, d, ox, oz] of walls) {
+        emitRot(new THREE.BoxGeometry(w, trH, d), ox, trH * 0.5, oz, trStone)
+      }
+      emitRot(new THREE.BoxGeometry(trL, 0.1, trW), 0, 0.05, 0, trStone)
+      emitRot(new THREE.BoxGeometry(trL - 0.16, 0.02, trW - 0.16),
+        0, trH * 0.72, 0, trWater)
+    } else if (id === 'sack_pile') {
+      // Grain sacks. The town's clutter is currently crates and barrels and
+      // nothing else, so every pile reads as joinery; a squashed sphere reads
+      // as cloth and costs seven segments.
+      const sackCloth = [0xa89a72, 0x9c8f68, 0xb0a37c]
+      const sackLay: Array<[number, number, number]> = [
+        [0, 0, 0], [0.34, 0, 0.06], [0.17, 0.3, -0.04], [-0.28, 0, -0.1],
+      ]
+      sackLay.forEach((o, i) => {
+        const r = 0.24 - (o[1] > 0 ? 0.03 : 0)
+        const sack = new THREE.SphereGeometry(r, 7, 5)
+        sack.scale(1.0, 0.78, 0.85)
+        emitRot(sack, o[0], r * 0.78 + o[1], o[2], sackCloth[i % sackCloth.length])
+      })
+    } else if (id === 'mounting_block') {
+      // Two stone steps beside a door for getting onto a horse. The smallest
+      // possible piece of "somebody rides from here", and real streets are
+      // full of them.
+      const mbStone = 0x8c867a
+      for (let i = 0; i < 2; i++) {
+        const w = 0.62 - i * 0.14, h = 0.19
+        emitRot(new THREE.BoxGeometry(w, h, 0.44 - i * 0.12),
+          0, h * 0.5 + i * h, i * 0.06, mbStone)
+      }
+    } else if (id === 'beehive') {
+      // A straw skep — stacked tapering rings under a cap. Garden quarters and
+      // the countryside; small, domestic, and unlike anything else out there.
+      const skepStraw = 0xc0a86a
+      const bands = 4
+      for (let i = 0; i < bands; i++) {
+        const t = i / bands
+        const r = 0.28 * (1 - t * 0.55)
+        const band = new THREE.CylinderGeometry(r * 0.9, r, 0.11, 9)
+        emitRot(band, 0, 0.055 + i * 0.105, 0, skepStraw)
+      }
+      const cap = new THREE.SphereGeometry(0.13, 8, 5)
+      cap.scale(1, 0.7, 1)
+      emitRot(cap, 0, bands * 0.105 + 0.03, 0, skepStraw)
     } else if (id === 'woodpile') {
       // Stacked logs: horizontal cylinders in two rows, offset second row
       const logColor = 0x7a5a30

@@ -388,20 +388,47 @@ const VIGNETTES: Vignette[] = [
   // quay is what a medieval town put out when the sun went down.
   { id: 'nightfire', front: true, districts: ['market', 'harbor', 'waterfront', 'fortress'],
     parts: ['forge_brazier', 'crate|barrel|rubble_pile'] },
+  // WORK STOPPED HERE, rather than "things are stored here". Every group
+  // above arranges objects that are AT REST; these read as interrupted, which
+  // is the difference between a tidy set-dressing and a street somebody just
+  // walked out of. All three lead with a 1x1 option so they can reach a
+  // terrace — the lesson kitchengarden cost, where both anchor alternatives
+  // were 2x1 and the group fired zero times.
+  // `front: false`, not null. At null it took 15 of one town's 39 groups —
+  // a ladder against every fourth building, which is the wallpaper failure
+  // arriving by way of a too-permissive gate rather than a too-common asset.
+  // Round the back is also where you actually leave a ladder.
+  { id: 'repairs', front: false, districts: ['artisan', 'slum', 'residential', 'harbor'],
+    parts: ['ladder|crate_stack', 'sack_pile|crate|barrel'] },
+  // Two parts, not three. A three-part group needs two free tiles ADJACENT to
+  // its anchor and a terrace rarely offers that — `delivery` has three and
+  // fires 0-1 a town for exactly this reason.
+  { id: 'unloading', front: true, districts: ['market', 'harbor', 'waterfront', 'artisan'],
+    parts: ['sack_pile|crate_stack', 'handcart|cart|barrel'] },
+  // A tied-up horse needs somewhere to drink. hitchingPost is a BUILDING
+  // feature and this is a PROP group, so they are placed by different passes
+  // and cannot be paired directly — but both key off the same four types, so
+  // in practice they land on the same frontages.
+  { id: 'stableyard', front: true, districts: ['noble', 'fortress', 'residential'],
+    parts: ['water_trough|mounting_block', 'hay_bale|haystack|sack_pile'] },
+  // The garden quarter's own. A skep and a hedge is a kept garden; neither
+  // exists anywhere else in the town's vocabulary.
+  { id: 'apiary', home: true, front: false, districts: ['garden', 'residential'],
+    parts: ['beehive', 'hedge|bush|flower_bed'] },
 ]
 
 const DISTRICT_PROPS: Record<DistrictType, string[]> = {
-  market: ['market_stall', 'market_tent', 'crate', 'crate_stack', 'barrel', 'hanging_sign', 'wagon', 'sign', 'cafe_table', 'cart', 'market_tent', 'bunting_pole'],
-  residential: ['potted_plant', 'bench', 'well', 'fence', 'planter_box', 'flower_box', 'cloth_line', 'rain_barrel', 'woodpile'],
-  artisan: ['barrel', 'crate', 'barrel_stack', 'sign', 'fence', 'crate_stack', 'woodpile', 'cart', 'rain_barrel', 'forge_brazier', 'forge_brazier'],
-  noble: ['potted_plant', 'planter_box', 'bench', 'statue', 'fountain', 'wall_lantern', 'column', 'monument', 'garden_arch', 'flower_box', 'heraldic_banner', 'heraldic_banner'],
-  waterfront: ['barrel', 'crate', 'wagon', 'sign', 'bench', 'crate_stack', 'horse_post', 'rain_barrel', 'fish_rack', 'rope_coil'],
-  temple: ['statue', 'potted_plant', 'stone_wall', 'wall_lantern', 'column', 'monument', 'garden_arch', 'prayer_flags', 'prayer_flags'],
-  slum: ['barrel', 'crate', 'barrel_stack', 'woodpile', 'rain_barrel', 'rubble_pile', 'rubble_pile', 'rubble_pile'],
-  garden: ['potted_plant', 'planter_box', 'bench', 'fountain', 'bush', 'tree', 'flower_box', 'garden_arch', 'trellis_arch', 'flower_bed', 'flower_bed'],
-  harbor: ['barrel', 'crate', 'crate_stack', 'wagon', 'horse_post', 'dock', 'crane', 'fishing_boat', 'rain_barrel', 'fish_rack', 'fish_rack', 'rope_coil', 'rope_coil'],
-  fortress: ['stone_wall', 'barrel', 'crate', 'wall_lantern', 'iron_fence', 'heraldic_banner'],
-  cemetery: ['gravestone', 'iron_fence', 'potted_plant', 'tree', 'wall_lantern', 'bench', 'cemetery_cross', 'cemetery_cross'],
+  market: ['market_stall', 'market_tent', 'crate', 'crate_stack', 'barrel', 'hanging_sign', 'wagon', 'sign', 'cafe_table', 'cart', 'market_tent', 'bunting_pole', 'tent', 'handcart', 'sack_pile', 'well_grand'],
+  residential: ['potted_plant', 'bench', 'well', 'fence', 'planter_box', 'flower_box', 'cloth_line', 'rain_barrel', 'woodpile', 'ladder', 'mounting_block', 'handcart'],
+  artisan: ['barrel', 'crate', 'barrel_stack', 'sign', 'fence', 'crate_stack', 'woodpile', 'cart', 'rain_barrel', 'forge_brazier', 'forge_brazier', 'ladder', 'handcart', 'sack_pile'],
+  noble: ['potted_plant', 'planter_box', 'bench', 'statue', 'fountain', 'wall_lantern', 'column', 'monument', 'garden_arch', 'flower_box', 'heraldic_banner', 'heraldic_banner', 'hedge', 'mounting_block', 'water_trough'],
+  waterfront: ['barrel', 'crate', 'wagon', 'sign', 'bench', 'crate_stack', 'horse_post', 'rain_barrel', 'fish_rack', 'rope_coil', 'sack_pile', 'handcart'],
+  temple: ['statue', 'potted_plant', 'stone_wall', 'wall_lantern', 'column', 'monument', 'garden_arch', 'prayer_flags', 'prayer_flags', 'hedge', 'well_grand'],
+  slum: ['barrel', 'crate', 'barrel_stack', 'woodpile', 'rain_barrel', 'rubble_pile', 'rubble_pile', 'rubble_pile', 'ladder', 'sack_pile'],
+  garden: ['potted_plant', 'planter_box', 'bench', 'fountain', 'bush', 'tree', 'flower_box', 'garden_arch', 'trellis_arch', 'flower_bed', 'flower_bed', 'hedge', 'beehive', 'pavilion', 'haystack'],
+  harbor: ['barrel', 'crate', 'crate_stack', 'wagon', 'horse_post', 'dock', 'crane', 'fishing_boat', 'rain_barrel', 'fish_rack', 'fish_rack', 'rope_coil', 'rope_coil', 'sack_pile', 'handcart'],
+  fortress: ['stone_wall', 'barrel', 'crate', 'wall_lantern', 'iron_fence', 'heraldic_banner', 'water_trough', 'haystack', 'ladder'],
+  cemetery: ['gravestone', 'iron_fence', 'potted_plant', 'tree', 'wall_lantern', 'bench', 'cemetery_cross', 'cemetery_cross', 'hedge'],
 }
 
 // Street-edge furniture per district. Deliberately a narrower list than
@@ -410,15 +437,15 @@ const DISTRICT_PROPS: Record<DistrictType, string[]> = {
 // placeStreetFurniture, which walks the road network rather than clustering
 // on buildings.
 const STREET_FURNITURE: Record<DistrictType, string[]> = {
-  market: ['crate', 'barrel', 'crate_stack', 'cart', 'market_stall', 'hay_bale', 'sign'],
-  residential: ['bench', 'potted_plant', 'flower_box', 'rain_barrel', 'woodpile', 'planter_box'],
-  artisan: ['barrel', 'crate', 'barrel_stack', 'woodpile', 'cart', 'crate_stack'],
-  noble: ['bench', 'potted_plant', 'planter_box', 'flower_box', 'column'],
+  market: ['crate', 'barrel', 'crate_stack', 'cart', 'market_stall', 'hay_bale', 'sign', 'sack_pile', 'handcart'],
+  residential: ['bench', 'potted_plant', 'flower_box', 'rain_barrel', 'woodpile', 'planter_box', 'mounting_block', 'ladder'],
+  artisan: ['barrel', 'crate', 'barrel_stack', 'woodpile', 'cart', 'crate_stack', 'ladder', 'sack_pile'],
+  noble: ['bench', 'potted_plant', 'planter_box', 'flower_box', 'column', 'mounting_block'],
   waterfront: ['barrel', 'crate', 'rope_coil', 'crate_stack', 'horse_post', 'bench'],
   temple: ['potted_plant', 'column', 'bench', 'prayer_flags'],
-  slum: ['barrel', 'crate', 'rubble_pile', 'woodpile', 'rain_barrel'],
-  garden: ['bench', 'potted_plant', 'planter_box', 'flower_bed', 'flower_box'],
-  harbor: ['barrel', 'crate', 'crate_stack', 'rope_coil', 'fish_rack', 'horse_post'],
+  slum: ['barrel', 'crate', 'rubble_pile', 'woodpile', 'rain_barrel', 'sack_pile'],
+  garden: ['bench', 'potted_plant', 'planter_box', 'flower_bed', 'flower_box', 'beehive'],
+  harbor: ['barrel', 'crate', 'crate_stack', 'rope_coil', 'fish_rack', 'horse_post', 'sack_pile'],
   fortress: ['barrel', 'crate', 'iron_fence', 'woodpile'],
   cemetery: ['iron_fence', 'potted_plant', 'bench', 'gravestone'],
 }
@@ -5010,8 +5037,16 @@ export class TownGenerator implements IMapGenerator {
           // a landscape feel like it has a past. Its own branch in the stone
           // builder (`if (id === 'standing_stone')`), never definable until
           // now, so it has never once appeared.
+          // A MILESTONE is the third face of the same idea and it was already
+          // modelled — PropFactory has drawn one all along and the store
+          // defined nothing, so it could never be placed. A carved stone
+          // counting the distance to somewhere else is exactly what belongs
+          // on the road OUT of a town, and it says the town has a somewhere
+          // else to be counted from.
+          const r = rng()
           countryside.push(this.createObj(
-            rng() < 0.22 ? 'standing_stone' : 'road_marker', mx, my, 0))
+            r < 0.22 ? 'standing_stone' : r < 0.48 ? 'milestone' : 'road_marker',
+            mx, my, 0))
           occupied[my][mx] = true
           break
         }
@@ -6488,6 +6523,15 @@ export class TownGenerator implements IMapGenerator {
       // tool written to catch exactly this. It checks every definition now.
       cottage: { w: 2, h: 2 }, washhouse: { w: 2, h: 2 },
       kiln: { w: 1, h: 2 }, workshop: { w: 1, h: 2 },
+      // The street-clutter batch. Every multi-tile one MUST be here or it
+      // reserves a single cell and gets drawn over its neighbours — six props
+      // were doing exactly that before registry.mjs learned to compare
+      // against the value the code actually GETS rather than the table's
+      // contents.
+      handcart: { w: 2, h: 1 }, water_trough: { w: 2, h: 1 },
+      hedge: { w: 2, h: 1 }, haystack: { w: 2, h: 2 },
+      tent: { w: 2, h: 2 }, pavilion: { w: 2, h: 2 },
+      well_grand: { w: 2, h: 2 },
       picket_fence: { w: 2, h: 1 }, market_tent: { w: 2, h: 2 },
       fountain_grand: { w: 3, h: 3 }, rowboat: { w: 2, h: 1 },
       skiff: { w: 2, h: 1 }, port_crane: { w: 2, h: 2 },

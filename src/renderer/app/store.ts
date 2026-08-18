@@ -838,6 +838,42 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
   },
+  // === THINGS LEFT IN THE STREET, and six that were already modelled ===
+  //
+  // Half of this block is FREE: PropFactory could already draw hedge,
+  // haystack, tent, milestone, pavilion and well_grand and the store defined
+  // none of them, so the geometry existed and nothing could ever place it.
+  // That is the ghost in reverse — content with no way in — and diffing the
+  // ids the renderer HANDLES against the ids the store DEFINES is one grep.
+  //
+  // The other half is new, and it is aimed at the one gap the vignette arc
+  // left open: the town's clutter is crates and barrels and almost nothing
+  // else, all of it tidied against a wall. A handcart tipped on its nose, a
+  // ladder still leaning, sacks that read as cloth rather than joinery.
+  { id: 'handcart', name: 'Handcart', category: 'prop', tags: ['trade', 'vehicle'],
+    color: '#7A5A34', footprint: { w: 2, h: 1 }, styleSetSlots: [] },
+  { id: 'ladder', name: 'Ladder', category: 'prop', tags: ['tool'],
+    color: '#8A6A3C', footprint: { w: 1, h: 1 }, styleSetSlots: [] },
+  { id: 'water_trough', name: 'Water Trough', category: 'prop', tags: ['animal'],
+    color: '#827C72', footprint: { w: 2, h: 1 }, styleSetSlots: [] },
+  { id: 'sack_pile', name: 'Sack Pile', category: 'prop', tags: ['storage', 'trade'],
+    color: '#A89A72', footprint: { w: 1, h: 1 }, styleSetSlots: [] },
+  { id: 'mounting_block', name: 'Mounting Block', category: 'prop', tags: ['street'],
+    color: '#8C867A', footprint: { w: 1, h: 1 }, styleSetSlots: [] },
+  { id: 'beehive', name: 'Beehive', category: 'prop', tags: ['garden'],
+    color: '#C0A86A', footprint: { w: 1, h: 1 }, styleSetSlots: [] },
+  { id: 'hedge', name: 'Hedge', category: 'prop', tags: ['garden', 'barrier'],
+    color: '#4E6B3A', footprint: { w: 2, h: 1 }, styleSetSlots: [] },
+  { id: 'haystack', name: 'Haystack', category: 'prop', tags: ['farm'],
+    color: '#C6A954', footprint: { w: 2, h: 2 }, styleSetSlots: [] },
+  { id: 'tent', name: 'Tent', category: 'prop', tags: ['market'],
+    color: '#B0654A', footprint: { w: 2, h: 2 }, styleSetSlots: [] },
+  { id: 'milestone', name: 'Milestone', category: 'prop', tags: ['street'],
+    color: '#928C80', footprint: { w: 1, h: 1 }, styleSetSlots: [] },
+  { id: 'pavilion', name: 'Garden Pavilion', category: 'prop', tags: ['garden'],
+    color: '#A8A090', footprint: { w: 2, h: 2 }, styleSetSlots: [] },
+  { id: 'well_grand', name: 'Grand Well', category: 'prop', tags: ['civic'],
+    color: '#8A8478', footprint: { w: 2, h: 2 }, styleSetSlots: [] },
   {
     id: 'woodpile',
     name: 'Woodpile',
