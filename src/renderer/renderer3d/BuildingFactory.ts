@@ -491,7 +491,31 @@ export function buildBuildingMeshes(
    *  What matters is the split, so record it. */
   const tallyIn = (k: string, d: string) => { tally(k); tally(`${k}@${d}`) }
   let flatToppedTallVolumes = 0
-  const roofBatch = new BatchedMeshBuilder()
+  // THE ROOF BATCH WAS THE ONLY BATCH IN THE RENDERER WITH NO TONE FLOOR.
+  //
+  // Props carry 0.12 and the laundry 0.30, and roofs carried nothing, so at
+  // dusk `eyeball` read 66% of all roof pixels as effectively black — two
+  // thirds of the largest surface in a street view, against walls at 0.075
+  // and mid-grey at 0.22. A steep pitch gets neither the direct sun a flat
+  // roof gets nor the sideways skylight a wall gets, which this file has
+  // listed as the remaining tone outlier for some time.
+  //
+  // THE VALUE IS CHOSEN BY A PRINCIPLE, NOT BY TASTE. DESIGN.md pillar 1 is
+  // warm windows against DARK silhouettes, so a roof is supposed to be dark —
+  // the defect is that it was BLACKER THAN THE WALL BENEATH IT, which reads
+  // as a hole rather than a surface. So the stopping point is parity with the
+  // wall, and the tone table says where that is:
+  //
+  //     floor   roof med / black     wall med / black
+  //     0       —          66%       0.046      59%
+  //     0.18    —          61%       0.046      59%   <- parity
+  //     0.25    0.060      49%       0.046      59%   <- roofs now BRIGHTER
+  //
+  // 0.055 was tried first and moved nothing at all, because the roof palette
+  // already sits above it; the response is very non-linear and the useful
+  // range is narrow. `liftToFloor` only touches colours already below the
+  // floor and multiplies channels, so hue survives and a red roof stays red.
+  const roofBatch = Object.assign(new BatchedMeshBuilder(), { toneFloor: 0.18 })
   const detailBatch = new BatchedMeshBuilder()
   const ornamentBatch = new BatchedMeshBuilder()
 

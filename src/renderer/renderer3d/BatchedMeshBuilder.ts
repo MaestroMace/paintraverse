@@ -362,7 +362,14 @@ export class BatchedMeshBuilder {
     // normal/uv, so after this call every 3 consecutive vertices form
     // exactly one triangle in the geometry.
     const clone = normalizeForMerge(geo.clone())
-    const base = new THREE.Color(colorHex)
+    // HONOUR toneFloor HERE TOO. This is `addPositioned`'s sibling and it
+    // silently ignored the field, so setting `roofBatch.toneFloor` did
+    // nothing at all — roofs go through this path. The measurement caught it
+    // (roofBlackPct did not move by a single point) but a setter that is
+    // accepted and discarded is the ghost failure with a type signature: the
+    // next caller to reach for it on a noised batch gets the same silence.
+    // A bug in a gate is a bug in a PATTERN; this is the gate's other half.
+    const base = new THREE.Color(liftToFloor(colorHex, this.toneFloor))
     const posCount = clone.getAttribute('position').count
     const colors = new Float32Array(posCount * 3)
     const triCount = Math.floor(posCount / 3)
