@@ -82,6 +82,10 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'half_timber', w: 3, h: 2, weight: 2 },
     { id: 'apothecary', w: 2, h: 3, weight: 1 },
     { id: 'staircase', w: 2, h: 3, weight: 1 },
+    // The craft quarter's own two — see store.ts. Everything above is shared
+    // with somewhere else, which is why artisan measured 8% and 0%.
+    { id: 'workshop', w: 1, h: 2, weight: 5 },
+    { id: 'kiln', w: 1, h: 2, weight: 2 },
   ],
   noble: [
     { id: 'mansion', w: 5, h: 4, weight: 5 },
@@ -259,6 +263,12 @@ const MAX_PER_DISTRICT: Record<string, number> = {
   // leaking. It was not leaking; I had assumed one ordinary quarter per town.
   // A cap here means "per quarter", which for a communal institution is 1.
   washhouse: 1,
+  // A firing is an installation, not housing — same argument as the sexton
+  // and the wash house. And the SHAPE and the CAP are chosen together: at
+  // 2x2 the kiln placed ZERO on both seeds where artisan exists, which is
+  // the wash house's failure repeating, because real odds are the weight
+  // times how often the shape fits and only a 1x2 fits often.
+  kiln: 2,
 }
 // These read 1/10/4/4/3/3 first and cost three points of built coverage and
 // five of achievable frontage, because they were written as SCARCITY when the
@@ -6477,6 +6487,7 @@ export class TownGenerator implements IMapGenerator {
       // path's own list — so a PROP whose tables disagree was invisible to the
       // tool written to catch exactly this. It checks every definition now.
       cottage: { w: 2, h: 2 }, washhouse: { w: 2, h: 2 },
+      kiln: { w: 1, h: 2 }, workshop: { w: 1, h: 2 },
       picket_fence: { w: 2, h: 1 }, market_tent: { w: 2, h: 2 },
       fountain_grand: { w: 3, h: 3 }, rowboat: { w: 2, h: 1 },
       skiff: { w: 2, h: 1 }, port_crane: { w: 2, h: 2 },

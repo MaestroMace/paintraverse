@@ -1136,6 +1136,137 @@ function tmplWashhouse(ctx: MassingContext): Volume[] {
   ]
 }
 
+/**
+ * A KILN IS THE ONE SILHOUETTE HERE THAT IS NEITHER A HOUSE NOR A SPIRE.
+ *
+ * A squat brick cone with a stack. Every other small building in this town is
+ * a box with a pitched roof, so a truncated cone reads as "something is made
+ * here" from across a quarter, which is exactly what the artisan quarter had
+ * no way of saying — measured 8% and 0% distinctive, its top three types
+ * building_small, row_house and corner_building.
+ *
+ * `circular: true` is what buys it: rotateVolume leaves circular volumes
+ * alone, and `pointed` on a round base is a cone rather than a hip. The
+ * stoke-hole shed against the flank stops it reading as a silo.
+ *
+ * Sized absolutely. A kiln is an installation with an intrinsic size — the
+ * lesson the cottage template had to learn twice — so nothing here is a
+ * fraction of `ctx.wallH`.
+ */
+function tmplKiln(ctx: MassingContext): Volume[] {
+  // PROPORTIONED AGAINST ITS OWN DRUM, NOT AGAINST A STOREY.
+  //
+  // The first cut took `bodyH` from STOREY_HEIGHT and the cone at 1.15x that,
+  // which on a 1.86m drum is a 4:1 needle — photographed as a slender turret
+  // with a gold finial on the point, i.e. a false landmark on the skyline,
+  // which is worse than no kiln at all. Exactly the cottage's mistake in a new
+  // template: a thing with an intrinsic SHAPE cannot take its height from a
+  // storey.
+  //
+  // A kiln is roughly as wide as it is tall. Everything below is a multiple of
+  // the drum, so the proportion holds at any footprint, and the ornament pass's
+  // finial then reads as the vent cap a bottle kiln actually has.
+  const drum = Math.min(ctx.footW, ctx.footD) * 0.85
+  const bodyH = drum * (0.72 + rand01(ctx.hash, 631) * 0.16)
+  const shedW = Math.max(0.9, drum * 0.5)
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: drum, depth: drum,
+      bottomY: 0, height: bodyH,
+      // A tall cone on a short drum: the rise is most of the object, which is
+      // what makes the profile read at distance.
+      // HIPPED, NOT POINTED. `pointed` is in SPAN_PITCH and `ensureRoofPitch`
+      // floors it at 1.3-2.35x the span because it is a spire style, so a
+      // 2.17m cone came back 4.93m — provenance named the pass. On a circular
+      // volume a hipped roof degenerates to a cone anyway, and hipped is not
+      // in that table, so the rise the template asks for is the rise it gets.
+      // Third time this session a style's own pitch floor overrode a
+      // deliberately squat ask; check SPAN_PITCH before choosing a style.
+      roofStyle: 'hipped', roofHeight: drum * 0.85,
+      roofAxis: 'x',
+      circular: true,
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: false, cornice: false,
+      // AN OVEN IS NOT A ROOM. Without this the drum takes both habitable
+      // floors — MIN_HABITABLE_W on the width and STOREY_HEIGHT on the height
+      // — and provenance measured exactly that: `H 1.90 -> 2.90`, with 100% of
+      // kiln bodies sitting on the storey floor. A 1.9m firing chamber raised
+      // to a full storey and topped with a spire is the turret this
+      // photographed as.
+      habitable: false,
+      floors: 1,
+    },
+    {
+      role: 'wing',
+      // On the LONG axis. A 1x2 plot is 3m across and 6m deep, so a shed
+      // offset in x is half outside the footprint and gets clipped away.
+      offsetX: 0, offsetZ: drum * 0.55,
+      width: drum * 0.8, depth: shedW,
+      bottomY: 0, height: bodyH * 0.55,
+      roofStyle: 'gabled', roofHeight: bodyH * 0.3,
+      roofAxis: 'x',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: false,
+      // A stoke hole is not a room. Without this the habitable minimum widens
+      // it to 2.6m and the kiln comes back as two boxes.
+      habitable: false,
+      floors: 1,
+    },
+  ]
+}
+
+/**
+ * A WORKSHOP IS A DWELLING WITH ITS GROUND FLOOR GIVEN OVER TO WORK.
+ *
+ * Living above, the trade below, and a canopy thrown out across the front so
+ * the work spills into the street — which is the whole reason a craft quarter
+ * feels different to walk through. The canopy is the recognisable piece and
+ * it is 20cm of geometry, the same argument as the wash house's roof louvre.
+ *
+ * It hangs off `frontWallZ`-style geometry rather than the footprint edge:
+ * `depth * 0.5` is the volume's own front face, and the volume is the thing
+ * the canopy has to touch. Anchoring to the FOOTPRINT rectangle is the
+ * documented family of bugs that put every sign and awning in this town some
+ * nonzero distance in front of its wall.
+ */
+function tmplWorkshop(ctx: MassingContext): Volume[] {
+  const wallH = STOREY_HEIGHT * (1.9 + rand01(ctx.hash, 633) * 0.5)
+  const span = (ctx.footW + ctx.footD) / 2
+  const body: Volume = {
+    role: 'mainBody',
+    offsetX: 0, offsetZ: 0,
+    width: ctx.footW, depth: ctx.footD,
+    bottomY: 0, height: wallH,
+    roofStyle: 'gabled', roofHeight: span * (0.42 + rand01(ctx.hash, 635) * 0.1),
+    roofAxis: ctx.footW >= ctx.footD ? 'x' : 'z',
+    wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+    textured: true, cornice: false,
+    floors: 2,
+  }
+  const canopyD = 0.85
+  return [
+    body,
+    {
+      role: 'trim',
+      offsetX: 0,
+      // Just proud of the volume's own front face, not the footprint's.
+      offsetZ: ctx.footD / 2 + canopyD / 2 - 0.05,
+      width: ctx.footW * 0.9, depth: canopyD,
+      // Head height, so you can stand under it — a canopy you have to duck
+      // for is the head-clearance failure the washing lines already taught.
+      bottomY: STOREY_HEIGHT * 0.92, height: 0.2,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: ctx.roofColor, roofColor: ctx.roofColor,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    },
+  ]
+}
+
 /** Body + dramatic centered tall tower (like a keep). */
 function tmplStackedTower(ctx: MassingContext): Volume[] {
   const mainRoof: RoofStyle = 'flat'
@@ -1607,6 +1738,10 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   // and costs nothing but the massing.
   cottage: (ctx) => tmplCottage(ctx),
   washhouse: (ctx) => tmplWashhouse(ctx),
+  // The craft quarter's pair — a cone and a canopy, neither of which any
+  // other type in the town produces.
+  kiln: (ctx) => tmplKiln(ctx),
+  workshop: (ctx) => tmplWorkshop(ctx),
   warehouse: (ctx) => tmplStepBack(ctx),
   stable: (ctx) => tmplFarmstead(ctx),
   mill: (ctx) => rand01(ctx.hash, 523) < 0.3 ? tmplWindmill(ctx) : tmplFarmstead(ctx),

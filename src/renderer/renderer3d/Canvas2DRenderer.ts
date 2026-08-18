@@ -116,6 +116,8 @@ const BUILDING_HEIGHTS: Record<string, number> = {
   // Low walls under a big roof — that IS the silhouette, so the export must
   // not give them the 1.8-tile fallback or a generic three storeys.
   cottage: 1.7, washhouse: 1.5,
+  // A kiln is squat and a workshop is an ordinary two-storey house.
+  kiln: 1.6, workshop: 2.6,
   archway: 3.2, staircase: 1.2, town_gate: 4.5,
   chapel: 4.5, guild_hall: 4.0, warehouse: 3.0,
   watchtower: 5.5, mansion: 3.5, bakery: 2.5,
@@ -157,6 +159,7 @@ const BUILDING_ROOF_STYLE: Record<string, RoofStyle> = {
   tavern: 'gabled', shop: 'steep', tower: 'pointed', clock_tower: 'pointed',
   balcony_house: 'gabled', row_house: 'steep', corner_building: 'hipped',
   cottage: 'steep', washhouse: 'hipped',
+  kiln: 'pointed', workshop: 'gabled',
   archway: 'none', staircase: 'none', town_gate: 'flat',
   chapel: 'steep', guild_hall: 'hipped', warehouse: 'gabled',
   watchtower: 'pointed', mansion: 'hipped', bakery: 'gabled',

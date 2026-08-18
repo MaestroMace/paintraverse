@@ -283,6 +283,42 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 2, h: 2 },
     styleSetSlots: ['wall', 'roof', 'door', 'window']
   },
+  // THE CRAFT QUARTER HAD NO VOCABULARY EITHER, and it was worse off than
+  // residential ever was: measured 8% and 0% distinctive on the two seeds of
+  // eight where artisan is generated at all, with building_small, row_house
+  // and corner_building as its top three. Every entry in its table (shop,
+  // building_small, row_house, warehouse, corner_building, half_timber,
+  // apothecary, staircase) also appears somewhere else, so like residential
+  // it is disqualified by construction.
+  //
+  // Eighth application of the small-exclusive-type pattern. What a craft
+  // quarter has that no other does is the PROCESS building and the workshop
+  // you live above.
+  //
+  // A kiln is the one silhouette in this town that is neither a house nor a
+  // spire — a squat brick cone with a stack, and smoke. It is an installation
+  // rather than housing, so it is capped: two firings a quarter, not a row of
+  // them. The workshop is the ordinary artisan house, a dwelling with the
+  // ground floor given over to work and a canopy thrown across the front of
+  // it, which is why its trade spills into the street.
+  {
+    id: 'kiln',
+    name: 'Kiln',
+    category: 'building',
+    tags: ['structure', 'industrial', 'artisan'],
+    color: '#9C6A4A',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: ['wall', 'roof']
+  },
+  {
+    id: 'workshop',
+    name: 'Workshop',
+    category: 'building',
+    tags: ['structure', 'commercial', 'artisan'],
+    color: '#9A8A6A',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'awning']
+  },
   // 1x2, NOT 2x2. At 2x2 the wash house placed 4/0/0/1/3 across five seeds —
   // absent from two towns entirely — and the zeros were the two SMALLEST
   // residential quarters. That is this repo's most-repeated finding about
