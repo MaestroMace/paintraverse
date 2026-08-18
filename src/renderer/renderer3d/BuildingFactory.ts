@@ -2251,10 +2251,17 @@ export function buildBuildingMeshes(
     // Skip on market-district taverns — they get an awning, whose front
     // posts land near the same XZ as the hitching posts and the two would
     // read as a confusing double-post.
+    // `coach_house` belongs here and was missing: it is literally where the
+    // horses and the carriage live, it is the noble quarter's own small type
+    // at weight 3, and it places 7-8 a quarter — several times the tavern and
+    // inn put together. At 2x2 it would also have failed the `fpT.w >= 3`
+    // below, which is the same one-axis proxy fixed for placard and doorstep,
+    // so the wall answers instead: two posts 1.2m apart plus their timber
+    // needs about 1.6m of frontage and nothing more.
     const wantsHitching = (obj.definitionId === 'tavern' || obj.definitionId === 'inn' ||
-      obj.definitionId === 'stable') &&
+      obj.definitionId === 'stable' || obj.definitionId === 'coach_house') &&
       district !== 'market' &&
-      rand01(hash, 1201) < 0.7 && fpT.w >= 3
+      rand01(hash, 1201) < 0.7 && frontWallHalfW * 2 >= 1.6
     if (wantsHitching) {
       tallyIn('hitchingPost', district)
       const postH = 0.88, postT = 0.09
