@@ -1017,12 +1017,26 @@ function tmplLeanTo(ctx: MassingContext): Volume[] {
  * the roofline: a cottage reads as a cottage from the roof down.
  */
 function tmplCottage(ctx: MassingContext): Volume[] {
-  // A storey and a half. Floored against STOREY_HEIGHT so the habitable
-  // minimum downstream cannot quietly turn it back into a two-storey box.
-  const wallH = Math.max(STOREY_HEIGHT * 1.15, ctx.wallH * 0.55)
+  // A STOREY AND A HALF, AS AN ABSOLUTE HEIGHT.
+  //
+  // The first cut wrote `max(STOREY_HEIGHT * 1.15, ctx.wallH * 0.55)`, and
+  // `ctx.wallH` is whatever the generic building height would have been — so
+  // on a tall plot the "low wall" came out at 7.7m and the roof, asked for as
+  // `max(wallH * 1.05, ...)`, came out bigger still. asset.mjs reported the
+  // result as `4 floors` and photographed a two-storey house under an
+  // eight-metre black triangle: the exact defect eyeball.mjs tracks, written
+  // deliberately into a new template.
+  //
+  // A cottage's height is INTRINSIC. It does not scale with what the plot
+  // would otherwise have carried, any more than a door does — this is the
+  // same rule MAX_OVERHANG and PropFactory's `physical()` already follow.
+  const wallH = STOREY_HEIGHT * (1.35 + rand01(ctx.hash, 617) * 0.3)
   const roofStyle: RoofStyle = rand01(ctx.hash, 611) < 0.5 ? 'steep' : 'gabled'
   const span = (ctx.footW + ctx.footD) / 2
-  const rise = Math.max(wallH * 1.05, span * 0.62)
+  // Off the SPAN alone. Keying any part of the rise to the wall guarantees a
+  // roof taller than the house, which is the thing this type is supposed to
+  // demonstrate the good version of.
+  const rise = span * (0.46 + rand01(ctx.hash, 619) * 0.12)
   const body: Volume = {
     role: 'mainBody',
     offsetX: 0, offsetZ: 0,
@@ -1067,9 +1081,12 @@ function tmplCottage(ctx: MassingContext): Volume[] {
  * this is a shed.
  */
 function tmplWashhouse(ctx: MassingContext): Volume[] {
-  const wallH = Math.max(STOREY_HEIGHT * 1.0, ctx.wallH * 0.45)
+  // Absolute, for the reason spelled out in tmplCottage above: a fraction of
+  // `ctx.wallH` is a fraction of a number that has nothing to do with what
+  // this building is. One tall room.
+  const wallH = STOREY_HEIGHT * (1.0 + rand01(ctx.hash, 621) * 0.2)
   const span = (ctx.footW + ctx.footD) / 2
-  const rise = Math.max(wallH * 0.8, span * 0.5)
+  const rise = span * (0.34 + rand01(ctx.hash, 623) * 0.1)
   const ventW = Math.max(0.6, Math.min(ctx.footW, ctx.footD) * 0.3)
   return [
     {
@@ -1087,8 +1104,13 @@ function tmplWashhouse(ctx: MassingContext): Volume[] {
       role: 'trim',
       offsetX: 0, offsetZ: 0,
       width: ventW, depth: ventW,
-      // Sits ON the ridge, so it starts where the main roof's apex is.
-      bottomY: wallH + rise * 0.72, height: Math.max(0.45, rise * 0.22),
+      // ON the ridge, not in it. The comment here said "sits ON the ridge" and
+      // the number said `rise * 0.72`, which on a hipped roof is well inside
+      // the cone — the photograph came back with a plain apex and the one
+      // feature that distinguishes a wash house from a shed was buried in its
+      // own roof. 0.9 seats it just under the peak so it still meets solid
+      // geometry, with the rest standing proud.
+      bottomY: wallH + rise * 0.9, height: Math.max(0.5, rise * 0.28),
       roofStyle: 'hipped', roofHeight: Math.max(0.25, rise * 0.16),
       roofAxis: 'x',
       wallColor: ctx.roofColor, roofColor: ctx.roofColor,
