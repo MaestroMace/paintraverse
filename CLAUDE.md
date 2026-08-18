@@ -379,6 +379,20 @@ the same shape recurs: `PlacedObject.footprint` unblocked four failed plot
 attempts, `BuildingTop` unblocked the particle systems. When a whole category
 of work keeps not happening, look for the handle it would need.
 
+**A SETTER THAT IS ACCEPTED AND DISCARDED is the ghost failure with a type
+signature.** `BatchedMeshBuilder.toneFloor` was honoured by `addPositioned`
+and silently ignored by its sibling `addPositionedNoised`, so setting it on
+the roof batch — which uses the noised path — compiled, ran, and did nothing.
+The measurement is what caught it: the number did not move by a single point.
+When a field is read in one method, grep for the others that should read it.
+
+**Choose a tuning value by a PRINCIPLE, not by taste or by whichever number
+moves most.** The roof floor's defect was stated precisely — roofs reading
+darker than the walls beneath them, which is a hole rather than a surface —
+so the stopping point is parity with the wall, and the tone table says where
+that is. Without that, 0.35 "improves" the metric by four times as much and
+flattens the silhouette the project exists for.
+
 **The only honest A/B in a seeded generator is CHECKING OUT THE OTHER
 COMMIT'S SOURCE.** Disabling a feature in place looks equivalent and is not:
 setting two building types to weight 0 stops them being placed, and still
@@ -1682,17 +1696,20 @@ The whole device problem list is fixed. What is left:
    SwiftShader software rendering with no GPU. Don't optimise against that
    number — get a debug dump from real hardware first. The narrowing added
    ~40 buildings per town, so this is more worth checking than it was.
-5. **ROOFS ARE THE LAST DARK SURFACE, and the roof batch is the only batch
-   with no tone floor.** `roofBlackPct` reads 66% at dusk 18.5 — two thirds of
-   all roof pixels effectively black — against walls at 75 and a documented
-   note that a steep pitch gets neither direct sun nor sideways skylight.
-   Props carry `toneFloor = 0.12` and the laundry 0.30; roofs carry nothing.
-   Adding one is a one-line change with a real risk attached, which is why it
-   was NOT bolted on at the end of the cottage arc as an offset: DESIGN.md
-   pillar 1 wants warm windows against DARK SILHOUETTES, so lifting roofs too
-   far breaks the look this project is for. It needs its own A/B at dusk on a
-   dense town, and `eyeball` is now known-deterministic (spread 0 on three
-   runs), so that A/B will be trustworthy.
+5. **DONE — roofs have a tone floor, and the setter was being ignored.**
+   `roofBlackPct` 66% -> 61% at dusk 18.5. The interesting part is that
+   setting `roofBatch.toneFloor` changed NOTHING at first:
+   `addPositionedNoised` is `addPositioned`'s sibling and never applied the
+   field, so it was accepted and discarded, and roofs go through the noised
+   path. A setter that is silently ignored is the ghost failure with a type
+   signature. Only the measurement caught it — the number did not move by a
+   point. **The value was chosen by a principle rather than by taste**: a dark
+   roof is correct (pillar 1), the defect was roofs darker than the WALLS
+   BENEATH THEM, so parity with the wall is the stop. 0.18 lands there; 0.25
+   makes roofs brighter than walls and 0.055 moves nothing because the palette
+   already sits above it. Still open, and deliberately not folded in: props
+   read **88% black** at dusk despite a 0.12 floor, and walls 59%. Whether
+   that is a defect or the intended night look is its own A/B.
 6. **The 3D walkaround has no equivalent of the pixel-art tone-mapping fix.**
    Its composer/bloom is disabled, so it dodged the problem, but if bloom is
    ever re-enabled check it against a dense dusk town, not a sparse one —
