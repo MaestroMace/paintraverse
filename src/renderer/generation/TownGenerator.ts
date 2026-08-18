@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import type { MapDocument, MapLayer, PlacedObject, GenerationConfig, EnvironmentState } from '../core/types'
+import { DWELLING_TYPES } from '../core/types'
 import type { IMapGenerator } from './GeneratorRegistry'
 import { createRNG, SimplexNoise, poissonDiskSampling, nearestPoint, perturbedDistance } from './noise'
 import { isCirculation } from '../core/terrain'
@@ -268,15 +269,14 @@ const NEVER_TERRACED = new Set([
  * placer knew and was not using for composition.
  */
 /**
- * Somewhere a household lives. Hoisted out of propForRole so the vignettes and
- * the single-prop picker cannot drift about what counts as a home — a value
- * two places derive independently is a value that drifts, silently.
+ * Somewhere a household lives. Now `DWELLING_TYPES` in core/types.ts, beside
+ * `footprintOf` and `stableHash`, because hoisting it out of propForRole
+ * stopped TWO copies drifting and there were four: the renderer needs the same
+ * predicate to decide whose windows a washing line may be strung between, and
+ * tenancy.mjs and eyeball.mjs each kept a list that already disagreed with
+ * this one about what a house is.
  */
-const DWELLINGS = new Set([
-  'row_house', 'building_small', 'cottage', 'half_timber',
-  'balcony_house', 'corner_building', 'building_large', 'townhouse',
-  'narrow_house', 'tenement', 'lean_to', 'almshouse',
-])
+const DWELLINGS = DWELLING_TYPES
 
 interface Vignette {
   id: string

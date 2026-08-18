@@ -158,6 +158,41 @@ export function stableHash(obj: { definitionId: string; x: number; y: number }):
   return Math.abs(h)
 }
 
+/**
+ * SOMEWHERE A HOUSEHOLD LIVES. THE one way to ask, for the same reason
+ * `footprintOf` and `stableHash` are here: a value several files derive
+ * independently is a value that drifts, silently.
+ *
+ * It had already drifted three ways before this existed, and the copies did
+ * not merely differ in length — they disagreed about what a home IS:
+ *
+ *   TownGenerator  12 ids   decides where domestic dressing GOES
+ *   tenancy.mjs    11 ids   decides whether that dressing counts as EXPLAINED
+ *   eyeball.mjs    15 ids   decides which buildings are graded as ORDINARY
+ *
+ * So the generator hung washing on a `half_timber` that tenancy did not
+ * recognise and scored the placer's own correct behaviour as a failure — the
+ * numerator and denominator counting different populations, which is a
+ * mistake this repo has now made in four separate tools. And eyeball counted
+ * `coach_house` and `potting_shed` as dwellings: an outbuilding and a garden
+ * shed, both of which drag the storey distribution it reports.
+ *
+ * The merged set is the union MINUS the two that are not houses. Outbuildings
+ * (`coach_house`, `potting_shed`, `sexton_hut`) and `clergy_house` are quarter
+ * signature types, not homes — a quarter's exclusive building is the thing
+ * that makes it distinctive, and treating it as ordinary housing defeats both
+ * the character metric and the domestic dressing. `building_medium` is a
+ * generic mid-size block that lands in every quarter, so it is out for the
+ * same reason: it says nothing about who is inside.
+ *
+ * The tools read this list out of this file rather than restating it.
+ */
+export const DWELLING_TYPES: ReadonlySet<string> = new Set([
+  'row_house', 'building_small', 'cottage', 'half_timber',
+  'balcony_house', 'corner_building', 'building_large', 'townhouse',
+  'narrow_house', 'tenement', 'lean_to', 'almshouse',
+])
+
 // === OBJECT DEFINITIONS ===
 
 export interface ObjectDefinition {

@@ -32,6 +32,7 @@ import { _electron as electron } from 'playwright-core'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { hideChrome, FRAME } from './lib/vantage.mjs'
 import { waitForScene } from './lib/scene.mjs'
+import { DWELLINGS } from './lib/taxonomy.mjs'
 
 const argv = process.argv.slice(2)
 const seed = Number(argv.find((a) => /^\d+$/.test(a)) ?? 31337)
@@ -236,11 +237,12 @@ for (const [def, e] of [...tally.entries()].sort((a, b) => b[1].area - a[1].area
 // six storeys and up, the skyline reads as a modern city whatever the roofs
 // are doing, and no per-building audit will ever say so because each one is
 // individually legal.
-const DWELLING = new Set([
-  'row_house', 'building_small', 'building_medium', 'narrow_house', 'half_timber',
-  'cottage', 'tenement', 'lean_to', 'almshouse', 'clergy_house', 'sexton_hut',
-  'potting_shed', 'coach_house', 'balcony_house', 'corner_building',
-])
+// Read out of core/types.ts rather than restated. The list that used to sit
+// here counted `coach_house`, `potting_shed`, `sexton_hut` and `clergy_house`
+// as dwellings — an outbuilding, a garden shed and two quarter-signature
+// types, all of them dragging the storey distribution this tool reports — and
+// it disagreed with the generator's own set in both directions.
+const DWELLING = DWELLINGS
 const dwellings = scene.structures.filter((s) => DWELLING.has(s.def))
 // WALL height, not apex. `height` is the top of the roof, and dividing that by
 // a storey overstates the count by the whole pitch — a 3-storey house with a

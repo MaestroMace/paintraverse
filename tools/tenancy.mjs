@@ -29,6 +29,7 @@
  *   xvfb-run -a -s "-screen 0 1400x900x24" node tools/tenancy.mjs [seeds...]
  */
 import { _electron as electron } from 'playwright-core'
+import { DWELLINGS } from './lib/taxonomy.mjs'
 
 const seeds = process.argv.slice(2).map(Number)
 if (seeds.length === 0) seeds.push(4242, 777, 31337)
@@ -54,7 +55,12 @@ for (const seed of seeds) {
   await win.getByRole('button', { name: /^generate$/i }).first().click()
   await win.waitForTimeout(2800)
 
-  const r = await win.evaluate(() => {
+  // DWELLINGS is parsed from the TypeScript source in NODE and the table that
+  // uses it is built in the PAGE, so it has to cross the boundary explicitly —
+  // a closure over a module import silently becomes a ReferenceError inside
+  // evaluate. Sent as an array because a Set does not survive serialisation.
+  const r = await win.evaluate((dwellingIds) => {
+    const DWELLINGS = new Set(dwellingIds)
     const st = window.__pt.store.getState()
     const map = st.map
     const defs = st.objectDefinitions
@@ -109,7 +115,6 @@ for (const seed of seeds) {
       mansion: ['potted_plant', 'planter_box', 'flower_box', 'bench', 'statue'],
       building_large: ['potted_plant', 'planter_box', 'flower_box'],
       balcony_house: ['flower_box', 'planter_box', 'potted_plant'],
-      half_timber: ['flower_box', 'potted_plant', 'woodpile', 'firewood'],
       chapel: ['statue', 'wall_lantern', 'bench', 'column'],
       temple: ['column', 'statue', 'wall_lantern', 'bench'],
       tower: ['wall_lantern'],
@@ -132,18 +137,13 @@ for (const seed of seeds) {
       // history already records (the first draft invented prop ids that do
       // not exist, so no domestic prop could score at all).
       //
-      // Keep in step with DWELLINGS in TownGenerator.ts.
-      row_house: DOMESTIC,
-      building_small: DOMESTIC,
-      cottage: DOMESTIC,
-      townhouse: DOMESTIC,
-      corner_building: DOMESTIC,
-      balcony_house: DOMESTIC,
-      building_large: DOMESTIC,
-      narrow_house: DOMESTIC,
-      tenement: DOMESTIC,
-      lean_to: DOMESTIC,
-      almshouse: DOMESTIC,
+      // NOT "keep in step with" — READ IT. That instruction sat here as a
+      // comment and the two lists drifted anyway: `half_timber` had a bespoke
+      // four-prop entry a few lines above (including `firewood`, an id the
+      // game does not define), so a woodpile correctly placed at a
+      // half-timbered house scored as unexplained. A note asking a future
+      // reader to synchronise two constants is not synchronisation.
+      ...Object.fromEntries([...DWELLINGS].map((id) => [id, DOMESTIC])),
     }
 
     let ownedN = 0, explainedN = 0, orphanN = 0, insideN = 0, civicN = 0
@@ -198,7 +198,7 @@ for (const seed of seeds) {
       ownedN, explainedN, orphanN, insideN, civicN,
       orphanKinds, ownedKinds, typeCounts, propsByDistrict,
     }
-  })
+  }, [...DWELLINGS])
   if (!r) { console.log(`seed ${seed}: no terrain`); continue }
   rows.push({ seed, ...r })
   await win.waitForTimeout(150)

@@ -129,7 +129,7 @@ const CHECKS = [
     why: 'is every building type wired into all six id-keyed tables',
     electron: false,
     cmd: ['node', ['tools/registry.mjs']],
-    extract: (o) => ({ problems: num(o, /(\d+) of \d+ building types have a registration problem/) }),
+    extract: (o) => ({ problems: num(o, /(\d+) of \d+ definitions have a registration problem/) }),
     gates: { problems: (v) => v === 0 },
   },
   {
