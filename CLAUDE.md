@@ -1707,10 +1707,22 @@ The whole device problem list is fixed. What is left:
    roof is correct (pillar 1), the defect was roofs darker than the WALLS
    BENEATH THEM, so parity with the wall is the stop. 0.18 lands there; 0.25
    makes roofs brighter than walls and 0.055 moves nothing because the palette
-   already sits above it. Still open, and deliberately not folded in: props
-   read **88% black** at dusk despite a 0.12 floor, and walls 59%. Whether
-   that is a defect or the intended night look is its own A/B.
-6. **The 3D walkaround has no equivalent of the pixel-art tone-mapping fix.**
+   already sits above it.
+6. **"PROPS READ 88% BLACK AT DUSK" WAS NOT A MEASUREMENT OF PROPS.** Filed
+   here as an open item off eyeball's `other` row, and eyeball's own comment
+   says what that row is: *"terrain, water, a prop or a wall mesh"* — every
+   sample no building volume owns, that is not horizontal, at 265 samples
+   against 9865 for walls. Vertical river-bank cuts and grazing water are in
+   there with the barrels. Raising the prop floor 0.12 -> 0.25 moved the row
+   the WRONG way (88% -> 94%), which is the tell that the bucket is not
+   measuring what its name suggests.
+   Nothing is known about prop tone at dusk. Measuring it needs a mask over
+   prop meshes specifically, the way `subjectPixels` raycasts a subject —
+   `other` cannot answer it and should not be quoted as if it could. **Check
+   what a bucket CONTAINS before filing a defect against it**, which is the
+   sample-population lesson this file already records three times in other
+   clothes.
+7. **The 3D walkaround has no equivalent of the pixel-art tone-mapping fix.**
    Its composer/bloom is disabled, so it dodged the problem, but if bloom is
    ever re-enabled check it against a dense dusk town, not a sparse one —
    that is exactly how the Canvas2D light map got away with being broken.
@@ -1998,6 +2010,19 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   A/B: hidden-vs-visible proves the subject is IN the frame, subject-alone
   says where it is and what shape it really has. Requires the mesh to have a
   NAME, which is the same reason the lantern ropes got one.
+- `node tools/growth.mjs [seeds...]` — **does the town get sparser as you walk
+  out of it?** DESIGN.md names six marks of organic growth and five had a
+  tool; "dense core, sparse edges — growth rings fade outward" had none, and
+  nothing else can see it, because urbanform reports coverage as ONE town-wide
+  figure and a flat 46% is indistinguishable from a gradient averaging 46%.
+  Equal-AREA rings out from the footprint-weighted building centroid (not the
+  map centre — the town does not fill the canvas). **It REFUTED the hypothesis
+  that motivated it**: coverage falls 58% -> 22% core to edge, 2.4-4.3x on
+  every seed, so the principle was already satisfied and simply unwatched. On
+  the board now for exactly that reason. States no target, and its storey row
+  deliberately grades nothing: DESIGN.md says the oldest part is the TIGHTEST,
+  which is density, and "also usually the tallest" was a target I caught
+  myself inventing.
 - `node tools/districts.mjs [seeds...]` — **can you tell which quarter you are
   in?** Character (are the building types distinctive), signature (do ground,
   height and density differ), and trade dressing per district. Prints
