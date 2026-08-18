@@ -15,7 +15,7 @@
     "outsideBox": 0,
     "doubled": 14,
     "spireAtCap": 6,
-    "habitablePinned": 11
+    "habitablePinned": 13
   },
   "humanscale": {
     "subHuman": 0
@@ -24,8 +24,8 @@
     "openTops": 16
   },
   "odd": {
-    "overZ3": 21,
-    "bareWall": 10
+    "overZ3": 27,
+    "bareWall": 14
   },
   "urbanform": {
     "coverage": 45,
@@ -37,7 +37,7 @@
     "character": 49
   },
   "clash": {
-    "deepClash": 15,
+    "deepClash": 19,
     "onAir": 16,
     "buried": 0
   },

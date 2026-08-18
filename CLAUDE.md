@@ -379,6 +379,23 @@ the same shape recurs: `PlacedObject.footprint` unblocked four failed plot
 attempts, `BuildingTop` unblocked the particle systems. When a whole category
 of work keeps not happening, look for the handle it would need.
 
+**When a change moves several metrics at once, DISABLE the change rather than
+reason about which moves belong to it.** Two new building types moved eight
+tracked numbers, and the plausible story — a low-wall type puts more roof on
+screen, roofs are dark at dusk — was wrong. Setting both types' weight to 0,
+so they exist and never place, took three metrics straight back to baseline
+and made the tone rows WORSE, which is the opposite of the story. The isolation
+is one number and one build; the reasoning would have gone into this file as
+fact.
+
+**And it exposed the tool: `eyeball` picks its street views by SCREEN
+PRESENCE, so any change to the town reshuffles which views it grades.** It is
+the one check never put through `--repeat` since the determinism fix, and it
+swings thirteen points with the town essentially unchanged. Every tone
+conclusion drawn from it inherits that. **Do not re-baseline a metric whose
+noise floor you have not measured** — that converts an unknown into a
+recorded fact.
+
 **A constant expressed as a fraction of a variable inherits that variable's
 range, which is the opposite of pinning it.** A cottage template asked for
 `ctx.wallH * 0.55` as its "low wall" and got 7.7m on a tall plot, then a roof
@@ -2496,6 +2513,46 @@ Final: cottage on all 8 seeds (1-15 a town), wash house on 6 of 8. The
 institution missing from a quarter of towns is a residual worth naming rather
 than tuning a fourth time — fixing it properly means placing one deliberately
 per residential quarter instead of drawing it from a weighted bag.
+
+### EIGHT REGRESSIONS, AND THE SINGLE-VARIABLE A/B SPLIT THEM IN TWO
+
+Adding two building types moved eight tracked metrics, on a baseline saved
+after the washing lines and before these — so the attribution window was
+clean and every move belonged to this one commit. Rather than reason about
+which were "just a different town", the types were given **weight 0** so they
+exist and never place, which is the one change that isolates them:
+
+| metric | weight 0 | with the types | baseline |
+|---|---|---|---|
+| habitablePinned | **10** | 13 | 11 |
+| deepClash | **15** | 19 | 15 |
+| odd overZ3 / bareWall | **20 / 10** | 27 / 14 | 21 / 10 |
+| eyeball roofBlackPct | **69** | 66 | 56 |
+| eyeball wallLuma | **63** | 75 | 72 |
+
+The first three snap back to baseline: those regressions ARE the new types,
+they are real, and they are the honest price of the character gain — a 2x2
+cottage touches its neighbours where a 1x2 row house did not, and two new
+proportions create new outliers in a metric that ranks by deviation from
+peers. Re-baselined with that evidence rather than absorbed quietly.
+
+**The tone rows do the opposite: they get WORSE with the cottages removed.**
+That is not a cottage effect at all, and the first explanation I had drafted —
+"a low-wall type puts more roof on screen and roofs are dark at dusk" — was
+wrong in a way that sounded right and would have gone into the file as fact if
+the A/B had not been run. It is the third time this session that a plausible
+attribution collapsed under one measurement.
+
+**`eyeball` picks its street views by screen presence, so any change to the
+town reshuffles WHICH views it grades.** Its own harness entry already carries
+a wide band labelled UNVERIFIED, because it is the one check that has never
+been through `--repeat` since the determinism fix. A metric that swings
+thirteen points while the town is essentially unchanged cannot grade anything,
+and every tone conclusion taken from it this session inherits that.
+
+**Do not re-baseline a metric whose noise floor you have not measured.** The
+three attributable ones are re-baselined; the tone rows are left alone
+pending `--repeat`.
 
 ### AND BOTH TEMPLATES KEYED THEIR "LOW WALL" TO A NUMBER THAT WAS NOT LOW
 
