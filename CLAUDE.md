@@ -2416,6 +2416,28 @@ The last row is the one that decides whether the feature exists in play. The
 pairing filters on distance and building type and has no notion of a street,
 so a line could equally have spanned back yards nobody can reach.
 
+### AND THE BOARD CREDITED THE TAXONOMY FIX AS A TEN-POINT WIN
+
+`eyeball roofToWallMed` went 73 -> 63 and the harness printed `(-10 better)`.
+It is not better. Running the OLD dwelling set against the SAME build reads
+73, so **the entire move is the tool** — a different population, not a
+different town. The baseline is re-saved at 63 as a population change rather
+than banked as progress.
+
+Two things worth keeping. First, this is the A/B-the-tool-separately rule
+catching a change I had already congratulated myself for in a commit message
+an hour earlier, in the very same session where I wrote that rule into THE
+METHOD for the third time. Second, the direction is informative: dropping
+`coach_house`, `potting_shed`, `sexton_hut`, `clergy_house` and
+`building_medium` lowered the median by ten points, which says outbuildings
+and quarter-signature types are markedly ROOF-HEAVIER than houses — a low
+wall under a full pitch is exactly what a potting shed is. They were dragging
+a metric about ordinary dwellings the whole time.
+
+**A tracked metric that moves when you edit the TOOL must be re-baselined, not
+celebrated.** The harness cannot tell the two apart and will always phrase it
+as an improvement.
+
 ### HOW TO FIND AN 0.8m THING IN A STREET PHOTOGRAPH — tools/lib/vantage.isolate
 
 Four rounds went on hunting one garment in a frame of five hundred meshes, and
