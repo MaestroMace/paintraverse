@@ -427,3 +427,51 @@ export function cropTo(screen, frame = FRAME, pad = 0.4, min = 0.34) {
     height: Math.max(16, Math.round((y1 - y0) * frame.height)),
   }
 }
+
+/**
+ * HIDE EVERYTHING EXCEPT ONE NAMED MESH, and give back a restore function.
+ *
+ * The question "where in this frame is the thing I just built?" has no
+ * reliable answer by eye once a scene holds five hundred meshes. Four rounds
+ * went on hunting an 0.8m garment in a street photograph — two occlusion
+ * searches, one screen-coverage ranking, and a lot of squinting at dark
+ * rectangles that turned out to be roof soffits. Rendering the subject ALONE
+ * answered it in one shot, and it is six lines.
+ *
+ * It is the natural partner to the hide-one-mesh A/B this repo already uses
+ * (`anomaly.mjs --hide=`, `bisect.mjs`), and the pair is what you want:
+ *
+ *   hidden vs visible   proves the subject IS in the frame
+ *   subject alone       says WHERE it is and what shape it really has
+ *
+ * Neither is an aesthetic judgement — you still need the composite to say
+ * whether the thing reads. But taking the composite first is what let a
+ * byte-identical before/after pass as evidence for a whole session.
+ *
+ * Requires the mesh to be NAMED. An unnamed mesh inside a merged batch is
+ * anonymous by construction, which is the same reason the lantern ropes got
+ * a name in the first place.
+ */
+export async function isolate(win, meshName) {
+  const found = await win.evaluate((name) => {
+    const three = window.__pt.renderer()
+    let n = 0
+    three.scene.traverse((o) => {
+      if (!o.isMesh) return
+      o.userData.__wasVisible = o.visible
+      o.visible = o.name === name
+      if (o.visible) n++
+    })
+    return n
+  }, meshName)
+  return {
+    found,
+    restore: () => win.evaluate(() => {
+      window.__pt.renderer().scene.traverse((o) => {
+        if (!o.isMesh) return
+        if ('__wasVisible' in o.userData) o.visible = o.userData.__wasVisible
+        delete o.userData.__wasVisible
+      })
+    }),
+  }
+}

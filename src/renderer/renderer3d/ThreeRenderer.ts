@@ -894,6 +894,7 @@ export class ThreeRenderer {
       const ls = buildLanternStrings(map, defMap, heightMap, this._buildingTops)
       if (ls.ropeMesh) this.propGroup.add(ls.ropeMesh)
       if (ls.lanternMesh) this.propGroup.add(ls.lanternMesh)
+      if (ls.laundryMesh) this.propGroup.add(ls.laundryMesh)
       // Wall-mounted eye-level lanterns — small warm points on ~18% of
       // buildings, complements the overhead rope strings.
       const wall = buildWallLanterns(map, defMap, heightMap, this._buildingTops)

@@ -12,7 +12,7 @@
 
 import * as THREE from 'three'
 import type { MapDocument, ObjectDefinition } from '../core/types'
-import { stableHash } from '../core/types'
+import { stableHash, DWELLING_TYPES } from '../core/types'
 import { getTerrainHeight } from './TerrainMesh'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 import type { BuildingTop } from './BuildingFactory'
@@ -45,6 +45,57 @@ const MAX_DIST = 5.0 * TILE
 // Rope sag and lantern drop scale with the span, not with a fixed number of
 // world units, or a 15m string hangs as taut as a 8m one.
 const SAG_FRACTION = 0.045
+
+// === WASHING STRUNG BETWEEN UPPER WINDOWS ===================================
+//
+// A second payload on the SAME pairing pass rather than a second pass. The
+// pairing is the expensive and delicate part of this file — distance filter,
+// per-building usage budget, and the endpoint pull-in that stops a rope being
+// buried inside the two buildings it connects — and duplicating it for a
+// visually different string is precisely how the three terrain tables and the
+// three dwelling sets came to disagree. One loop, one usage budget, two
+// payloads.
+//
+// Three of DESIGN.md's four visual references put this in frame: Gion's
+// alleys, Diagon Alley's lived-in terraces, and the Marais/Lisbon "500 years
+// of organic growth" read. It is also the cheapest possible answer to the
+// open note that ground-level life is thin, because it fills the volume of
+// air over the street, which nothing currently occupies below the lantern
+// ropes and above the props.
+//
+// A washing line hangs BELOW the eaves, between upper-storey windows, where a
+// lantern chain hangs above them — that inversion is most of what makes it
+// read as laundry rather than as bunting.
+// PINNED TO THE WINDOW, NOT SUBTRACTED FROM THE EAVE.
+//
+// The first cut hung the line a fixed 1.7m below the lower eave and then
+// required head clearance, and the pair of rules quietly became a HEIGHT
+// FILTER: `min(eave) - 1.7 >= ground + 4.2` can only be satisfied by
+// buildings almost six metres tall, so the washing selected the tallest pairs
+// in town and measured out at 8-17m — above most of the rooflines it was
+// meant to hang between. A test that rejects the short case does not adapt to
+// it, and the same arithmetic that makes it clear the street makes it climb.
+//
+// A washing line is at the upper-storey window, which is a physical height: a
+// 2.9m storey plus a 0.95m sill plus most of a 1.35m window. So measure UP
+// from the ground and clamp DOWN to the eave, rather than the reverse.
+const LAUNDRY_HEIGHT = 5.0
+// Kept below the eaves so the line is between windows and not draped over the
+// gutter.
+const LAUNDRY_EAVE_GAP = 0.6
+// Nothing may hang into head height. Measured from the HIGHER of the two
+// grounds, because the street between two buildings on a slope is only as
+// generous as its high end.
+const LAUNDRY_MIN_CLEAR = 4.2
+// Garment spacing along the line, and the cap that keeps a long span from
+// turning into a solid curtain.
+const GARMENT_PITCH = 0.8
+const MAX_GARMENTS = 14
+// Sun-faded domestic cloth. Deliberately light: at dusk these are seen
+// against a warm sky and the whole point is the silhouette gap they punch in
+// a dark roofline. Nothing here is emissive — a glowing bedsheet reads as a
+// bug, and pillar 5's three light layers are already accounted for.
+const CLOTH_COLORS = [0xe8e2d4, 0xc9d6df, 0xc78d7c, 0xb9b5ac, 0xd9c48f, 0xa8b79c]
 
 const _lanternMat = new THREE.MeshLambertMaterial({
   color: 0xffcc44,
@@ -81,6 +132,14 @@ export interface LanternStringsResult {
   ropeMesh: THREE.Mesh | null
   lanternMesh: THREE.Mesh | null
   wallLanternMesh: THREE.Mesh | null
+  /**
+   * Washing strung between upper windows. OPTIONAL on purpose: this interface
+   * has four `return` sites and a previous session added a required field to
+   * it and broke three of them, which is on the record in CLAUDE.md as a
+   * typecheck failure that shipped. An optional field cannot repeat that, and
+   * the consumer guards it anyway.
+   */
+  laundryMesh?: THREE.Mesh | null
 }
 
 /**
@@ -215,6 +274,13 @@ export function buildLanternStrings(
   const centers: Array<{
     cx: number; cz: number; groundY: number; eaveY: number
     halfW: number; halfD: number; yaw: number
+    /** Somewhere a household lives — decides whether this pair may carry
+     *  washing rather than lanterns. Read from the shared DWELLING_TYPES so
+     *  the renderer cannot disagree with the placer about what a home is. */
+    home: boolean
+    /** Stable architectural seed, so which garments hang on which line is the
+     *  same on every run. `obj.id` is a UUID minted per generate. */
+    seed: number
   }> = []
   for (const obj of structureLayer.objects) {
     if (EXCLUDE.has(obj.definitionId)) continue
@@ -233,6 +299,8 @@ export function buildLanternStrings(
       halfW: t ? t.halfW : (fpT.w * TILE) / 2,
       halfD: t ? t.halfD : (fpT.h * TILE) / 2,
       yaw: t ? t.rotationY : 0,
+      home: DWELLING_TYPES.has(obj.definitionId),
+      seed: stableHash(obj),
     })
   }
   if (centers.length < 2) return { ropeMesh: null, lanternMesh: null, wallLanternMesh: null }
@@ -241,7 +309,10 @@ export function buildLanternStrings(
   // ~150–200 so cost is a few tens of thousands of ops, cheap at load.
   // Each building can participate in at most 2 strings so we don't
   // pincushion any single roof with chains.
-  interface StringSpec { ax: number; az: number; bx: number; bz: number; y: number }
+  interface StringSpec {
+    ax: number; az: number; bx: number; bz: number; y: number
+    kind: 'lantern' | 'laundry'; seed: number
+  }
   const strings: StringSpec[] = []
   const usage = new Uint8Array(centers.length)
   for (let i = 0; i < centers.length; i++) {
@@ -253,10 +324,35 @@ export function buildLanternStrings(
       const dx = a.cx - b.cx, dz = a.cz - b.cz
       const d = Math.hypot(dx, dz)
       if (d < MIN_DIST || d > MAX_DIST) continue
+      // WHICH KIND OF STRING IS THIS.
+      //
+      // Washing goes between two HOMES and nowhere else — a line of shirts
+      // across a market square or a churchyard is the wallpaper failure this
+      // repo keeps catching, content that fires at the same rate everywhere
+      // and so differentiates nothing. Two households facing each other over
+      // a back lane is the whole picture.
+      //
+      // It hangs BELOW the lower eave rather than above the higher one, and
+      // then only if there is genuinely room: it must clear head height over
+      // the HIGHER of the two grounds, because the street between buildings
+      // on a slope is only as generous as its high end. A pair with no such
+      // window simply carries lanterns instead, which is why this is a choice
+      // inside one loop and not a second pass with its own budget.
+      const bothHome = a.home && b.home
+      const groundMax = Math.max(a.groundY, b.groundY)
+      const ceilY = Math.min(a.eaveY, b.eaveY) - LAUNDRY_EAVE_GAP
+      const laundryY = Math.min(groundMax + LAUNDRY_HEIGHT, ceilY)
+      const floorY = groundMax + LAUNDRY_MIN_CLEAR
+      // Alternate rather than always preferring washing, so a terrace of
+      // identical houses does not become a laundry district. The seed is
+      // positional, so the choice is stable across runs.
+      const wantsLaundry = bothHome && laundryY >= floorY &&
+        ((a.seed ^ b.seed) & 3) !== 0
+      const kind: 'lantern' | 'laundry' = wantsLaundry ? 'laundry' : 'lantern'
       // Hang above the HIGHER of the two eaves so the rope spans the gap
       // overhead. Averaging ground heights (the old behaviour) ignored how
       // tall the buildings actually were.
-      const y = Math.max(a.eaveY, b.eaveY) + EAVE_CLEARANCE
+      const y = wantsLaundry ? laundryY : Math.max(a.eaveY, b.eaveY) + EAVE_CLEARANCE
       // Tie the rope off at each building's WALL, not its centre. Spanning
       // centre to centre buried most of the rope inside the two buildings it
       // connected and left it poking out of their far sides — invisible when
@@ -270,7 +366,7 @@ export function buildLanternStrings(
       strings.push({
         ax: a.cx + ux * inA, az: a.cz + uz * inA,
         bx: b.cx - ux * inB, bz: b.cz - uz * inB,
-        y,
+        y, kind, seed: (a.seed ^ (b.seed * 31)) >>> 0,
       })
       usage[i]++
       usage[j]++
@@ -284,6 +380,14 @@ export function buildLanternStrings(
   // into a separate batch — their material has emissive + vertex colors
   // don't help us because we want real emissive intensity modulation.
   const ropeBatch = Object.assign(new BatchedMeshBuilder(), { toneFloor: 0.12 })
+  // Cloth gets its OWN batch and its own name. Both kinds could share the
+  // rope batch and draw identically, and then nothing could answer "is that
+  // pale shape a bedsheet or a bug?" without reading source — which is the
+  // precise reason the rope mesh was named in the first place, recorded four
+  // lines below. A higher tone floor than the rope's because unlit hanging
+  // cloth at dusk is the one thing here that must not go black: its whole job
+  // is to punch a light gap in a dark roofline.
+  const laundryBatch = Object.assign(new BatchedMeshBuilder(), { toneFloor: 0.30 })
   const lanternGeos: THREE.BufferGeometry[] = []
 
   for (const s of strings) {
@@ -314,6 +418,58 @@ export function buildLanternStrings(
       seg.applyQuaternion(q)
       seg.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
       ropeBatch.addPositioned(seg, 0x2a1f16)
+    }
+    if (s.kind === 'laundry') {
+      // GARMENTS HANG FROM THE LINE, not from a fixed set of t-values. A
+      // count spaces three shirts evenly whatever the span, so a 14m line
+      // looks emptier than an 8m one — the same ratio-to-the-wrong-quantity
+      // mistake that flattened every roof pitch when the span tripled. Pitch
+      // is a physical distance and the count follows from it.
+      const n = Math.max(2, Math.min(MAX_GARMENTS, Math.round(span / GARMENT_PITCH)))
+      // Perpendicular to the line in plan, so a garment hangs ACROSS the rope
+      // the way cloth folded over a line actually does, instead of edge-on to
+      // the street it is meant to be seen from.
+      const rx = -(s.bz - s.az) / span, rz = (s.bx - s.ax) / span
+      for (let gi = 0; gi < n; gi++) {
+        const t = (gi + 0.5) / n
+        const idx = Math.round(t * SEGMENTS)
+        const [gx, gy, gz] = points[idx]
+        const r = (salt: number): number => {
+          const v = Math.sin((s.seed % 9973) * 0.0137 + gi * 1.7 + salt * 4.3) * 43758.5453
+          return v - Math.floor(v)
+        }
+        // A washing line carries sheets and shirts, not one repeated cloth.
+        // The spread is deliberately wide: pillar 2 asks that the eye never
+        // copy-paste one thing onto another, and a row of identical rectangles
+        // is that failure at its most obvious.
+        const gw = 0.34 + r(0) * 0.62
+        const gl = 0.55 + r(1) * 0.85
+        const col = CLOTH_COLORS[Math.floor(r(2) * CLOTH_COLORS.length) % CLOTH_COLORS.length]
+        // Cloth is thin, but not so thin it becomes a sliver: under about 2cm
+        // it aliases to nothing at RENDER_SCALE 0.4 and tools/slivers.mjs
+        // would be right to flag it.
+        const cloth = new THREE.BoxGeometry(0.025, gl, gw)
+        // Lean each piece a little so they are not a row of coplanar cards,
+        // and let the lean vary — wind and weight. Done BEFORE the yaw, so it
+        // is a lean about the garment's own axis; `geometry.rotateZ` acts on
+        // world Z whatever the vertices currently are, so applying it second
+        // would tilt every garment the same way in world space regardless of
+        // which way its line runs.
+        cloth.rotateZ((r(3) - 0.5) * 0.22)
+        // THE THIN AXIS MUST POINT ALONG THE PERPENDICULAR — a shirt hangs
+        // with the line through its shoulders, so its width lies ALONG the
+        // rope and you see it face-on from the side of the street.
+        //
+        // `rotateY(t)` maps +X to (cos t, 0, -sin t), so `atan2(rz, rx)` sends
+        // the thickness axis to (rx, -rz): the perpendicular with its z
+        // component flipped, which is only perpendicular at all when the line
+        // happens to run along an axis. Every diagonal line in town was
+        // hanging its washing skew. The sign belongs inside the atan2.
+        cloth.rotateY(Math.atan2(-rz, rx))
+        cloth.translate(gx, gy - gl / 2 - 0.03, gz)
+        laundryBatch.addPositioned(cloth, col)
+      }
+      continue
     }
     // Lanterns at interpolated t-values along the rope.
     for (let li = 1; li <= LANTERN_COUNT; li++) {
@@ -356,7 +512,19 @@ export function buildLanternStrings(
     lanternMesh.updateMatrix()
   }
 
-  return { ropeMesh, lanternMesh, wallLanternMesh: null }
+  const laundryMesh = laundryBatch.build()
+  if (laundryMesh) {
+    laundryMesh.name = 'laundryLines'
+    // Cloth does not cast — a garment is thin enough that its shadow is a
+    // hard black stripe on the paving at a 512 shadow map, and hanging
+    // washing over a lit street reads better as a silhouette than as a
+    // stencil. It DOES receive, so a line in shadow is not brighter than the
+    // wall behind it.
+    laundryMesh.castShadow = false
+    laundryMesh.receiveShadow = true
+  }
+
+  return { ropeMesh, lanternMesh, wallLanternMesh: null, laundryMesh }
 }
 
 /** Minimal position-only merge — we don't need UVs or normals going in,
