@@ -114,6 +114,12 @@ const NO_JITTER = new Set<string>([
  * commercial identity. Earthy reds + muted earths + a deep forest + an
  * indigo + an ochre.
  */
+// Shutter paint. Deliberately saturated and cool-leaning: the walls are warm
+// stone and timber, so a shutter reads as a PAINTED thing rather than more
+// masonry, which is the whole point of putting one on a wall.
+const SHUTTER_COLORS = [
+  0x4a5d6b, 0x5b6e4a, 0x7a4a42, 0x46566b, 0x6b5a3a, 0x3f5a52,
+]
 const PAINTED_SIGN_COLORS = [
   0x6b3a1f,  // burnt sienna
   0x5a2818,  // oxblood
@@ -2206,6 +2212,138 @@ export function buildBuildingMeshes(
         const geo = new THREE.BoxGeometry(0.5, 0.05, 0.15)
         localToWorld(geo, 0, 0.025, frontWallZ + 0.08, 0, 0, rotationY, wx, wy, wz)
         detailBatch.addPositioned(geo, 0x808080)
+      }
+    }
+
+    // === EXTERNAL STAIR TO AN UPPER DOOR → batched ===
+    //
+    // A timber flight running up the front to a first-floor entrance. This is
+    // a Traverse Town signature and the town had none: DESIGN.md names four
+    // references and two of them — Traverse Town and Diagon Alley — are full
+    // of doors you reach by going UP outside the building. It is also the
+    // only front-attached feature here with real vertical extent, so it
+    // breaks the flat run of a terrace in a way no amount of ground clutter
+    // does.
+    //
+    // Gated on the WALL, not a tile count, for the reason placard and
+    // doorstep just were. It needs a wall wide enough to carry a 0.9m flight
+    // beside the ground-floor door without covering it, and a building tall
+    // enough to have an upstairs at all.
+    const stairRun = 2.0, stairW = 0.9
+    const wantsStair = !isLandmark && !mainVol.circular &&
+      mainVol.habitable !== false &&
+      frontWallHalfW * 2 >= stairW + 1.5 &&
+      mainWallH >= STOREY_HEIGHT * 1.85 &&
+      (district === 'residential' || district === 'slum' || district === 'artisan' ||
+       district === 'waterfront' || district === 'harbor' || district === 'market') &&
+      rand01(hash, 1431) < 0.26
+    if (wantsStair) {
+      tallyIn('externalStair', district)
+      const landY = STOREY_HEIGHT * 1.05
+      const side = rand01(hash, 1433) < 0.5 ? -1 : 1
+      // Hard against one end of the wall so it never sits over the door.
+      const baseX = side * (frontWallHalfW - stairW * 0.5 - 0.12)
+      const treads = 8
+      const timber = 0x6f5330, rail = 0x5e4529
+      for (let i = 0; i < treads; i++) {
+        const t = (i + 0.5) / treads
+        const tread = new THREE.BoxGeometry(stairW, 0.06, stairRun / treads + 0.02)
+        localToWorld(tread, baseX, landY * t, frontWallZ + stairRun * (1 - t) - 0.1,
+          0, 0, rotationY, wx, wy, wz)
+        detailBatch.addPositioned(tread, timber)
+      }
+      // Stringers under the treads, so it is a stair and not floating slats.
+      for (const sx of [-1, 1]) {
+        const stringer = new THREE.BoxGeometry(0.07, 0.16, Math.hypot(stairRun, landY))
+        stringer.rotateX(-Math.atan2(landY, stairRun))
+        localToWorld(stringer, baseX + sx * stairW * 0.5, landY * 0.5,
+          frontWallZ + stairRun * 0.5 - 0.1, 0, 0, rotationY, wx, wy, wz)
+        detailBatch.addPositioned(stringer, timber)
+      }
+      // Landing at the top, tight to the wall.
+      const landing = new THREE.BoxGeometry(stairW + 0.3, 0.08, 0.55)
+      localToWorld(landing, baseX, landY, frontWallZ + 0.24, 0, 0, rotationY, wx, wy, wz)
+      detailBatch.addPositioned(landing, timber)
+      // Handrail on the open side only — against the wall it would be silly.
+      const railPosts = 3
+      for (let i = 0; i <= railPosts; i++) {
+        const t = i / railPosts
+        const post = new THREE.BoxGeometry(0.06, 0.62, 0.06)
+        localToWorld(post, baseX - side * stairW * 0.5, landY * t + 0.31,
+          frontWallZ + stairRun * (1 - t) - 0.1, 0, 0, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(post, rail)
+      }
+      const handrail = new THREE.BoxGeometry(0.05, 0.05, Math.hypot(stairRun, landY))
+      handrail.rotateX(-Math.atan2(landY, stairRun))
+      localToWorld(handrail, baseX - side * stairW * 0.5, landY * 0.5 + 0.6,
+        frontWallZ + stairRun * 0.5 - 0.1, 0, 0, rotationY, wx, wy, wz)
+      ornamentBatch.addPositioned(handrail, rail)
+    }
+
+    // === WINDOW SHUTTERS → batched ===
+    //
+    // Pairs of boards flanking the ground-floor openings. Cheap, and it is the
+    // one piece of dressing that lands ON the part of the wall a player at
+    // eye level is actually looking at — the openings are PAINTED, so until
+    // now nothing on the ground floor had any relief at all except the door
+    // surround.
+    //
+    // Positions come from `facadeOpenings`, the same function FacadeTexture
+    // lays the paint out with. That is not a convenience: this file already
+    // records the timber frame beating against the window grid because the
+    // studs used a 1.7m bay pitch while the paint used a 2.4m column pitch,
+    // 315 collisions on 31 buildings. Asking the same function is the only
+    // way two authors of one wall agree.
+    const wantsShutters = !isLandmark && !mainVol.circular &&
+      mainVol.habitable !== false && !wantsTimberPosts &&
+      (district === 'residential' || district === 'noble' || district === 'garden' ||
+       district === 'artisan' || district === 'slum') &&
+      rand01(hash, 1437) < 0.42
+    if (wantsShutters) {
+      // Exactly the arguments VolumeRenderer passes, so the columns are the
+      // painted columns. WinCell carries FRACTIONS of the wall (u, vCenter,
+      // uW, vH), not metres — multiply by the volume's own extents.
+      const cells = facadeOpenings(
+        volumeFloors(mainVol), quantizeWallM(mainVol.width, 'front'),
+        quantizeWallM(mainVol.height, 'front', 1.5), 'front', mainVol.wallColor)
+      if (cells.length) {
+        tallyIn('shutters', district)
+        const shColor = SHUTTER_COLORS[hash % SHUTTER_COLORS.length]
+        for (const c of cells) {
+          const cy = c.vCenter * mainVol.height
+          if (cy > STOREY_HEIGHT * 2.3) continue        // ground and first only
+          const cw = c.uW * mainVol.width
+          const ch = c.vH * mainVol.height
+          const cx = (c.u - 0.5) * mainVol.width
+          const shW = Math.max(0.16, cw * 0.42)
+          // Must not run off the end of its own wall — the containment check
+          // facade.mjs added after 44 painted doors turned out to be off the
+          // walls carrying them.
+          if (Math.abs(cx) + cw * 0.5 + shW + 0.04 > frontWallHalfW) continue
+          const shH = Math.min(ch * 0.98, 1.3)
+          for (const sx of [-1, 1]) {
+            const leafX = cx + sx * (cw * 0.5 + shW * 0.5 + 0.02)
+            // CLEAR THE DOOR. `facadeOpenings` returns windows and knows
+            // nothing about the door, which FacadeTexture centres separately
+            // at x=0, 0.95 x 2.05m — so a window column near the middle of
+            // the wall put a shutter straight across it, measured at 2 hits
+            // covering 44%. Found the moment the part was recorded, which is
+            // the argument for recording it.
+            if (Math.abs(leafX) < 0.475 + shW * 0.5 + 0.03 &&
+                cy - shH * 0.5 < 2.05) continue
+            const leaf = new THREE.BoxGeometry(shW, shH, 0.045)
+            localToWorld(leaf, leafX, cy, frontWallZ + 0.03, 0, 0, rotationY, wx, wy, wz)
+            detailBatch.addPositioned(leaf, shColor)
+            // RECORDED, so facade.mjs can grade it. A shutter sits beside its
+            // opening by construction and so "cannot" cross the glass — which
+            // is exactly what the timber frame assumed before it was measured
+            // at 315 collisions. A kind that is never recorded and a kind with
+            // no collisions read identically in that census, and this file
+            // already documents the colonnade going missing that way.
+            recordPart(obj.id, obj.definitionId, volKey(mainVol), 'shutter',
+              leafX, cy, shW, shH)
+          }
+        }
       }
     }
 
