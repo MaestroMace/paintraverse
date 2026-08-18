@@ -269,6 +269,19 @@ const MAX_PER_DISTRICT: Record<string, number> = {
   // A cap here means "per quarter", which for a communal institution is 1.
   washhouse: 1,
   boathouse: 3,
+  // FIFTEEN in a 39-building waterfront quarter — 38% of it — which is the
+  // cemetery's twenty-one sexton huts arriving in a new quarter. A 1x2 shape
+  // in a table whose other entries are 3x3 and 4x3 wins by geometry however
+  // modest its weight, which is the same mechanism that makes a small
+  // exclusive type work in the first place; the cap is the other half of it.
+  //
+  // It also moved two tracked metrics, and the A/B says how: eyeball's ROOF
+  // sample count went 788 -> 1370 while wall fell, because fifteen tall
+  // steep-roofed buildings put far more roof and less wall in a street view.
+  // Nothing got darker — roofs are simply the darkest surface, so a
+  // composition change reads as a tone regression. variety twinNear 6 -> 10
+  // is the same fifteen buildings seen from the other side.
+  smokehouse: 4,
   // A firing is an installation, not housing — same argument as the sexton
   // and the wash house. And the SHAPE and the CAP are chosen together: at
   // 2x2 the kiln placed ZERO on both seeds where artisan exists, which is
