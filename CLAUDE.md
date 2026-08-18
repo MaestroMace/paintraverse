@@ -379,6 +379,48 @@ the same shape recurs: `PlacedObject.footprint` unblocked four failed plot
 attempts, `BuildingTop` unblocked the particle systems. When a whole category
 of work keeps not happening, look for the handle it would need.
 
+**A lookup with a default has no ABSENT state.** `getFootprint` ends
+`|| { w: 1, h: 1 }`, so an id missing from the table is not unopinionated — it
+reserves one tile, and a 3x3 fountain was doing exactly that while being drawn
+over eight cells the map believed were free. `registry.mjs` compared only the
+entries that EXIST and so could not see a single one of six such props.
+Compare against the value the code will actually GET, never against the
+table's contents.
+
+**A check evaluated before the writes it protects against is not a check.**
+Vignette parts picked their tiles by filtering a list ONCE, before anything
+was placed, so every candidate looked free at the moment it was tested and two
+parts were handed the same tile — the anchor being the guaranteed case, not
+the unlucky one. The same defect sat one level down in the footprint
+validation. A running claim set makes both impossible by construction rather
+than by two more guards, and `audit.mjs` had been reporting it as 49
+prop-stacked warnings the whole time, on a system I was actively working on.
+
+**A selection criterion must measure the same population as the constraint it
+serves.** Anchoring vignettes on the best-connected perimeter tile is right,
+and counting neighbours in ONE spot pool while the placer draws from both made
+the rejection rate go UP. That is not a weaker filter, it is a filter aimed
+somewhere else — the numerator/denominator lesson rotated onto a gate.
+
+**Two rules that each sound like a clamp can compose into a FILTER.** Hanging
+washing 1.7m below the eave and then requiring head clearance is satisfiable
+only by buildings six metres tall, so the feature silently selected the
+tallest pairs in town instead of adapting to short ones. Whenever a minimum
+and a maximum are derived from different anchors, ask which population can
+satisfy both.
+
+**Exactness is not free, and an exact test that never finishes is worse than a
+proxy.** Ranking cameras by how many rays land on the subject is the correct
+question and it takes minutes, because three.js walks a 213k-triangle merged
+mesh triangle by triangle. Budget the measurement, or take four fixed pictures
+and look at them.
+
+**When you cannot find the thing you built in a photograph, render it ALONE.**
+`isolate()` in tools/lib/vantage.mjs. Four rounds of camera-hunting for one
+garment — including one search that reported every bearing blocked BY THE
+SUBJECT ITSELF — were settled by one subject-only frame. Hidden-vs-visible
+proves the subject is in frame; subject-alone says where it is.
+
 **Name your suspects once.** A component blamed repeatedly without evidence is
 noise. The windmill was accused four times for defects it had nothing to do
 with; the lantern ropes were a good hypothesis for the floating-timber class
@@ -474,6 +516,15 @@ Verified against the code; if you change one, change it here too.
   would now be 2.7m, which is the sail this cap exists to prevent.
 - Lantern strings max 25 per map, 2.6–5.0 tiles apart, hung above the higher
   building's **eaves** (not a fixed height above ground)
+- **Washing lines share that same 25-string budget** — one pairing pass emits
+  two kinds. A pair carries laundry only when BOTH buildings are in
+  `DWELLING_TYPES` and there is room; anything else falls through to lanterns.
+  Hung at `ground + 5.0m` (a storey plus a sill plus a window) clamped to
+  `min(eave) - 0.6`, never below `ground + 4.2`. 4-5 lines and ~30 garments a
+  town, garment 0.57m x 1.0m median. **Do not re-derive the height from the
+  eave** — a drop-from-eave rule plus a head-clearance rule composes into a
+  filter that only tall buildings pass, and the washing migrates to the
+  tallest pairs in town.
 - Birds: max 15, dusk-only. Smoke: 2 × 16 chimneys = 32. Fireflies: 36.
 - Lampposts: ~28 per 48×48 town, spaced along every road; all their ground
   light pools are merged into ONE mesh sharing `_lampPoolMat`
@@ -706,8 +757,14 @@ Verified against the code; if you change one, change it here too.
 - Cobble texture via procedural voronoi + grout, pucks removed
 - Window moods warm-clamped, flicker slow (0.25–0.7 Hz ±4%)
 - Lamp pools horizontal discs with radial alpha
-- Lanterns in three layers: overhead rope strings, wall-mounted at 2.4m,
-  plus ground pools under lampposts
+- Lanterns in four layers: overhead rope strings, wall-mounted at 2.4m,
+  ground pools under lampposts, and brazier embers at street level (the
+  fourth is new — `emitGlow` finally routes them into the emissive mesh)
+- Washing hangs between upper windows on domestic pairs, sharing the lantern
+  pairing pass and its 25-string budget
+- Props come in designed GROUPS — 14 vignettes, ~34 a town, placed before the
+  scatter runs and gated on the building being a home and on which side of it
+  the anchor sits
 - Birds circle tall spires at dusk only
 - Row-streak placement (continuity 0.7, 2-4 tangent extensions, ±1
   floor variation)
@@ -1071,7 +1128,9 @@ Run these before believing anything about where the project is.
 | frontage occupancy | urbanform.mjs | **76% of ACHIEVABLE** frontage vs 85-95% (raw 70%) | near range |
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
-| prop tenancy | tenancy.mjs | 46% of props explained by their owner, was 29% | improving |
+| prop tenancy | tenancy.mjs | **42% of props explained by their owner** (38% before vignettes; the older 46% predates a correction) | improving |
+| props in a designed group | genlog `vigOk:` | 41/35/27 groups a town over 14 vignettes | new |
+| washing lines | (see buildLanternStrings) | 28-35 garments a town, 10 of 12 lines over walkable ground | new |
 | interpenetration | clash.mjs | **15 pairs over 0.5m, was 124** — see THE OVERHANG BUDGET | fixed |
 | bridges you can walk onto | bridgeshot.mjs | **0.34-0.58m step up, was 2.2-2.4m over head** | fixed |
 | **can a person get there** | **traverse.mjs** | **95% reachable from spawn, was 58%; 0 impassable crossings, was 11** | **fixed** |
@@ -1557,8 +1616,15 @@ The whole device problem list is fixed. What is left:
    count as the budget — `tools/budget.mjs` and its texture-MB line are the
    number to watch on a phone, not draws. Note the SwiftShader figures in
    agent screenshots (3-5 FPS) are ~30x pessimistic and mean nothing.
-1. **Ground-level life is thin.** Streets are lit and kerb-dressed now, but
-   the walkable space could still carry more. Highest aesthetic payoff.
+1. **Ground-level life is thin — partly addressed, and the next step is
+   named.** Props now come in designed GROUPS (~34 a town over 14 vignettes)
+   rather than being scattered by a distance metric, and washing hangs over
+   the street between upper windows. What is still missing is the third
+   dimension of the same idea: things left in the street rather than tidied
+   against a wall — a handcart parked across a corner, a ladder leaning, a
+   crate half-unloaded. `dressEmptyStreets` still answers "is this spot bare",
+   which is the metric this arc has been replacing with ownership everywhere
+   else. Grade with `tenancy.mjs` (42%) and the `vigOk:` counters, not by eye.
 2. **Only ~7 of ~200 buildings are trade types**, and market districts are
    mostly plain row houses. Signage compensates on the render side, but
    biasing district building-type weights would make markets read as markets
@@ -1837,6 +1903,13 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   MAX_OVERHANG — which a size table cannot see, because a pass that grows a
   volume about its centre leaves the offset alone. Run it after touching any
   massing template, clamp or repair pass.
+- `tools/lib/taxonomy.mjs` — **not a tool, the vocabulary every tool should
+  read.** Parses `DWELLING_TYPES` out of core/types.ts and THROWS if the
+  declaration shape changes, because a taxonomy that quietly falls back to a
+  default would grade the whole town against the wrong population and report a
+  clean number for it. Three files each kept their own list of what counts as
+  a house and all three disagreed. Reach for this before writing `new Set([
+  'row_house', ...])` in a tool.
 - `tools/lib/vantage.mjs` — **not a tool, the camera every tool should use.**
   `lookAt(win, box)` raycasts candidate vantages against the real scene and
   flies to the first with a clear line to the subject, returning where the
@@ -1846,6 +1919,13 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   spot to stand" out of the tile map and every one of them had stood inside a
   building. Its failures are informative: it names the mesh in the way.
   `structureBox(id)` on the debug bridge gives you the box to pass it.
+  **`isolate(win, meshName)` hides everything except one named mesh** and
+  returns a restore function. Use it whenever you cannot find the thing you
+  just built in a photograph — four rounds of camera-hunting for one 0.8m
+  garment were settled by it in a single shot. Pair it with the hide-one-mesh
+  A/B: hidden-vs-visible proves the subject is IN the frame, subject-alone
+  says where it is and what shape it really has. Requires the mesh to have a
+  NAME, which is the same reason the lantern ropes got one.
 - `node tools/districts.mjs [seeds...]` — **can you tell which quarter you are
   in?** Character (are the building types distinctive), signature (do ground,
   height and density differ), and trade dressing per district. Prints
@@ -2213,6 +2293,159 @@ A comment describing a feature that does not exist is the GHOST failure with
 documentation attached, which is worse than an undocumented ghost: the next
 person reads the comment and crosses it off the list. `emitGlow` is the sibling
 of `emitRot` that routes into the emissive mesh, and the brazier uses it.
+
+## THE CONTENT ARC — vignettes, and the three bugs found by grading them
+
+Asked for a more lived-in world. Three moves, and in every case the
+measurement mattered more than the content.
+
+**Props are placed in GROUPS with a role, before the scatter runs.** A
+vignette is a small table entry — `woodpile` + `crate|barrel|rubble_pile` out
+of sight, `bench|potted_plant` + `flower_box` presented to the street — with a
+`home` gate on the building type and a `front` gate on which side the anchor
+sits. One attempt per building, taken while the perimeter is still empty,
+because a designed place must be dressed BEFORE the scatter: the reject
+counters said noRoom killed 59% of attempts purely because single props were
+eating the perimeter tile by tile.
+
+**A part may offer alternatives, written `crate|barrel|rubble_pile`.** That is
+pillar 2 at arrangement scale — the woodpile always had exactly one crate
+beside it — and the same mechanism doubles as room to manoeuvre, because many
+props are 2x1 and requiring the first roll to fit rejected whole groups on a
+tile a different, equally good part would have sat on.
+
+### AND MOST OF THE GROUPS I REPORTED WERE A BUG
+
+The census said 27-37% of props were in a group. The honest figure is about a
+third of that, and the difference was **part two landing on part one**.
+
+`near` was a filter over the perimeter evaluated ONCE, before anything was
+placed, so `free()` was true for every candidate at the moment it was tested.
+The anchor was the guaranteed case rather than the unlucky one: the caller
+splices it out of the pool only on SUCCESS, so it is still in the list, and
+`|dx| <= 1 && |dy| <= 1` includes dx = dy = 0. A running claim set makes that
+impossible by construction. The identical defect sat one level down in the
+footprint validation, where a 2x1 second part was tested against `occupied`,
+which cannot know about this group's own tiles because nothing is placed until
+every part resolves. **Both are a check evaluated before the writes it exists
+to protect against**, and `audit.mjs` said so immediately — 49 prop-stacked
+warnings on one seed, every reported pair a vignette pair. I had not run it.
+Not the "run the battery for the system you are NOT working on" lesson; worse,
+the one I was.
+
+### SIX PROPS RESERVED ONE TILE AND ARE NOT ONE TILE
+
+`getFootprint` ends `return footprints[defId] || { w: 1, h: 1 }`, so **an id
+absent from that table is not unopinionated — it reserves ONE TILE.**
+`market_tent` is 2x2 and `fountain_grand` is 3x3, both claiming a single cell
+and being drawn over neighbours the map believed were free. Also
+`picket_fence`, `rowboat`, `skiff`, `port_crane`.
+
+`registry.mjs` could not see any of them, twice over: it skipped every
+definition that was not a building or infrastructure, and its disagreement
+check compared only entries that EXIST. **A lookup with a default has no
+absent state — compare against the value the code will actually get, never
+against the table's contents.** It reads all 116 definitions now; verified by
+deleting an entry and watching it go red.
+
+### ANCHOR WHERE THERE IS ROOM, AND MEASURE THE RIGHT POPULATION
+
+noRoom was still rejecting half of all rolls because the anchor was drawn
+uniformly from the perimeter and a terrace in a 93%-party-wall town presents
+two or three spots that are often not adjacent to each other. Adjacency is the
+group's whole requirement, so it is the thing to SELECT ON. The first cut
+counted neighbours within one pool while `tryVignette` draws from both, and
+noRoom went UP — **a criterion that measures a different population from the
+constraint it exists to satisfy is not a weaker filter, it is one aimed
+somewhere else.**
+
+    groups per town   random anchor  23 22 23
+                      pool0 adjacency 21 42 33
+                      full perimeter  41 35 27
+
+`kitchengarden` fired zero times on three seeds because both of its anchor
+options are 2x1 — the alternatives were varied and none of them was SMALL.
+`drying`, `yardfence` and `stallside` still fail on footprint and that is left
+alone: a fish rack and a market stall genuinely need the room, and **a
+fallback that reads wrong is worse than a rejection.**
+
+Tenancy 38% -> 42% explained, and the taxonomy fix below moved it by zero.
+
+### ONE DEFINITION OF WHAT A HOUSE IS — three had already drifted
+
+The renderer needed "is this a home" for the washing lines, which would have
+been a FOURTH copy. The other three did not merely differ in length, they
+disagreed about what a home IS: TownGenerator 12 ids decides where domestic
+dressing GOES, tenancy.mjs 11 decides whether it counts as EXPLAINED, and
+eyeball.mjs 15 decides which buildings are graded as ORDINARY — and it counted
+`coach_house` and `potting_shed`, an outbuilding and a garden shed, dragging
+the storey distribution it reports.
+
+`DWELLING_TYPES` in core/types.ts, beside `footprintOf` and `stableHash`. The
+tools PARSE it (`tools/lib/taxonomy.mjs`) and throw if the declaration shape
+changes. **"Keep in step with DWELLINGS in TownGenerator.ts" was already
+written in tenancy.mjs as a comment and the lists drifted anyway — a note
+asking a future reader to synchronise two constants is not synchronisation.**
+
+### WASHING BETWEEN UPPER WINDOWS — and a height filter wearing a clamp
+
+A second payload on the SAME pairing pass in LanternStrings, not a second
+pass: the pairing carries the distance filter, the per-building usage budget
+and the endpoint pull-in, and copying it is how three terrain tables came to
+disagree. A pair that cannot carry washing falls through to lanterns.
+
+**The first cut hung it 1.7m below the lower eave and then required head
+clearance, and the pair of rules quietly became a HEIGHT FILTER.** Only
+buildings almost six metres tall satisfy both, so the washing selected the
+tallest pairs in town and measured 8-17m — above most of the rooflines it was
+meant to hang between. A test that rejects the short case does not adapt to
+it. Pinned to the window instead (storey + sill + window, measured UP from the
+ground) and clamped DOWN to the eave.
+
+`rotateY(t)` maps +X to (cos t, 0, -sin t), so `atan2(rz, rx)` sends the
+thickness axis to `(rx, -rz)` — the perpendicular with its z flipped, which is
+only perpendicular when the line runs along an axis. **Every diagonal line in
+town hung its washing skew.** The sign belongs inside the atan2.
+
+    garments per town        33 / 35 / 28   on 4 / 5 / 3 lines
+    garment width  median    0.54-0.60m     max 0.82-0.95m
+    garment drop   median    0.87-1.05m     max 1.36-1.40m
+    lines over walkable ground              10 of 12
+
+The last row is the one that decides whether the feature exists in play. The
+pairing filters on distance and building type and has no notion of a street,
+so a line could equally have spanned back yards nobody can reach.
+
+### HOW TO FIND AN 0.8m THING IN A STREET PHOTOGRAPH — tools/lib/vantage.isolate
+
+Four rounds went on hunting one garment in a frame of five hundred meshes, and
+each failure is a named trap this file already contains:
+
+- Two occlusion searches, the second reporting **all 192 bearings blocked by
+  the subject occluding itself** — the aim point is the box CENTRE, which sits
+  inside the cloth. `lib/vantage.mjs` documents fixing exactly this for bridge
+  parapets, and I reproduced it by hand-rolling a camera rather than reading
+  why that one is shaped the way it is.
+- A screen-coverage ranking that was EXACT and unusable: three.js walks a
+  213k-triangle merged mesh triangle by triangle, so 49 rays across 20 cameras
+  never finished. Exactness is not free.
+- A cluster step that compared each garment to the running MAX corner, so the
+  corner drifted a little every merge and one "line" chained across 100m of
+  town. The camera was aimed at a meaningless centroid.
+- **My own instrument's two halves disagreed about the vertex stride.**
+  `garments` divided triangles by 12 — equivalent to 36 vertices, which is
+  what a de-indexed box actually is — while the box loop stepped by 24. Every
+  measured garment was a two-thirds slice or a straddle across two, which is
+  where `width max 51.68m` came from. **A number above a ceiling the code
+  enforces is a free bug report about the measurement**, and it was also the
+  reason every camera aimed at a chimera.
+
+`isolate(win, meshName)` hides everything else and answered it in one shot.
+The pair is what you want, and taking only the first is what let a
+byte-identical before/after pass as evidence for most of a session:
+
+    hidden vs visible   proves the subject IS in the frame
+    subject alone       says WHERE it is and what shape it really has
 
 ## THE PERCEPTION HARNESS — provenance + odd + vantage, and why it is three tools
 
