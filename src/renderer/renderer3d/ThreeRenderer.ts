@@ -856,7 +856,33 @@ export class ThreeRenderer {
       // rather than a second copy of the floors/HEIGHT_MULT/roof math, which
       // drifted every time massing changed (see BuildingTop).
       const topById = new Map(result.tops.map(t => [t.id, t]))
+      // A BUILDING WHOSE PURPOSE IS FIRE ALWAYS SMOKES, AND GOES FIRST.
+      //
+      // A smokehouse that is not smoking is a shed with a vent on it, and a
+      // cold kiln is a brick cone. These are the only two types in town whose
+      // whole function is combustion, so they are not subject to the ~40%
+      // dice every other chimney rolls.
+      //
+      // Collected BEFORE the ordinary chimneys because the particle budget is
+      // a hard 16 and whatever fills it first wins — a priority that is
+      // implicit in loop order is worth stating, since the failure mode is
+      // silent (the feature simply never appears in a dense town).
       for (const obj of structureLayer.objects) {
+        if (obj.definitionId !== 'smokehouse' && obj.definitionId !== 'kiln') continue
+        const top = topById.get(obj.id)
+        const def = defMap.get(obj.definitionId)
+        if (!top || !def) continue
+        const fp = { w: def.footprint.w, h: def.footprint.h }
+        // Out of the ridge louvre / the cone's own vent, which is where the
+        // draught actually leaves the building — both templates put that at
+        // the apex, so the roof rise is the height and there is no second
+        // copy of the massing arithmetic here.
+        chimneyPositions.push(new THREE.Vector3(
+          (obj.x + fp.w / 2) * TILE, top.mainWallTopY + top.mainRoofH * 1.05,
+          (obj.y + fp.h / 2) * TILE))
+      }
+      for (const obj of structureLayer.objects) {
+        if (obj.definitionId === 'smokehouse' || obj.definitionId === 'kiln') continue
         const hash = stableHash(obj)
         if (hash % 5 >= 2) continue
         const def = defMap.get(obj.definitionId)
@@ -871,8 +897,15 @@ export class ThreeRenderer {
         const bx = obj.x + fp.w / 2 + chimSide * fp.w * 0.3 + jitterDX
         const bz = obj.y + fp.h / 2 + jitterDZ
         // Chimney tip clears the main body's roof.
+        // x AND z MULTIPLIED BY TILE. They were not, and the smoke has been
+        // venting over the wrong third of the map since the tile rescale:
+        // measured, the town spans x 2.8-143 and the smoke spanned x
+        // 14.5-46.4, which is exactly a factor of three. Y was always correct
+        // because BuildingTop reports metres, so the mixed units inside one
+        // Vector3 are what hid it — the documented TILE trap, and no metric
+        // in the harness looks at particles.
         chimneyPositions.push(
-          new THREE.Vector3(bx, top.mainWallTopY + top.mainRoofH * 1.1, bz)
+          new THREE.Vector3(bx * TILE, top.mainWallTopY + top.mainRoofH * 1.1, bz * TILE)
         )
       }
       this._buildingTops = topById
