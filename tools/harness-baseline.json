@@ -66,5 +66,10 @@
   "growth": {
     "coreEdge100": 264,
     "corePct": 58
+  },
+  "particles": {
+    "offTown": 0,
+    "smokeLow": 0,
+    "smokeSpread100": 68
   }
 }

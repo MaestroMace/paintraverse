@@ -2049,6 +2049,20 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   A/B: hidden-vs-visible proves the subject is IN the frame, subject-alone
   says where it is and what shape it really has. Requires the mesh to have a
   NAME, which is the same reason the lantern ropes got one.
+- `node tools/particles.mjs [seeds...]` — **is the MOVING content where the
+  town is?** DESIGN.md pillar 4 is "motion breathes" and sixteen instruments
+  graded the static world while NOT ONE looked at a particle. That is how
+  chimney smoke spent the entire life of the tile rescale venting over the
+  first third of the map: the collector built its Vector3 from TILE
+  coordinates for x and z and a WORLD height for y, and nothing scales
+  particleGroup. Measured, town x 2.8-143 against smoke x 14.5-46.4 — exactly
+  a factor of three. **The mixed units inside one Vector3 are what hid it**:
+  the height was always right, so the smoke sat at a plausible altitude over
+  the wrong place, which looks like smoke rather than like a bug. Reports each
+  system's extent as a FRACTION of the town's, so the signature shape (a clean
+  ~0.33) is recognisable rather than inferred. Labels the three systems by
+  order of addition, because the first cut flagged fireflies for starting near
+  the ground, which is what a firefly does.
 - `node tools/growth.mjs [seeds...]` — **does the town get sparser as you walk
   out of it?** DESIGN.md names six marks of organic growth and five had a
   tool; "dense core, sparse edges — growth rings fade outward" had none, and

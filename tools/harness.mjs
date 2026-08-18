@@ -370,6 +370,28 @@ const CHECKS = [
     // sample of the five.
     dir: { coreEdge100: 1, corePct: 0 }, band: { coreEdge100: 60, corePct: 6 },
   },
+  {
+    name: 'particles',
+    why: 'is the MOVING content where the town is — nothing else looks at a particle',
+    electron: true,
+    // Added because sixteen checks graded the static world and none looked at
+    // a particle, so chimney smoke spent the whole tile rescale venting over
+    // the first third of the map: tile coordinates used as world coordinates,
+    // hidden by a correct world-space HEIGHT in the same Vector3.
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/particles.mjs', '8080']],
+    extract: (o) => ({
+      offTown: num(o, /VERDICT: (\d+) particles outside the town box/),
+      smokeLow: num(o, /smoke starts within 3m of the ground on (\d+)/),
+      // Smoke's x-extent as a fraction of the town's. This is the row that
+      // would have caught the scale bug: it read ~0.33 and reads 0.68 now.
+      smokeSpread100: (() => {
+        const m = o.match(/smoke\s+\d+\s+\S+ - \S+\s+\S+ - \S+\s+\S+ - \S+\s+([\d.]+)/)
+        return m ? Math.round(Number(m[1]) * 100) : null
+      })(),
+    }),
+    gates: { offTown: (v) => v === 0, smokeLow: (v) => v === 0 },
+    dir: { smokeSpread100: 1 }, band: { smokeSpread100: 25 },
+  },
 ]
 
 /** A 0..1 reading carried as an integer, so the board and its bands stay whole. */
