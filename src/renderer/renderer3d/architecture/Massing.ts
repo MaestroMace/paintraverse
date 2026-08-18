@@ -1031,7 +1031,19 @@ function tmplCottage(ctx: MassingContext): Volume[] {
   // would otherwise have carried, any more than a door does — this is the
   // same rule MAX_OVERHANG and PropFactory's `physical()` already follow.
   const wallH = STOREY_HEIGHT * (1.35 + rand01(ctx.hash, 617) * 0.3)
-  const roofStyle: RoofStyle = rand01(ctx.hash, 611) < 0.5 ? 'steep' : 'gabled'
+  // GABLED ONLY, and the reason is a measurement rather than a preference.
+  // Half of these were authored `steep`, and provenance reported that
+  // population as p10 = med = p90 = 0.71 of span with `roofClamp` raising the
+  // ask from 2.78m to 4.26m — `ensureRoofPitch` floors a steep roof at a
+  // pitch far above what this template wants, so every steep cottage came out
+  // at an identical 109% roof-to-wall while the gabled ones honoured the ask
+  // (p10 0.47, med 0.52, p90 0.57, 0% at the cap).
+  //
+  // That is the documented pathology: a clamp a whole population sits exactly
+  // on is not a clamp, it is the design, and the template's variation is
+  // computed and thrown away. Asking for the style whose floor is BELOW the
+  // range you want is what keeps the variation you wrote.
+  const roofStyle: RoofStyle = 'gabled'
   const span = (ctx.footW + ctx.footD) / 2
   // Off the SPAN alone. Keying any part of the rise to the wall guarantees a
   // roof taller than the house, which is the thing this type is supposed to
