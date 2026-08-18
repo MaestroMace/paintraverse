@@ -117,6 +117,11 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'half_timber', w: 3, h: 2, weight: 1 },
     { id: 'mill', w: 3, h: 3, weight: 6 },
     { id: 'net_loft', w: 2, h: 2, weight: 5 },
+    // Waterfront's own, not shared with harbor. 1x2 for the smokehouse so it
+    // actually places — the shape buys presence — and the boathouse capped,
+    // because a river frontage has one or two, not a row.
+    { id: 'smokehouse', w: 1, h: 2, weight: 5 },
+    { id: 'boathouse', w: 2, h: 2, weight: 3 },
   ],
   temple: [
     { id: 'chapel', w: 3, h: 4, weight: 5 },
@@ -263,6 +268,7 @@ const MAX_PER_DISTRICT: Record<string, number> = {
   // leaking. It was not leaking; I had assumed one ordinary quarter per town.
   // A cap here means "per quarter", which for a communal institution is 1.
   washhouse: 1,
+  boathouse: 3,
   // A firing is an installation, not housing — same argument as the sexton
   // and the wash house. And the SHAPE and the CAP are chosen together: at
   // 2x2 the kiln placed ZERO on both seeds where artisan exists, which is
@@ -6523,6 +6529,7 @@ export class TownGenerator implements IMapGenerator {
       // tool written to catch exactly this. It checks every definition now.
       cottage: { w: 2, h: 2 }, washhouse: { w: 2, h: 2 },
       kiln: { w: 1, h: 2 }, workshop: { w: 1, h: 2 },
+      smokehouse: { w: 1, h: 2 }, boathouse: { w: 2, h: 2 },
       // The street-clutter batch. Every multi-tile one MUST be here or it
       // reserves a single cell and gets drawn over its neighbours — six props
       // were doing exactly that before registry.mjs learned to compare

@@ -1267,6 +1267,105 @@ function tmplWorkshop(ctx: MassingContext): Volume[] {
   ]
 }
 
+/**
+ * A SMOKEHOUSE IS A CHIMNEY YOU CAN WALK INTO.
+ *
+ * Tall, narrow and steep, with a louvred vent along the whole ridge instead of
+ * a single cap — the draught is the building's entire purpose, so the vent is
+ * the silhouette rather than an ornament on it. Nothing else in town is this
+ * proportion: a 3m footprint carrying a 6m wall reads as a stack even before
+ * the roof starts.
+ *
+ * Absolute heights, for the reason the cottage had to learn twice: a type
+ * with an intrinsic shape cannot take its wall from `ctx.wallH`, which is
+ * whatever the plot would otherwise have carried.
+ */
+function tmplSmokehouse(ctx: MassingContext): Volume[] {
+  const wallH = STOREY_HEIGHT * (1.95 + rand01(ctx.hash, 641) * 0.35)
+  const span = (ctx.footW + ctx.footD) / 2
+  // `gabled`, not `steep`: steep is in SPAN_PITCH and ensureRoofPitch floors
+  // it far above a deliberate ask, which pinned every steep cottage roof to
+  // an identical 0.71 of span. Check that table before choosing a style.
+  const rise = span * (0.6 + rand01(ctx.hash, 643) * 0.14)
+  const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
+  const ventLen = (ridgeAxis === 'x' ? ctx.footW : ctx.footD) * 0.66
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: wallH,
+      roofStyle: 'gabled', roofHeight: rise,
+      roofAxis: ridgeAxis,
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: false,
+      floors: 2,
+    },
+    {
+      role: 'trim',
+      offsetX: 0, offsetZ: 0,
+      width: ridgeAxis === 'x' ? ventLen : 0.5,
+      depth: ridgeAxis === 'x' ? 0.5 : ventLen,
+      // ON the ridge. The wash house's louvre was authored at 0.72 of the
+      // rise under a comment saying "on the ridge" and came back buried
+      // inside its own roof; 0.9 seats it just under the peak with the rest
+      // standing proud.
+      bottomY: wallH + rise * 0.9, height: 0.42,
+      roofStyle: 'gabled', roofHeight: 0.26,
+      roofAxis: ridgeAxis,
+      wallColor: ctx.roofColor, roofColor: ctx.roofColor,
+      textured: false, cornice: false,
+      // A louvre is not a room — without this both habitable floors widen it
+      // to MIN_HABITABLE_W and raise it to a full storey, which is how the
+      // kiln became a turret.
+      habitable: false,
+      floors: 1,
+    },
+  ]
+}
+
+/**
+ * A BOATHOUSE IS A ROOF OVER A HOLE IN THE BANK.
+ *
+ * Low and wide with the gable turned to face the water, so the opening reads
+ * end-on. Deliberately the opposite proportion to the smokehouse beside it:
+ * the waterfront's problem was that everything in it looked like everything
+ * else, so its two new types are as unlike each other as they are unlike a
+ * row house.
+ */
+function tmplBoathouse(ctx: MassingContext): Volume[] {
+  const wallH = STOREY_HEIGHT * (0.95 + rand01(ctx.hash, 645) * 0.2)
+  const span = (ctx.footW + ctx.footD) / 2
+  // Gable to the front, so the opening is under the point of the roof.
+  const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'z' : 'x'
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: wallH,
+      roofStyle: 'gabled', roofHeight: span * (0.5 + rand01(ctx.hash, 647) * 0.12),
+      roofAxis: ridgeAxis,
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: false,
+      floors: 1,
+    },
+    {
+      // A slipway lip at the front — the giveaway that boats come out here.
+      role: 'trim',
+      offsetX: 0, offsetZ: ctx.footD * 0.5 + 0.25,
+      width: ctx.footW * 0.7, depth: 0.5,
+      bottomY: 0, height: 0.18,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: ctx.roofColor, roofColor: ctx.roofColor,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    },
+  ]
+}
+
 /** Body + dramatic centered tall tower (like a keep). */
 function tmplStackedTower(ctx: MassingContext): Volume[] {
   const mainRoof: RoofStyle = 'flat'
@@ -1742,6 +1841,9 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   // other type in the town produces.
   kiln: (ctx) => tmplKiln(ctx),
   workshop: (ctx) => tmplWorkshop(ctx),
+  // The waterfront's pair, deliberately opposite proportions to each other.
+  smokehouse: (ctx) => tmplSmokehouse(ctx),
+  boathouse: (ctx) => tmplBoathouse(ctx),
   warehouse: (ctx) => tmplStepBack(ctx),
   stable: (ctx) => tmplFarmstead(ctx),
   mill: (ctx) => rand01(ctx.hash, 523) < 0.3 ? tmplWindmill(ctx) : tmplFarmstead(ctx),

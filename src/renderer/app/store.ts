@@ -217,6 +217,21 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 1, h: 2 },
     styleSetSlots: ['wall', 'roof', 'door']
   },
+  // THE WATERFRONT'S OWN. Measured 25-31% distinctive, the weakest quarter
+  // left, and the cause is the usual one: its only non-generic entries are
+  // `net_loft` and `mill`, both shared with harbor, so the two water quarters
+  // are one vocabulary wearing two names — exactly the harbor/waterfront
+  // collapse this file records costing eighteen points.
+  //
+  // What a RIVER quarter does that a sea harbour does not is process the
+  // catch rather than land it. A smokehouse is tall, narrow and vented, and
+  // it is the only building in town that would sensibly be smoking at dusk.
+  { id: 'smokehouse', name: 'Smokehouse', category: 'building',
+    tags: ['structure', 'commercial', 'waterfront'], color: '#6E5E4C',
+    footprint: { w: 1, h: 2 }, styleSetSlots: ['wall', 'roof', 'door'] },
+  { id: 'boathouse', name: 'Boathouse', category: 'building',
+    tags: ['structure', 'commercial', 'waterfront'], color: '#7C6A50',
+    footprint: { w: 2, h: 2 }, styleSetSlots: ['wall', 'roof', 'door'] },
   {
     id: 'net_loft',
     name: 'Net Loft',

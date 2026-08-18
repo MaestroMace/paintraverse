@@ -118,6 +118,7 @@ const BUILDING_HEIGHTS: Record<string, number> = {
   cottage: 1.7, washhouse: 1.5,
   // A kiln is squat and a workshop is an ordinary two-storey house.
   kiln: 1.6, workshop: 2.6,
+  smokehouse: 3.0, boathouse: 1.7,
   archway: 3.2, staircase: 1.2, town_gate: 4.5,
   chapel: 4.5, guild_hall: 4.0, warehouse: 3.0,
   watchtower: 5.5, mansion: 3.5, bakery: 2.5,
@@ -160,6 +161,7 @@ const BUILDING_ROOF_STYLE: Record<string, RoofStyle> = {
   balcony_house: 'gabled', row_house: 'steep', corner_building: 'hipped',
   cottage: 'steep', washhouse: 'hipped',
   kiln: 'pointed', workshop: 'gabled',
+  smokehouse: 'steep', boathouse: 'gabled',
   archway: 'none', staircase: 'none', town_gate: 'flat',
   chapel: 'steep', guild_hall: 'hipped', warehouse: 'gabled',
   watchtower: 'pointed', mansion: 'hipped', bakery: 'gabled',
