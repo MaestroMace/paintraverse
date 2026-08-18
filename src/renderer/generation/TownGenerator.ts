@@ -330,8 +330,14 @@ const VIGNETTES: Vignette[] = [
   // A drawn boundary is the cheapest "somebody owns this" there is.
   { id: 'yardfence', home: true, front: false,
     parts: ['picket_fence|flower_bed', 'flower_bed|bush|potted_plant'] },
+  // `potted_plant` is not decoration in this list, it is the reason the group
+  // exists at all. Both of the first two options are 2x1, so they failed
+  // together on any tile that could not take a pair and kitchengarden fired
+  // ZERO times across three seeds — the alternatives were varied and none of
+  // them was small. A herb pot by the back door is the smallest honest form of
+  // the same idea, and it is what lets the group reach a terrace at all.
   { id: 'kitchengarden', home: true, front: false, districts: ['garden', 'residential', 'noble'],
-    parts: ['planter_box|flower_bed', 'picket_fence|bush'] },
+    parts: ['planter_box|flower_bed|potted_plant', 'picket_fence|bush'] },
   // FIRE IN THE PUBLIC SPACE, and it is here for the test view rather than for
   // the plan view. DESIGN.md grades this town at dusk and pillar 5 asks for
   // three layers of warm light; the two that exist — lamp pools and hung
@@ -3776,8 +3782,29 @@ export class TownGenerator implements IMapGenerator {
       {
         const pool0 = streetSpots.length > 0 ? streetSpots : backSpots
         if (pool0.length > 0 && rng() < 0.75) {
-          const k = Math.floor(rng() * pool0.length)
-          const anchor = pool0[k]
+          // ANCHOR WHERE THERE IS ROOM FOR A GROUP, rather than anywhere and
+          // then failing. noRoom was rejecting half of all rolls — 48 of 100
+          // on one seed — because the anchor was drawn uniformly from the
+          // perimeter and a terrace in a 93%-party-wall town presents two or
+          // three valid spots that are often not adjacent to each other. The
+          // group's whole requirement is adjacency, so it is the thing to
+          // select ON, not to discover afterwards; and the best-connected
+          // spot is also where a cluster architecturally belongs. Ties are
+          // broken randomly so this does not become a positional bias.
+          //
+          // Counted over the WHOLE perimeter and only over tiles that are
+          // actually free, because that is exactly the set `tryVignette`
+          // draws its extra parts from. The first cut counted neighbours
+          // within pool0 alone and noRoom went UP: a criterion that measures
+          // a different population from the constraint it exists to satisfy
+          // is not a weaker filter, it is a filter aimed somewhere else.
+          const perim = [...streetSpots, ...backSpots]
+          const adj = (t: { x: number; y: number }): number =>
+            perim.reduce((n, o) => n + (o !== t && !occupied[o.y]?.[o.x] &&
+              Math.abs(o.x - t.x) <= 1 && Math.abs(o.y - t.y) <= 1 ? 1 : 0), 0)
+          const best = pool0.reduce((m, t) => Math.max(m, adj(t)), 0)
+          const roomy = pool0.filter(t => adj(t) === best)
+          const anchor = roomy[Math.floor(rng() * roomy.length)]
           if (anchor && this.tryVignette(anchor, streetSpots.length > 0,
                 dTypeForProps, b.definitionId, streetSpots, backSpots, occupied,
                 props, bcx, bcy, w, h, rng)) {
@@ -5020,10 +5047,30 @@ export class TownGenerator implements IMapGenerator {
     const free = (t: { x: number; y: number }): boolean =>
       t.x >= 0 && t.y >= 0 && t.x < w && t.y < h && !occupied[t.y][t.x]
     if (!free(spot)) return false
-    const perimeter = [...streetSpots, ...backSpots]
-    const near = perimeter
-      .filter(t => free(t) && Math.abs(t.x - spot.x) <= 1 && Math.abs(t.y - spot.y) <= 1)
-      .slice(0, need)
+    // CLAIM EVERY TILE AS IT IS CHOSEN, AND START BY CLAIMING THE ANCHOR.
+    //
+    // `near` used to be a filter over the perimeter, evaluated once, before
+    // anything was placed — so `free()` was true for every candidate at the
+    // moment it was tested and two parts could be handed the same tile. The
+    // anchor was the guaranteed case rather than the unlucky one: it is still
+    // in streetSpots/backSpots when this runs (the caller splices it only on
+    // SUCCESS) and `|dx| <= 1 && |dy| <= 1` includes dx = dy = 0, so part two
+    // sat on part one. 49 prop-stacked warnings a town, every reported pair a
+    // vignette pair — planter_box on flower_bed, crate on forge_brazier.
+    //
+    // A running claim set makes both impossible by construction instead of by
+    // two separate guards, and it also covers a coordinate appearing twice in
+    // the perimeter lists, which no amount of anchor-excluding would have.
+    const claimed = new Set<string>([`${spot.x},${spot.y}`])
+    const near: Array<{ x: number; y: number }> = []
+    for (const t of [...streetSpots, ...backSpots]) {
+      if (near.length >= need) break
+      const key = `${t.x},${t.y}`
+      if (claimed.has(key) || !free(t)) continue
+      if (Math.abs(t.x - spot.x) > 1 || Math.abs(t.y - spot.y) > 1) continue
+      claimed.add(key)
+      near.push(t)
+    }
     if (near.length < need) { rejected(`vig~noRoom:${v.id}`); return false }
 
     // A PART MAY OFFER ALTERNATIVES, written 'crate|barrel|rubble_pile' and
@@ -5064,6 +5111,14 @@ export class TownGenerator implements IMapGenerator {
     // whole groups on a tile that a different, equally good part would have
     // sat on: doorstep lost 9 and washday 8 in one town. The `|` options exist
     // to vary the group, and they serve just as well as room to manoeuvre.
+    // A multi-tile part is tested against `occupied` AND against the tiles
+    // this group has already spoken for. `occupied` cannot know about them —
+    // nothing is placed until every part has been resolved — so validating
+    // against it alone lets a 2x1 second part reach back over its own anchor.
+    // Same defect as the one the claim set above fixes, one level down: a
+    // check evaluated before the writes it is supposed to be protecting
+    // against.
+    const taken = new Set<string>()
     const chosen: string[] = []
     for (let k = 0; k < v.parts.length; k++) {
       const opts = v.parts[k].split('|')
@@ -5071,15 +5126,23 @@ export class TownGenerator implements IMapGenerator {
       // a bias toward whichever part happens to be listed first.
       const off = Math.floor(rng() * opts.length)
       let ok: string | null = null
+      let okTiles: string[] = []
       for (let j = 0; j < opts.length; j++) {
         const cand = opts[(off + j) % opts.length]
         const f = this.getFootprint(cand)
-        if ((f.w === 1 && f.h === 1) ||
-            this.areaFree(occupied, tiles[k].x, tiles[k].y, f.w, f.h, w, h)) {
-          ok = cand; break
+        const t = tiles[k]
+        if (f.w > 1 || f.h > 1) {
+          if (!this.areaFree(occupied, t.x, t.y, f.w, f.h, w, h)) continue
         }
+        const cells: string[] = []
+        for (let dy = 0; dy < f.h; dy++) {
+          for (let dx = 0; dx < f.w; dx++) cells.push(`${t.x + dx},${t.y + dy}`)
+        }
+        if (cells.some(c => taken.has(c))) continue
+        ok = cand; okTiles = cells; break
       }
       if (!ok) { rejected(`vig~noFootprint:${v.id}`); return false }
+      for (const c of okTiles) taken.add(c)
       chosen.push(ok)
     }
 
@@ -6348,6 +6411,24 @@ export class TownGenerator implements IMapGenerator {
       round_tower: { w: 2, h: 2 }, gatehouse: { w: 4, h: 2 },
       stable: { w: 4, h: 3 }, mill: { w: 3, h: 3 },
       bell_tower_tall: { w: 2, h: 2 }, aqueduct: { w: 5, h: 1 },
+      // SIX PROPS THAT RESERVED ONE TILE AND ARE NOT ONE TILE.
+      //
+      // The fallback below is `1x1`, so any id absent from this table quietly
+      // claims a single cell — and store.ts says market_tent is 2x2 and
+      // fountain_grand is 3x3. A grand fountain was reserving a ninth of
+      // itself and being drawn over eight tiles the map believed were free,
+      // which is the same silent overlap class the placement audit exists to
+      // catch and which it cannot see, because the audit reads the reserved
+      // rectangle and the reserved rectangle is the thing that is wrong.
+      //
+      // Found by diffing this table against store.ts rather than by looking:
+      // registry.mjs already cross-checks the THREE footprint tables and
+      // scopes that check by BuildingFactory.FOOTPRINTS — the building draw
+      // path's own list — so a PROP whose tables disagree was invisible to the
+      // tool written to catch exactly this. It checks every definition now.
+      picket_fence: { w: 2, h: 1 }, market_tent: { w: 2, h: 2 },
+      fountain_grand: { w: 3, h: 3 }, rowboat: { w: 2, h: 1 },
+      skiff: { w: 2, h: 1 }, port_crane: { w: 2, h: 2 },
     }
     return footprints[defId] || { w: 1, h: 1 }
   }

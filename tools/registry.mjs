@@ -73,7 +73,6 @@ for (const m of STORE.matchAll(
   // exports at the 1.8-tile fallback exactly like a house would. Checking
   // only category 'building' let the precinct wall through — a tool's scope
   // has to match the table's scope, not the table's name.
-  if (m[2] !== 'building' && m[2] !== 'infrastructure') continue
   defs.set(m[1], { w: +m[4], h: +m[5], tags: m[3], cat: m[2] })
 }
 // Cross-check: every `id:` in a building-looking definition should have been
@@ -137,6 +136,18 @@ for (const [id, d] of [...defs].sort()) {
     ['district', placeable.get(id)]]) {
     if (t && (t.w !== d.w || t.h !== d.h)) disagree.push(`${label} ${t.w}x${t.h}`)
   }
+  // A LOOKUP WITH A DEFAULT HAS NO "ABSENT" STATE.
+  //
+  // `getFootprint` ends `return footprints[defId] || { w: 1, h: 1 }`, so every
+  // id already has an answer and an id that is not in the table is not
+  // unopinionated — it reserves ONE TILE. The check above compares only
+  // entries that exist, which is why six props sat here undetected: a 2x2
+  // market_tent and a 3x3 fountain_grand reserving a single cell and being
+  // drawn over neighbours the map believed were free. Compare against the
+  // value the CODE WILL ACTUALLY GET, never against the table's contents.
+  if (!genFp[id] && (d.w !== 1 || d.h !== 1)) {
+    disagree.push('gen FALLBACK 1x1 (absent from getFootprint)')
+  }
   const reachable = d.cat === 'infrastructure' ||
     placeable.has(id) || DIRECT_PLACED.has(id)
   if (miss.length || disagree.length || !reachable) {
@@ -145,7 +156,7 @@ for (const [id, d] of [...defs].sort()) {
   }
 }
 
-console.log(`\n=== REGISTRY — ${defs.size} building + infrastructure definitions ===\n`)
+console.log(`\n=== REGISTRY — ${defs.size} definitions, every category ===\n`)
 if (rows.length === 0) {
   console.log('  Every building type is registered in every table, all three')
   console.log('  footprint tables agree, and every type can actually be placed.')
@@ -164,7 +175,7 @@ if (rows.length === 0) {
     }
   }
 }
-console.log(`\n${problems} of ${defs.size} building types have a registration problem.`)
+console.log(`\n${problems} of ${defs.size} definitions have a registration problem.`)
 console.log('\nA missing entry is SILENT: the renderer falls back to a default')
 console.log('footprint, the pixel-art export to a 1.8-tile height, the plan view')
 console.log('to a generic tint. Nothing errors, and the type looks almost right.')
