@@ -379,6 +379,27 @@ the same shape recurs: `PlacedObject.footprint` unblocked four failed plot
 attempts, `BuildingTop` unblocked the particle systems. When a whole category
 of work keeps not happening, look for the handle it would need.
 
+**A constant expressed as a fraction of a variable inherits that variable's
+range, which is the opposite of pinning it.** A cottage template asked for
+`ctx.wallH * 0.55` as its "low wall" and got 7.7m on a tall plot, then a roof
+derived from that wall on top — a black triangle written deliberately into the
+one template meant to demonstrate the good version of it. A type with an
+INTRINSIC size takes a physical number, the rule MAX_OVERHANG and
+PropFactory's `physical()` already follow. And never derive a roof rise from
+the wall it stands on: that guarantees a roof taller than the house.
+
+**A SHAPE and a CAP are one decision, not two.** A wash house at 2x2 was
+absent from two towns in five; at 1x2 it hit seventeen in one and starved its
+neighbour type. Real odds are the weight times how often the shape FITS, so
+the footprint buys presence and the cap buys scarcity, and tuning either alone
+just moves the failure to the other end.
+
+**Check how many INSTANCES a type gets before reading a per-district count as
+a town total.** `MAX_PER_DISTRICT` is keyed by district instance and
+`residential` is the one type `generateDistricts` deliberately lets repeat, so
+four wash houses under a cap of two is two quarters obeying it. That went into
+a draft as "the cap is leaking" — the right diagnosis for the wrong reading.
+
 **A lookup with a default has no ABSENT state.** `getFootprint` ends
 `|| { w: 1, h: 1 }`, so an id missing from the table is not unopinionated — it
 reserves one tile, and a 3x3 fountain was doing exactly that while being drawn
@@ -1123,7 +1144,7 @@ Run these before believing anything about where the project is.
 | corridor width | streets.mjs | 4% of road over-wide, was 58% | clean |
 | street width | urbanform.mjs | 12m facade to facade vs 4-10m | recovered |
 | built coverage | urbanform.mjs | 47% vs 50-70% (walls not counted as buildings) | near range |
-| district character | districts.mjs | 44% distinctive to their quarter (was 26%; 55% was recorded and has since drifted — see below) | improving |
+| district character | districts.mjs | **52%** distinctive to their quarter (was 26%; residential's own vocabulary took it 49 -> 52) | improving |
 | party walls | urbanform.mjs | 89% vs 60-80% | above range, deliberately |
 | frontage occupancy | urbanform.mjs | **76% of ACHIEVABLE** frontage vs 85-95% (raw 70%) | near range |
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
@@ -1625,11 +1646,17 @@ The whole device problem list is fixed. What is left:
    crate half-unloaded. `dressEmptyStreets` still answers "is this spot bare",
    which is the metric this arc has been replacing with ownership everywhere
    else. Grade with `tenancy.mjs` (42%) and the `vigOk:` counters, not by eye.
-2. **Only ~7 of ~200 buildings are trade types**, and market districts are
-   mostly plain row houses. Signage compensates on the render side, but
-   biasing district building-type weights would make markets read as markets
-   in the plan view too. This is now easy to *see*, since the plan colours by
-   role — a market district that looks residential is visibly wrong.
+2. **Trade quarters: measure before believing this item.** It has said "only
+   ~7 of ~200 buildings are trade types" for a long time and the reading has
+   moved — market runs 44-49% distinctive on two seeds of three with
+   `weigh_house` at 6-9 a town. What the last sweep actually found is that
+   **`artisan` does not appear in any of three seeds at all**, and it is the
+   one quarter whose whole table (shop, building_small, row_house, warehouse,
+   corner_building, half_timber, apothecary, staircase) is shared with
+   somewhere else — no exclusive type, small or large. Start by asking
+   `quarters.mjs` whether artisan is being generated before adding vocabulary
+   to it. Seed 31337's market also reads 13% while 4242 and 777 read 44-49%,
+   which is one town's quarter failing rather than the type mix.
 3. **Row placement predates the narrowing.** Streets are much tighter than
    when the row-streak logic was tuned; worth revisiting whether rows should
    hug the new lanes more aggressively.
@@ -2415,6 +2442,84 @@ town hung its washing skew.** The sign belongs inside the atan2.
 The last row is the one that decides whether the feature exists in play. The
 pairing filters on distance and building type and has no notion of a street,
 so a line could equally have spanned back yards nobody can reach.
+
+### THE ORDINARY QUARTER HAD NO VOCABULARY — cottage and wash house
+
+Seventh application of the small-exclusive-type pattern, and the first aimed
+at `residential`, which read **13-14% distinctive on two seeds of three** —
+the worst of any quarter. The cause is structural rather than a weight: its
+whole table is row_house / building_small / bakery / narrow_house, every one
+of which also appears in market, artisan, waterfront, harbor and slum, and
+`districts.mjs` counts a type as characteristic only if it appears in at most
+a THIRD of the quarters present. Its entire vocabulary is disqualified by
+construction.
+
+What an ordinary quarter has that no other does is the shared domestic
+institution — the place the street washes — and the low dormered cottage
+between the terraces.
+
+    residential character   14 / 13 / 41%  ->  45 / 41 / 59%
+    town-wide character     49%            ->  52%
+    coverage 45 -> 46 · party 93 -> 91 · frontage 78 -> 78 · audit 0/0
+
+`districts.mjs` is unchanged, so all of that is the code, and the trade is far
+cheaper than the earlier district arc's: coverage did not fall and the two
+points of party wall are a 2x2 cottage terracing less readily than a 1x2 row
+house.
+
+**`cottage` was already in DWELLING_TYPES and nothing defined it.** Two of
+that set's twelve entries — `cottage` and `townhouse` — were ids the game does
+not have, carried across when the three copies were merged and never checked
+against store.ts. Same defect tenancy.mjs's header records making with
+invented prop ids, one field over. A dead entry in a SHARED vocabulary is
+worse than in a private one: the next person writing a district table reaches
+for a type that cannot exist.
+
+**THE SHAPE AND THE CAP HAVE TO BE CHOSEN TOGETHER.** Three rounds on one
+parameter pair:
+
+- At 2x2 the wash house placed 4/0/0/1/3 across five seeds, absent from two
+  towns, and the zeros were the two SMALLEST residential quarters — real odds
+  are the weight times how often the shape fits.
+- So 1x2, and it hit SEVENTEEN on one seed while stealing the small slots the
+  cottages needed (11 -> 1 on another). The shape buys presence, a cap buys
+  scarcity, and neither does both.
+- **And then I misread the cap.** 4 against a cap of 2 went down as "the cap
+  is leaking", the documented enforced-in-three-of-four-paths failure. It was
+  not. `MAX_PER_DISTRICT` is keyed by district INSTANCE and `residential` is
+  the single type `generateDistricts` deliberately lets repeat
+  (`!usedTypes.has(t.type) || t.type === 'residential'`), so 4 was two quarters
+  each obeying a cap of 2. **Check how many INSTANCES a type gets before
+  reading a per-district count as a town total.**
+
+Final: cottage on all 8 seeds (1-15 a town), wash house on 6 of 8. The
+institution missing from a quarter of towns is a residual worth naming rather
+than tuning a fourth time — fixing it properly means placing one deliberately
+per residential quarter instead of drawing it from a weighted bag.
+
+### AND BOTH TEMPLATES KEYED THEIR "LOW WALL" TO A NUMBER THAT WAS NOT LOW
+
+The type mix said the feature worked. A photograph said otherwise, and the
+tell was in the caption: `asset.mjs` reported a cottage as **4 floors**.
+
+`tmplCottage` wrote `max(STOREY_HEIGHT * 1.15, ctx.wallH * 0.55)`, and
+`ctx.wallH` is whatever the generic building height for that plot would have
+been — so on a tall plot the "low wall" came out at 7.7m, and the rise, asked
+for as `max(wallH * 1.05, span * 0.62)`, came out bigger still. A two-storey
+house under an eight-metre black triangle: the exact defect `eyeball.mjs`
+tracks, written deliberately into the template whose whole purpose was to
+demonstrate the good version of it.
+
+**A type with an intrinsic size must be pinned to a physical number**, the
+rule `MAX_OVERHANG` and PropFactory's `physical()` already follow. Absolute
+wall now, and the rise off the SPAN alone — keying any part of a rise to the
+wall it sits on guarantees a roof taller than the house. Cottage wall 7.7m ->
+3.9m against a row house's 9.9m.
+
+The wash house's louvre sat at `wallH + rise * 0.72` under a comment reading
+"sits ON the ridge", which on a hipped roof is well inside the cone. The
+photograph came back with a plain apex: the one feature separating a wash
+house from a shed, buried in its own roof. **A comment is not a test.**
 
 ### AND THE BOARD CREDITED THE TAXONOMY FIX AS A TEN-POINT WIN
 
