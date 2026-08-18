@@ -1002,6 +1002,106 @@ function tmplLeanTo(ctx: MassingContext): Volume[] {
   return [mk('mainBody', -1, hiH), mk('wing', 1, loH)]
 }
 
+/**
+ * A COTTAGE IS A LOW WALL UNDER A BIG ROOF, and that ratio is the whole type.
+ *
+ * A row house in this town has a median wall of 7.5m and a roof at 41% of it.
+ * Invert that — a wall of about a storey and a half, a roof taller than the
+ * wall it sits on — and the silhouette is unmistakable from across a street
+ * without a single new texture. It is also the one place in this repo where a
+ * high roof-to-wall ratio is CORRECT rather than the black-triangle defect
+ * `eyeball.mjs` reports, which is why the rise is asked for explicitly here
+ * instead of being left to `roofHeightFor`.
+ *
+ * The dormer is a real volume rather than painted, because it has to break
+ * the roofline: a cottage reads as a cottage from the roof down.
+ */
+function tmplCottage(ctx: MassingContext): Volume[] {
+  // A storey and a half. Floored against STOREY_HEIGHT so the habitable
+  // minimum downstream cannot quietly turn it back into a two-storey box.
+  const wallH = Math.max(STOREY_HEIGHT * 1.15, ctx.wallH * 0.55)
+  const roofStyle: RoofStyle = rand01(ctx.hash, 611) < 0.5 ? 'steep' : 'gabled'
+  const span = (ctx.footW + ctx.footD) / 2
+  const rise = Math.max(wallH * 1.05, span * 0.62)
+  const body: Volume = {
+    role: 'mainBody',
+    offsetX: 0, offsetZ: 0,
+    width: ctx.footW, depth: ctx.footD,
+    bottomY: 0, height: wallH,
+    roofStyle, roofHeight: rise,
+    roofAxis: ctx.footW >= ctx.footD ? 'x' : 'z',
+    wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+    textured: true, cornice: false,
+    floors: 1,
+  }
+  const out = [body]
+  if (rand01(ctx.hash, 613) < 0.7) {
+    const dw = Math.max(0.9, ctx.footW * 0.32)
+    out.push({
+      role: 'trim',
+      offsetX: (rand01(ctx.hash, 615) - 0.5) * (ctx.footW - dw) * 0.6,
+      offsetZ: ctx.footD * 0.22,
+      width: dw, depth: Math.max(0.7, ctx.footD * 0.3),
+      bottomY: wallH, height: rise * 0.42,
+      roofStyle: 'gabled', roofHeight: rise * 0.3,
+      roofAxis: 'z',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      // A dormer carries a window, so it must be painted, not a blank lump —
+      // the largest anomaly class this repo ever found was a volume authored
+      // `textured: false` on the reasoning that something else covered it.
+      textured: true, cornice: false,
+      habitable: false,
+      floors: 1,
+    })
+  }
+  return out
+}
+
+/**
+ * A WASH HOUSE IS A ROOF ON POSTS WITH A VENT ON TOP.
+ *
+ * The communal lavoir: one low room, a wide hipped roof to throw the rain
+ * clear of whoever is working under it, and a louvred lantern at the ridge to
+ * let the steam out. That last piece is the recognisable bit and it is 40cm
+ * of geometry — the same argument as the net loft's hoist jetty. Without it
+ * this is a shed.
+ */
+function tmplWashhouse(ctx: MassingContext): Volume[] {
+  const wallH = Math.max(STOREY_HEIGHT * 1.0, ctx.wallH * 0.45)
+  const span = (ctx.footW + ctx.footD) / 2
+  const rise = Math.max(wallH * 0.8, span * 0.5)
+  const ventW = Math.max(0.6, Math.min(ctx.footW, ctx.footD) * 0.3)
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: wallH,
+      roofStyle: 'hipped', roofHeight: rise,
+      roofAxis: ctx.footW >= ctx.footD ? 'x' : 'z',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: false,
+      floors: 1,
+    },
+    {
+      role: 'trim',
+      offsetX: 0, offsetZ: 0,
+      width: ventW, depth: ventW,
+      // Sits ON the ridge, so it starts where the main roof's apex is.
+      bottomY: wallH + rise * 0.72, height: Math.max(0.45, rise * 0.22),
+      roofStyle: 'hipped', roofHeight: Math.max(0.25, rise * 0.16),
+      roofAxis: 'x',
+      wallColor: ctx.roofColor, roofColor: ctx.roofColor,
+      textured: false, cornice: false,
+      // Not a room: 40cm of louvre must not be widened to MIN_HABITABLE_W,
+      // which is the trap four templates fell into by using role 'mainBody'
+      // for the two different things it used to mean.
+      habitable: false,
+      floors: 1,
+    },
+  ]
+}
+
 /** Body + dramatic centered tall tower (like a keep). */
 function tmplStackedTower(ctx: MassingContext): Volume[] {
   const mainRoof: RoofStyle = 'flat'
@@ -1468,6 +1568,11 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   // needling. A lean-to is the only mono-pitch thing in town.
   tenement: (ctx) => tmplTenement(ctx),
   lean_to: (ctx) => tmplLeanTo(ctx),
+  // The ordinary quarter's pair. Both invert the town's usual proportion — a
+  // low wall under a big roof — which is a silhouette no other type here has
+  // and costs nothing but the massing.
+  cottage: (ctx) => tmplCottage(ctx),
+  washhouse: (ctx) => tmplWashhouse(ctx),
   warehouse: (ctx) => tmplStepBack(ctx),
   stable: (ctx) => tmplFarmstead(ctx),
   mill: (ctx) => rand01(ctx.hash, 523) < 0.3 ? tmplWindmill(ctx) : tmplFarmstead(ctx),

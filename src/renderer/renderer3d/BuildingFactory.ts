@@ -55,6 +55,7 @@ const FOOTPRINTS: Record<string, { w: number; h: number }> = {
   building_large: { w: 4, h: 3 }, tavern: { w: 4, h: 3 },
   shop: { w: 2, h: 3 }, tower: { w: 2, h: 2 },
   balcony_house: { w: 3, h: 2 }, row_house: { w: 1, h: 2 },
+  cottage: { w: 2, h: 2 }, washhouse: { w: 2, h: 2 },
   corner_building: { w: 2, h: 2 }, archway: { w: 3, h: 1 },
   staircase: { w: 2, h: 3 }, town_gate: { w: 3, h: 1 },
   chapel: { w: 3, h: 4 }, guild_hall: { w: 4, h: 4 },

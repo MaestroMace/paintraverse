@@ -253,6 +253,56 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 1, h: 3 },
     styleSetSlots: ['wall', 'roof', 'door', 'window']
   },
+  // THE ORDINARY QUARTER HAD NO VOCABULARY OF ITS OWN.
+  //
+  // districts.mjs reads residential at 13-14% distinctive on two seeds of
+  // three, the worst of any quarter, and the reason is structural rather
+  // than a missing weight: its whole table is row_house / building_small /
+  // bakery / narrow_house, every one of which also appears in market,
+  // artisan, waterfront, harbor and slum. A type counts as characteristic
+  // only if it appears in at most a third of the quarters present, so
+  // residential's entire vocabulary is disqualified by construction.
+  //
+  // The pattern that has now worked six times is a SMALL EXCLUSIVE TYPE,
+  // because a type's real odds are its weight times how often it fits and
+  // only a small footprint fits often. What an ordinary quarter has that no
+  // other does is the shared domestic institution — the place the street
+  // washes, and the low dormered cottage between the terraces.
+  //
+  // `cottage` is not a new idea here: it was already listed in DWELLING_TYPES
+  // and in propForRole, and nothing defined it. Two of that set's twelve
+  // entries were ids the game does not have, which is the same defect
+  // tenancy.mjs's own header records making with invented prop ids — carried
+  // forward without checking when the three copies were merged.
+  {
+    id: 'cottage',
+    name: 'Cottage',
+    category: 'building',
+    tags: ['structure', 'residential', 'humble'],
+    color: '#C4B49A',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  // 1x2, NOT 2x2. At 2x2 the wash house placed 4/0/0/1/3 across five seeds —
+  // absent from two towns entirely — and the zeros were the two SMALLEST
+  // residential quarters. That is this repo's most-repeated finding about
+  // exclusive types: real odds are the weight times how often the shape fits,
+  // and only a 1x2 fits often. Raising the weight instead would have given the
+  // big quarters four wash houses in order to give the small ones one.
+  //
+  // The note lives HERE and not inside the object because registry.mjs scans a
+  // 200-character window between `tags:` and `footprint:`, and a comment
+  // longer than that makes the definition unparseable. Its PARSER MISS line
+  // caught that immediately, which is the whole reason that line exists.
+  {
+    id: 'washhouse',
+    name: 'Wash House',
+    category: 'building',
+    tags: ['structure', 'residential', 'communal'],
+    color: '#9AA5A0',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door']
+  },
   {
     id: 'sexton_hut',
     name: "Sexton's Hut",

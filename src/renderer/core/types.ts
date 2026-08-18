@@ -186,10 +186,19 @@ export function stableHash(obj: { definitionId: string; x: number; y: number }):
  * same reason: it says nothing about who is inside.
  *
  * The tools read this list out of this file rather than restating it.
+ *
+ * TWO OF THE TWELVE ENTRIES WERE IDS THE GAME DOES NOT DEFINE. `cottage` and
+ * `townhouse` came across in the merge because they were in the generator's
+ * list, and nobody had ever checked them against store.ts — the same defect
+ * tenancy.mjs's own header records making with invented prop ids, one field
+ * over. A dead entry in a shared vocabulary is worse than a private one: the
+ * next person writing a district table reaches for a type that cannot exist.
+ * `cottage` is a real definition now because the residential quarter needed
+ * exactly that; `townhouse` is dropped until something defines it.
  */
 export const DWELLING_TYPES: ReadonlySet<string> = new Set([
   'row_house', 'building_small', 'cottage', 'half_timber',
-  'balcony_house', 'corner_building', 'building_large', 'townhouse',
+  'balcony_house', 'corner_building', 'building_large',
   'narrow_house', 'tenement', 'lean_to', 'almshouse',
 ])
 

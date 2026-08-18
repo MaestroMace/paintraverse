@@ -61,6 +61,17 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'bakery', w: 2, h: 2, weight: 2 },
     { id: 'building_large', w: 4, h: 3, weight: 1 },
     { id: 'stable', w: 4, h: 3, weight: 4 },
+    // THE ORDINARY QUARTER'S OWN VOCABULARY — see the definitions in store.ts.
+    // Every other entry above is shared with market, artisan, waterfront,
+    // harbor or slum, so none of them can ever count as characteristic and
+    // residential read 13-14% on two seeds of three. A cottage and the
+    // street's communal wash house are what an ordinary quarter has that no
+    // other does. The wash house is an INSTITUTION and is weighted like one:
+    // one or two a quarter, not a row of them. Giving a quarter its own small
+    // type has overshot into monoculture before — the cemetery came out as 21
+    // identical sexton's huts — and MAX_PER_DISTRICT is the backstop.
+    { id: 'cottage', w: 2, h: 2, weight: 5 },
+    { id: 'washhouse', w: 2, h: 2, weight: 2 },
   ],
   artisan: [
     { id: 'shop', w: 2, h: 3, weight: 5 },
@@ -229,6 +240,25 @@ const MAX_PER_DISTRICT: Record<string, number> = {
   clergy_house: 8,      // a cathedral close is a street of them
   coach_house: 8,       // one behind each mansion
   potting_shed: 6,
+  // A street washes in ONE place — same argument as the sexton. Uncapped at
+  // 1x2 it hit SEVENTEEN on seed 11 and took the small slots the cottages
+  // needed, dropping cottage from 11 to 1 on another: the cemetery's
+  // twenty-one identical sexton's huts repeating itself in a new quarter,
+  // which is what this table exists to stop.
+  //
+  // The footprint and the cap have to be chosen TOGETHER, and that is the
+  // part I got wrong twice. At 2x2 it never overshot and was absent from two
+  // towns in five, because a rare institution in a small quarter needs the
+  // shape that fits often. At 1x2 uncapped it was reliable and absurd. The
+  // shape buys presence, the cap buys scarcity, and neither does both.
+  //
+  // ONE, not two, and the reason is a thing I got wrong about this table: it
+  // is keyed by district INSTANCE, and `residential` is the single type
+  // `generateDistricts` deliberately lets repeat. So a cap of 2 reads as four
+  // wash houses in a two-quarter town, which I briefly recorded as the cap
+  // leaking. It was not leaking; I had assumed one ordinary quarter per town.
+  // A cap here means "per quarter", which for a communal institution is 1.
+  washhouse: 1,
 }
 // These read 1/10/4/4/3/3 first and cost three points of built coverage and
 // five of achievable frontage, because they were written as SCARCITY when the
@@ -6446,6 +6476,7 @@ export class TownGenerator implements IMapGenerator {
       // scopes that check by BuildingFactory.FOOTPRINTS — the building draw
       // path's own list — so a PROP whose tables disagree was invisible to the
       // tool written to catch exactly this. It checks every definition now.
+      cottage: { w: 2, h: 2 }, washhouse: { w: 2, h: 2 },
       picket_fence: { w: 2, h: 1 }, market_tent: { w: 2, h: 2 },
       fountain_grand: { w: 3, h: 3 }, rowboat: { w: 2, h: 1 },
       skiff: { w: 2, h: 1 }, port_crane: { w: 2, h: 2 },

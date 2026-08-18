@@ -113,6 +113,9 @@ const BUILDING_HEIGHTS: Record<string, number> = {
   building_small: 2.2, building_medium: 3.0, building_large: 3.8,
   tavern: 2.8, shop: 2.5, tower: 5.0, clock_tower: 6.5,
   balcony_house: 3.2, row_house: 2.8, corner_building: 3.0,
+  // Low walls under a big roof — that IS the silhouette, so the export must
+  // not give them the 1.8-tile fallback or a generic three storeys.
+  cottage: 1.7, washhouse: 1.5,
   archway: 3.2, staircase: 1.2, town_gate: 4.5,
   chapel: 4.5, guild_hall: 4.0, warehouse: 3.0,
   watchtower: 5.5, mansion: 3.5, bakery: 2.5,
@@ -153,6 +156,7 @@ const BUILDING_ROOF_STYLE: Record<string, RoofStyle> = {
   building_small: 'gabled', building_medium: 'gabled', building_large: 'hipped',
   tavern: 'gabled', shop: 'steep', tower: 'pointed', clock_tower: 'pointed',
   balcony_house: 'gabled', row_house: 'steep', corner_building: 'hipped',
+  cottage: 'steep', washhouse: 'hipped',
   archway: 'none', staircase: 'none', town_gate: 'flat',
   chapel: 'steep', guild_hall: 'hipped', warehouse: 'gabled',
   watchtower: 'pointed', mansion: 'hipped', bakery: 'gabled',
