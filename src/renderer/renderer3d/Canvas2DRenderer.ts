@@ -125,6 +125,7 @@ const BUILDING_HEIGHTS: Record<string, number> = {
   // thick-walled and squat; the shambles is two jettied storeys.
   chandlery: 3.0, customs_house: 2.6, guardhouse: 1.4, armory: 2.0,
   shambles: 2.4, sail_loft: 2.2, cookshop: 2.6,
+  gate_lodge: 1.6, orangery: 1.6, dovecote: 2.2,
   archway: 3.2, staircase: 1.2, town_gate: 4.5,
   chapel: 4.5, guild_hall: 4.0, warehouse: 3.0,
   watchtower: 5.5, mansion: 3.5, bakery: 2.5,
@@ -170,6 +171,7 @@ const BUILDING_ROOF_STYLE: Record<string, RoofStyle> = {
   smokehouse: 'steep', boathouse: 'gabled',
   chandlery: 'steep', customs_house: 'hipped', guardhouse: 'flat',
   armory: 'hipped', shambles: 'steep', sail_loft: 'gabled', cookshop: 'steep',
+  gate_lodge: 'hipped', orangery: 'gabled', dovecote: 'pointed',
   archway: 'none', staircase: 'none', town_gate: 'flat',
   chapel: 'steep', guild_hall: 'hipped', warehouse: 'gabled',
   watchtower: 'pointed', mansion: 'hipped', bakery: 'gabled',

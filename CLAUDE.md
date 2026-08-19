@@ -1795,6 +1795,32 @@ The whole device problem list is fixed. What is left:
    is `generateDistricts` not choosing it, not the type mix, and
    `quarters.mjs` is the tool that answers it. Do not add vocabulary to
    artisan before asking whether it is being generated.
+2b. **ONE QUARTER IS HALF THE TOWN, and nothing grades quarter SIZE.**
+   `quarters.mjs` prints it and I had been reading only the type list:
+
+       seed  4242   212 bldgs   slum 99, market 29, residential 27, temple 23, noble 18, waterfront 16
+       seed 65535   177 bldgs   residential 92, market 25, artisan 25, waterfront 24, noble 11
+       seed    11   183 bldgs   residential 82, market 58, waterfront 28, fortress 15
+
+   The largest cell runs 2.8-4x the mean. For `residential` that is correct —
+   a town IS mostly houses — and for `slum` it is not: a slum is a corner of
+   a town, and one that is 47% of it reads as a slum with a market in it.
+
+   The cause is structural rather than a weight. Centres come from a Poisson
+   disk and are sorted by distance from the map centre, so the LAST-assigned
+   centres get the biggest peripheral cells, and the pool is drawn from
+   uniformly at every index — a cemetery is exactly as likely as anything
+   else to be handed the largest cell on the map. The fix is to assign types
+   to centres in order of CELL SIZE, giving the big ones to the types that can
+   carry them (residential, artisan, market) and the small ones to the
+   specialised quarters, which is also just how a town is arranged. That
+   needs cell sizes at assignment time and they are not computed until after,
+   so it is a real change and not a tuning pass.
+
+   **Do not fix it by lowering slum's pool weight.** That changes how OFTEN a
+   slum appears, which is a different question from how BIG it is, and the
+   measurement above cannot tell the two apart.
+
 3. **Row placement predates the narrowing.** Streets are much tighter than
    when the row-streak logic was tuned; worth revisiting whether rows should
    hug the new lanes more aggressively.

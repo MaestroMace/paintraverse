@@ -88,6 +88,22 @@ export interface Volume {
    * is what the phone kept photographing and calling planks.
    */
   habitable?: boolean
+
+  /**
+   * Smoke leaves the building at the TOP of this volume.
+   *
+   * Declared by the template because only the template knows which of its
+   * pieces is the flue — the same argument as `walkable`, which exists
+   * because `passage` cannot tell a bridge deck you walk OVER from an archway
+   * you walk UNDER. ThreeRenderer vented every always-smoking type from the
+   * footprint centre at the roof apex, which is correct for a smokehouse's
+   * ridge louvre and wrong for a cookshop whose entire silhouette is a stack
+   * up one flank.
+   *
+   * BuildingFactory reports the world position on `BuildingTop`, so nothing
+   * downstream re-derives where a chimney is.
+   */
+  vent?: boolean
 }
 
 /** Stamp a template's volumes as masonry — see Volume.habitable. */
@@ -1319,6 +1335,8 @@ function tmplSmokehouse(ctx: MassingContext): Volume[] {
       // to MIN_HABITABLE_W and raise it to a full storey, which is how the
       // kiln became a turret.
       habitable: false,
+      // The draught leaves here, which is the building's whole purpose.
+      vent: true,
       floors: 1,
     },
   ]
@@ -1900,6 +1918,186 @@ function tmplCookshop(ctx: MassingContext): Volume[] {
       wallColor: brick, roofColor: brick,
       textured: false, cornice: false,
       habitable: false,
+      // THE FLUE. Without this the renderer vents from the footprint centre
+      // and the smoke rises a metre and a half beside the stack instead of
+      // out of it — see Volume.vent.
+      vent: true,
+      floors: 1,
+    },
+  ]
+}
+
+/**
+ * A GATE LODGE IS A LITTLE TEMPLE WITH A CHIMNEY.
+ *
+ * One storey, hipped, and formal out of all proportion to its size — the
+ * point of a lodge is that it announces the ground behind it, so it gets a
+ * pedimented porch on columns that a house this small would never carry. The
+ * porch is the whole read: a classical front at 4m tall beside a mansion is
+ * the clearest "somebody rich lives here" a silhouette can make.
+ */
+function tmplGateLodge(ctx: MassingContext): Volume[] {
+  const wallH = STOREY_HEIGHT * (1.15 + rand01(ctx.hash, 1471) * 0.2)
+  const span = Math.min(ctx.footW, ctx.footD)
+  const stone = 0xc0b8a4
+  const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
+  const porchD = 0.7
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: wallH,
+      roofStyle: 'hipped', roofHeight: span * (0.36 + rand01(ctx.hash, 1473) * 0.08),
+      roofAxis: ridgeAxis,
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: true,
+      floors: 1,
+    },
+    // Two columns and a pediment slab. `frontWallZ` puts the front at +Z.
+    ...[-1, 1].map((s): Volume => ({
+      role: 'trim',
+      offsetX: s * ctx.footW * 0.28,
+      offsetZ: ctx.footD / 2 + porchD * 0.5,
+      width: 0.22, depth: 0.22,
+      bottomY: 0, height: wallH * 0.86,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: stone, roofColor: stone,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    })),
+    {
+      role: 'trim',
+      offsetX: 0, offsetZ: ctx.footD / 2 + porchD * 0.5,
+      width: ctx.footW * 0.8, depth: porchD + 0.15,
+      bottomY: wallH * 0.86, height: 0.3,
+      // A shallow triangle over the entrance — `pointed` on a wide flat slab
+      // reads as a pediment, which is the only place in this town's
+      // vocabulary a triangle sits on columns.
+      roofStyle: 'pointed', roofHeight: 0.38,
+      roofAxis: ridgeAxis,
+      wallColor: stone, roofColor: stone,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    },
+  ]
+}
+
+/**
+ * AN ORANGERY IS A WALL OF GLASS LYING DOWN.
+ *
+ * Long, low and south-facing, with tall arched lights the full height of the
+ * front and a shallow lean-to roof behind them. It is the only building in
+ * the town that is wider than it is tall, which is precisely why it belongs
+ * to the garden quarter: nothing else there reads as a building at all from
+ * a distance, and this reads as one instantly.
+ *
+ * Capped at one per quarter. An institution repeated is not an institution.
+ */
+function tmplOrangery(ctx: MassingContext): Volume[] {
+  const wallH = STOREY_HEIGHT * (1.25 + rand01(ctx.hash, 1481) * 0.15)
+  const span = Math.min(ctx.footW, ctx.footD)
+  const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
+  const alongZ = ridgeAxis === 'z'
+  const stone = 0xc8cdb8
+  const vols: Volume[] = [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: wallH,
+      // Shallow, because the height is all in the glazing below it.
+      roofStyle: 'gabled', roofHeight: span * (0.3 + rand01(ctx.hash, 1483) * 0.06),
+      roofAxis: ridgeAxis,
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: true,
+      floors: 1,
+    },
+  ]
+  // The mullions. Five slim piers along the long face — a run of verticals at
+  // even spacing IS what an orangery looks like, and it survives
+  // RENDER_SCALE where an arch head would not.
+  const runLen = (alongZ ? ctx.footD : ctx.footW) * 0.86
+  const face = (alongZ ? ctx.footW : ctx.footD) / 2 + 0.1
+  for (let i = 0; i < 5; i++) {
+    const t = -runLen / 2 + (runLen * i) / 4
+    vols.push({
+      role: 'trim',
+      offsetX: alongZ ? face : t,
+      offsetZ: alongZ ? t : face,
+      width: alongZ ? 0.2 : 0.18,
+      depth: alongZ ? 0.18 : 0.2,
+      bottomY: 0, height: wallH * 0.94,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: stone, roofColor: stone,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    })
+  }
+  return vols
+}
+
+/**
+ * A DOVECOTE IS A TOWER FOR BIRDS.
+ *
+ * One square shaft, a pyramid cap, and a small open lantern on top for them
+ * to fly in and out of. At 1x1 it is the smallest building in the town by
+ * some margin and the only one that fits a leftover cell, which is exactly
+ * where a real dovecote stands — in the corner of a garden, out of the way.
+ *
+ * Everything above the shaft is `habitable: false`: a 3m tile is already at
+ * MIN_HABITABLE_W, and without the declaration the cap and the lantern would
+ * each be widened to a full room and the thing would come out a keep. That is
+ * how the kiln became a turret.
+ */
+function tmplDovecote(ctx: MassingContext): Volume[] {
+  const shaftW = Math.min(ctx.footW, ctx.footD) * 0.72
+  const shaftH = STOREY_HEIGHT * (1.5 + rand01(ctx.hash, 1491) * 0.35)
+  const stone = 0xb0aa96
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: shaftW, depth: shaftW,
+      bottomY: 0, height: shaftH,
+      roofStyle: 'hipped', roofHeight: shaftW * 0.42,
+      roofAxis: 'x',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: true,
+      floors: 2,
+    },
+    {
+      // The louvre the birds use, sitting just under the peak of the hip —
+      // 0.9 of the rise, for the reason the wash house's louvre had to learn:
+      // a hipped roof is a truncated pyramid and 0.72 is inside the cone.
+      role: 'trim',
+      offsetX: 0, offsetZ: 0,
+      width: shaftW * 0.42, depth: shaftW * 0.42,
+      bottomY: shaftH + shaftW * 0.42 * 0.9, height: 0.42,
+      roofStyle: 'pointed', roofHeight: 0.34,
+      roofAxis: 'x',
+      wallColor: stone, roofColor: ctx.roofColor,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    },
+    {
+      // A string course the birds land on, which is the detail that makes a
+      // small square tower read as a dovecote and not as a chimney.
+      role: 'trim',
+      offsetX: 0, offsetZ: 0,
+      width: shaftW + 0.22, depth: shaftW + 0.22,
+      bottomY: shaftH * 0.62, height: 0.14,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: stone, roofColor: stone,
+      textured: false, cornice: false,
+      habitable: false,
       floors: 1,
     },
   ]
@@ -2395,6 +2593,10 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   // first one is what makes a second one necessary.
   sail_loft: (ctx) => tmplSailLoft(ctx),
   cookshop: (ctx) => tmplCookshop(ctx),
+  // Noble and garden — the two quarters the batch before this did not reach.
+  gate_lodge: (ctx) => tmplGateLodge(ctx),
+  orangery: (ctx) => tmplOrangery(ctx),
+  dovecote: (ctx) => tmplDovecote(ctx),
   warehouse: (ctx) => tmplStepBack(ctx),
   stable: (ctx) => tmplFarmstead(ctx),
   mill: (ctx) => rand01(ctx.hash, 523) < 0.3 ? tmplWindmill(ctx) : tmplFarmstead(ctx),

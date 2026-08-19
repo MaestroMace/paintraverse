@@ -486,6 +486,48 @@ const defaultObjectDefs: ObjectDefinition[] = [
   // A sail loft is where canvas is cut and repaired — a long low upper floor
   // with wide shutters and an outside stair, which is a silhouette nothing
   // else in the town has.
+  // NOBLE AND GARDEN, the two quarters the last batch did not reach.
+  //
+  // Noble's only true exclusive under three tiles was `coach_house`; its
+  // commonest building is `narrow_house`, shared with residential and the
+  // slum, so the quarter read 43-50% on two seeds. A gate lodge is what
+  // stands at the entrance to every walled private ground — small, formal,
+  // pedimented, and never anywhere else in a town.
+  {
+    id: 'gate_lodge',
+    name: 'Gate Lodge',
+    category: 'building',
+    tags: ['structure', 'noble', 'civic'],
+    color: '#B6AC98',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  // An orangery is the garden quarter's institution: a long low south-facing
+  // range that is mostly window, which is a silhouette no other building in
+  // the town has. Capped at one, like the wash house and the customs house.
+  {
+    id: 'orangery',
+    name: 'Orangery',
+    category: 'building',
+    tags: ['structure', 'garden', 'civic'],
+    color: '#C3CBB4',
+    footprint: { w: 3, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  // 1x1, and deliberately — a dovecote is a single square tower with a
+  // pyramid cap and a lantern on top, and there is no honest way to draw one
+  // across two tiles. The only other 1x1 structures are wall segments, so
+  // this is the one BUILDING that fits a leftover cell, which is exactly
+  // where a dovecote goes.
+  {
+    id: 'dovecote',
+    name: 'Dovecote',
+    category: 'building',
+    tags: ['structure', 'garden', 'functional'],
+    color: '#A9A692',
+    footprint: { w: 1, h: 1 },
+    styleSetSlots: ['wall', 'roof']
+  },
   {
     id: 'sail_loft',
     name: 'Sail Loft',

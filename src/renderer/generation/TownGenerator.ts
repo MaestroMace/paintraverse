@@ -137,6 +137,11 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     // Weighted low so the mansions still lead the quarter.
     { id: 'narrow_house', w: 1, h: 3, weight: 3 },
     { id: 'coach_house', w: 2, h: 2, weight: 3 },
+    // Noble's own 1x2. `coach_house` was its only exclusive under three tiles
+    // and its commonest building was the shared `narrow_house`, so the
+    // quarter read 43-50%. A gate lodge stands at the entrance to every
+    // walled private ground and nowhere else in a town.
+    { id: 'gate_lodge', w: 1, h: 2, weight: 5 },
   ],
   waterfront: [
     { id: 'building_small', w: 2, h: 2, weight: 4 },
@@ -200,6 +205,12 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     // generic housing and reads as nothing in particular. A potting shed is
     // small, distinctive, and exactly what a garden district is made of.
     { id: 'potting_shed', w: 1, h: 2, weight: 4 },
+    // The garden quarter's institution and its smallest building. An orangery
+    // is a long low range that is mostly window; a dovecote is one square
+    // tower with a pyramid cap, and at 1x1 it is the only BUILDING in the
+    // town that fits a leftover cell — which is where a dovecote goes.
+    { id: 'orangery', w: 3, h: 2, weight: 3 },
+    { id: 'dovecote', w: 1, h: 1, weight: 4 },
   ],
   harbor: [
     { id: 'warehouse', w: 4, h: 3, weight: 8 },
@@ -376,6 +387,21 @@ const MAX_PER_DISTRICT: Record<string, number> = {
   guardhouse: 6,
   sail_loft: 10,
   cookshop: 9,
+  // A private ground has one or two entrances, not a terrace of lodges.
+  gate_lodge: 4,
+  // An institution, like the wash house and the customs house.
+  orangery: 1,
+  // AND THE SMALLEST FOOTPRINT IN THE TOWN NEEDS THE TIGHTEST CAP.
+  //
+  // A type's real odds are its weight TIMES how often its shape fits, and a
+  // 1x1 fits every leftover cell on the map — so the first run measured
+  // FIFTY-FOUR dovecotes in a 63-building garden quarter, 86% of it, reading
+  // 97% "distinctive" for the trouble. Twelfth instance of the pattern
+  // overshooting into monoculture on its first run, and the most extreme,
+  // because the shape that buys presence buys it hardest at one tile.
+  //
+  // A garden has one dovecote, maybe two. Three is already generous.
+  dovecote: 3,
 }
 // These read 1/10/4/4/3/3 first and cost three points of built coverage and
 // five of achievable frontage, because they were written as SCARCITY when the
@@ -555,6 +581,17 @@ const VIGNETTES: Vignette[] = [
   // door do.
   { id: 'guardpost', front: true, districts: ['fortress'],
     parts: ['heraldic_banner', 'barrel|crate|water_trough'] },
+  // GARDEN HAD THE SAME GAP AS TEMPLE, one quarter over, and the sweep is
+  // what found it rather than a second measurement. Its three entries —
+  // hayrick, kitchengarden, apiary — are all `home: true`, and a garden
+  // quarter is mansions, potting sheds, an orangery and a dovecote, of which
+  // exactly one type is in DWELLING_TYPES. So the quarter with the most
+  // planting vocabulary in the town could reach almost none of it.
+  //
+  // A bug in a gate is a bug in a PATTERN: when you fix a district gate,
+  // check every quarter whose BUILDINGS are mostly not dwellings.
+  { id: 'nursery', front: null, districts: ['garden'],
+    parts: ['planter_box|flower_bed', 'handcart|hedge|bush'] },
 ]
 
 const DISTRICT_PROPS: Record<DistrictType, string[]> = {
@@ -1518,6 +1555,34 @@ export class TownGenerator implements IMapGenerator {
     w: number, h: number, complexity: number, rng: () => number,
     noise: SimplexNoise, waterMap: boolean[][]
   ): District[] {
+    // MORE CENTRES WAS TRIED AND MEASURED AND IT IS NOT WORTH IT. Do not
+    // re-run this experiment; the table is here so you do not have to.
+    //
+    // The case for raising it is good on its face. `market` is forced, a
+    // water quarter is earned by the site and `residential` is forced, so
+    // only three or four slots are ever left for the eight specialised types
+    // — which is why most of the small-exclusive-type vocabulary is content
+    // most towns never show. More centres also cuts the largest cell, and one
+    // seed came out 47% slum, which reads as a slum with a market in it.
+    //
+    // Measured across twelve seeds, changing ONLY this constant:
+    //
+    //     base    street width   coverage   frontage   quarters   noble
+    //     4 + c*5     12m           48         75        5.8      4/12
+    //     5 + c*5     15m           48         73        6.3      7/12
+    //     6 + c*5     15m           45         74        7.1     10/12
+    //
+    // DESIGN.md calls street width the single number separating a town from a
+    // field, and CLAUDE.md records the identical 12 -> 15 regression twice
+    // already as the one to take seriously. Sparse specialised quarters put
+    // their facades further apart, and more of them means more of that. Three
+    // metres of street is not worth two extra quarters.
+    //
+    // The reach problem is real and the answer is not here — it is that
+    // `residential` used to hold 10 of 35 pool points on EVERY draw. Forcing
+    // it once and halving its repeat weight (below) took artisan from 3/12 to
+    // 9/12 and cemetery from 4/12 to 7/12 at this same district count, which
+    // is the same win for none of the cost.
     const numDistricts = Math.max(3, Math.floor(4 + complexity * 5))
     // THE ORDINARY FABRIC HAS TO BE THE COMMON CASE.
     //
@@ -1536,8 +1601,16 @@ export class TownGenerator implements IMapGenerator {
       { type: 'temple', weight: 4 },
       { type: 'slum', weight: 3 },
       { type: 'fortress', weight: 2 },
-      { type: 'garden', weight: 2 },
-      { type: 'cemetery', weight: 2 },
+      // GARDEN APPEARED IN ZERO OF SIX SEEDS and cemetery in one, measured
+      // with quarters.mjs — which is the tool written precisely because
+      // nothing else asks the prior question of WHICH quarters a town gets.
+      // A quarter that is never generated is a ghost at district scale: the
+      // potting shed, the orangery and the dovecote below would all have
+      // been content nobody could ever see, and every static check would
+      // have passed. Nudged rather than reweighted: the pool is 33 points
+      // and this moves garden from 6% of a slot to 9%.
+      { type: 'garden', weight: 3 },
+      { type: 'cemetery', weight: 3 },
     ]
 
     // Use Poisson disk for spread-out district centers
@@ -1561,6 +1634,20 @@ export class TownGenerator implements IMapGenerator {
       let type: DistrictType
       if (i === 0) {
         type = 'market'
+      } else if (i === 1) {
+        // A TOWN HAS HOUSES. Forced, exactly like the market, and for the
+        // same reason: the ordinary fabric is not a thing to leave to a dice
+        // roll. `residential` was reaching 12 of 12 towns only because it was
+        // the one type allowed to repeat AND held 10 of 35 pool points on
+        // every draw; halving its repeat weight to make room for the eight
+        // specialised quarters immediately dropped it to 10 of 12, which is
+        // two towns with nowhere to live — the exact defect this file records
+        // costing eighteen points of district character once already.
+        //
+        // Second-most-central centre, which is also where it belongs: the
+        // ordinary fabric wraps the market square and the specialised
+        // quarters sit outside it.
+        type = 'residential'
       } else {
         // A WATER QUARTER IS EARNED BY THE SITE, AND THERE IS ONLY ONE.
         //
@@ -1588,9 +1675,29 @@ export class TownGenerator implements IMapGenerator {
         } else if (wet >= 8 && !hasWaterQuarter) {
           type = 'waterfront'
         } else {
-          const avail = DISTRICT_POOL.filter(
-            (t) => !usedTypes.has(t.type) || t.type === 'residential'
-          )
+          // A SECOND RESIDENTIAL QUARTER IS LIKELY; A THIRD SHOULD NOT BE AS
+          // LIKELY AS THE FIRST.
+          //
+          // `residential` is the one type deliberately allowed to repeat, and
+          // it is never removed from the pool — so it held 10 of 35 points on
+          // EVERY draw, 29% of every free slot, and with only three or four
+          // free slots in a town that crowds out the other eight types.
+          // Measured over twelve seeds before this: residential 12/12 and
+          // market 12/12 (both forced or repeatable) against noble 2/12,
+          // fortress 2/12 and artisan 3/12 — so most towns have four or five
+          // quarter TYPES, and the whole small-exclusive-type vocabulary
+          // built for the rare ones is content most towns never show.
+          //
+          // Halved on repeat rather than removed. A town IS mostly houses and
+          // several residential quarters is correct; what is not correct is
+          // the fourth one being as likely as the first. This is a
+          // diminishing rule, not a taste value — the number to argue about
+          // is how fast it diminishes, and the shape is not in question.
+          const avail = DISTRICT_POOL
+            .filter((t) => !usedTypes.has(t.type) || t.type === 'residential')
+            .map((t) => (t.type === 'residential' && usedTypes.has('residential')
+              ? { type: t.type, weight: Math.max(1, Math.round(t.weight * 0.4)) }
+              : t))
           const total = avail.reduce((s, t) => s + t.weight, 0)
           let roll = rng() * total
           type = avail[avail.length - 1].type
@@ -5724,6 +5831,9 @@ export class TownGenerator implements IMapGenerator {
       case 'gatehouse': return ['heraldic_banner', 'wall_lantern', 'forge_brazier']
       case 'shambles': return ['hanging_sign', 'crate', ...(rng() > 0.5 ? ['barrel'] : ['sack_pile'])]
       case 'sail_loft': return ['rope_coil', 'crate_stack', ...(rng() > 0.5 ? ['barrel'] : ['fish_rack'])]
+      case 'gate_lodge': return ['wall_lantern', 'potted_plant', ...(rng() > 0.5 ? ['bench'] : ['planter_box'])]
+      case 'orangery': return ['potted_plant', 'planter_box', ...(rng() > 0.5 ? ['flower_bed'] : ['hedge'])]
+      case 'dovecote': return ['hedge', ...(rng() > 0.5 ? ['flower_bed'] : ['bush'])]
       case 'cookshop': return ['hanging_sign', 'woodpile', ...(rng() > 0.5 ? ['barrel'] : ['cafe_table'])]
       case 'weigh_house': return ['crate_stack', 'sack_pile', ...(rng() > 0.5 ? ['cart'] : ['bench'])]
       case 'kiln': return ['woodpile', 'rubble_pile', ...(rng() > 0.5 ? ['handcart'] : [])]
@@ -5892,8 +6002,24 @@ export class TownGenerator implements IMapGenerator {
         const buildingType = sPick.id
         const bfp = { w: sPick.w, h: sPick.h }
 
+        // THE FIFTH PATH THAT HAD TO ENFORCE THE CAP, and the first one
+        // where a single pick becomes MANY buildings.
+        //
+        // `pickTypeForSpace` counts one instance against MAX_PER_DISTRICT and
+        // returns; this loop then stamps that same type along the whole side.
+        // A 2x2 gets three or four of them and the leak went unnoticed; a 1x1
+        // gets as many as the side is long, and the dovecote came out at 54
+        // of a 63-building garden quarter against a cap of THREE — 86%, and
+        // the quarter scored 97% "distinctive" for it, which is the
+        // self-gaming reading this table exists to prevent.
+        //
+        // "A gate enforced in four of five paths is not enforced", and the
+        // way to know is to re-measure rather than to reason about which
+        // paths you covered. Every stamp counts now, and the run stops at the
+        // cap instead of running to the end of the side.
         let bx = side.bx
         while (bx + bfp.w <= side.bx + side.bw) {
+          if (this.atDistrictCap(d.id, buildingType)) break
           if (this.areaFree(occupied, bx, side.by, bfp.w, bfp.h, w, h)) {
             const elev = Math.min(Math.round((heightMap[side.by]?.[bx] ?? 0) * 2) / 2, 2)
             buildings.push({
@@ -5910,6 +6036,8 @@ export class TownGenerator implements IMapGenerator {
               }
             })
             this.markArea(occupied, bx, side.by, bfp.w, bfp.h, w, h)
+            // The pick already counted the first one.
+            if (bx !== side.bx) this.countDistrictType(d.id, buildingType)
           }
           bx += bfp.w
         }
@@ -6708,6 +6836,8 @@ export class TownGenerator implements IMapGenerator {
       smokehouse: { w: 1, h: 2 }, boathouse: { w: 2, h: 2 },
       chandlery: { w: 1, h: 2 }, customs_house: { w: 2, h: 2 },
       sail_loft: { w: 1, h: 2 }, cookshop: { w: 1, h: 2 },
+      gate_lodge: { w: 1, h: 2 }, orangery: { w: 3, h: 2 },
+      dovecote: { w: 1, h: 1 },
       guardhouse: { w: 1, h: 2 }, armory: { w: 2, h: 2 },
       shambles: { w: 1, h: 2 },
       // The street-clutter batch. Every multi-tile one MUST be here or it

@@ -95,6 +95,36 @@ function patchHeightFog(material: THREE.Material): void {
 const NO_JITTER_MAP = new Set<string>([
   'archway', 'town_gate', 'gatehouse', 'staircase', 'aqueduct',
 ])
+/**
+ * Types whose whole function is FIRE, so they always smoke.
+ *
+ * Every other chimney rolls a ~40% die. These do not: a cold kiln is a brick
+ * cone, a smokehouse that is not smoking is a shed with a vent on it, and a
+ * cookshop with no fire is a room. The cookshop's stack is the tallest thing
+ * on the building and exists for exactly this.
+ *
+ * A Set rather than two `!==` comparisons because that is what it was, and a
+ * list of literal ids is a pattern that will need sweeping the next time a
+ * type is added — this repo has paid for that lesson on the shop-sign gate,
+ * the stoop bench and the trade-building test.
+ */
+const ALWAYS_SMOKING = new Set<string>([
+  'smokehouse', 'kiln', 'cookshop', 'bakery',
+])
+/**
+ * How many of the 16 particle chimneys the always-smoking types may take.
+ *
+ * The budget is a hard 16 and whatever fills it first wins, which was fine
+ * while the priority list was two rare types. It is four now — roughly 8
+ * smokehouses, 9 cookshops, 4 bakeries and 2 kilns in a town, which is 23
+ * against 16, and without a reservation NO ORDINARY HOUSE WOULD EVER SMOKE
+ * again. That is the failure mode the comment beside the collector already
+ * warns about: silent, because the feature simply stops appearing.
+ *
+ * A cap expressed against a quantity you just changed is the bug this repo
+ * keeps recording; this one is expressed against the budget it shares.
+ */
+const SMOKE_PRIORITY_SHARE = 10
 function rand01(hash: number, salt: number): number {
   const n = (hash * 2654435761 + salt * 1597334677) >>> 0
   return n / 0xffffffff
@@ -858,31 +888,46 @@ export class ThreeRenderer {
       const topById = new Map(result.tops.map(t => [t.id, t]))
       // A BUILDING WHOSE PURPOSE IS FIRE ALWAYS SMOKES, AND GOES FIRST.
       //
-      // A smokehouse that is not smoking is a shed with a vent on it, and a
-      // cold kiln is a brick cone. These are the only two types in town whose
-      // whole function is combustion, so they are not subject to the ~40%
-      // dice every other chimney rolls.
+      // A smokehouse that is not smoking is a shed with a vent on it, a cold
+      // kiln is a brick cone, a cookshop with no fire is a room, and a forge
+      // that is out is a barn. These are the types whose whole FUNCTION is
+      // combustion, so they are not subject to the ~40% dice every other
+      // chimney rolls.
+      //
+      // Swept when the cookshop was added, rather than left as the pair it
+      // started as: a list of literal ids IS a pattern, and this repo has
+      // paid three times over for the version of that lesson where the list
+      // is never revisited.
       //
       // Collected BEFORE the ordinary chimneys because the particle budget is
       // a hard 16 and whatever fills it first wins — a priority that is
       // implicit in loop order is worth stating, since the failure mode is
       // silent (the feature simply never appears in a dense town).
       for (const obj of structureLayer.objects) {
-        if (obj.definitionId !== 'smokehouse' && obj.definitionId !== 'kiln') continue
+        if (chimneyPositions.length >= SMOKE_PRIORITY_SHARE) break
+        if (!ALWAYS_SMOKING.has(obj.definitionId)) continue
         const top = topById.get(obj.id)
         const def = defMap.get(obj.definitionId)
         if (!top || !def) continue
-        const fp = { w: def.footprint.w, h: def.footprint.h }
-        // Out of the ridge louvre / the cone's own vent, which is where the
-        // draught actually leaves the building — both templates put that at
-        // the apex, so the roof rise is the height and there is no second
-        // copy of the massing arithmetic here.
-        chimneyPositions.push(new THREE.Vector3(
-          (obj.x + fp.w / 2) * TILE, top.mainWallTopY + top.mainRoofH * 1.05,
-          (obj.y + fp.h / 2) * TILE))
+        // OUT OF THE FLUE THE TEMPLATE DECLARED, and only from the footprint
+        // centre when it declared none. The centre-plus-apex rule is right for
+        // a smokehouse's ridge louvre and a kiln's cone and wrong for a
+        // cookshop, whose entire silhouette is a stack up one FLANK — smoke
+        // rising a metre and a half beside it reads worse than no smoke.
+        // `BuildingTop.vent*` is already in world units; the fallback is in
+        // TILES and has to be converted, which is the trap this same block
+        // fell into once already.
+        if (top.ventX !== undefined && top.ventY !== undefined && top.ventZ !== undefined) {
+          chimneyPositions.push(new THREE.Vector3(top.ventX, top.ventY + 0.1, top.ventZ))
+        } else {
+          const fp = { w: def.footprint.w, h: def.footprint.h }
+          chimneyPositions.push(new THREE.Vector3(
+            (obj.x + fp.w / 2) * TILE, top.mainWallTopY + top.mainRoofH * 1.05,
+            (obj.y + fp.h / 2) * TILE))
+        }
       }
       for (const obj of structureLayer.objects) {
-        if (obj.definitionId === 'smokehouse' || obj.definitionId === 'kiln') continue
+        if (ALWAYS_SMOKING.has(obj.definitionId)) continue
         const hash = stableHash(obj)
         if (hash % 5 >= 2) continue
         const def = defMap.get(obj.definitionId)

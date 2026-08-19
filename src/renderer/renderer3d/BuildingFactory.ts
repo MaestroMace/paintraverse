@@ -61,6 +61,7 @@ const FOOTPRINTS: Record<string, { w: number; h: number }> = {
   smokehouse: { w: 1, h: 2 }, boathouse: { w: 2, h: 2 },
   chandlery: { w: 1, h: 2 }, customs_house: { w: 2, h: 2 },
   sail_loft: { w: 1, h: 2 }, cookshop: { w: 1, h: 2 },
+  gate_lodge: { w: 1, h: 2 }, orangery: { w: 3, h: 2 }, dovecote: { w: 1, h: 1 },
   guardhouse: { w: 1, h: 2 }, armory: { w: 2, h: 2 },
   shambles: { w: 1, h: 2 },
   corner_building: { w: 2, h: 2 }, archway: { w: 3, h: 1 },
@@ -188,6 +189,26 @@ export interface BuildingTop {
   spanHalfD: number
   /** Yaw applied to the whole building, radians. */
   rotationY: number
+
+  /**
+   * Where smoke leaves this building, in WORLD units, when a volume declared
+   * itself a vent. Absent when none did.
+   *
+   * ThreeRenderer used to vent every always-smoking type from the footprint
+   * CENTRE at the roof apex, which is right for a smokehouse's ridge louvre
+   * and a kiln's cone and wrong for anything whose flue is not central — the
+   * cookshop's whole silhouette is a stack up one FLANK, 1.55m off centre,
+   * and smoke rising beside it rather than out of it is worse than no smoke.
+   *
+   * Reported here for the same reason `BuildingTop` reports heights and
+   * `frontWallZ` reports the wall: the alternative is a second copy of the
+   * template's arithmetic in the renderer, and every copy of massing
+   * arithmetic in this repo has drifted. When a whole category of work keeps
+   * not happening, look for the handle it would need.
+   */
+  ventX?: number
+  ventY?: number
+  ventZ?: number
 
   // === FEATURES FOR tools/odd.mjs ===
   // Cheap aggregates recorded where the massing is in scope, so the outlier
@@ -1327,6 +1348,20 @@ export function buildBuildingMeshes(
       })
     }
 
+    // WHERE THE SMOKE LEAVES, if a template declared a flue. Computed in the
+    // same frame as everything else on BuildingTop and for the same reason:
+    // ThreeRenderer used to vent from the footprint centre, which is a second
+    // copy of the massing's arithmetic and wrong for any building whose flue
+    // is not central. See Volume.vent.
+    let ventX: number | undefined, ventY: number | undefined, ventZ: number | undefined
+    for (const v of massing.volumes) {
+      if (!v.vent) continue
+      ventX = wx + (v.offsetX * Math.cos(rotationY) - v.offsetZ * Math.sin(rotationY))
+      ventZ = wz + (v.offsetX * Math.sin(rotationY) + v.offsetZ * Math.cos(rotationY))
+      ventY = wy + v.bottomY + v.height + v.roofHeight
+      break
+    }
+
     let volTexArea = 0, volArea = 0, volTex = 0
     const volStyles: string[] = []
     for (const v of massing.volumes) {
@@ -1358,6 +1393,7 @@ export function buildBuildingMeshes(
       apexY: wy + apexLocalY,
       mainWallTopY: wy + mainLocalTopY,
       mainRoofH,
+      ventX, ventY, ventZ,
     })
     // Does massing already include a chimney volume? (cottageSmall does.)
     const massingHasChimney = massing.volumes.some(v => v.role === 'chimneyVol')

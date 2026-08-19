@@ -213,7 +213,23 @@ const CHECKS = [
     // measurements came out flattering. Noon is still one flag away.
     cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/eyeball.mjs', '31337', '--views=6', '--time=18.5']],
     extract: (o) => ({
-      roofToWallMed: num(o, /p10 \d+%\s+med (\d+)%/),
+      // ANCHORED ON THE LABEL, because eyeball prints TWO `p10 .. med ..`
+      // lines and an unanchored regex takes the first.
+      //
+      // This row was called `roofToWallMed` and was reading the SILHOUETTE
+      // block — everything above the main body, its roof PLUS any tower or
+      // spire promoted onto it. eyeball's own comment three lines from that
+      // print says exactly that ("it is not the roof, and capping roof rise
+      // moved it by one point while I was expecting it to move by fifty"),
+      // and the board carried the wrong quantity under the roof's name
+      // anyway. It cost an attribution: a roof-pitch fix that halved the rise
+      // on five new templates moved this row by ZERO, which read as "the fix
+      // did nothing" rather than "the board is looking somewhere else".
+      //
+      // A metric named after one quantity and extracting another is the
+      // numerator/denominator lesson wearing a label. Both are tracked now.
+      roofToWallMed: num(o, /OWN ROOF[\s\S]*?med (\d+)%/),
+      stackedMed: num(o, /EVERYTHING ABOVE[\s\S]*?med (\d+)%/),
       roofOver80: num(o, /over 80% \(roof nearly as tall as the house\): \d+ \((\d+)%\)/),
       dwellingsOver4: num(o, /over 4 storeys \(11\.6m\): \d+ \((\d+)%\)/),
       // ABSOLUTE tone, x1000 so the board stays integer. The one measure here
@@ -223,7 +239,12 @@ const CHECKS = [
       wallLuma: pct1000(o, /^\s+wall\s+\d+\s+[\d.]+\s+([\d.]+)/m),
       roofBlackPct: num(o, /^\s+roof\s+\d+\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+(\d+)%/m),
     }),
-    dir: { roofToWallMed: -1, roofOver80: -1, dwellingsOver4: -1, wallLuma: 1, roofBlackPct: -1 },
+    // stackedMed is `dir: 0` — tracked, never failed on. A tower promoted
+    // onto a dwelling is a DESIGN decision (28% of generic buildings get a
+    // dramatic template) and whether more of them is better is an argument,
+    // not a fact. roofBlackPct is 0 for the reason CLAUDE.md records: pillar
+    // 1 asks for dark silhouettes, so it is a composition descriptor.
+    dir: { roofToWallMed: -1, stackedMed: 0, roofOver80: -1, dwellingsOver4: -1, wallLuma: 1, roofBlackPct: -1 },
     // VERIFIED. Two runs on the current build are byte-identical — same sample
     // counts (491 sky / 710 roof / 6631 wall / 3424 ground) and same
     // percentiles — so the 157/187/222/229 wallLuma swing was the UUID bug
@@ -231,7 +252,7 @@ const CHECKS = [
     // A couple of points of slack is kept because these come off a rasteriser
     // and a driver change could move a boundary pixel; the metric itself has
     // no randomness left in it.
-    band: { roofToWallMed: 2, roofOver80: 2, dwellingsOver4: 2, wallLuma: 4, roofBlackPct: 2 },
+    band: { roofToWallMed: 2, stackedMed: 4, roofOver80: 2, dwellingsOver4: 2, wallLuma: 4, roofBlackPct: 2 },
   },
   {
     name: 'facade',
