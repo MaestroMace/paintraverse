@@ -4,6 +4,11 @@ import { DWELLING_TYPES } from '../core/types'
 import type { IMapGenerator } from './GeneratorRegistry'
 import { createRNG, SimplexNoise, poissonDiskSampling, nearestPoint, perturbedDistance } from './noise'
 import { isCirculation } from '../core/terrain'
+// The raw-height -> world-metres factor. Imported rather than restated so the
+// terrain relaxation below can be expressed in the metres a person's step is
+// measured in; a second copy of 1.8 here is the drift this repo keeps paying
+// for, and the generator is the one place that had never needed it.
+import { TERRAIN_WORLD_SCALE } from '../renderer3d/TerrainMesh'
 
 // === District System ===
 
@@ -1472,10 +1477,28 @@ export class TownGenerator implements IMapGenerator {
   private relaxTerrainSteps(
     w: number, h: number, heightMap: number[][], waterMap: boolean[][],
   ): void {
-    // 0.36 raw is 0.65m over a 3m tile — a 22% grade, steep for a street and
-    // still short of a stair. Natural terrain here spans ~5m over 48 tiles,
-    // so this only ever bites on the carve's own leftovers.
-    const MAX_STEP = 0.36
+    // DERIVED FROM THE STEP A PERSON CAN TAKE, not chosen as a raw number.
+    //
+    // This was 0.36 raw under a comment reading "0.65m over a 3m tile — steep
+    // for a street and still short of a stair". Both halves are true and the
+    // number is wrong, because `TERRAIN_WORLD_SCALE` is 1.8 and
+    // 0.36 x 1.8 = 0.648m — ABOVE the 0.60m that `traverse.mjs` calls a
+    // clamber. So the relaxation was permitting, by construction, exactly the
+    // steps the reachability metric counts as impassable, and one seed in
+    // three had a 302-tile pocket cut off behind one of them: 66% reachable
+    // against a mask that says 91%, with the whole 25% gap attributed to
+    // TERRAIN by the tool's own control pass.
+    //
+    // Two numbers that describe the same physical thing have to be derived
+    // from one of them. 0.55m leaves margin under the 0.60m limit for the
+    // corner-height interpolation, which can put the sampled step slightly
+    // above the tile-centre difference this pass relaxes.
+    //
+    // Kept as a WORLD distance divided by the scale rather than as a new raw
+    // constant, so it cannot drift the next time either number moves — the
+    // scale-coupling lesson this file records six times over.
+    const MAX_STEP_WORLD = 0.55
+    const MAX_STEP = MAX_STEP_WORLD / TERRAIN_WORLD_SCALE
     // Pinned: the water itself, and the bank tile whose height the carve and
     // the quay deliberately set. Relaxing those would flatten the very edge
     // this town spent an arc building.
