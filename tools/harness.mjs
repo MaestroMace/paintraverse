@@ -308,6 +308,120 @@ const CHECKS = [
     // regression detector switched off.
     band: { holes: 2, litOpenings: 3 },
   },
+  // ==== THE INSTRUMENTS NOBODY WAS RUNNING ==============================
+  //
+  // Nineteen tools were on this board and TWENTY-NINE were not. Most of the
+  // twenty-nine are photographers — asset, bisect, walkshots, rivershot — and
+  // belong off it. These eight are MEASUREMENTS with numbers that can move,
+  // and this repo's most expensive single lesson is "a metric you stop
+  // running can regress in silence": district character lost eighteen points
+  // that way and it took bisecting HEAD's tool against every commit to find.
+  //
+  // river earned its place immediately. Unwatched, it reported 1.7 bridges a
+  // town "stopping in open water" — and it was the TOOL, twice over (see its
+  // header). A false alarm nobody runs is a session someone will spend
+  // chasing a defect that does not exist.
+  {
+    name: 'river',
+    why: 'is the river a river, and do its crossings reach the far bank',
+    electron: true,
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/river.mjs']],
+    extract: (o) => ({
+      bankRelief: num(o, /BANK RELIEF\s+median ([\d.]+)m/),
+      dangling: num(o, /actually reach the far bank, ([\d.]+) stop in open water/),
+      descent: num(o, /DESCENT\s+(\d+)% of downstream steps/),
+    }),
+    // A deck that stops in the middle of a river is unambiguous, so it gates.
+    gates: { dangling: (v) => v === 0 },
+    // bankRelief is a DESIGN value, not a defect: too little and the water is
+    // paint on the floor, too much and it is the grand canyon a phone
+    // photographed. Tracked, never failed on.
+    dir: { bankRelief: 0, dangling: -1, descent: 1 },
+    band: { bankRelief: 0.2, dangling: 0, descent: 6 },
+  },
+  {
+    name: 'site',
+    why: 'does the town acknowledge its own water, and is the wall an edge',
+    electron: true,
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/site.mjs']],
+    extract: (o) => ({
+      quay: num(o, /QUAY\s+(\d+)%/),
+      wallSealed: num(o, /(\d+)% of the town's boundary ring is sealed/),
+    }),
+    dir: { quay: 0, wallSealed: 1 },
+    band: { quay: 6, wallSealed: 6 },
+  },
+  {
+    name: 'vistas',
+    why: 'what you SEE down a street — the Imagineering weenie, made countable',
+    electron: true,
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/vistas.mjs']],
+    extract: (o) => ({ landmarkEnds: num(o, /terminate on a LANDMARK\s+\(the weenie\)\s+(\d+)%/) }),
+    dir: { landmarkEnds: 1 }, band: { landmarkEnds: 4 },
+  },
+  {
+    name: 'features',
+    why: 'is the dressing vocabulary reaching the town — ghosts and wallpaper',
+    electron: true,
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/features.mjs']],
+    extract: (o) => {
+      const g = o.match(/GHOSTS[^\n]*\n(?:[^\n]*\n)*?\s{2}([a-zA-Z, ]+)\n/)
+      const w = o.match(/WALLPAPER[^\n]*\n\s{2}([^\n]+)/)
+      return {
+        // A GHOST IS NOT AUTOMATICALLY A BUG and the tool says so in its own
+        // output: a feature correctly confined to a rare type looks identical
+        // to one gated into nonexistence. Tracked at dir 0 for that reason —
+        // what matters is the number CHANGING, which means a gate moved.
+        ghosts: g ? g[1].split(',').filter((x) => x.trim()).length : null,
+        wallpaper: w ? (/^none\./.test(w[1]) ? 0 : w[1].split(',').filter((x) => x.trim()).length) : null,
+      }
+    },
+    dir: { ghosts: 0, wallpaper: -1 },
+    band: { ghosts: 1, wallpaper: 1 },
+  },
+  {
+    name: 'tenancy',
+    why: 'does anything in this town belong to anything else',
+    electron: true,
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/tenancy.mjs']],
+    extract: (o) => ({
+      explained: num(o, /^EXPLAINED\s+(\d+)%/m),
+      orphaned: num(o, /^ORPHANED\s+(\d+)%/m),
+    }),
+    dir: { explained: 1, orphaned: -1 },
+    band: { explained: 3, orphaned: 2 },
+  },
+  {
+    name: 'streets',
+    why: 'the road network on its own terms — corridor width, the merged lake',
+    electron: true,
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/streets.mjs']],
+    extract: (o) => ({ overWide: num(o, /OVER-WIDE: (\d+)% of all road tiles/) }),
+    dir: { overWide: -1 }, band: { overWide: 3 },
+  },
+  {
+    name: 'budget',
+    why: 'what this build COSTS on the machine that cares — a phone',
+    electron: true,
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/budget.mjs']],
+    // WATCH THE MB, NOT THE COUNT. `info.memory.textures` counts texture
+    // OBJECTS, so authoring a face coarser changes bytes and not one object —
+    // the tool's own header records finishing all four walls taking facade
+    // surface 78.9MB -> 150MB with no change in draw calls at all.
+    extract: (o) => ({ textureMB: num(o, /([\d.]+) MB of surface/) }),
+    dir: { textureMB: -1 }, band: { textureMB: 6 },
+  },
+  {
+    name: 'propscale',
+    why: 'how big is each prop in metres against what that thing really is',
+    electron: true,
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/propscale.mjs']],
+    // Read its caveat about its own targets before acting on a rise: three of
+    // them were wrong on the first run, every one written from the ID rather
+    // than from the object, and the geometry was right each time.
+    extract: (o) => ({ outOfRange: num(o, /(\d+) of \d+ graded prop types are out of range/) }),
+    dir: { outOfRange: -1 }, band: { outOfRange: 2 },
+  },
   {
     name: 'roofcheck',
     why: 'volumes ending flat and open against the sky',

@@ -265,7 +265,26 @@ for (const seed of seeds) {
     const spanCheck = bridges.map((o) => {
       const d = defsById.find?.((x) => x.id === o.definitionId)
       const fp = o.footprint ?? d?.footprint ?? { w: 1, h: 1 }
-      const alongX = fp.w >= fp.h
+      // A 1x1 FOOTBRIDGE HAS NO AXIS, and `fp.w >= fp.h` silently answers X.
+      // `ensureRiverCrossings` lays runs of 1x1 decks along a water path, and
+      // the note above records merging them into one mask so a chain is not
+      // graded tile by tile — but the AXIS was still guessed from a square
+      // footprint, so every north-south chain was walked east and west,
+      // immediately hit water at both ends, and read as three dangling
+      // bridges. Three of the five "stop in open water" on the default seeds
+      // were one perfectly good footbridge chain counted three times.
+      //
+      // Take the axis from the DECK instead: whichever direction carries more
+      // contiguous deck is the direction the crossing runs.
+      let alongX = fp.w >= fp.h
+      if (fp.w === fp.h) {
+        const runIn = (ux, uy) => {
+          let s = 1
+          while (s < 24 && deck[o.y + uy * s]?.[o.x + ux * s]) s++
+          return s - 1
+        }
+        alongX = (runIn(1, 0) + runIn(-1, 0)) >= (runIn(0, 1) + runIn(0, -1))
+      }
       const len = alongX ? fp.w : fp.h
       // Walk the deck's centre line out past each end and look for dry land.
       const mx = alongX ? o.x : o.x + Math.floor(fp.w / 2)
@@ -278,10 +297,19 @@ for (const seed of seeds) {
       // "lands on the bank" means.
       // Follow the DECK outward from each end — through neighbouring bridge
       // tiles — until it stops, then ask what is there.
+      // A DECK THAT RUNS OFF THE MAP HAS LANDED. Two 3x2 bridges at x=45 on
+      // a 48-wide map read as dangling because the walk steps one tile past
+      // the deck, falls off the edge, and `landAt` says "not land" — which is
+      // true and is not the question. The far side of a map-edge crossing is
+      // simply not modelled; calling it a plank into open water is the tool
+      // inventing a defect. Out of bounds counts as landed, and the count is
+      // reported separately below so it cannot hide anything.
       const reach = (sx, sy, ux, uy) => {
         let s = 0
         while (s < 24 && inB(sx + ux * s, sy + uy * s) && deck[sy + uy * s][sx + ux * s]) s++
-        return landAt(sx + ux * s, sy + uy * s)
+        const ex = sx + ux * s, ey = sy + uy * s
+        if (!inB(ex, ey)) return true
+        return landAt(ex, ey)
       }
       const beforeOK = reach(mx - dx, my - dy, -dx, -dy)
       const afterOK = reach(mx + dx * len, my + dy * len, dx, dy)
@@ -289,6 +317,9 @@ for (const seed of seeds) {
       for (let i = 0; i < len; i++) if (wet(mx + dx * i, my + dy * i)) coversWater = true
       return { spans: beforeOK && afterOK && coversWater, coversWater, beforeOK, afterOK }
     })
+    const spanDbg = bridges.map((o, i) => ({
+      id: o.definitionId, x: o.x, y: o.y, fp: o.footprint, ...spanCheck[i],
+    }))
     const spanning = spanCheck.filter((b) => b.spans).length
     const dangling = spanCheck.filter((b) => b.coversWater && !b.spans).length
     const onLand = spanCheck.filter((b) => !b.coversWater).length
@@ -342,7 +373,7 @@ for (const seed of seeds) {
       widthMouth: med(lastQ.map((s) => s.width)),
       widthMed: med(stations.map((s) => s.width)),
       startsAtEdge, endsAtEdge,
-      bridges: bridges.length, spanning, dangling, onLand,
+      bridges: bridges.length, spanning, dangling, onLand, spanDbg,
     }
   })
   if (!r) { console.log(`seed ${seed}: no terrain`); continue }
@@ -406,6 +437,13 @@ console.log(`  A river gathers as it goes. Equal numbers mean a canal.`)
 
 console.log(`\nCONTINUITY      ${f(avg('components'), 1)} separate bodies of water; main channel ` +
   `${f(avg('mainLen'), 0)} of ${f(avg('waterTiles'), 0)} tiles`)
+for (const r of rows) {
+  if (!r.spanDbg) continue
+  for (const d of r.spanDbg) {
+    if (d.spans) continue
+    console.log(`  NOT SPANNING: ${d.id} @(${d.x},${d.y}) fp=${JSON.stringify(d.fp)} before=${d.beforeOK} after=${d.afterOK} wet=${d.coversWater}`)
+  }
+}
 console.log(`CROSSINGS       ${f(avg('bridges'), 1)} bridges per town — ` +
   `${f(avg('spanning'), 1)} actually reach the far bank, ` +
   `${f(avg('dangling'), 1)} stop in open water, ${f(avg('onLand'), 1)} touch no water at all`)

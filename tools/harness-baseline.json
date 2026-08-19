@@ -13,40 +13,41 @@
   },
   "provenance": {
     "outsideBox": 0,
-    "doubled": 15,
-    "spireAtCap": 3,
-    "habitablePinned": 13
+    "doubled": 17,
+    "spireAtCap": 0,
+    "habitablePinned": 5
   },
   "humanscale": {
     "subHuman": 0
   },
   "roofcheck": {
-    "openTops": 6
+    "openTops": 22
   },
   "odd": {
-    "overZ3": 27,
-    "bareWall": 14
+    "overZ3": 26,
+    "bareWall": 8
   },
   "urbanform": {
-    "coverage": 45,
-    "partyWalls": 93,
+    "coverage": 48,
+    "partyWalls": 92,
     "streetWidth": 12,
-    "frontage": 71
+    "frontage": 75
   },
   "districts": {
-    "character": 49
+    "character": 75
   },
   "clash": {
-    "deepClash": 19,
-    "onAir": 16,
+    "deepClash": 25,
+    "onAir": 20,
     "buried": 0
   },
   "eyeball": {
-    "roofToWallMed": 67,
-    "roofOver80": 12,
-    "dwellingsOver4": 13,
-    "wallLuma": 61,
-    "roofBlackPct": 81
+    "roofToWallMed": 43,
+    "stackedMed": 79,
+    "roofOver80": 9,
+    "dwellingsOver4": 14,
+    "wallLuma": 89,
+    "roofBlackPct": 32
   },
   "facade": {
     "overOpening": 0,
@@ -54,22 +55,26 @@
     "awnBad": 0
   },
   "variety": {
-    "twinNear": 7,
-    "twinAny": 38
+    "twinNear": 14,
+    "twinAny": 40
   },
   "traverse": {
-    "reachPct": 85,
+    "reachPct": 78,
     "noPass": 0,
-    "clamber": 67,
-    "lowHead": 4
+    "clamber": 32,
+    "lowHead": 1
   },
   "growth": {
-    "coreEdge100": 264,
-    "corePct": 58
+    "coreEdge100": 220,
+    "corePct": 55
   },
   "particles": {
     "offTown": 0,
-    "smokeLow": 0,
-    "smokeSpread100": 68
+    "smokeLow": 1,
+    "smokeSpread100": 93
+  },
+  "holes": {
+    "holes": 6,
+    "litOpenings": 5
   }
 }
