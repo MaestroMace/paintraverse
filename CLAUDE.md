@@ -1261,10 +1261,10 @@ Run these before believing anything about where the project is.
 | enclosure (to a WALL) | streets.mjs | median 3m, 0% over 15m | clean |
 | corridor width | streets.mjs | 4% of road over-wide, was 58% | clean |
 | street width | urbanform.mjs | 12m facade to facade vs 4-10m | recovered |
-| built coverage | urbanform.mjs | 44% vs 50-70% (walls not counted as buildings) | under range, deliberately — see THE DISTRICT TRADE |
-| district character | districts.mjs | **86%** distinctive to their quarter (was 26%; the row-house split took 55 -> 86) | in range |
-| party walls | urbanform.mjs | 89% vs 60-80% | above range, deliberately |
-| frontage occupancy | urbanform.mjs | **73% of ACHIEVABLE** frontage vs 85-95% (raw 68%) | the price of the district trade |
+| built coverage | urbanform.mjs | 48% vs 50-70% (walls not counted as buildings) | just under range |
+| district character | districts.mjs | **82%** distinctive to their quarter (was 26%; the row-house split took 55 -> 86) | in range |
+| party walls | urbanform.mjs | 92% vs 60-80% | above range, deliberately |
+| frontage occupancy | urbanform.mjs | **75% of ACHIEVABLE** frontage vs 85-95% | the price of the district trade |
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
 | prop tenancy | tenancy.mjs | **44% of props explained by their owner** (42 -> 44 is the TOOL being corrected, not the town) | improving |
@@ -1281,7 +1281,7 @@ Run these before believing anything about where the project is.
 | waterfront dressing | (see dressWaterfront) | 10 maritime/natural types at the bank, was 2 | improving |
 | **360-degree read** | **allsides.mjs** | **flank/front 0.74 / 0.51 on two seeds, was 0.42 / 0.28** | **improving** |
 | **the district seam** | **seam.mjs** | **90% of quarter crossings marked, 3 unmarked in 8 towns** | **closed — was believed unbuilt** |
-| which quarters exist | quarters.mjs | one water quarter per town, residential in 8 of 8 | fixed |
+| which quarters exist | quarters.mjs | 5.8 a town; residential and market 12/12, artisan 9/12, cemetery 7, noble 4 | improving |
 
 **Every metric here is now in or near range, and the last outlier was mostly
 the denominator.** That standing instruction — measure what the unoccupied
@@ -3014,6 +3014,106 @@ this is a feature with a healthy mean that reaches none of some population.
 vignette census does not, because `vigOk` is one counter. Four groups added —
 `shrine`, `graveside`, `stoneyard`, `guardpost`. **Whenever content is gated on
 a list, census the members of the list that the gate never names.**
+
+### RESIDENTIAL HELD 10 OF 35 POOL POINTS ON EVERY DRAW
+
+The whole small-exclusive-type arc builds vocabulary for eleven quarters, and
+`quarters.mjs` — the tool that asks which quarters a town gets AT ALL — said
+most towns never show it:
+
+    over 12 seeds:  residential 12/12  market 12/12  slum 7  waterfront 7
+                    temple 6  harbor 5  garden 4  cemetery 4  artisan 3
+                    noble 2  fortress 2
+
+The frequencies do not track the weights at all — artisan is weight 6 and read
+3/12 while slum is weight 3 and read 7/12 — and the reason is that
+`residential` is the one type allowed to REPEAT and is never removed from
+`avail`. It holds 10 of 35 points on every single draw, 29% of every free
+slot, and a town only ever has three or four free slots after market and the
+site-earned water quarter. Forcing it once at the second-most-central centre
+(where the ordinary fabric belongs) and halving its repeat weight took
+**artisan 3 -> 9, cemetery 4 -> 7, noble 2 -> 4**, with coverage 44 -> 48 and
+achievable frontage 68 -> 75 as a side effect.
+
+**A repeatable entry in a weighted pool is not one entry, it is an entry on
+every draw.** Removing a used type is what makes the other weights mean what
+they say, and the one exception silently became the dominant term.
+
+### MORE DISTRICT CENTRES: TRIED, MEASURED, REJECTED — do not re-run it
+
+The obvious follow-on is more quarters. Changing only `numDistricts`, twelve
+seeds:
+
+| base | street width | coverage | frontage | quarters/town | noble |
+|---|---|---|---|---|---|
+| `4 + c*5` | **12m** | 48 | 75 | 5.8 | 4/12 |
+| `5 + c*5` | 15m | 48 | 73 | 6.3 | 7/12 |
+| `6 + c*5` | 15m | 45 | 74 | 7.1 | 10/12 |
+
+Ten of twelve towns with a noble quarter is a real gain and it costs the one
+number DESIGN.md calls decisive, for the third time in this file: sparse
+specialised quarters put their facades further apart, so more of them is more
+of that. The table is in the source beside the constant so the next session
+does not spend an hour rediscovering it.
+
+### A 1x1 FITS EVERYWHERE, AND I DIAGNOSED THE OVERSHOOT WRONG FIRST
+
+The dovecote came out at **54 of a 63-building garden quarter — 86%** — and
+scored the quarter 97% distinctive for it. Twelfth instance of the pattern
+overshooting into monoculture and the most extreme, because real odds are the
+weight times how often the shape FITS and one tile fits every leftover cell.
+
+The diagnosis is the lesson. Looking for the leak found a real one:
+`pickTypeForSpace` counts ONE instance against `MAX_PER_DISTRICT` and returns,
+and the courtyard-side placer then stamps that same type along the whole side
+in a `while` loop — so a 2x2 leaked three or four and a 1x1 leaked as many as
+the side was long. That is the **fifth** enforcement site, after the four
+CLAUDE.md already lists, and "a gate enforced in four of five paths is not
+enforced" still holds. Fixed, rebuilt, and the number was **byte-identical**.
+
+The actual cause was that the cap edit had never applied: its anchor string
+had been changed by an earlier edit in the same session, so `dovecote` was
+simply absent from the table. **Verify the edit landed** — the leak was real,
+the fix is kept, and it was not the cause of anything measured.
+
+### A METRIC NAMED AFTER ONE QUANTITY AND EXTRACTING ANOTHER
+
+The board's `roofToWallMed` was reading the SILHOUETTE block — everything
+stacked above the main body, its roof plus any tower or spire promoted onto it
+— because `eyeball.mjs` prints two `p10 .. med ..` lines and the harness regex
+was unanchored and took the first. eyeball's own comment three lines from that
+print says exactly this: *"it is not the roof, and capping roof rise moved it
+by one point while I was expecting it to move by fifty."* The board carried
+the wrong quantity under the roof's name anyway.
+
+It cost an attribution. Five new templates had their roof rise nearly halved
+and the row moved by ZERO, which reads as "the fix did nothing" rather than
+"the board is looking somewhere else". Both are extracted now, anchored on
+their labels, and `stackedMed` is `dir: 0` because a promoted tower is a
+design decision and not a defect.
+
+**And the other half of that zero is the population.** `eyeball` grades
+ORDINARY DWELLINGS, read from `DWELLING_TYPES` — and not one of the twelve
+district-exclusive types is in it, so a roof-pitch change on them is invisible
+to the metric by construction. What actually moved `roofToWallMed` 67 -> 84
+was confining `row_house` to two quarters, which changed WHICH dwellings the
+tool sees. The pitch fix was verified instead with
+`provenance.mjs --def=shambles`, which reports rise as a fraction of span and
+read 0.31-0.34 against the 0.52-0.64 it was asking for before.
+
+**A shambles, a chandlery and a cookshop are shop-HOUSES** — the trade below,
+the family above — so they arguably belong in `DWELLING_TYPES`. That is a
+population change to four tools at once and would need re-baselining as a TOOL
+change, not banked as progress; left alone deliberately.
+
+### A PRISM ROOF CROSSES ITS SHORT DIMENSION
+
+Every new template took its rise as a fraction of `(footW + footD) / 2`,
+copying the idiom around it. On a 1x2 that average is 4.5m against a real span
+of 3m, so an innocent 0.55 was a 62-degree pitch and a 2.6m roof over a 3m
+house. `ensureRoofPitch` uses `Math.min(w, d)` for exactly this reason and
+floors gabled at 0.42 — ask against the same quantity the floor uses, or the
+floor and the ask are not speaking the same units.
 
 ### HOW TO FIND AN 0.8m THING IN A STREET PHOTOGRAPH — tools/lib/vantage.isolate
 
