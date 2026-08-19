@@ -6,6 +6,7 @@
 import type { Palette } from '../renderer3d/PaletteQuantizer'
 import type { GenerationConfig } from '../core/types'
 import type { ExtractedPalette } from './PaletteExtractor'
+import { doorColorFor } from '../renderer3d/Materials'
 
 type RGB = [number, number, number]
 
@@ -82,6 +83,27 @@ function buildBuildingPalettes(analysis: ExtractedPalette): BuildingPalette[] {
   const doorPool = darks.filter((c) => c[0] > c[2]).length > 0
     ? darks.filter((c) => c[0] > c[2])
     : darks.length > 0 ? darks : [[60, 40, 30] as RGB]
+  // A DOOR IS PAINTED WOOD, NOT THE DARKEST PIXEL IN A PHOTOGRAPH.
+  //
+  // ONE DEFINITION, in Materials.ts, because there are two palette sources
+  // and the renderer applies the same floor at the point of use. A second
+  // copy here would be the drift this repo has now paid for four times.
+  //
+  // `darks` is whatever the extractor classified as dark, which is routinely
+  // near-black, and the fallback `[60,40,30]` fires only when the pool is
+  // EMPTY — which it never is. So the door came out at the image's floor and
+  // rendered as a solid black rectangle 0.95m x 2.05m in the middle of every
+  // front elevation, at NOON as well as at dusk. `tools/holes.mjs` measures
+  // it at 0.00x the wall around it, which is as dark as a number gets.
+  //
+  // Floored, not replaced: the hue still comes from the inspiration image, so
+  // a cool-toned reference still gets cool-toned doors. Only the VALUE is
+  // pinned, and to the lowest level that still reads as a surface rather than
+  // a hole. Same shape as the batches' `toneFloor`, which lifts a colour
+  // toward a floor without touching its hue, and chosen the same way: the
+  // stopping point is "a door reads as a door", not whichever number moves a
+  // metric most.
+
 
   // Generate 6 palette variations
   for (let i = 0; i < 6; i++) {
@@ -92,7 +114,7 @@ function buildBuildingPalettes(analysis: ExtractedPalette): BuildingPalette[] {
     palettes.push({
       wall: rgbToHex(wall),
       roof: rgbToHex(roof),
-      door: rgbToHex(door)
+      door: doorColorFor(rgbToHex(door))
     })
   }
 

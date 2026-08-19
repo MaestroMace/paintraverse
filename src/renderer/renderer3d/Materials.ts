@@ -82,3 +82,59 @@ export function roofColorFor(defId: string, hash: number, paletteRoof: number): 
   if (!isThatched(defId, hash)) return paletteRoof
   return THATCH_COLORS[Math.floor(rand01(hash, 1503) * THATCH_COLORS.length)]
 }
+
+/**
+ * A DOOR IS PAINTED WOOD, NOT THE DARKEST THING IN THE PALETTE.
+ *
+ * Every door in the town rendered as a solid black rectangle, 0.95m x 2.05m,
+ * in the middle of the front elevation — at NOON as well as at dusk.
+ * `tools/holes.mjs` measured them at 0.03-0.04x the wall around them and at
+ * 0.01 absolute luma, which is a hole by any definition a person would use.
+ *
+ * Two sources and the fix belongs at neither of them. `DEFAULT_BUILDING_PALETTES`
+ * carries doors at 0.12-0.17 luma, and `StyleMapper.buildBuildingPalettes`
+ * draws them from the inspiration image's DARKS pool with a floor that only
+ * fires when the pool is empty — which it never is. Flooring one table leaves
+ * the other, and flooring both is two copies that will drift; the first
+ * attempt here fixed StyleMapper and the picture came back with the door
+ * still black, because the active path is the default table.
+ *
+ * So the floor lives at the POINT OF USE, next to the other shared material
+ * decisions, and every palette source inherits it. Compare against the value
+ * the code will actually GET, never against what a table happens to contain.
+ *
+ * The value is chosen by a principle, not by taste: the stopping point is
+ * "a door reads as a surface rather than a void" — dark against the wall it
+ * sits in, which a real door is, but never at zero. Same discipline as the
+ * roof tone floor, where parity with the wall was the stop.
+ *
+ * AND 0.2 WAS NOT ENOUGH, which only a probe settled. The default palette's
+ * doors are already 0.21-0.32 luma, so a 0.2 floor lifted NONE of them and
+ * the measurement did not move — at which point the obvious conclusion is
+ * that doors are not the problem. Painting every door pure red for one build
+ * took the hole count 7 -> 4 and the largest patch 4503px -> 2534px, which
+ * says they are. A 0.2 albedo simply cannot survive being in shadow: the wall
+ * beside it is 0.59 and reads fine, the door is a third of that and reads as
+ * a void.
+ *
+ * 0.3 is half the wall's albedo and is what oak, oxblood, dark green and
+ * lead-blue actually measure — a real painted door, and still unmistakably
+ * darker than the wall it sits in.
+ *
+ * The general lesson is the one this repo keeps paying for: A MECHANISM THAT
+ * COULD PRODUCE A NUMBER IS NOT EVIDENCE THAT IT DID, and the cheap
+ * discipline is to change the suspected thing and watch the metric.
+ */
+export const DOOR_MIN_LUMA = 0.3
+
+/** Lift a door colour to DOOR_MIN_LUMA, preserving its hue. */
+export function doorColorFor(hex: number): number {
+  const r = (hex >> 16) & 255, g = (hex >> 8) & 255, b = hex & 255
+  const l = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+  if (l >= DOOR_MIN_LUMA) return hex
+  // Scale rather than add: a constant add greys out whatever it touches, and
+  // a cool-toned reference should still get cool-toned doors.
+  const k = DOOR_MIN_LUMA / Math.max(0.02, l)
+  const c = (v: number) => Math.min(255, Math.round(v * k))
+  return (c(r) << 16) | (c(g) << 8) | c(b)
+}

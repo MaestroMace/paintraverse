@@ -283,6 +283,32 @@ const CHECKS = [
     gates: { subHuman: (v) => v === 0 },
   },
   {
+    name: 'holes',
+    why: 'dark rectangles a person reads as a HOLE in a wall',
+    electron: true,
+    // GRADED AT NOON, which is the opposite of eyeball and deliberate. At
+    // dusk the lit windows glow, so a dark opening has something to be dark
+    // AGAINST and the count is naturally low; in DAYLIGHT nothing glows and a
+    // collapsed surface has nowhere to hide. Measured on the same three
+    // seeds, the pre-fix build read 7/26/5 at dusk and 53/75/32 at noon — the
+    // hour that shows the defect is the hour to gate on, and it is a
+    // different hour from the one the tone board uses.
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/holes.mjs', '4242', '--views=4', '--time=12']],
+    extract: (o) => ({
+      holes: num(o, /opening-shaped, and BLACK:\s*(\d+)/),
+      // The CONTROL, tracked so a "clean" board cannot mean the detector
+      // stopped finding anything. A run with no lit openings has no control
+      // and its hole figure is a hypothesis — `odd.mjs --feature=` silently
+      // killed its own control once and every verdict fell back to a string.
+      litOpenings: num(o, /^\s+(\d+) found · median/m),
+    }),
+    dir: { holes: -1, litOpenings: 0 },
+    // Deterministic within a build — same seed, same views, same framebuffer
+    // — so the band is tight. A wide band on a deterministic metric is a
+    // regression detector switched off.
+    band: { holes: 2, litOpenings: 3 },
+  },
+  {
     name: 'roofcheck',
     why: 'volumes ending flat and open against the sky',
     electron: true,

@@ -7,6 +7,7 @@
 
 import * as THREE from 'three'
 import { STOREY_HEIGHT } from './scale'
+import { doorColorFor } from './Materials'
 
 interface FacadeConfig {
   floors: number
@@ -579,8 +580,28 @@ export function createFacadeTexture(config: FacadeConfig, face: FacadeFace): THR
         continue
       }
 
-      // Window glass (dark blue-grey, slightly reflective)
-      ctx.fillStyle = 'rgb(60,70,90)'
+      // GLASS IS SHOWING YOU THE SKY, so it cannot be painted as a dark hole.
+      //
+      // This was rgb(60,70,90) — 0.077 sRGB luma, an albedo so low that any
+      // reduction in light takes it to zero. In direct sun it read as a
+      // window; on a SHADOWED facade at noon, and on every facade at dusk,
+      // `tools/holes.mjs` measured whole panes at 0.01 absolute and a person
+      // reads that as a hole in the wall. Fifty-three of them in four
+      // daylight views on one seed.
+      //
+      // Third instance of the same physical mistake in this repo. Still water
+      // rendered nearly black at dusk because a diffuse blue plane has
+      // nothing to return, and the fix was that real water shows you the sky.
+      // Glass does the same, harder, and at the grazing angles a street gives
+      // you it returns most of what the sky sends. A gradient because the
+      // head of a pane sees more sky than its foot does.
+      //
+      // Still well under the wall — a lit window is ~10x its surround and has
+      // to stay that way for DESIGN.md pillar 1 — but no longer at zero.
+      const glass = ctx.createLinearGradient(wx, wy, wx, wy + winH)
+      glass.addColorStop(0, 'rgb(104,120,144)')
+      glass.addColorStop(1, 'rgb(74,86,108)')
+      ctx.fillStyle = glass
       ctx.fillRect(wx, wy, winW, winH)
 
       // Window mullion (cross bar)
@@ -630,16 +651,20 @@ export function createFacadeTexture(config: FacadeConfig, face: FacadeFace): THR
     const doorX = w / 2 - doorW / 2
     const doorY = h - doorH
 
+    // FLOORED AT THE POINT OF USE — see Materials.doorColorFor. Two palette
+    // sources both hand over near-black doors, and flooring either one leaves
+    // the other.
+    const doorC = doorColorFor(config.doorColor)
     // Door frame
-    ctx.fillStyle = colorStr(darkenColor(config.doorColor, 0.2))
+    ctx.fillStyle = colorStr(darkenColor(doorC, 0.2))
     ctx.fillRect(doorX - 3, doorY - 5, doorW + 6, doorH + 5)
 
     // Door body
-    ctx.fillStyle = colorStr(config.doorColor)
+    ctx.fillStyle = colorStr(doorC)
     ctx.fillRect(doorX, doorY, doorW, doorH)
 
     // Door panels
-    ctx.strokeStyle = colorStr(darkenColor(config.doorColor, 0.15))
+    ctx.strokeStyle = colorStr(darkenColor(doorC, 0.15))
     ctx.lineWidth = 1
     ctx.strokeRect(doorX + 3, doorY + 4, doorW - 6, doorH * 0.35)
     ctx.strokeRect(doorX + 3, doorY + doorH * 0.45, doorW - 6, doorH * 0.35)
@@ -682,7 +707,10 @@ export function createFacadeTexture(config: FacadeConfig, face: FacadeFace): THR
     const leftish = ((config.wallColor >> 4) & 1) === 0
     const doorX = leftish ? w * 0.28 - doorW / 2 : w * 0.72 - doorW / 2
     const doorY = h - doorH
-    const rearColor = darkenColor(config.doorColor, 0.3)
+    // The rear door darkens its own base, so it has to floor FIRST or the
+    // sibling sweep misses it — a back door at 0.7 of a black door is still
+    // black. `facade.mjs` found the identical bug written out twice before.
+    const rearColor = darkenColor(doorColorFor(config.doorColor), 0.3)
 
     // Rough timber lining rather than a moulded frame.
     ctx.fillStyle = colorStr(darkenColor(rearColor, 0.35))
@@ -771,9 +799,41 @@ export function createEmissiveTexture(config: FacadeConfig, face: FacadeFace): T
       else if (r1 < 0.45) kind = 'cool'
       else if (r1 < 0.50) kind = 'bright'
       else kind = 'amber'
-      if (kind === 'dark') continue
-
       const wx = cell.x, wy = cell.y
+
+      // AN UNLIT WINDOW AT DUSK IS NOT A VOID — IT MIRRORS THE SKY.
+      //
+      // `dark` used to `continue`, so a quarter of every facade's windows had
+      // no emission at all and rendered as the painted rgb(60,70,90) times a
+      // dusk light of about 0.2 — which is zero. `tools/holes.mjs` finds them
+      // as solid black rectangles at 0.00-0.19x the wall around them, and a
+      // person reads a black rectangle in a wall as a HOLE, not as a room
+      // with nobody in it.
+      //
+      // This is the water fix one surface over. Still water rendered nearly
+      // black at dusk because a Lambert blue plane has nothing to return, and
+      // the answer was that real water is showing you the SKY. Glass does the
+      // same and more strongly at the grazing angles a street gives you.
+      //
+      // Sized against the tool's own CONTROL rather than against a number:
+      // lit openings measure ~9x their surround, ordinary wall sits at 0.078,
+      // and this lands unlit glass at roughly the wall's own level. So it
+      // reads as a surface, and DESIGN.md pillar 1's warm-windows-against-
+      // dark-silhouettes contrast is untouched — the lit ones are still an
+      // order of magnitude above it.
+      //
+      // It costs nothing in daylight: `windowGlow` is 0 at noon, so the whole
+      // emissive map goes dark and the painted glass — which already reads
+      // correctly at noon — is all that remains.
+      if (kind === 'dark') {
+        const g = ctx.createLinearGradient(wx, wy, wx, wy + winH)
+        // Brighter at the head, because that is where a pane catches the sky.
+        g.addColorStop(0, 'rgb(34,42,58)')
+        g.addColorStop(1, 'rgb(20,25,36)')
+        ctx.fillStyle = g
+        ctx.fillRect(wx, wy, winW, winH)
+        continue
+      }
 
       const warmth = nextRng()
       let r: number, g: number, b: number
