@@ -1435,11 +1435,36 @@ export class ThreeRenderer {
       this.sunLight.intensity = 0.8
       this.sunLight.color.setHex(0xffaa66)
       this.sunLight.position.set(sunX, Math.max(5, sunY), sunZ)
-      this.ambientLight.intensity = 0.28
+      // THE TONE ARC FIXED THE NOON BRANCH AND NEVER TOUCHED THIS ONE.
+      //
+      // It raised ambient 0.42 -> 0.62 and hemisphere 0.52 -> 0.95 with a
+      // comment explaining that skylight is the term a wall in a street
+      // actually sees — and every measurement it took was at NOON, so only
+      // the noon branch was edited. Dusk kept the pre-arc numbers, which is
+      // why CLAUDE.md records walls going 0.068 -> 0.203 and then reads 0.058
+      // at 18.5 with 52% of their pixels black. The arc's own conclusion was
+      // right; it was applied to one of four branches.
+      //
+      // Found by `tools/holes.mjs`, which counts surfaces that have collapsed
+      // to zero: after the glass and door fixes the residual holes were all
+      // things in SHADOW — a door at 0.30 albedo reading 0.05x the wall, a
+      // crate whose paint is a perfectly good 0x8a7050 reading 0.17x the
+      // street. Below-average albedo collapses wherever the sun does not
+      // reach, and at dusk the sun reaches almost nothing.
+      //
+      // THE PRINCIPLE, not a taste value: at dusk the sun is a weak low disc
+      // and the SKY DOME is the dominant source — eyeball measures the dusk
+      // sky at 0.243 luma, brighter than any surface in the frame. So the
+      // skylight fraction should be HIGHER at dusk than at noon relative to
+      // the sun, and it was less than half. Sun 0.8 : hemi 0.42 becomes
+      // 0.8 : 0.70, which is still well under noon's 0.95 — dusk stays dusk,
+      // and DESIGN.md pillar 1's warm windows against dark silhouettes are
+      // untouched because the windows are emissive and scale with the hour.
+      this.ambientLight.intensity = 0.4
       this.ambientLight.color.setHex(0x604838)
       this.hemiLight.color.setHex(0xffaa88)
       this.hemiLight.groundColor.setHex(0x3a2a18)
-      this.hemiLight.intensity = 0.42
+      this.hemiLight.intensity = 0.7
       this._fog.color.setHex(0xffaa88); this._fog.density = 0.004
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0xcc6633)
