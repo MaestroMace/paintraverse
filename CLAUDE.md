@@ -552,6 +552,21 @@ massing template, the per-district cap, the building's own prop list, and
 whether it counts as a trade building — and a type missing from those passes
 every static check while being a partial ghost.
 
+**Fixing only the instances you just wrote moves the aggregate by zero while
+the composition shifts underneath it.** A second roof style on the five newest
+types left `twinNear` at exactly 21%; `workshop` and `smokehouse` predated the
+arc, carried the identical defect, and were three pairs each on their own.
+The byte-identical number is the tell that a real mechanism reached too small
+a share of the population — sweep the siblings the same run, not the next one.
+
+**A repeatable entry in a weighted pool is an entry on EVERY draw.**
+`residential` was the one type allowed to repeat and was never removed from
+`avail`, so it held 10 of 35 points forever — 29% of every free slot, in a
+town with three or four free slots. Removing a used type is what makes the
+other weights mean what they say, and the single exception silently became the
+dominant term. Forcing it once and halving the repeat took artisan from 3/12
+towns to 9/12.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
@@ -3122,6 +3137,75 @@ read 0.31-0.34 against the 0.52-0.64 it was asking for before.
 the family above — so they arguably belong in `DWELLING_TYPES`. That is a
 population change to four tools at once and would need re-baselining as a TOOL
 change, not banked as progress; left alone deliberately.
+
+### PINNING A TYPE TO A PHYSICAL NUMBER ALSO PINS AWAY ITS VARIATION
+
+Every new template takes an ABSOLUTE wall height rather than `ctx.wallH`, which
+is right — a type with an intrinsic size must not inherit whatever the plot
+would otherwise have carried, and the cottage cost two rounds learning it. But
+**`ctx.wallH` is where the per-instance jitter lives** (`hScale` 0.85-1.15 in
+BuildingFactory), so ignoring it throws the jitter away as well, and twelve
+capped shambles in a market quarter came out at identical heights.
+
+`variety.mjs` caught it — twinNear 7% -> 23%, the axis `odd.mjs` is blind to by
+construction — and named `workshop` and `smokehouse` as the worst offenders,
+three pairs each within three metres. **Widening the height ranges alone moved
+it two points.** What moved it was a SECOND ROOF SHAPE: variety keys on type +
+volume count + roof styles + every dimension within 5%, so a row of one capped
+exclusive has one silhouette however wide its height range is. Half hipped and
+half gabled halves the matching population outright, and it is what a real
+street looks like — the same trade, built at different times.
+
+`steep` and `pointed` are deliberately not the alternative: both are in
+SPAN_PITCH, `ensureRoofPitch` floors them far above any deliberate ask, and
+every instance would pin to the same value — the failure being fixed, wearing
+a different hat.
+
+**And fixing only the types added this session moved the aggregate by ZERO
+while the composition shifted underneath it.** `workshop` and `smokehouse`
+predate the arc and carried the identical defect. 23 -> 21 -> **14** once the
+siblings were swept.
+
+### A CLUSTERED PRIORITY LIST WILL EAT A SHARED BUDGET, AND THE FIX IS BOTH ENDS
+
+`particles.mjs` read chimney smoke covering 0.30 of the town's x-extent, down
+from 0.64. Two causes and both are general:
+
+- **The always-smoking types are CLUSTERED by construction** — cookshops in the
+  market, smokehouses on the waterfront, kilns in artisan — so reserving ten of
+  the sixteen particle chimneys for them put all the smoke in two quarters.
+  A priority list is a spatial claim when its members share a district.
+- **The budget was TRUNCATED, not sampled.** The collector walks the structure
+  layer in placement order, which is spatially clustered because the placer
+  works outward from the road network, so taking the first sixteen took sixteen
+  chimneys from one part of the map. Farthest-point selection, seeded by
+  whatever the priority pass took, is O(n x 16) and costs nothing.
+
+**0.30 -> 0.96**, better than the 0.64 it started at. Nothing else in the
+harness looks at a particle, which is exactly why that tool exists.
+
+### A VOLUME THAT PROJECTS PAST ITS FOOTPRINT IS NOT COVERED BY THE PLINTH
+
+The stair-step foundation spans footprint TILES, so a pier, a column, a
+buttress or a chimney breast standing proud of the footprint rectangle hangs
+above the ground next door on any slope — `clash.mjs` reports it standing on
+air and is right to. Footing such a volume 0.35m below grade is true of real
+masonry and cheaper than a special case. And a flat-topped trim volume with
+nothing stacked on it is an OPEN BOX: nine cookshops a town with a flat cap
+course on the flue took `roofcheck` up 20. A chimney cap is ridged and a
+buttress weathers to a slope, both of which are the same fact from the other
+side.
+
+### A LANTERN GOES WHERE THERE IS A REASON FOR ONE
+
+Wall lanterns fired at a flat 18% of every building — WALLPAPER by this repo's
+own definition: a rate identical everywhere reads as healthy and
+differentiates nothing, and DESIGN.md pillar 5 asks for three layers of warm
+light, not for them to be sprinkled. A lantern over a door is ADVERTISING
+before it is lighting: an inn that is open says so with a light, a shop does it
+when it trades late, a gate lodge marks the entrance it exists to mark, a house
+does it occasionally. Weighted by type in `LANTERN_BY_TYPE`, landing within a
+point of 18% town-wide — a redistribution, not more light.
 
 ### A PRISM ROOF CROSSES ITS SHORT DIMENSION
 
