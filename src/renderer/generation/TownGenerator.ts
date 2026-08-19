@@ -46,6 +46,11 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     // Market's only exclusive type was covered_market at 4x3, which is to say
     // it had none. A weigh house is 2x2 and arcaded.
     { id: 'weigh_house', w: 2, h: 2, weight: 6 },
+    // And market's smallest entry was still the shared `row_house`, which is
+    // why seed 31337's market read 13% while two other seeds read 44-49% —
+    // one town's quarter drawing generic housing rather than the type mix
+    // failing. The shambles is the butchers' row and it is 1x2.
+    { id: 'shambles', w: 1, h: 2, weight: 6 },
     { id: 'building_small', w: 2, h: 2, weight: 2 },
     { id: 'apothecary', w: 2, h: 3, weight: 2 },
     { id: 'inn', w: 3, h: 3, weight: 1 },
@@ -182,6 +187,14 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     // 3x3 lose the fit lottery to a 1x2 row house whatever their weight.
     { id: 'net_loft', w: 2, h: 2, weight: 6 },
     { id: 'mill', w: 3, h: 3, weight: 5 },
+    // AND net_loft AT 2x2 IS STILL NOT THE SMALLEST THING IN THIS TABLE —
+    // `row_house` at 1x2 is, and it is shared with five other quarters, so
+    // the fit lottery still hands the quarter's ordinary building to a type
+    // that says nothing about it. Harbor read ~43%. A ship's chandler is the
+    // 1x2 the quarter needed; the customs house is its institution and is
+    // capped at one, like the wash house.
+    { id: 'chandlery', w: 1, h: 2, weight: 7 },
+    { id: 'customs_house', w: 2, h: 2, weight: 2 },
   ],
   fortress: [
     { id: 'watchtower', w: 2, h: 2, weight: 2 },
@@ -191,6 +204,14 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'building_small', w: 2, h: 2, weight: 2 },
     { id: 'round_tower', w: 2, h: 2, weight: 2 },
     { id: 'gatehouse', w: 4, h: 2, weight: 5 },
+    // FORTRESS HAD NO 1x2 AT ALL — every entry above is 2x2 or larger and
+    // four of the seven are towers, so the quarter is monuments with nothing
+    // between them and infill has to reach for generic housing. A guardhouse
+    // is the ordinary building of a garrison: low, flat-topped, parapeted,
+    // built against the wall. Flat beside four pointed towers is a silhouette
+    // no other quarter has.
+    { id: 'guardhouse', w: 1, h: 2, weight: 6 },
+    { id: 'armory', w: 2, h: 2, weight: 3 },
   ],
   cemetery: [
     { id: 'chapel', w: 3, h: 4, weight: 5 },
@@ -288,6 +309,39 @@ const MAX_PER_DISTRICT: Record<string, number> = {
   // the wash house's failure repeating, because real odds are the weight
   // times how often the shape fits and only a 1x2 fits often.
   kiln: 2,
+  // An INSTITUTION, capped like the wash house: a harbour has one customs
+  // house. Same reasoning, and the same trap avoided — this table is keyed by
+  // district INSTANCE, and harbor is not in the repeat list, so 1 here really
+  // does mean one a town.
+  customs_house: 1,
+  // A garrison has an armoury, maybe two, not a street of them.
+  armory: 2,
+  // AND THE THREE NEW ORDINARY TYPES ALL OVERSHOT INTO MONOCULTURE ON THEIR
+  // FIRST RUN, which is the eleventh time this has happened and the reason
+  // this table exists. Uncapped, measured:
+  //
+  //     market     36 buildings, shambles 22    61% of the quarter
+  //     market     47 buildings, shambles 26    55%
+  //     fortress   26 buildings, guardhouse 21  81%
+  //     harbor     61 buildings, chandlery 27   44%
+  //
+  // Every one of those quarters read 89-100% "distinctive", and the number is
+  // WORTHLESS: a quarter-exclusive type scores as characteristic however many
+  // you stamp, so a monoculture is the highest-scoring possible town. That is
+  // self-gaming, exactly like filling noble's gaps with towers, and the
+  // cemetery of 21 identical sexton's huts is the same reading.
+  //
+  // The caps are set by asking HOW MANY WOULD LOOK WRONG. A shambles and a
+  // chandlery are STREET FORMS — York's Shambles is a whole lane of them and
+  // a harbour front is a run of chandlers, so ten and twelve are a street
+  // rather than scarcity. A guardhouse is not: a garrison has a few posts
+  // along its wall and the rest of the quarter is towers and stores, so six.
+  //
+  // Written as scarcity these would be 3/4/2 and would cost coverage and
+  // frontage for no gain, which the first version of this whole table did.
+  shambles: 10,
+  chandlery: 12,
+  guardhouse: 6,
 }
 // These read 1/10/4/4/3/3 first and cost three points of built coverage and
 // five of achievable frontage, because they were written as SCARCITY when the
@@ -434,6 +488,39 @@ const VIGNETTES: Vignette[] = [
   // exists anywhere else in the town's vocabulary.
   { id: 'apiary', home: true, front: false, districts: ['garden', 'residential'],
     parts: ['beehive', 'hedge|bush|flower_bed'] },
+  // TEMPLE AND CEMETERY HAD NO DESIGNED GROUP AT ALL, which the district gates
+  // make invisible: eighteen entries and not one lists either quarter, so the
+  // only groups those two could ever draw are the five `home: true` ones — and
+  // a cathedral close is chapels, bell towers, clergy houses and mausolea,
+  // barely a dwelling among them. Two whole quarters were getting the scatter
+  // and nothing else while the census reported a healthy town-wide rate.
+  //
+  // That is WALLPAPER'S TWIN: not a feature firing everywhere equally, but a
+  // healthy aggregate hiding a population it never reaches. `features.mjs`
+  // reports SPREAD across districts for exactly this reason and the vignette
+  // census does not, because vigOk is one counter.
+  //
+  // A lit shrine at a precinct wall is also the one place pillar 5's third
+  // light layer belongs outside a market: a candle stand by a gate is what a
+  // temple quarter has after dark.
+  { id: 'shrine', front: true, districts: ['temple', 'cemetery'],
+    parts: ['wall_lantern|forge_brazier', 'potted_plant|bench|flower_bed'] },
+  // Somebody tends the graves. A watering can does not exist in the
+  // vocabulary; a barrow of rubble and a leaning ladder do, and they read as
+  // maintenance rather than as clutter because of where they are.
+  { id: 'graveside', front: false, districts: ['cemetery', 'temple'],
+    parts: ['handcart|ladder', 'rubble_pile|sack_pile|woodpile'] },
+  // The masons' yard beside a cathedral under construction — which every
+  // medieval cathedral permanently was. Cut stone waiting to go up is the
+  // most characteristic thing about a temple precinct and the town already
+  // has both props.
+  { id: 'stoneyard', front: null, districts: ['temple', 'noble'],
+    parts: ['rubble_pile|rock', 'handcart|ladder|crate_stack'] },
+  // Fortress had `nightfire` and `stableyard`, both shared with three other
+  // quarters, so its groups said nothing about it. Colours over a guardhouse
+  // door do.
+  { id: 'guardpost', front: true, districts: ['fortress'],
+    parts: ['heraldic_banner', 'barrel|crate|water_trough'] },
 ]
 
 const DISTRICT_PROPS: Record<DistrictType, string[]> = {
@@ -446,7 +533,11 @@ const DISTRICT_PROPS: Record<DistrictType, string[]> = {
   slum: ['barrel', 'crate', 'barrel_stack', 'woodpile', 'rain_barrel', 'rubble_pile', 'rubble_pile', 'rubble_pile', 'ladder', 'sack_pile'],
   garden: ['potted_plant', 'planter_box', 'bench', 'fountain', 'bush', 'tree', 'flower_box', 'garden_arch', 'trellis_arch', 'flower_bed', 'flower_bed', 'hedge', 'beehive', 'pavilion', 'haystack'],
   harbor: ['barrel', 'crate', 'crate_stack', 'wagon', 'horse_post', 'dock', 'crane', 'fishing_boat', 'rain_barrel', 'fish_rack', 'fish_rack', 'rope_coil', 'rope_coil', 'sack_pile', 'handcart'],
-  fortress: ['stone_wall', 'barrel', 'crate', 'wall_lantern', 'iron_fence', 'heraldic_banner', 'water_trough', 'haystack', 'ladder'],
+  // Fortress is the one quarter whose palette had no FIRE in it, and it is
+  // the quarter that would be manned all night. A brazier is also the only
+  // ground-level emitter in the whole prop vocabulary, so this is pillar 5's
+  // third light layer reaching a quarter that had none of it.
+  fortress: ['stone_wall', 'barrel', 'crate', 'wall_lantern', 'iron_fence', 'heraldic_banner', 'heraldic_banner', 'water_trough', 'haystack', 'ladder', 'forge_brazier', 'forge_brazier', 'crate_stack', 'sack_pile', 'mounting_block'],
   cemetery: ['gravestone', 'iron_fence', 'potted_plant', 'tree', 'wall_lantern', 'bench', 'cemetery_cross', 'cemetery_cross', 'hedge'],
 }
 
@@ -5574,6 +5665,42 @@ export class TownGenerator implements IMapGenerator {
       case 'watchtower': return ['wall_lantern', 'barrel']
       case 'bell_tower': return ['wall_lantern']
       case 'clock_tower': return ['bench', 'statue']
+      // THE NINE NEW QUARTER TYPES HAD NO PROPS OF THEIR OWN, WHICH IS THE
+      // SAME DEFECT THIS FUNCTION'S OWN HEADER RECORDS ONE ROW OVER.
+      //
+      // The header says tenancy read 90% adjacent and 29% EXPLAINED because
+      // this switch returned [] for every ordinary dwelling, so a row house
+      // got a fountain parked against it. Nine district-exclusive types have
+      // been added since — the whole small-exclusive-type arc — and every one
+      // of them fell through to `default: []` as well. So a quarter could be
+      // 67% distinctive by its BUILDINGS and 0% explained by its props, which
+      // is a kiln with a flower bed outside it.
+      //
+      // A type that exists to say what a quarter DOES is exactly the type
+      // whose props say it loudest: the tar barrel outside the chandlery is
+      // doing more work than the chandlery.
+      case 'chandlery': return ['rope_coil', 'barrel', ...(rng() > 0.5 ? ['crate_stack'] : ['hanging_sign'])]
+      case 'customs_house': return ['bench', 'wall_lantern', ...(rng() > 0.5 ? ['crate_stack'] : ['sign'])]
+      case 'net_loft': return ['fish_rack', 'rope_coil', ...(rng() > 0.5 ? ['barrel'] : [])]
+      case 'boathouse': return ['rowboat', 'rope_coil', ...(rng() > 0.5 ? ['mooring_ring'] : ['reeds'])]
+      case 'smokehouse': return ['fish_rack', 'woodpile', ...(rng() > 0.5 ? ['barrel'] : [])]
+      case 'mill': return ['sack_pile', 'cart', ...(rng() > 0.5 ? ['barrel_stack'] : [])]
+      case 'guardhouse': return ['forge_brazier', 'wall_lantern', ...(rng() > 0.5 ? ['barrel'] : ['heraldic_banner'])]
+      case 'armory': return ['crate_stack', 'heraldic_banner', ...(rng() > 0.5 ? ['forge_brazier'] : [])]
+      case 'gatehouse': return ['heraldic_banner', 'wall_lantern', 'forge_brazier']
+      case 'shambles': return ['hanging_sign', 'crate', ...(rng() > 0.5 ? ['barrel'] : ['sack_pile'])]
+      case 'weigh_house': return ['crate_stack', 'sack_pile', ...(rng() > 0.5 ? ['cart'] : ['bench'])]
+      case 'kiln': return ['woodpile', 'rubble_pile', ...(rng() > 0.5 ? ['handcart'] : [])]
+      case 'workshop': return ['woodpile', 'crate', ...(rng() > 0.5 ? ['ladder'] : ['handcart'])]
+      case 'washhouse': return ['cloth_line', 'rain_barrel', ...(rng() > 0.5 ? ['well'] : [])]
+      case 'potting_shed': return ['planter_box', 'hedge', ...(rng() > 0.5 ? ['beehive'] : ['woodpile'])]
+      case 'coach_house': return ['cart', 'water_trough', ...(rng() > 0.5 ? ['mounting_block'] : ['horse_post'])]
+      case 'stable': return ['water_trough', 'haystack', ...(rng() > 0.5 ? ['horse_post'] : ['hay_bale'])]
+      case 'clergy_house': return ['bench', 'potted_plant', ...(rng() > 0.5 ? ['well'] : [])]
+      case 'almshouse': return ['bench', ...(rng() > 0.5 ? ['flower_box'] : ['potted_plant'])]
+      case 'sexton_hut': return ['ladder', 'rubble_pile', ...(rng() > 0.5 ? ['gravestone'] : [])]
+      case 'mausoleum': return ['cemetery_cross', ...(rng() > 0.5 ? ['gravestone'] : ['statue'])]
+      case 'lighthouse': return ['rope_coil', 'mooring_ring', ...(rng() > 0.5 ? ['barrel'] : [])]
       default: return []
     }
   }
@@ -6543,6 +6670,9 @@ export class TownGenerator implements IMapGenerator {
       cottage: { w: 2, h: 2 }, washhouse: { w: 2, h: 2 },
       kiln: { w: 1, h: 2 }, workshop: { w: 1, h: 2 },
       smokehouse: { w: 1, h: 2 }, boathouse: { w: 2, h: 2 },
+      chandlery: { w: 1, h: 2 }, customs_house: { w: 2, h: 2 },
+      guardhouse: { w: 1, h: 2 }, armory: { w: 2, h: 2 },
+      shambles: { w: 1, h: 2 },
       // The street-clutter batch. Every multi-tile one MUST be here or it
       // reserves a single cell and gets drawn over its neighbours — six props
       // were doing exactly that before registry.mjs learned to compare

@@ -1366,6 +1366,358 @@ function tmplBoathouse(ctx: MassingContext): Volume[] {
   ]
 }
 
+/**
+ * A CHANDLERY IS A SHOP WITH A HOIST OVER THE STREET.
+ *
+ * Ship's chandler: rope, tar, canvas and lanterns below, a loft above, and a
+ * cat-head beam projecting from the gable so a bale can be swung up off a
+ * cart. That beam is the entire silhouette — a horizontal stick poking out
+ * of a gable end at four metres is unlike anything else in the town, and it
+ * reads at the 100ft distance where a door or a window does not.
+ *
+ * Tall and narrow on a 1x2, because a harbour street is a wall of them.
+ */
+function tmplChandlery(ctx: MassingContext): Volume[] {
+  const wallH = STOREY_HEIGHT * (2.0 + rand01(ctx.hash, 1401) * 0.45)
+  const span = (ctx.footW + ctx.footD) / 2
+  // `gabled`, never `steep` — steep is in SPAN_PITCH and ensureRoofPitch
+  // floors it far above a deliberate ask.
+  const rise = span * (0.5 + rand01(ctx.hash, 1403) * 0.14)
+  const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
+  // THE BEAM PROJECTS FROM THE GABLE END, WHICH IS PERPENDICULAR TO THE
+  // RIDGE, and the first cut had that inverted. `roofAxis` names the axis the
+  // ridge RUNS ALONG — settle it against tmplSmokehouse, whose vent runs the
+  // length of the ridge and is `width: ridgeAxis === 'x' ? ventLen : 0.5`,
+  // rather than by reasoning about it. So a ridge along Z has its gables on
+  // ±Z, and the beam must project in Z too.
+  //
+  // On a 1x2 the ridge runs along the long axis, which is the depth, so the
+  // gable is the 3m-wide face that meets the street. That is the whole point
+  // of the type: a harbour street is a wall of narrow gables.
+  //
+  // AND IT HAS TO FIT THE OVERHANG BUDGET. A 1.05m stick centred half a
+  // length past the wall reaches 0.42m beyond MAX_OVERHANG, so the clip would
+  // have shaved it even on the right face. Sized so the OUTER end lands just
+  // inside the budget and the inner end is buried in the wall — which is also
+  // how a real cat-head is built, as the end of a beam running back into the
+  // roof frame rather than a stick nailed on the outside.
+  //
+  // Both failures agreed on "invisible", which is why the photograph was
+  // needed: a count of volumes emitted would have said the beam was there.
+  const alongZ = ridgeAxis === 'z'
+  const beamLen = 1.0
+  const gableHalf = (alongZ ? ctx.footD : ctx.footW) / 2
+  const beamCtr = gableHalf + (MAX_OVERHANG - 0.05) - beamLen / 2
+  const outX = alongZ ? 0 : beamCtr
+  const outZ = alongZ ? beamCtr : 0
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: wallH,
+      roofStyle: 'gabled', roofHeight: rise,
+      roofAxis: ridgeAxis,
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: false,
+      floors: 2,
+    },
+    {
+      // The cat-head. Sits just under the eave so the block hangs clear of
+      // the wall below it, which is what makes the hoist legible.
+      role: 'trim',
+      offsetX: outX, offsetZ: outZ,
+      width: alongZ ? 0.16 : beamLen,
+      depth: alongZ ? beamLen : 0.16,
+      bottomY: wallH - 0.34, height: 0.18,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: 0x5f4d38, roofColor: 0x5f4d38,
+      textured: false, cornice: false,
+      // A beam is not a room. Without this the habitable minimum widens it to
+      // MIN_HABITABLE_W and it comes out a 2.6m block bolted to the gable —
+      // the failure that made a bridge pier a roofed pavilion.
+      habitable: false,
+      floors: 1,
+    },
+  ]
+}
+
+/**
+ * A CUSTOMS HOUSE IS THE ONE CIVIC BUILDING ON THE QUAY.
+ *
+ * Arcaded ground floor — you shelter under it while your cargo is assessed —
+ * a squat hipped roof, and a lantern cupola on the ridge so the harbourmaster
+ * can see the roads. The cupola is the point: it is the only vertical accent
+ * in a quarter otherwise made of long low warehouses, so it terminates a view
+ * down the quay the way a bell tower terminates a street inland.
+ *
+ * Capped at one per quarter in MAX_PER_DISTRICT. An institution repeated is
+ * not an institution, which the sexton's hut taught expensively.
+ */
+function tmplCustomsHouse(ctx: MassingContext): Volume[] {
+  const wallH = STOREY_HEIGHT * (1.85 + rand01(ctx.hash, 1411) * 0.3)
+  const span = (ctx.footW + ctx.footD) / 2
+  const rise = span * (0.36 + rand01(ctx.hash, 1413) * 0.08)
+  const stone = 0xb0a58c
+  const vols: Volume[] = [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: wallH,
+      roofStyle: 'hipped', roofHeight: rise,
+      roofAxis: ctx.footW >= ctx.footD ? 'x' : 'z',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: true,
+      floors: 2,
+    },
+    {
+      // Lantern cupola, ON the hip rather than in it: a hipped roof is a
+      // truncated pyramid, so 0.9 of the rise is just under the peak. The
+      // wash house's louvre was authored at 0.72 and came back buried inside
+      // its own roof, which is the same arithmetic getting the same answer.
+      role: 'trim',
+      offsetX: 0, offsetZ: 0,
+      width: Math.min(1.15, ctx.footW * 0.32),
+      depth: Math.min(1.15, ctx.footD * 0.32),
+      bottomY: wallH + rise * 0.9, height: 0.85,
+      roofStyle: 'pointed', roofHeight: 0.7,
+      roofAxis: 'x',
+      wallColor: stone, roofColor: ctx.roofColor,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    },
+  ]
+  // Arcade piers along the street face. Four short posts under a lintel read
+  // as an arcade at this scale; a real arch ring does not survive RENDER_SCALE.
+  const front = ctx.footD / 2
+  const pierT = 0.26
+  const arcW = ctx.footW * 0.88
+  for (let i = 0; i < 4; i++) {
+    vols.push({
+      role: 'trim',
+      offsetX: -arcW / 2 + (arcW * i) / 3, offsetZ: front + 0.42,
+      width: pierT, depth: pierT,
+      bottomY: 0, height: STOREY_HEIGHT * 0.98,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: stone, roofColor: stone,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    })
+  }
+  vols.push({
+    role: 'trim',
+    offsetX: 0, offsetZ: front + 0.42,
+    width: arcW + pierT, depth: 0.9,
+    bottomY: STOREY_HEIGHT * 0.98, height: 0.3,
+    roofStyle: 'flat', roofHeight: 0,
+    roofAxis: 'x',
+    wallColor: stone, roofColor: stone,
+    textured: false, cornice: false,
+    habitable: false,
+    floors: 1,
+  })
+  return vols
+}
+
+/**
+ * A GUARDHOUSE IS A FLAT ROOF YOU CAN STAND ON.
+ *
+ * One low storey, a parapet round the top instead of a pitch, and a sentry
+ * box at one corner. Every other building in a fortress quarter is a tower,
+ * so the thing that distinguishes this one is that it has no roof at all: a
+ * flat, crenellated line at four metres beside four pointed cones is a
+ * silhouette no other quarter in the town produces.
+ */
+function tmplGuardhouse(ctx: MassingContext): Volume[] {
+  const wallH = STOREY_HEIGHT * (1.15 + rand01(ctx.hash, 1421) * 0.25)
+  const stone = 0x9a978f
+  const vols: Volume[] = [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: wallH,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: true,
+      floors: 1,
+    },
+  ]
+  // Parapet: four thin walls standing on the roof edge. Emitted as a ring
+  // rather than one box, so you read the walk behind it.
+  const pT = 0.2, pH = 0.55
+  for (const [dx, dz, w, d] of [
+    [0, ctx.footD / 2 - pT / 2, ctx.footW, pT],
+    [0, -(ctx.footD / 2 - pT / 2), ctx.footW, pT],
+    [ctx.footW / 2 - pT / 2, 0, pT, ctx.footD - pT * 2],
+    [-(ctx.footW / 2 - pT / 2), 0, pT, ctx.footD - pT * 2],
+  ] as const) {
+    vols.push({
+      role: 'trim',
+      offsetX: dx, offsetZ: dz,
+      width: w, depth: d,
+      bottomY: wallH, height: pH,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: stone, roofColor: stone,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    })
+  }
+  // Sentry box in one corner, roofed, so the flat top has one thing on it.
+  const boxW = Math.min(0.85, ctx.footW * 0.42)
+  const cs = rand01(ctx.hash, 1423) < 0.5 ? 1 : -1
+  vols.push({
+    role: 'trim',
+    offsetX: cs * (ctx.footW / 2 - boxW / 2 - pT),
+    offsetZ: ctx.footD / 2 - boxW / 2 - pT,
+    width: boxW, depth: boxW,
+    bottomY: wallH, height: 1.35,
+    roofStyle: 'pointed', roofHeight: 0.55,
+    roofAxis: 'x',
+    wallColor: stone, roofColor: ctx.roofColor,
+    textured: false, cornice: false,
+    habitable: false,
+    floors: 1,
+  })
+  return vols
+}
+
+/**
+ * AN ARMOURY IS THICK WALLS AND SMALL HIGH WINDOWS.
+ *
+ * Squat, wide-eaved, hipped, with a buttress on each flank. Deliberately the
+ * opposite proportion to the guardhouse standing next to it — the fortress
+ * quarter's failure was that everything in it was a tower, so its two new
+ * types have to be unlike each other as well as unlike a tower.
+ */
+function tmplArmory(ctx: MassingContext): Volume[] {
+  const wallH = STOREY_HEIGHT * (1.45 + rand01(ctx.hash, 1431) * 0.25)
+  const span = (ctx.footW + ctx.footD) / 2
+  const stone = 0x8b8a86
+  const vols: Volume[] = [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: wallH,
+      roofStyle: 'hipped', roofHeight: span * (0.4 + rand01(ctx.hash, 1433) * 0.1),
+      roofAxis: ctx.footW >= ctx.footD ? 'x' : 'z',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: true,
+      floors: 1,
+    },
+  ]
+  // A buttress on each flank — battered, so it is wider at the foot. Two
+  // stacked boxes rather than a taper, because the batter has to survive
+  // RENDER_SCALE and a 4cm slope does not.
+  for (const s of [-1, 1]) {
+    vols.push({
+      role: 'trim',
+      offsetX: s * (ctx.footW / 2 + 0.16), offsetZ: 0,
+      width: 0.42, depth: Math.min(1.0, ctx.footD * 0.34),
+      bottomY: 0, height: wallH * 0.55,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: stone, roofColor: stone,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    })
+    vols.push({
+      role: 'trim',
+      offsetX: s * (ctx.footW / 2 + 0.09), offsetZ: 0,
+      width: 0.28, depth: Math.min(0.8, ctx.footD * 0.28),
+      bottomY: wallH * 0.55, height: wallH * 0.4,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: stone, roofColor: stone,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    })
+  }
+  return vols
+}
+
+/**
+ * THE SHAMBLES — a jetty deep enough to be the whole point.
+ *
+ * The butchers' row. Its upper floors lean out over the lane until the eaves
+ * of facing houses nearly meet, because the ground floor is an open stall
+ * counter and the overhang keeps the sun off the meat. York's Shambles is the
+ * reference; it is one of the most photographed streets in England and the
+ * only reason is this proportion.
+ *
+ * `tmplJettiedUpper` exists and is NOT reused, deliberately: its overhang is
+ * a polite 0.25m and the character here is an impolite one. It also jetties
+ * one face; this jetties the street face hard and both flanks a little, which
+ * is what makes a ROW of them close over the lane.
+ */
+function tmplShambles(ctx: MassingContext): Volume[] {
+  const lowerH = STOREY_HEIGHT * (1.0 + rand01(ctx.hash, 1441) * 0.12)
+  const upperH = STOREY_HEIGHT * (1.15 + rand01(ctx.hash, 1443) * 0.25)
+  // MAX_OVERHANG is 0.6m and clipToFootprint enforces it per side against
+  // whichever neighbours actually exist, so ask for the full budget and let
+  // the clip decide. Asking for less would make a terrace of these look
+  // ordinary on precisely the tiles where the overhang would have read.
+  const jut = MAX_OVERHANG
+  const span = (ctx.footW + ctx.footD) / 2
+  const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: lowerH,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: ridgeAxis,
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      // TEXTURED. The ground floor under a jetty was authored blank on the
+      // reasoning that it is hidden, and it is not — the jetty OVERHANGS it.
+      // That single call was the largest anomaly class in the town: 36
+      // findings over z=3, up to 109m² of flat colour at eye level. On a
+      // shambles it is the shopfront.
+      textured: true, cornice: false,
+      floors: 1,
+    },
+    {
+      role: 'upperFloor',
+      offsetX: 0, offsetZ: jut * 0.5,
+      width: ctx.footW + jut * 0.5, depth: ctx.footD + jut,
+      bottomY: lowerH, height: upperH,
+      roofStyle: 'gabled', roofHeight: span * (0.52 + rand01(ctx.hash, 1445) * 0.12),
+      roofAxis: ridgeAxis,
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: false,
+      floors: 1,
+    },
+    {
+      // The stall counter: a board on the street face at waist height, which
+      // is what the ground floor is FOR. 0.95m — hip height on a 1.6m eye,
+      // and the one dimension here that is a real-world measurement rather
+      // than a fraction.
+      role: 'trim',
+      offsetX: 0, offsetZ: ctx.footD / 2 + 0.22,
+      width: ctx.footW * 0.82, depth: 0.44,
+      bottomY: 0.95, height: 0.12,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: 0x8a6f4e, roofColor: 0x8a6f4e,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    },
+  ]
+}
+
 /** Body + dramatic centered tall tower (like a keep). */
 function tmplStackedTower(ctx: MassingContext): Volume[] {
   const mainRoof: RoofStyle = 'flat'
@@ -1844,6 +2196,14 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   // The waterfront's pair, deliberately opposite proportions to each other.
   smokehouse: (ctx) => tmplSmokehouse(ctx),
   boathouse: (ctx) => tmplBoathouse(ctx),
+  // Harbor's pair: the ordinary building of the quarter and its institution.
+  chandlery: (ctx) => tmplChandlery(ctx),
+  customs_house: (ctx) => tmplCustomsHouse(ctx),
+  // Fortress's pair, and the same rule applies — a flat parapeted block and a
+  // squat buttressed one, so the quarter is not four towers and a warehouse.
+  guardhouse: (ctx) => tmplGuardhouse(ctx),
+  armory: (ctx) => tmplArmory(ctx),
+  shambles: (ctx) => tmplShambles(ctx),
   warehouse: (ctx) => tmplStepBack(ctx),
   stable: (ctx) => tmplFarmstead(ctx),
   mill: (ctx) => rand01(ctx.hash, 523) < 0.3 ? tmplWindmill(ctx) : tmplFarmstead(ctx),

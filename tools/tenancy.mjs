@@ -29,7 +29,11 @@
  *   xvfb-run -a -s "-screen 0 1400x900x24" node tools/tenancy.mjs [seeds...]
  */
 import { _electron as electron } from 'playwright-core'
-import { DWELLINGS } from './lib/taxonomy.mjs'
+import { DWELLINGS, parseBuildingProps } from './lib/taxonomy.mjs'
+
+// READ THE GENERATOR'S OWN TABLE, do not restate it. See the note on the
+// EXPLAINS constant below for what the restatement cost.
+const BUILDING_PROPS = parseBuildingProps()
 
 const seeds = process.argv.slice(2).map(Number)
 if (seeds.length === 0) seeds.push(4242, 777, 31337)
@@ -59,7 +63,7 @@ for (const seed of seeds) {
   // uses it is built in the PAGE, so it has to cross the boundary explicitly —
   // a closure over a module import silently becomes a ReferenceError inside
   // evaluate. Sent as an array because a Set does not survive serialisation.
-  const r = await win.evaluate((dwellingIds) => {
+  const r = await win.evaluate(({ dwellingIds, buildingProps }) => {
     const DWELLINGS = new Set(dwellingIds)
     const st = window.__pt.store.getState()
     const map = st.map
@@ -90,8 +94,8 @@ for (const seed of seeds) {
       }
     })
 
-    // What each building type would plausibly own. Mirrors the intent of
-    // getBuildingSpecificProps, plus the generic dressing any dwelling has.
+    // The generic dressing any dwelling has, which the generator supplies
+    // through `propForRole` rather than through the switch below.
     const DOMESTIC = ['flower_box', 'potted_plant', 'planter_box', 'bench',
       'woodpile', 'rain_barrel', 'cloth_line', 'crate', 'barrel', 'fence',
       'wall_lantern', 'bush', 'flower_bed', 'rubble_pile', 'garden_arch',
@@ -102,47 +106,30 @@ for (const seed of seeds) {
       'bush', 'well', 'fountain', 'road_marker', 'signpost', 'monument',
       'gravestone', 'cemetery_cross', 'dock', 'crane', 'fishing_boat',
       'bunting_pole', 'prayer_flags', 'stone_wall', 'stone_wall_v'])
+    // AND THIS TABLE IS NOW READ, NOT RESTATED.
+    //
+    // It used to be nineteen hand-written rows under a comment saying it
+    // "mirrors the intent of getBuildingSpecificProps". Four lines below that
+    // comment sits a note recording what the mirror already cost once —
+    // `half_timber` listed `firewood`, an id the game does not define, so a
+    // woodpile correctly placed at a half-timbered house scored as
+    // unexplained — and the fix applied at the time was to READ the dwelling
+    // set instead of restating it. The other half of the same table was left
+    // as a copy, and it drifted by TWENTY-ONE TYPES: the entire
+    // small-exclusive-type arc went into the generator and never into the
+    // mirror, so a quarter could be two thirds distinctive by its buildings
+    // and score zero for the props that say so.
+    //
+    // A note asking a future reader to synchronise two constants is not
+    // synchronisation, and half a fix is a fix that will be needed again.
     const EXPLAINS = {
-      tavern: ['barrel', 'barrel_stack', 'hanging_sign', 'cafe_table', 'bench', 'crate'],
-      inn: ['hanging_sign', 'barrel', 'horse_post', 'cafe_table', 'bench', 'trough'],
-      shop: ['hanging_sign', 'crate', 'barrel', 'awning', 'crate_stack'],
-      bakery: ['hanging_sign', 'barrel', 'woodpile', 'crate'],
-      apothecary: ['hanging_sign', 'potted_plant', 'planter_box', 'crate'],
-      market_stall: ['crate_stack', 'barrel', 'crate', 'awning'],
-      covered_market: ['crate', 'barrel', 'crate_stack'],
-      warehouse: ['crate_stack', 'barrel_stack', 'cart', 'crate', 'barrel'],
-      guild_hall: ['hanging_sign', 'bench', 'statue', 'planter_box'],
-      mansion: ['potted_plant', 'planter_box', 'flower_box', 'bench', 'statue'],
-      building_large: ['potted_plant', 'planter_box', 'flower_box'],
-      balcony_house: ['flower_box', 'planter_box', 'potted_plant'],
-      chapel: ['statue', 'wall_lantern', 'bench', 'column'],
-      temple: ['column', 'statue', 'wall_lantern', 'bench'],
-      tower: ['wall_lantern'],
-      watchtower: ['wall_lantern', 'barrel'],
-      bell_tower: ['wall_lantern'],
-      clock_tower: ['bench', 'statue'],
-      stable: ['horse_post', 'trough', 'haystack', 'cart', 'woodpile'],
-      // A dwelling. Whatever a household keeps by its own front or back door.
-      // What a HOUSEHOLD plausibly keeps by its own door — written from what a
-      // dwelling would actually have, using ids the game really defines. The
-      // first draft of this list invented washing_line, firewood, broom and
-      // bucket, none of which exist, so no domestic prop could ever score as
-      // explained and the metric under-reported itself.
-      // EVERY TYPE THE GENERATOR TREATS AS A HOME, not the five I happened to
-      // list. TownGenerator's DWELLINGS set is what decides where domestic
-      // dressing goes; this table decides whether that dressing counts as
-      // explained. When they disagree the metric marks the generator's own
-      // correct behaviour as a failure — the numerator and the denominator
-      // counting different populations, which is the mistake this file's own
-      // history already records (the first draft invented prop ids that do
-      // not exist, so no domestic prop could score at all).
-      //
-      // NOT "keep in step with" — READ IT. That instruction sat here as a
-      // comment and the two lists drifted anyway: `half_timber` had a bespoke
-      // four-prop entry a few lines above (including `firewood`, an id the
-      // game does not define), so a woodpile correctly placed at a
-      // half-timbered house scored as unexplained. A note asking a future
-      // reader to synchronise two constants is not synchronisation.
+      ...buildingProps,
+      // A dwelling keeps whatever a household keeps by its own door, and the
+      // generator expresses that through `propForRole` rather than through
+      // the switch, so it is the one row that genuinely has to live here.
+      // Every id below is one the game really defines — the first draft
+      // invented washing_line, firewood, broom and bucket, and no domestic
+      // prop could score at all.
       ...Object.fromEntries([...DWELLINGS].map((id) => [id, DOMESTIC])),
     }
 
@@ -198,7 +185,7 @@ for (const seed of seeds) {
       ownedN, explainedN, orphanN, insideN, civicN,
       orphanKinds, ownedKinds, typeCounts, propsByDistrict,
     }
-  }, [...DWELLINGS])
+  }, { dwellingIds: [...DWELLINGS], buildingProps: BUILDING_PROPS })
   if (!r) { console.log(`seed ${seed}: no terrain`); continue }
   rows.push({ seed, ...r })
   await win.waitForTimeout(150)

@@ -390,6 +390,85 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 1, h: 2 },
     styleSetSlots: ['wall', 'roof', 'door']
   },
+  // TENTH, ELEVENTH AND TWELFTH APPLICATIONS OF THE SMALL-EXCLUSIVE-TYPE
+  // PATTERN — harbor, fortress and market.
+  //
+  // The pattern is the most reliable thing in this repo and the reason is
+  // arithmetic rather than art: a type's real odds are its weight TIMES how
+  // often its shape fits, so a 4x3 warehouse at weight 8 places less often
+  // than a 1x2 row house at weight 3, and a quarter whose only exclusive
+  // entries are large falls back on the small generic types it shares with
+  // everywhere else. Harbor's exclusives are `warehouse` 4x3, `lighthouse`
+  // 3x3 and `net_loft` 2x2; its smallest entry is the shared `row_house`.
+  // Fortress has NO 1x2 at all — every entry is 2x2 or bigger, and four of
+  // the seven are towers. Market's one small exclusive is `weigh_house` 2x2,
+  // and market read 13% on seed 31337 against 44-49% on the other two.
+  //
+  // A ship's chandler is the narrow shopfront every working harbour has:
+  // rope, tar, canvas, lanterns, with a hoist beam over the street for the
+  // loft. It is the harbour's row house — the ordinary building of the
+  // quarter, which is exactly what harbor was missing.
+  {
+    id: 'chandlery',
+    name: 'Chandlery',
+    category: 'building',
+    tags: ['structure', 'commercial', 'harbor'],
+    color: '#7E7052',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  // The harbourmaster's office, and an INSTITUTION — one per quarter, capped
+  // like the wash house, for the same reason the wash house is capped: a town
+  // has one customs house and a row of them is a bureaucracy joke rather than
+  // a harbour. Arcaded ground floor with a lantern cupola, so it reads as
+  // civic at a distance rather than as another shed.
+  {
+    id: 'customs_house',
+    name: 'Customs House',
+    category: 'building',
+    tags: ['structure', 'civic', 'harbor'],
+    color: '#A79A80',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  // A guardhouse is what a fortress quarter is actually made of between its
+  // towers: a low flat-roofed block with a parapet and a sentry box, built
+  // against the wall. Flat-topped beside four pointed towers is a silhouette
+  // no other quarter has.
+  {
+    id: 'guardhouse',
+    name: 'Guardhouse',
+    category: 'building',
+    tags: ['structure', 'military', 'fortress'],
+    color: '#8E8C88',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door']
+  },
+  {
+    id: 'armory',
+    name: 'Armory',
+    category: 'building',
+    tags: ['structure', 'military', 'fortress'],
+    color: '#7E8082',
+    footprint: { w: 2, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  // THE SHAMBLES — the butchers' row, and the most recognisable street form
+  // in a medieval market town. Its whole character is a jetty far deeper than
+  // an ordinary one: upper floors lean out over the lane until the eaves
+  // nearly touch, because the ground floor is an open stall counter and the
+  // overhang keeps the meat out of the sun. York's Shambles is the reference
+  // and it is one of the most photographed streets in England for exactly
+  // this reason — a street of them reads as a place immediately.
+  {
+    id: 'shambles',
+    name: 'Shambles',
+    category: 'building',
+    tags: ['structure', 'commercial', 'market'],
+    color: '#B09876',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'awning']
+  },
   {
     id: 'row_house',
     name: 'Row House',

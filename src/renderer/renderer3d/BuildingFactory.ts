@@ -21,6 +21,7 @@ import { facadeOpenings, quantizeWallM } from './FacadeTexture'
 import { gableMath, clampRoofHeight, clampRoofToWall } from './architecture/Roofs'
 import { emitVolume, localToWorld, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
 import { pickPaletteForStyle } from './architecture/PaletteBias'
+import { isThatched, roofColorFor } from './Materials'
 import { TILE, STOREY_HEIGHT, MIN_HABITABLE_W } from './scale'
 
 /** Re-export so ThreeRenderer can keep importing from BuildingFactory. */
@@ -58,6 +59,9 @@ const FOOTPRINTS: Record<string, { w: number; h: number }> = {
   cottage: { w: 2, h: 2 }, washhouse: { w: 2, h: 2 },
   kiln: { w: 1, h: 2 }, workshop: { w: 1, h: 2 },
   smokehouse: { w: 1, h: 2 }, boathouse: { w: 2, h: 2 },
+  chandlery: { w: 1, h: 2 }, customs_house: { w: 2, h: 2 },
+  guardhouse: { w: 1, h: 2 }, armory: { w: 2, h: 2 },
+  shambles: { w: 1, h: 2 },
   corner_building: { w: 2, h: 2 }, archway: { w: 3, h: 1 },
   staircase: { w: 2, h: 3 }, town_gate: { w: 3, h: 1 },
   chapel: { w: 3, h: 4 }, guild_hall: { w: 4, h: 4 },
@@ -121,6 +125,24 @@ const NO_JITTER = new Set<string>([
 const SHUTTER_COLORS = [
   0x4a5d6b, 0x5b6e4a, 0x7a4a42, 0x46566b, 0x6b5a3a, 0x3f5a52,
 ]
+/**
+ * Buildings that trade, wherever they stand — they carry a hanging sign on
+ * their own account rather than because of the street they are on.
+ *
+ * Kept as a Set precisely so the next person adding a shop type has one place
+ * to put it. It was seven inline `===` comparisons and every district type
+ * added since — chandlery, shambles, weigh_house, workshop, net_loft,
+ * smokehouse, customs_house — was missing from it.
+ */
+const TRADE_BUILDINGS = new Set([
+  'shop', 'tavern', 'inn', 'bakery', 'apothecary', 'guild_hall',
+  'covered_market', 'market_stall',
+  // The district-exclusive trades. A chandlery and a shambles are shopfronts
+  // in the plainest sense; a weigh house and a customs house are civic but
+  // both hang a board saying what they are.
+  'chandlery', 'shambles', 'weigh_house', 'customs_house', 'workshop',
+  'net_loft', 'smokehouse', 'boathouse', 'mill',
+])
 const PAINTED_SIGN_COLORS = [
   0x6b3a1f,  // burnt sienna
   0x5a2818,  // oxblood
@@ -610,6 +632,38 @@ export function buildBuildingMeshes(
     const dominantArchetype = picks[0]?.id ?? 'traverseCozy'
     const palette = pickPaletteForStyle(palettes, styleVector, hash)
 
+    // THATCH — the one roof material this town does not have, and the reason
+    // its roofs are all one colour family.
+    //
+    // Every roof in the town comes out of the same palette's `roof` slot, so
+    // pillar 2's "the eye should never be able to copy-paste one silhouette
+    // onto another" is being fought with SHAPE alone while the largest surface
+    // in a street view stays a single material. A straw roof beside a tiled
+    // one is the strongest cheap distinction available: it changes the colour
+    // of the biggest thing on the building.
+    //
+    // BY TYPE, NOT BY DISTRICT, and the history is the reason. Real towns
+    // banned thatch after their first fire and kept it on the humble and the
+    // rural — so a cottage, a lean-to, a shed and a stable carry it and a
+    // tenement, a shop and a townhouse do not, which is a distinction the eye
+    // reads as age and poverty without being told. Gating on district instead
+    // would paint whole quarters uniformly, which is the wallpaper failure.
+    //
+    // PROBABILISTIC, because a terrace of five identical thatched cottages is
+    // the copy-paste this exists to prevent. And the colour is what thatch
+    // actually is — pale weathered straw — chosen by the object rather than
+    // by what moves `roofBlackPct`, which is a composition descriptor and not
+    // a gate. It happens to lift that number; that is a side effect, not the
+    // reason, and the moment it becomes the reason the roofs go pale
+    // everywhere and pillar 1's dark silhouettes go with them.
+    // THE ODDS AND THE STRAW LIVE IN Materials.ts BECAUSE TWO RENDERERS DRAW
+    // ROOFS. Canvas2DRenderer picks its own palette from the same
+    // `stableHash`, so a copy here would give the walkaround thatched
+    // cottages and the pixel-art export tiled ones with nothing erroring —
+    // the terrain-table drift, one surface over.
+    if (isThatched(obj.definitionId, hash)) tallyIn('thatch', district)
+    const roofColor = roofColorFor(obj.definitionId, hash, palette.roof)
+
     // Floor count: generator-provided value wins, but otherwise bias urban
     // districts taller (2–4) and rural/fringe shorter (1–2). narrow_house is
     // always tall regardless of district (it's meant to read as a Traverse-
@@ -772,7 +826,7 @@ export function buildBuildingMeshes(
       hash,
       footW: fp.w, footD: fp.h,
       wallH, floors,
-      wallColor: palette.wall, roofColor: palette.roof,
+      wallColor: palette.wall, roofColor,
       // The gap a span has to cross — see MassingContext.groundDrop.
       groundDrop: getHeight ? maxTH - minTH : 0,
     })
@@ -2752,12 +2806,18 @@ export function buildBuildingMeshes(
     // supposed to announce a shopping street never actually appeared.
     const isCommercialDistrict = district === 'market' || district === 'artisan' ||
       district === 'harbor' || district === 'waterfront'
-    const isTradeBldg = (
-      obj.definitionId === 'shop' || obj.definitionId === 'tavern' ||
-      obj.definitionId === 'inn' || obj.definitionId === 'bakery' ||
-      obj.definitionId === 'apothecary' || obj.definitionId === 'guild_hall' ||
-      obj.definitionId === 'covered_market'
-    )
+    // A SET, AND SWEPT. This was seven hand-written `===` comparisons and it
+    // had not been revisited since any of the twelve district-exclusive types
+    // were added — so a chandlery, a shambles and a weigh house, which are
+    // three of the most obviously commercial buildings in the town, could not
+    // carry a hanging sign. The market's butchers' row was the one street in
+    // the town guaranteed to have a sign over every door and had none.
+    //
+    // Same shape as the shop sign's own `fp.w >= 2` bug and `stoopBench`'s
+    // after it: a gate written against the vocabulary that existed when it
+    // was written, and never swept when the vocabulary grew. Grep the PATTERN
+    // the same day — a list of literal ids IS the pattern.
+    const isTradeBldg = TRADE_BUILDINGS.has(obj.definitionId)
     // Generic houses only get a sign when they sit on a trading street.
     const isShopfrontHouse = isCommercialDistrict && (
       obj.definitionId === 'building_small' || obj.definitionId === 'building_medium' ||

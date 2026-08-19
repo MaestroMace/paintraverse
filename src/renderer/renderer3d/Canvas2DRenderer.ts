@@ -9,6 +9,7 @@ import { stableHash } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { SpatialGrid } from './SpatialGrid'
 import { TERRAIN_COLORS } from '../core/terrain'
+import { roofColorFor } from './Materials'
 
 // ── Spatial grids for fast object culling (built once per map, reused across frames) ──
 let _structureGrid: SpatialGrid | null = null
@@ -119,6 +120,11 @@ const BUILDING_HEIGHTS: Record<string, number> = {
   // A kiln is squat and a workshop is an ordinary two-storey house.
   kiln: 1.6, workshop: 2.6,
   smokehouse: 3.0, boathouse: 1.7,
+  // Tall and narrow with a loft over the shop; the customs house is civic and
+  // squat; a guardhouse is one low storey behind a parapet; an armoury is
+  // thick-walled and squat; the shambles is two jettied storeys.
+  chandlery: 3.0, customs_house: 2.6, guardhouse: 1.4, armory: 2.0,
+  shambles: 2.4,
   archway: 3.2, staircase: 1.2, town_gate: 4.5,
   chapel: 4.5, guild_hall: 4.0, warehouse: 3.0,
   watchtower: 5.5, mansion: 3.5, bakery: 2.5,
@@ -162,6 +168,8 @@ const BUILDING_ROOF_STYLE: Record<string, RoofStyle> = {
   cottage: 'steep', washhouse: 'hipped',
   kiln: 'pointed', workshop: 'gabled',
   smokehouse: 'steep', boathouse: 'gabled',
+  chandlery: 'steep', customs_house: 'hipped', guardhouse: 'flat',
+  armory: 'hipped', shambles: 'steep',
   archway: 'none', staircase: 'none', town_gate: 'flat',
   chapel: 'steep', guild_hall: 'hipped', warehouse: 'gabled',
   watchtower: 'pointed', mansion: 'hipped', bakery: 'gabled',
@@ -850,7 +858,16 @@ function addBuildingDrawables(
   lighting: Lighting, time: number, lights: LightSource[]
 ) {
   const hash = stableHash(obj)
-  const palette = palettes[hash % palettes.length]
+  const basePalette = palettes[hash % palettes.length]
+  // THATCH, from the SAME table the 3D walkaround reads. Keyed on the same
+  // `stableHash`, so a cottage that is thatched when you walk past it is
+  // thatched when you export the picture. A second copy of the odds here is
+  // exactly how three terrain tables came to disagree about what a tile
+  // means, and the failure would be silent: two renderers, two materials, no
+  // error anywhere.
+  const roofTone = roofColorFor(def.id, hash, basePalette.roof)
+  const palette = roofTone === basePalette.roof
+    ? basePalette : { ...basePalette, roof: roofTone }
 
   // ── BLUEPRINT BUILDINGS — use 3D primitive composition ──
   if (BLUEPRINTS[def.id]) {
