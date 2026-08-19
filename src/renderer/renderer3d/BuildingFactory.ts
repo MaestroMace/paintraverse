@@ -60,6 +60,7 @@ const FOOTPRINTS: Record<string, { w: number; h: number }> = {
   kiln: { w: 1, h: 2 }, workshop: { w: 1, h: 2 },
   smokehouse: { w: 1, h: 2 }, boathouse: { w: 2, h: 2 },
   chandlery: { w: 1, h: 2 }, customs_house: { w: 2, h: 2 },
+  sail_loft: { w: 1, h: 2 }, cookshop: { w: 1, h: 2 },
   guardhouse: { w: 1, h: 2 }, armory: { w: 2, h: 2 },
   shambles: { w: 1, h: 2 },
   corner_building: { w: 2, h: 2 }, archway: { w: 3, h: 1 },
@@ -141,6 +142,7 @@ const TRADE_BUILDINGS = new Set([
   // in the plainest sense; a weigh house and a customs house are civic but
   // both hang a board saying what they are.
   'chandlery', 'shambles', 'weigh_house', 'customs_house', 'workshop',
+  'sail_loft', 'cookshop',
   'net_loft', 'smokehouse', 'boathouse', 'mill',
 ])
 const PAINTED_SIGN_COLORS = [

@@ -40,22 +40,49 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'shop', w: 2, h: 3, weight: 6 },
     { id: 'corner_building', w: 2, h: 2, weight: 4 },
     { id: 'bakery', w: 2, h: 2, weight: 4 },
-    { id: 'row_house', w: 1, h: 2, weight: 3 },
+    // ROW HOUSE DELIBERATELY ABSENT — see the note above `residential`.
     { id: 'tavern', w: 4, h: 3, weight: 2 },
     { id: 'covered_market', w: 4, h: 3, weight: 2 },
     // Market's only exclusive type was covered_market at 4x3, which is to say
     // it had none. A weigh house is 2x2 and arcaded.
-    { id: 'weigh_house', w: 2, h: 2, weight: 6 },
+    { id: 'weigh_house', w: 2, h: 2, weight: 7 },
     // And market's smallest entry was still the shared `row_house`, which is
     // why seed 31337's market read 13% while two other seeds read 44-49% —
     // one town's quarter drawing generic housing rather than the type mix
     // failing. The shambles is the butchers' row and it is 1x2.
-    { id: 'shambles', w: 1, h: 2, weight: 6 },
+    { id: 'shambles', w: 1, h: 2, weight: 7 },
+    // Same argument as harbor's sail loft: capped at ten, the shambles left
+    // row_house as market's largest type at 11 of 32. A market street is
+    // butchers AND cookshops AND a weigh house, not one trade repeated.
+    { id: 'cookshop', w: 1, h: 2, weight: 6 },
     { id: 'building_small', w: 2, h: 2, weight: 2 },
     { id: 'apothecary', w: 2, h: 3, weight: 2 },
     { id: 'inn', w: 3, h: 3, weight: 1 },
     { id: 'archway', w: 3, h: 1, weight: 1 },
   ],
+  // THE ROW HOUSE BELONGS TO THIS QUARTER AND TO THE SLUM, AND TO NOWHERE
+  // ELSE ANY MORE.
+  //
+  // It was in SIX of the eleven tables, which is over half of every quarter a
+  // town grows — and `districts.mjs` counts a type as characteristic only if
+  // it appears in at most a THIRD of the quarters present. So the single
+  // commonest building in the town, 18% of all structures, was disqualified
+  // by construction from saying anything about anywhere, and every quarter's
+  // measured character was competing against it: the fit lottery hands a 1x2
+  // more plots than any other shape, so a shared 1x2 in a table is the type
+  // that wins it.
+  //
+  // Removing it from market, artisan, waterfront and harbor is only safe NOW,
+  // and that is the whole point of the last two batches. Each of those four
+  // has small exclusives of its own to fall back on — shambles and cookshop,
+  // workshop and kiln, smokehouse and boathouse, chandlery and sail loft —
+  // where before they had nothing under three tiles that was theirs. Doing
+  // this a batch earlier would have starved them exactly the way the temple
+  // quarter halved when the fill passes stopped stamping row houses into it.
+  //
+  // Kept in the slum on purpose: a slum IS row houses, subdivided, plus the
+  // tenements and lean-tos that are its own. Two quarters out of eight or
+  // nine is inside the third, so it now reads as characteristic of both.
   residential: [
     { id: 'building_small', w: 2, h: 2, weight: 5 },
     { id: 'row_house', w: 1, h: 2, weight: 5 },
@@ -80,8 +107,8 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
   ],
   artisan: [
     { id: 'shop', w: 2, h: 3, weight: 5 },
-    { id: 'building_small', w: 2, h: 2, weight: 4 },
-    { id: 'row_house', w: 1, h: 2, weight: 4 },
+    { id: 'building_small', w: 2, h: 2, weight: 5 },
+    // ROW HOUSE DELIBERATELY ABSENT — see the note above `residential`.
     { id: 'warehouse', w: 4, h: 3, weight: 3 },
     { id: 'corner_building', w: 2, h: 2, weight: 2 },
     { id: 'half_timber', w: 3, h: 2, weight: 2 },
@@ -115,7 +142,7 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'building_small', w: 2, h: 2, weight: 4 },
     { id: 'shop', w: 2, h: 3, weight: 4 },
     { id: 'warehouse', w: 4, h: 3, weight: 3 },
-    { id: 'row_house', w: 1, h: 2, weight: 3 },
+    // ROW HOUSE DELIBERATELY ABSENT — see the note above `residential`.
     { id: 'building_medium', w: 3, h: 3, weight: 2 },
     { id: 'tavern', w: 4, h: 3, weight: 2 },
     { id: 'inn', w: 3, h: 3, weight: 2 },
@@ -178,7 +205,7 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     { id: 'warehouse', w: 4, h: 3, weight: 8 },
     { id: 'shop', w: 2, h: 3, weight: 4 },
     { id: 'tavern', w: 4, h: 3, weight: 3 },
-    { id: 'row_house', w: 1, h: 2, weight: 3 },
+    // ROW HOUSE DELIBERATELY ABSENT — see the note above `residential`.
     { id: 'inn', w: 3, h: 3, weight: 2 },
     { id: 'building_small', w: 2, h: 2, weight: 2 },
     { id: 'lighthouse', w: 3, h: 3, weight: 4 },
@@ -195,6 +222,11 @@ const DISTRICT_BUILDINGS: Record<DistrictType, { id: string; w: number; h: numbe
     // capped at one, like the wash house.
     { id: 'chandlery', w: 1, h: 2, weight: 7 },
     { id: 'customs_house', w: 2, h: 2, weight: 2 },
+    // The SECOND small exclusive. One plus a cap is not enough — the cap is
+    // what stops monoculture and the moment it binds the quarter falls back
+    // on the shared row_house, which measured as harbor's largest single type
+    // at 31 of 65 buildings. The caps have to sum to the quarter.
+    { id: 'sail_loft', w: 1, h: 2, weight: 6 },
   ],
   fortress: [
     { id: 'watchtower', w: 2, h: 2, weight: 2 },
@@ -302,7 +334,7 @@ const MAX_PER_DISTRICT: Record<string, number> = {
   // Nothing got darker — roofs are simply the darkest surface, so a
   // composition change reads as a tone regression. variety twinNear 6 -> 10
   // is the same fifteen buildings seen from the other side.
-  smokehouse: 4,
+  smokehouse: 8,
   // A firing is an installation, not housing — same argument as the sexton
   // and the wash house. And the SHAPE and the CAP are chosen together: at
   // 2x2 the kiln placed ZERO on both seeds where artisan exists, which is
@@ -339,9 +371,11 @@ const MAX_PER_DISTRICT: Record<string, number> = {
   //
   // Written as scarcity these would be 3/4/2 and would cost coverage and
   // frontage for no gain, which the first version of this whole table did.
-  shambles: 10,
-  chandlery: 12,
+  shambles: 12,
+  chandlery: 14,
   guardhouse: 6,
+  sail_loft: 10,
+  cookshop: 9,
 }
 // These read 1/10/4/4/3/3 first and cost three points of built coverage and
 // five of achievable frontage, because they were written as SCARCITY when the
@@ -5689,6 +5723,8 @@ export class TownGenerator implements IMapGenerator {
       case 'armory': return ['crate_stack', 'heraldic_banner', ...(rng() > 0.5 ? ['forge_brazier'] : [])]
       case 'gatehouse': return ['heraldic_banner', 'wall_lantern', 'forge_brazier']
       case 'shambles': return ['hanging_sign', 'crate', ...(rng() > 0.5 ? ['barrel'] : ['sack_pile'])]
+      case 'sail_loft': return ['rope_coil', 'crate_stack', ...(rng() > 0.5 ? ['barrel'] : ['fish_rack'])]
+      case 'cookshop': return ['hanging_sign', 'woodpile', ...(rng() > 0.5 ? ['barrel'] : ['cafe_table'])]
       case 'weigh_house': return ['crate_stack', 'sack_pile', ...(rng() > 0.5 ? ['cart'] : ['bench'])]
       case 'kiln': return ['woodpile', 'rubble_pile', ...(rng() > 0.5 ? ['handcart'] : [])]
       case 'workshop': return ['woodpile', 'crate', ...(rng() > 0.5 ? ['ladder'] : ['handcart'])]
@@ -6671,6 +6707,7 @@ export class TownGenerator implements IMapGenerator {
       kiln: { w: 1, h: 2 }, workshop: { w: 1, h: 2 },
       smokehouse: { w: 1, h: 2 }, boathouse: { w: 2, h: 2 },
       chandlery: { w: 1, h: 2 }, customs_house: { w: 2, h: 2 },
+      sail_loft: { w: 1, h: 2 }, cookshop: { w: 1, h: 2 },
       guardhouse: { w: 1, h: 2 }, armory: { w: 2, h: 2 },
       shambles: { w: 1, h: 2 },
       // The street-clutter batch. Every multi-tile one MUST be here or it

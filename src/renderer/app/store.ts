@@ -469,6 +469,45 @@ const defaultObjectDefs: ObjectDefinition[] = [
     footprint: { w: 1, h: 2 },
     styleSetSlots: ['wall', 'roof', 'door', 'window', 'awning']
   },
+  // A SECOND SMALL EXCLUSIVE PER QUARTER, and the reason is the cap.
+  //
+  // One small exclusive type plus a cap is not enough: the cap is what stops
+  // the type swamping the quarter, and the moment it binds the quarter falls
+  // straight back on the shared `row_house` it was given the type to escape.
+  // Measured immediately after capping — market read row_house 11 / shambles
+  // 10 and harbor read row_house 31 / net_loft 17 / chandlery 12, so the
+  // largest single type in both was the one that says nothing.
+  //
+  // The caps have to SUM to the quarter, which means two or three small
+  // exclusives rather than one. That is also just what a real quarter is: a
+  // market street is butchers AND cookshops AND a weigh house, not one trade
+  // repeated.
+  //
+  // A sail loft is where canvas is cut and repaired — a long low upper floor
+  // with wide shutters and an outside stair, which is a silhouette nothing
+  // else in the town has.
+  {
+    id: 'sail_loft',
+    name: 'Sail Loft',
+    category: 'building',
+    tags: ['structure', 'commercial', 'harbor'],
+    color: '#8C8570',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window']
+  },
+  // The medieval takeaway: you could not cook in a rented room, so you bought
+  // it hot at the door. Its silhouette IS its chimney — an external stack
+  // running the full height of a narrow gable, which reads from further away
+  // than any shopfront detail could.
+  {
+    id: 'cookshop',
+    name: 'Cookshop',
+    category: 'building',
+    tags: ['structure', 'commercial', 'market'],
+    color: '#A88A6A',
+    footprint: { w: 1, h: 2 },
+    styleSetSlots: ['wall', 'roof', 'door', 'window', 'awning']
+  },
   {
     id: 'row_house',
     name: 'Row House',

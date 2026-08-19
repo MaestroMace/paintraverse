@@ -1718,6 +1718,152 @@ function tmplShambles(ctx: MassingContext): Volume[] {
   ]
 }
 
+/**
+ * A SAIL LOFT IS A LONG UPPER ROOM WITH AN OUTSIDE STAIR.
+ *
+ * Canvas is cut on the floor, so the loft has to be one clear span with as
+ * much window as the wall will carry, and you reach it from outside because
+ * the ground floor is full of spars. The external stair running up the flank
+ * is the silhouette — a diagonal against a gable, which nothing else in the
+ * harbour produces.
+ *
+ * Low and wide against the chandlery's tall and narrow, deliberately: the
+ * quarter's failure was that everything in it looked like everything else, so
+ * its two exclusive types have to be unlike each other as well as unlike a
+ * row house.
+ */
+function tmplSailLoft(ctx: MassingContext): Volume[] {
+  const lowerH = STOREY_HEIGHT * (1.0 + rand01(ctx.hash, 1451) * 0.1)
+  const upperH = STOREY_HEIGHT * (0.95 + rand01(ctx.hash, 1453) * 0.15)
+  const span = (ctx.footW + ctx.footD) / 2
+  const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
+  const wood = 0x6b5740
+  // The stair climbs the FLANK, which is the face parallel to the ridge —
+  // the gable carries the loft door. Settled against tmplSmokehouse's vent
+  // the same way the chandlery's cat-head was, because I got that one
+  // backwards by reasoning about it.
+  const alongZ = ridgeAxis === 'z'
+  const flankHalf = (alongZ ? ctx.footW : ctx.footD) / 2
+  const side = rand01(ctx.hash, 1455) < 0.5 ? 1 : -1
+  const stairOut = flankHalf + 0.3
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: lowerH + upperH,
+      roofStyle: 'gabled', roofHeight: span * (0.44 + rand01(ctx.hash, 1457) * 0.1),
+      roofAxis: ridgeAxis,
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: false,
+      floors: 2,
+    },
+    {
+      // The flight. One raked slab rather than treads — a 20cm tread spans a
+      // single pixel at RENDER_SCALE past about seventeen metres, so the
+      // diagonal is the thing that has to read, not the steps in it.
+      role: 'trim',
+      offsetX: alongZ ? side * stairOut : 0,
+      offsetZ: alongZ ? 0 : side * stairOut,
+      width: alongZ ? 0.55 : ctx.footD * 0.55,
+      depth: alongZ ? ctx.footW * 0.55 : 0.55,
+      bottomY: 0, height: lowerH + 0.15,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: wood, roofColor: wood,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    },
+    {
+      // The landing at the top of it, which is what makes the flight read as
+      // a stair rather than as a buttress.
+      role: 'trim',
+      offsetX: alongZ ? side * stairOut : ctx.footW * 0.22,
+      offsetZ: alongZ ? ctx.footD * 0.22 : side * stairOut,
+      width: alongZ ? 0.75 : 0.9,
+      depth: alongZ ? 0.9 : 0.75,
+      bottomY: lowerH + 0.15, height: 0.14,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: wood, roofColor: wood,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    },
+  ]
+}
+
+/**
+ * A COOKSHOP IS A CHIMNEY WITH A SHOP UNDER IT.
+ *
+ * You could not cook in a rented room, so you bought it hot at the door. The
+ * whole building is an excuse for the fire, and the external stack running
+ * the full height of a narrow gable is what reads at a hundred feet — further
+ * than any shopfront detail ever will.
+ *
+ * The stack is a VOLUME rather than a chimney ornament on purpose: chimneys
+ * are anchored to the main body's roof and sized as ornament, and this one
+ * has to start at the ground and finish above the ridge.
+ */
+function tmplCookshop(ctx: MassingContext): Volume[] {
+  const wallH = STOREY_HEIGHT * (1.85 + rand01(ctx.hash, 1461) * 0.35)
+  const span = (ctx.footW + ctx.footD) / 2
+  const rise = span * (0.5 + rand01(ctx.hash, 1463) * 0.12)
+  const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
+  const alongZ = ridgeAxis === 'z'
+  const flankHalf = (alongZ ? ctx.footW : ctx.footD) / 2
+  const side = rand01(ctx.hash, 1465) < 0.5 ? 1 : -1
+  const stackW = 0.75
+  const brick = 0x8a5f4a
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW, depth: ctx.footD,
+      bottomY: 0, height: wallH,
+      roofStyle: 'gabled', roofHeight: rise,
+      roofAxis: ridgeAxis,
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: false,
+      floors: 2,
+    },
+    {
+      // Half-buried in the flank so it reads as built INTO the wall, and
+      // sized so its outer face lands inside the overhang budget — a stack
+      // clipped flat against the wall is just a pilaster.
+      role: 'trim',
+      offsetX: alongZ ? side * (flankHalf + stackW * 0.28) : 0,
+      offsetZ: alongZ ? 0 : side * (flankHalf + stackW * 0.28),
+      width: alongZ ? stackW : stackW * 1.15,
+      depth: alongZ ? stackW * 1.15 : stackW,
+      // Clear of the ridge, which is what makes the silhouette.
+      bottomY: 0, height: wallH + rise + 0.65,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: brick, roofColor: brick,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    },
+    {
+      // The cap course, so the stack ends in something rather than stopping.
+      role: 'trim',
+      offsetX: alongZ ? side * (flankHalf + stackW * 0.28) : 0,
+      offsetZ: alongZ ? 0 : side * (flankHalf + stackW * 0.28),
+      width: alongZ ? stackW * 1.3 : stackW * 1.45,
+      depth: alongZ ? stackW * 1.45 : stackW * 1.3,
+      bottomY: wallH + rise + 0.65, height: 0.18,
+      roofStyle: 'flat', roofHeight: 0,
+      roofAxis: 'x',
+      wallColor: brick, roofColor: brick,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    },
+  ]
+}
+
 /** Body + dramatic centered tall tower (like a keep). */
 function tmplStackedTower(ctx: MassingContext): Volume[] {
   const mainRoof: RoofStyle = 'flat'
@@ -2204,6 +2350,10 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   guardhouse: (ctx) => tmplGuardhouse(ctx),
   armory: (ctx) => tmplArmory(ctx),
   shambles: (ctx) => tmplShambles(ctx),
+  // The second small exclusive in each of those two quarters — the cap on the
+  // first one is what makes a second one necessary.
+  sail_loft: (ctx) => tmplSailLoft(ctx),
+  cookshop: (ctx) => tmplCookshop(ctx),
   warehouse: (ctx) => tmplStepBack(ctx),
   stable: (ctx) => tmplFarmstead(ctx),
   mill: (ctx) => rand01(ctx.hash, 523) < 0.3 ? tmplWindmill(ctx) : tmplFarmstead(ctx),
