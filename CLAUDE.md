@@ -555,6 +555,25 @@ daylight. The fix is not a better ratio. It is eyeball's existing "reads
 black" at 0.06 — a number already in use — as a second, absolute gate. The
 relative test FINDS candidates and the absolute one DECIDES.
 
+**WHEN A COUNTER AND A PHOTOGRAPH DISAGREE, THE PHOTOGRAPH ADJUDICATES —
+and an unwatched instrument is the one most likely to be lying.**
+`river.mjs` was not on the board and reported 1.7 bridges a town "stopping
+in open water", which is exactly the sort of finding that eats a session.
+`bridgeshot.mjs` photographed all six on the seed and every one read
+`LLL=###=LLL`. The town was fine and the tool was wrong twice: a 1x1
+footbridge has no axis and `fp.w >= fp.h` silently answers X, so a
+north-south chain was walked east and west and read as three dangling
+bridges; and a deck reaching the map edge was called dangling because the
+test steps one tile past it and falls off the map. **A false alarm nobody
+runs is worse than no instrument at all** — nothing contradicts it and the
+next person believes it.
+
+**A SQUARE FOOTPRINT HAS NO AXIS, so any code that derives one from
+`w >= h` is guessing.** Three separate places in this repo pick an axis that
+way. It is right for a 1x2 and meaningless for a 1x1, and the failure is
+silent because the guess is always SOME axis. Derive it from the thing that
+actually has a direction — the deck mask, the ridge, the road.
+
 **A FIX CAN BE APPLIED TO ONE BRANCH OF FOUR AND MEASURE AS DONE.** The tone
 arc raised ambient and hemisphere with a correct argument about skylight,
 took every measurement at NOON, and therefore edited the noon branch of
@@ -2430,6 +2449,21 @@ diffs them against `tools/harness-baseline.json`, and exits non-zero on a gate
 failure, a regression outside the metric's noise band, or an extractor that
 could not parse its tool. `--save` records the current readings; `--quick`
 skips everything needing Electron; `--only=audit,odd` narrows it.
+
+**TWENTY-SIX CHECKS NOW, AND THE EIGHT MOST RECENT WERE SITTING UNRUN.**
+Nineteen instruments were on the board and twenty-nine were not. Most of the
+twenty-nine are PHOTOGRAPHERS — asset, bisect, walkshots, rivershot,
+bridgeshot, inspect, pixelart, webshot — and belong off it; they answer "what
+does this look like", which has no number to regress. Eight were
+measurements: river, site, vistas, features, tenancy, streets, budget,
+propscale. They are on it now, every extractor written against captured
+output and tested before it went in.
+
+Still off the board and worth adding when someone has the runtime budget:
+`allsides`, `squares`, `emptiness`, `seam`, `relief`, `slivers`, `overhang`,
+`typemix`, `quarters`, `anomaly`. `anomaly` is the notable omission — it is
+the pixel-defect detector and it has a stated noise floor, so it needs a
+`--repeat` before a band can be chosen honestly.
 
 Twenty-eight instruments and no way to run them was not a cosmetic problem — it
 is the most expensive failure this project has had. District character was
