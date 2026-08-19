@@ -93,6 +93,32 @@ const STRUCTURE_ROLES: [string, string][] = [
   ['landmark', '#7f95b5'],      // steel blue — towers, windmills, lighthouse
   ['commercial', '#d69a4a'],    // amber — shops, taverns, guild halls
   ['noble', '#c8a6cf'],         // pale orchid — mansions
+  // A SEVENTH TABLE THAT registry.mjs CANNOT SEE, and two types were falling
+  // through it. `registry.mjs` checks the six ID-KEYED tables and CLAUDE.md
+  // already lists four more that are BEHAVIOUR; this is a tint keyed by TAG,
+  // so a type whose tags name no role here draws with no role tint at all and
+  // lands back in the 30-degree band of brown this table exists to break up.
+  // `customs_house` is ['civic','harbor'] and `orangery` is ['garden','civic'],
+  // and neither word was in the list.
+  //
+  // Both are real categories rather than patches for two types: the town has
+  // a weigh house, a customs house, a guild hall and a town gate, and it has
+  // a whole garden quarter. Placed AFTER noble on purpose — a gate lodge is
+  // ['noble','civic'] and reads as noble, which is what it is.
+  ['garden', '#7fae7a'],        // leaf — orangery, dovecote, potting shed
+  ['civic', '#8fb5a8'],         // sage — customs house, weigh house, lodges
+  // And a sweep of the whole table found five more words with no hue, of
+  // which BARRIER is the one that matters: ~250 precinct-wall, stone-wall and
+  // iron-fence segments a town were drawing as untinted brown, which is the
+  // single largest block of "porridge" left in the plan. `industrial` is the
+  // kiln and the forge, `elevation` is the staircase, and `water` / `harbor`
+  // match the hues PROP_ROLES already uses so a dock and a mooring ring read
+  // as the same thing whichever table they come through.
+  ['barrier', '#9a9288'],       // pale stone — walls, fences, precinct walls
+  ['industrial', '#a5714a'],    // brick — kiln, forge
+  ['water', '#4682b4'],         // matches PROP_ROLES
+  ['harbor', '#5f8fa8'],        // matches PROP_ROLES
+  ['elevation', '#8e8e86'],     // neutral, as passage — staircases
   ['residential', '#c19a6b'],   // warm tan — the default town fabric
   ['passage', '#8e8e86'],       // neutral — archways, gates
   ['functional', '#93856d'],    // stables, mills
