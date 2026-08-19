@@ -440,7 +440,11 @@ for (let i = 0; i < spots.length; i++) {
       // A blank has to be big enough to BE the thing you are looking at. A
       // 200px smooth patch is a roof slope; a patch that is a twentieth of
       // the frame is a wall you are standing in front of with nothing on it.
-      const MIN_BLANK = Math.round(N * 0.02)
+      // 4% of the frame, not 2%. A plaster panel between two timbers is
+      // featureless and is also just what a half-timbered wall IS — the eye
+      // does not call that a blank wall. What it calls a blank wall is a
+      // large expanse with nothing at all on it, like a landmark's 40m flank.
+      const MIN_BLANK = Math.round(N * 0.04)
       for (const c of out) {
         if (c.n < MIN_BLANK) continue
         const bw = c.x1 - c.x0 + 1, bh = c.y1 - c.y0 + 1
@@ -524,6 +528,18 @@ for (let i = 0; i < spots.length; i++) {
     attribute(darkC)
     attribute(brightC)
     attribute(blanks)
+    // THE GROUND IS ALLOWED TO BE FEATURELESS. A road with no detail on it is
+    // a road; the 30ft read is about the street WALL. The first run counted
+    // the cobbles as 2.4% of a view and a `ground:4` terrain tile appeared in
+    // the by-type table, which is the tool grading correct content as a
+    // defect — the same category error humanscale made counting a 1.6m wall
+    // as a storey under head height.
+    //
+    // And no nearest-prop fallback for a blank: it attributed a 7%-of-frame
+    // wall to a LADDER standing in front of it. That guess is defensible for
+    // a 200px patch and absurd for a quarter of the screen.
+    const blanksV = blanks.filter((c) => (c.up ?? 0) < 0.6 &&
+      !String(c.def).startsWith('prop:'))
 
     // Ordinary wall reference: non-sky, near-vertical, not in any patch.
     const wallRef = []
@@ -545,7 +561,7 @@ for (let i = 0; i < spots.length; i++) {
       ctx.strokeRect(c.x0 - 1, c.y0 - 1, c.x1 - c.x0 + 3, c.y1 - c.y0 + 3)
     }
     return {
-      W, H, dark: darkC, bright: brightC, blanks, nearMiss,
+      W, H, dark: darkC, bright: brightC, blanks: blanksV, nearMiss,
       wallMed: wallRef.length ? +wallRef[wallRef.length >> 1].toFixed(4) : 0,
       skyFrac: +(sky.reduce((a, b) => a + b, 0) / N).toFixed(3),
       png: (darkC.length || blanks.length) ? c2.toDataURL('image/png') : null,
@@ -614,12 +630,16 @@ if (ALL && holes.length) {
 }
 
 const blankFrac = blanksAll.reduce((a, c) => a + c.frac, 0) / Math.max(1, spots.length)
-console.log(`\nBLANKS — one featureless surface filling 2%+ of the view: ${blanksAll.length}`)
+console.log(`\nBLANKS — one VERTICAL surface with no detail, filling 4%+ of the view: ${blanksAll.length}`)
 console.log(`  ${(blankFrac * 100).toFixed(1)}% of an average street view is a single flat`)
 console.log('  patch with no detail on it. This is DESIGN.md\'s 30ft read, and')
 console.log('  `odd.mjs bareWallArea` cannot see it — that reads which volumes were')
 console.log('  authored `textured: false`, so a wall that IS textured and still')
 console.log('  looks flat is invisible to it.')
+console.log('  The GROUND is excluded — a road with no detail on it is a road, and')
+console.log('  counting it is the category error humanscale made calling a 1.6m wall')
+console.log('  a storey under head height. NO TARGET is stated: a half-timbered')
+console.log('  panel is featureless and is also just what that wall IS.')
 if (blanksAll.length) {
   const byB = new Map()
   for (const c of blanksAll) {
