@@ -144,6 +144,7 @@ console.log('the same thing at noon and at dusk.\n')
 
 const holes = []
 const lits = []
+const blanksAll = []
 let wallSamples = []
 let framesWithSky = 0
 let nearMisses = 0
@@ -401,6 +402,58 @@ for (let i = 0; i < spots.length; i++) {
     const darkC = grade(dark, true)
     const brightC = grade(bright, false)
 
+    // --- BLANK: A LARGE FEATURELESS SURFACE FILLING THE VIEW ---------------
+    //
+    // The other thing a person says about a street screenshot, and the one
+    // DESIGN.md names as the remaining hole: "the 30ft read IS the street
+    // wall". A hole is a dark patch; a BLANK is a patch with nothing ON it —
+    // a wall you can see is a wall and can say nothing else about.
+    //
+    // `odd.mjs` already reports `bareWallArea`, and it reads the DATA: which
+    // volumes were authored `textured: false`. That cannot see a wall that IS
+    // textured and still reads flat — a flank whose window grid put no
+    // openings on it, a plain gable above an eave, a landmark's 42m side.
+    // The cathedral measured 0.26x an ordinary building's detail density and
+    // it is textured. Pixels are the only place that question is answerable.
+    //
+    // Measured as local GRADIENT, not variance: a smooth lighting ramp across
+    // a big wall has real variance and no detail, and would read as busy.
+    // A pixel is featureless when neither neighbour differs from it by more
+    // than a hair RELATIVE to the local brightness — a ratio again, so a dark
+    // wall and a lit one are held to the same standard and the exposure
+    // cancels.
+    const flat = new Uint8Array(N)
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        const i = y * W + x
+        if (!solid[i]) continue
+        const l = local[i]
+        if (l <= 0.004) continue
+        const gx = Math.abs(L[i + 1] - L[i - 1])
+        const gz = Math.abs(L[i + W] - L[i - W])
+        if ((gx + gz) / l < 0.035) flat[i] = 1
+      }
+    }
+    const blanks = []
+    {
+      const { out } = comps(flat)
+      // A blank has to be big enough to BE the thing you are looking at. A
+      // 200px smooth patch is a roof slope; a patch that is a twentieth of
+      // the frame is a wall you are standing in front of with nothing on it.
+      const MIN_BLANK = Math.round(N * 0.02)
+      for (const c of out) {
+        if (c.n < MIN_BLANK) continue
+        const bw = c.x1 - c.x0 + 1, bh = c.y1 - c.y0 + 1
+        blanks.push({
+          n: c.n, x0: c.x0, y0: c.y0, x1: c.x1, y1: c.y1,
+          frac: +(c.n / N).toFixed(3),
+          fill: +(c.n / (bw * bh)).toFixed(2),
+          med: +c.med.toFixed(4),
+        })
+      }
+      blanks.sort((a, b) => b.n - a.n)
+    }
+
     // ONE RAY PER PATCH, at its centre — not a grid, so this stays seconds.
     // "There is a hole" is a finding; "the door on every bakery" is a fix.
     const ray = new THREE.Raycaster()
@@ -470,6 +523,7 @@ for (let i = 0; i < spots.length; i++) {
     }
     attribute(darkC)
     attribute(brightC)
+    attribute(blanks)
 
     // Ordinary wall reference: non-sky, near-vertical, not in any patch.
     const wallRef = []
@@ -486,11 +540,15 @@ for (let i = 0; i < spots.length; i++) {
       ctx.strokeStyle = '#38d0ff'
       ctx.strokeRect(c.x0 - 1, c.y0 - 1, c.x1 - c.x0 + 3, c.y1 - c.y0 + 3)
     }
+    for (const c of blanks) {
+      ctx.strokeStyle = '#ffe14d'
+      ctx.strokeRect(c.x0 - 1, c.y0 - 1, c.x1 - c.x0 + 3, c.y1 - c.y0 + 3)
+    }
     return {
-      W, H, dark: darkC, bright: brightC, nearMiss,
+      W, H, dark: darkC, bright: brightC, blanks, nearMiss,
       wallMed: wallRef.length ? +wallRef[wallRef.length >> 1].toFixed(4) : 0,
       skyFrac: +(sky.reduce((a, b) => a + b, 0) / N).toFixed(3),
-      png: darkC.length ? c2.toDataURL('image/png') : null,
+      png: (darkC.length || blanks.length) ? c2.toDataURL('image/png') : null,
     }
   }, { sp, volumes: scene.volumes })
 
@@ -500,6 +558,7 @@ for (let i = 0; i < spots.length; i++) {
   if (res.wallMed) wallSamples.push(res.wallMed)
   for (const c of res.dark) holes.push({ ...c, view: i })
   for (const c of res.bright) lits.push({ ...c, view: i })
+  for (const c of res.blanks ?? []) blanksAll.push({ ...c, view: i })
   if (res.png) {
     writeFileSync(`.shots/holes/s${seed}-v${i}.png`,
       Buffer.from(res.png.split(',')[1], 'base64'))
@@ -554,7 +613,26 @@ if (ALL && holes.length) {
   }
 }
 
-console.log(`\n  frames written to .shots/holes/  (magenta = hole, cyan = lit opening)`)
+const blankFrac = blanksAll.reduce((a, c) => a + c.frac, 0) / Math.max(1, spots.length)
+console.log(`\nBLANKS — one featureless surface filling 2%+ of the view: ${blanksAll.length}`)
+console.log(`  ${(blankFrac * 100).toFixed(1)}% of an average street view is a single flat`)
+console.log('  patch with no detail on it. This is DESIGN.md\'s 30ft read, and')
+console.log('  `odd.mjs bareWallArea` cannot see it — that reads which volumes were')
+console.log('  authored `textured: false`, so a wall that IS textured and still')
+console.log('  looks flat is invisible to it.')
+if (blanksAll.length) {
+  const byB = new Map()
+  for (const c of blanksAll) {
+    const e = byB.get(c.def ?? '?') ?? { n: 0, frac: 0 }
+    e.n++; e.frac += c.frac; byB.set(c.def ?? '?', e)
+  }
+  for (const [def, e] of [...byB.entries()].sort((a, b) => b[1].frac - a[1].frac).slice(0, 8)) {
+    console.log(`    ${String(def).padEnd(18)} ${String(e.n).padStart(3)} patches` +
+      `  ${(e.frac * 100 / spots.length).toFixed(1)}% of an average view`)
+  }
+}
+
+console.log(`\n  frames written to .shots/holes/  (magenta = hole, cyan = lit opening, yellow = blank)`)
 console.log('\nWHAT THIS DOES NOT SEE, so nobody quotes it for the wrong thing:')
 console.log('  · anything against the SKY — that is a silhouette and anomaly.mjs owns it')
 console.log('  · patches under the minimum size — a mullion and an eave shadow are')

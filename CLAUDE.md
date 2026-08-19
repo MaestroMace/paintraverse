@@ -546,6 +546,23 @@ beam was on the wrong face AND over the overhang budget, and either alone
 produced the same empty frame; fixing one would have "disproved" the other. A
 count of volumes emitted said the beam was there.
 
+**A RATIO CANNOT TELL A WINDOW FROM A VOID — pair it with the one absolute
+line you already have.** Every pixel test in `holes.mjs` is relative to the
+local surround, which is what makes it work at any hour; and at noon, where
+nothing glows, it flagged fifty-four ordinary windows as holes, because a
+dark rectangle in a bright wall is simply what a window looks like in
+daylight. The fix is not a better ratio. It is eyeball's existing "reads
+black" at 0.06 — a number already in use — as a second, absolute gate. The
+relative test FINDS candidates and the absolute one DECIDES.
+
+**A FIX CAN BE APPLIED TO ONE BRANCH OF FOUR AND MEASURE AS DONE.** The tone
+arc raised ambient and hemisphere with a correct argument about skylight,
+took every measurement at NOON, and therefore edited the noon branch of
+`updateLighting`. Dusk — the hour DESIGN.md is written against — kept the
+pre-arc numbers for the whole subsequent arc, and this file recorded the
+resulting 0.058 wall as a mysterious regression. When a fix is a value in a
+switch, grep the other cases the same day.
+
 **Registry-clean is not wired-in.** `registry.mjs` checks the six ID-KEYED
 tables, which are identity. There are four more that are BEHAVIOUR — the
 massing template, the per-district cap, the building's own prop list, and
@@ -1799,38 +1816,38 @@ The whole device problem list is fixed. What is left:
    count as the budget — `tools/budget.mjs` and its texture-MB line are the
    number to watch on a phone, not draws. Note the SwiftShader figures in
    agent screenshots (3-5 FPS) are ~30x pessimistic and mean nothing.
-0b. **WALLS READ 0.058 AT DUSK WITH 52% OF THEIR PIXELS BLACK, and that is
-   the largest open defect in the project.** Measured on seed 777, six street
-   views, at the hour DESIGN.md is written against:
+0b. **WALLS AT DUSK: FIXED, and the cause was a fix applied to one branch
+   of four.** This item stood at 0.058 median with 52% of wall pixels black,
+   against a tone arc that recorded taking them to 0.203 — worse than the
+   figure that arc started from. `updateLighting` has four branches (night,
+   dusk, golden, day); the arc raised ambient 0.42 -> 0.62 and hemisphere
+   0.52 -> 0.95 and, because every measurement it took was at NOON, edited
+   the noon branch. Dusk kept the pre-arc numbers.
 
-   | surface | samples | p10 | med | p90 | reads black |
-   |---|---|---|---|---|---|
-   | sky | 1346 | 0.226 | 0.243 | 0.358 | 1% |
-   | roof | 618 | 0.006 | 0.063 | 0.191 | 47% |
-   | **wall** | **4552** | **0.019** | **0.058** | **0.167** | **52%** |
-   | ground | 3874 | 0.148 | 0.172 | 0.199 | 2% |
+   The file already said "THE WHOLE TONE ARC WAS MEASURED AT THE WRONG HOUR"
+   and concluded that the BOARD should be graded at dusk. **It never asked
+   whether the arc's own FIX had reached the hour it was now grading.** A
+   measurement taken under conditions nobody experiences is a measurement of
+   nothing, and so is a fix.
 
-   **The ground is fine.** A dusk street screenshot looks like a black floor
-   under lit windows and the floor measures 0.172 with 2% black — the eye is
-   adapting to a 0.243 sky, which is what dusk IS. Do not chase it; that is
-   the "washed-out noon overview" mistake with the sign flipped, and this file
-   already records making it once.
+   Sun 0.8 : hemi 0.42 is now 0.8 : 0.70, by a principle rather than by
+   taste: at dusk the sun is a weak low disc and the SKY DOME is the dominant
+   source — eyeball measures the dusk sky at 0.247, brighter than any surface
+   in frame — so the skylight fraction should be HIGHER at dusk than at noon
+   relative to the sun, and it was less than half. Still well under noon's
+   0.95, and the photograph confirms dusk still reads as dusk: orange sky,
+   dark silhouettes, warm windows dominating, and now you can read the
+   masonry they belong to.
 
-   The wall figure is the real one. The tone arc recorded taking walls from
-   0.068 to **0.203** at dusk and they are at 0.058 now, which is worse than
-   the number that arc started from. It did not happen in the district arc —
-   the board read 61 (x1000) before any of it and 52 after, so nine points of
-   that ninety are recent and the rest predates the saved baseline. **Nobody
-   caught it because a metric only fails against its baseline, and the
-   baseline was saved after the drift.**
+       wall   0.052 -> 0.088   black 52% -> 41%
+       roof   0.084 -> 0.085   black 84% -> 32%   (the tail, not the middle)
+       ground 0.172 -> 0.253
 
-   An unverified hypothesis, marked as such because this file records five
-   wrong tone attributions in one session: the town is now much denser in tall
-   narrow types on 12m streets, so more wall is in another building's shadow.
-   **Before writing that down as the cause, change the suspected thing and see
-   whether the number moves** — the discipline that would have caught all five.
-   Start by A/B-ing an early commit's `src/` at the same hour and seed, which
-   is the only honest A/B in a seeded generator.
+   **Found by `tools/holes.mjs`, not by staring at the tone table.** After
+   the glass and door fixes its residual findings were all things in SHADOW,
+   with nothing wrong in their palettes. Two of the remaining branches —
+   night at 0.26/0.26 and golden at 0.36/0.40 — have never been measured at
+   all; grade them before touching them.
 
 1. **Ground-level life — mostly closed, and the residual is DECLINED on
    purpose rather than still open.** Props come in 22 designed GROUPS rather
@@ -2120,6 +2137,25 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   so it walks out until the projected footprint box fits. The magenta outline
   is not decoration — two rounds went on guessing which box in the frame was
   the subject. Both halves are `tools/lib/vantage.mjs` now.
+- `node tools/holes.mjs [seed] [--views=N] [--time=] [--all]` — **dark
+  rectangles a person reads as a HOLE in a wall, and large featureless
+  surfaces they read as a BLANK one.** The class every other instrument here
+  is blind to, and I found it by LOOKING: three street frames out of three
+  had solid black rectangles where windows and doors are. `facade.mjs` knows
+  where every opening IS and has no opinion about its colour; `eyeball.mjs`
+  buries a black door among four thousand wall samples; `anomaly.mjs` finds
+  thin dark shapes against the SKY and this is a fat one against a WALL;
+  `odd.mjs` cannot see a defect the whole population shares. Every test is a
+  RATIO to the local surround so the exposure cancels and one run means the
+  same thing at noon and at dusk — plus ONE absolute line, eyeball's existing
+  0.06 "reads black", because relative alone cannot tell a window from a
+  void and flagged fifty-four ordinary windows at noon. Carries its own
+  CONTROL (the lit openings) and names the building, the prop or the terrain
+  tile with one ray per patch. **Read its four self-inflicted findings** —
+  a shadowed storey with windows inside it scoring as one hole, the
+  containment test then killing the control, string courses at 25:1, and the
+  window/void confusion — all four found by looking at the annotated frames
+  it writes, which is why it writes them.
 - `node tools/eyeball.mjs [seed] [--views=N]` — **what FILLS a street view.**
   Selection by SCREEN PRESENCE rather than by data anomaly, which is the one
   thing every other tool here gets backwards: they pick a subject by z-score,
