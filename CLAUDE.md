@@ -1268,7 +1268,7 @@ Run these before believing anything about where the project is.
 | openings off their own wall | facade.mjs | 0 (was 44 — a NEW check, new class) | clean |
 | awning slope | facade.mjs | 6.8° down, p10 = med = p90, 0 tilting up | clean |
 | bare untextured wall | odd.mjs | 9 over z=3, was 36 — a jettied ground floor authored blank | improving |
-| copy-paste twins | variety.mjs | 9% have an interchangeable twin within 15m | healthy |
+| copy-paste twins | variety.mjs | 14% have an interchangeable twin within 15m (23% before the roof-style sweep) | the price of capped exclusives in rows |
 | **build determinism** | **harness --repeat=3** | **spread 0 on every metric, was up to 12** | **fixed** |
 | open-topped volumes | roofcheck.mjs | ~6 per town | near-clean |
 | human scale | humanscale.mjs | door 2.05m, window 1.35m, storey 2.90m, 0% sub-human | clean |
@@ -1290,7 +1290,7 @@ Run these before believing anything about where the project is.
 | washing lines | (see buildLanternStrings) | 28-35 garments a town, 10 of 12 lines over walkable ground | new |
 | interpenetration | clash.mjs | **15 pairs over 0.5m, was 124** — see THE OVERHANG BUDGET | fixed |
 | bridges you can walk onto | bridgeshot.mjs | **0.34-0.58m step up, was 2.2-2.4m over head** | fixed |
-| **can a person get there** | **traverse.mjs** | **95% reachable from spawn, was 58%; 0 impassable crossings, was 11** | **fixed** |
+| **can a person get there** | **traverse.mjs** | **78-91% reachable, 0 impassable crossings, 32 clamber pairs** | **the terrain relax is derived from the 0.6m step now** |
 | **the river** | **river.mjs** | **bank relief 0.67m med / 1.28m max (was 0.03m), drop +3.6m** | **fixed** |
 | river severance | site.mjs | 0 of 5 seeds have an unreachable district, was 2 | clean |
 | waterfront dressing | (see dressWaterfront) | 10 maritime/natural types at the bank, was 2 | improving |
@@ -1799,6 +1799,39 @@ The whole device problem list is fixed. What is left:
    count as the budget — `tools/budget.mjs` and its texture-MB line are the
    number to watch on a phone, not draws. Note the SwiftShader figures in
    agent screenshots (3-5 FPS) are ~30x pessimistic and mean nothing.
+0b. **WALLS READ 0.058 AT DUSK WITH 52% OF THEIR PIXELS BLACK, and that is
+   the largest open defect in the project.** Measured on seed 777, six street
+   views, at the hour DESIGN.md is written against:
+
+   | surface | samples | p10 | med | p90 | reads black |
+   |---|---|---|---|---|---|
+   | sky | 1346 | 0.226 | 0.243 | 0.358 | 1% |
+   | roof | 618 | 0.006 | 0.063 | 0.191 | 47% |
+   | **wall** | **4552** | **0.019** | **0.058** | **0.167** | **52%** |
+   | ground | 3874 | 0.148 | 0.172 | 0.199 | 2% |
+
+   **The ground is fine.** A dusk street screenshot looks like a black floor
+   under lit windows and the floor measures 0.172 with 2% black — the eye is
+   adapting to a 0.243 sky, which is what dusk IS. Do not chase it; that is
+   the "washed-out noon overview" mistake with the sign flipped, and this file
+   already records making it once.
+
+   The wall figure is the real one. The tone arc recorded taking walls from
+   0.068 to **0.203** at dusk and they are at 0.058 now, which is worse than
+   the number that arc started from. It did not happen in the district arc —
+   the board read 61 (x1000) before any of it and 52 after, so nine points of
+   that ninety are recent and the rest predates the saved baseline. **Nobody
+   caught it because a metric only fails against its baseline, and the
+   baseline was saved after the drift.**
+
+   An unverified hypothesis, marked as such because this file records five
+   wrong tone attributions in one session: the town is now much denser in tall
+   narrow types on 12m streets, so more wall is in another building's shadow.
+   **Before writing that down as the cause, change the suspected thing and see
+   whether the number moves** — the discipline that would have caught all five.
+   Start by A/B-ing an early commit's `src/` at the same hour and seed, which
+   is the only honest A/B in a seeded generator.
+
 1. **Ground-level life — mostly closed, and the residual is DECLINED on
    purpose rather than still open.** Props come in 22 designed GROUPS rather
    than being scattered by a distance metric, every quarter has at least one
