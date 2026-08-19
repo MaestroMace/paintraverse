@@ -149,6 +149,43 @@ export interface LanternStringsResult {
  * overhead rope lanterns. Shares the _lanternMat so one
  * setLanternEmissiveIntensity() call drives both systems.
  */
+/**
+ * How likely a building is to carry a lantern over its door.
+ *
+ * A lantern is ADVERTISING before it is lighting. An inn that is open says so
+ * with a light; a shop trading after dark does the same; a gate lodge marks
+ * the entrance it exists to mark; a chapel keeps a lamp at its door. A house
+ * does it occasionally, because somebody is expected home.
+ *
+ * A flat rate across every type is the WALLPAPER failure — a number that
+ * looks healthy and differentiates nothing — and this was 18% on everything.
+ * The weighted rates below land within a point of that town-wide, so it is a
+ * redistribution rather than more light.
+ *
+ * An id absent from the table gets DEFAULT, which is the house rate. That is
+ * the safe direction for a missing entry: a new type gets an occasional
+ * lantern rather than one on every instance.
+ */
+const LANTERN_DEFAULT = 0.12
+const LANTERN_BY_TYPE: Readonly<Record<string, number>> = {
+  // The light IS the trade sign.
+  tavern: 0.9, inn: 0.9,
+  // Shopfronts that trade into the evening.
+  shop: 0.5, bakery: 0.5, apothecary: 0.5, cookshop: 0.6, shambles: 0.45,
+  chandlery: 0.5, weigh_house: 0.45, covered_market: 0.5, market_stall: 0.4,
+  workshop: 0.35, net_loft: 0.3, sail_loft: 0.3, smokehouse: 0.3,
+  // Civic and threshold buildings: the lantern says "this is the way in".
+  customs_house: 0.7, guild_hall: 0.6, gate_lodge: 0.85, guardhouse: 0.7,
+  armory: 0.4, orangery: 0.3,
+  // A lamp at a shrine or a churchyard door.
+  chapel: 0.35, temple: 0.35, clergy_house: 0.3, mausoleum: 0.2,
+  almshouse: 0.25, washhouse: 0.2,
+  // Grand houses light their own doors more than a terrace does.
+  mansion: 0.4, balcony_house: 0.2, coach_house: 0.25, building_large: 0.2,
+}
+const LANTERN_ODDS = (defId: string): number =>
+  LANTERN_BY_TYPE[defId] ?? LANTERN_DEFAULT
+
 export function buildWallLanterns(
   map: MapDocument,
   defMap: Map<string, ObjectDefinition>,
@@ -169,9 +206,25 @@ export function buildWallLanterns(
   const lanternGeos: THREE.BufferGeometry[] = []
   for (const obj of structureLayer.objects) {
     if (EXCLUDE.has(obj.definitionId)) continue
-    // Hash-based 18% pick so same seed → same lantern placements.
+    // A LANTERN GOES WHERE THERE IS A REASON FOR ONE.
+    //
+    // This was a flat 18% of every building, which is WALLPAPER by this
+    // repo's own definition: a rate that is identical everywhere tells the
+    // player nothing, reads as a healthy number, and differentiates no part
+    // of the town from any other. DESIGN.md pillar 5 asks for three layers of
+    // warm light; it does not ask for them to be sprinkled.
+    //
+    // A lantern over a door is ADVERTISING before it is lighting — an inn
+    // that is open says so with a light, which is most of what an inn sign
+    // meant before literacy was general. A shop does it when it trades late.
+    // A gate lodge marks the entrance it exists to mark. A house does it
+    // occasionally, because somebody is expected home.
+    //
+    // The town-wide rate lands within a point of the old 18%, so this is a
+    // redistribution and not more light: the same lanterns, on the buildings
+    // that have a reason for one.
     const h = stableHash(obj)
-    if (h % 100 >= 18) continue
+    if (h % 100 >= LANTERN_ODDS(obj.definitionId) * 100) continue
     const def = defMap.get(obj.definitionId)
     const fpT = def?.footprint ?? { w: 1, h: 1 }
     const ctx = obj.x + fpT.w / 2

@@ -5699,7 +5699,26 @@ export class TownGenerator implements IMapGenerator {
     // within one run. Anything asking "is this a street?" asks isCirculation.
     const isStreet = (x: number, y: number): boolean =>
       isCirculation(terrain?.[y]?.[x]) || !!roadMap[y]?.[x]
-    const WALLED: Set<DistrictType> = new Set(['cemetery', 'temple', 'garden'])
+    // NOBLE JOINS THEM, and it is the clearest case of the four.
+    //
+    // A noble quarter is DEFINED by its boundary — that is the whole reason a
+    // gate lodge exists as a building type, and a lodge standing at no gate is
+    // a small pedimented house in the middle of nothing. The other three are
+    // walled because they are sparse and a sparse quarter leaves gaps in the
+    // street line; this one is walled because privacy is what the quarter IS.
+    // Lynch's EDGE, and Sitte's argument that enclosure is what turns leftover
+    // ground into a place, neither of which requires the enclosing thing to be
+    // a house.
+    //
+    // Grade this on the boundary-wall frontage line and NOT on street width: a
+    // 1.45m wall you can see over does not enclose a street the way a 9m
+    // facade does, and counting it as one would be gaming the metric. That was
+    // measured when the precinct wall was built and it has not changed.
+    //
+    // Fortress is deliberately NOT here. Its boundary is the town wall and its
+    // gates are `town_gate` and `gatehouse`, both real buildings — a 1.45m
+    // coping course round a garrison would read as a garden.
+    const WALLED: Set<DistrictType> = new Set(['cemetery', 'temple', 'garden', 'noble'])
     const GATE_EVERY = 7
     const out: PlacedObject[] = []
 

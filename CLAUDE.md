@@ -1512,9 +1512,18 @@ which had finished geometry and had never been placed.
 ### THE PRECINCT WALL — done, and what it is honestly worth
 
 `precinct_wall` / `precinct_wall_v` (1x1, low, 1.45m with a coping) now run
-along the road frontage of cemetery, temple and garden quarters, gapped every
-seventh tile for a gateway and skipped wherever a street passes through.
-~25 segments a town; boundary-wall frontage 2% -> 5%.
+along the road frontage of cemetery, temple, garden **and noble** quarters,
+gapped every seventh tile for a gateway and skipped wherever a street passes
+through. ~25 segments a town; boundary-wall frontage 2% -> 5%.
+
+Noble was added with the `gate_lodge`, and it is the clearest of the four: the
+other three are walled because they are SPARSE and a sparse quarter leaves
+gaps in the street line, while a noble quarter is walled because privacy is
+what the quarter IS — which is also why a gate lodge is a building type, and a
+lodge standing at no gate is a small pedimented house in the middle of
+nothing. **Fortress is deliberately excluded**: its boundary is the town wall
+and its gates are `town_gate` and `gatehouse`, both real buildings, and a
+1.45m coping course round a garrison would read as a garden.
 
 **Street width did NOT move, and that is correct.** A 1.45m wall you can see
 over does not enclose a street the way a 9m facade does, and counting it as a
@@ -1775,15 +1784,23 @@ The whole device problem list is fixed. What is left:
    count as the budget — `tools/budget.mjs` and its texture-MB line are the
    number to watch on a phone, not draws. Note the SwiftShader figures in
    agent screenshots (3-5 FPS) are ~30x pessimistic and mean nothing.
-1. **Ground-level life is thin — partly addressed, and the next step is
-   named.** Props now come in designed GROUPS (~34 a town over 14 vignettes)
-   rather than being scattered by a distance metric, and washing hangs over
-   the street between upper windows. What is still missing is the third
-   dimension of the same idea: things left in the street rather than tidied
+1. **Ground-level life — mostly closed, and the residual is DECLINED on
+   purpose rather than still open.** Props come in 22 designed GROUPS rather
+   than being scattered by a distance metric, every quarter has at least one
+   of its own, and washing hangs over the street between upper windows.
+   This item used to ask for "things left in the street rather than tidied
    against a wall — a handcart parked across a corner, a ladder leaning, a
-   crate half-unloaded. `dressEmptyStreets` still answers "is this spot bare",
-   which is the metric this arc has been replacing with ownership everywhere
-   else. Grade with `tenancy.mjs` (42%) and the `vigOk:` counters, not by eye.
+   crate half-unloaded." Two thirds of that arrived as the `repairs` and
+   `unloading` vignettes, which are exactly work-stopped-here.
+   **The last third — objects in the CARRIAGEWAY — is a rule the code argues
+   against and the argument is good.** `dressEmptyStreets` places only at the
+   kerb, citing Alexander #124: the life of a public space forms around its
+   EDGE, and a space whose edge fails never becomes lively however much you
+   put in the middle. Its own comment records that this used to be a 75%
+   thinning instead of a rule and that 22% of every town's props stood in the
+   road. Anything placed mid-street also has to answer to `traverse.mjs`.
+   Do not reopen this without a reason better than "it would look busier";
+   grade with `tenancy.mjs` (44%) and the `vigOk:` counters, not by eye.
 2. **Trade quarters: CLOSED, and the fix was structural rather than more
    vocabulary.** This item said "only ~7 of ~200 buildings are trade types"
    for a long time. Market now runs 88-100% distinctive on four seeds

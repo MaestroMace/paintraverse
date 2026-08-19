@@ -1248,14 +1248,21 @@ function tmplKiln(ctx: MassingContext): Volume[] {
  * nonzero distance in front of its wall.
  */
 function tmplWorkshop(ctx: MassingContext): Volume[] {
-  const wallH = STOREY_HEIGHT * (1.9 + rand01(ctx.hash, 633) * 0.5)
+  const wallH = STOREY_HEIGHT * (1.7 + rand01(ctx.hash, 633) * 0.95)
   const span = (ctx.footW + ctx.footD) / 2
   const body: Volume = {
     role: 'mainBody',
     offsetX: 0, offsetZ: 0,
     width: ctx.footW, depth: ctx.footD,
     bottomY: 0, height: wallH,
-    roofStyle: 'gabled', roofHeight: span * (0.42 + rand01(ctx.hash, 635) * 0.1),
+    // A SECOND ROOF SHAPE — swept from the same fix on the newer exclusives.
+    // `variety.mjs` named `workshop` and `smokehouse` as the two worst
+    // copy-paste offenders in the town, three pairs each within 3m, and the
+    // reason is that a capped exclusive type placed in a row has one
+    // hardcoded silhouette however wide its height range is. A bug in a gate
+    // is a bug in a pattern; these two are the pattern.
+    roofStyle: rand01(ctx.hash, 637) < 0.35 ? 'hipped' : 'gabled',
+    roofHeight: span * (0.42 + rand01(ctx.hash, 635) * 0.1),
     roofAxis: ctx.footW >= ctx.footD ? 'x' : 'z',
     wallColor: ctx.wallColor, roofColor: ctx.roofColor,
     textured: true, cornice: false,
@@ -1297,7 +1304,7 @@ function tmplWorkshop(ctx: MassingContext): Volume[] {
  * whatever the plot would otherwise have carried.
  */
 function tmplSmokehouse(ctx: MassingContext): Volume[] {
-  const wallH = STOREY_HEIGHT * (1.95 + rand01(ctx.hash, 641) * 0.35)
+  const wallH = STOREY_HEIGHT * (1.8 + rand01(ctx.hash, 641) * 0.8)
   const span = (ctx.footW + ctx.footD) / 2
   // `gabled`, not `steep`: steep is in SPAN_PITCH and ensureRoofPitch floors
   // it far above a deliberate ask, which pinned every steep cottage roof to
@@ -1311,7 +1318,10 @@ function tmplSmokehouse(ctx: MassingContext): Volume[] {
       offsetX: 0, offsetZ: 0,
       width: ctx.footW, depth: ctx.footD,
       bottomY: 0, height: wallH,
-      roofStyle: 'gabled', roofHeight: rise,
+      // See tmplWorkshop: one hardcoded silhouette on a type placed in rows
+      // is what `variety.mjs` counts as a copy-paste.
+      roofStyle: rand01(ctx.hash, 649) < 0.3 ? 'hipped' : 'gabled',
+      roofHeight: rise,
       roofAxis: ridgeAxis,
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: false,
@@ -1395,8 +1405,24 @@ function tmplBoathouse(ctx: MassingContext): Volume[] {
  *
  * Tall and narrow on a 1x2, because a harbour street is a wall of them.
  */
+/**
+ * PINNING A TYPE TO A PHYSICAL NUMBER ALSO PINS AWAY ITS VARIATION.
+ *
+ * Every template below takes an ABSOLUTE wall height rather than `ctx.wallH`,
+ * which is right — a type with an intrinsic size must not inherit whatever the
+ * plot would otherwise have carried, and the cottage cost two rounds learning
+ * it. But `ctx.wallH` is where the per-instance jitter lives (`hScale` 0.85 to
+ * 1.15 in BuildingFactory), so ignoring it also throws the jitter away, and
+ * twelve capped shambles in a market quarter came out at IDENTICAL heights.
+ *
+ * `variety.mjs` caught it: twinNear — two interchangeable buildings within
+ * 15m — went 7% to 23%, which is the one number scattering cannot move and
+ * the axis `odd.mjs` is blind to by construction. The fix is not to reach
+ * back for `ctx.wallH`; it is to make each template's own multiplier range
+ * wide enough to do the job the jitter used to. Roughly doubled below.
+ */
 function tmplChandlery(ctx: MassingContext): Volume[] {
-  const wallH = STOREY_HEIGHT * (2.0 + rand01(ctx.hash, 1401) * 0.45)
+  const wallH = STOREY_HEIGHT * (1.85 + rand01(ctx.hash, 1401) * 0.85)
   // A PRISM ROOF CROSSES ITS SHORT DIMENSION, so the rise is a fraction of
   // THAT and not of `(footW + footD) / 2`. On a 1x2 the average is 4.5m
   // against a real 3m span, so an innocent-looking 0.55 was a 62-degree
@@ -1408,7 +1434,21 @@ function tmplChandlery(ctx: MassingContext): Volume[] {
   const span = Math.min(ctx.footW, ctx.footD)
   // `gabled`, never `steep` — steep is in SPAN_PITCH and ensureRoofPitch
   // floors it far above a deliberate ask.
+  // A SECOND ROOF SHAPE, because a terrace of one type is a terrace of one
+  // SILHOUETTE. `variety.mjs` calls two buildings twins when the type, the
+  // volume count, the roof styles AND every silhouette dimension within 5%
+  // all match — so a row of ten capped exclusives with one hardcoded roof
+  // style produces twins however wide the height range is, and widening the
+  // range alone moved twinNear by two points. Half the row hipped and half
+  // gabled halves the matching population outright, and it is what a real
+  // street looks like: the same trade, built at different times.
+  //
+  // `steep` and `pointed` are deliberately not offered — both are in
+  // SPAN_PITCH, so ensureRoofPitch floors them far above any deliberate ask
+  // and every instance would pin to the same value, which is the failure this
+  // is trying to fix wearing a different hat.
   const rise = span * (0.44 + rand01(ctx.hash, 1403) * 0.14)
+  const style: RoofStyle = rand01(ctx.hash, 1405) < 0.35 ? 'hipped' : 'gabled'
   const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
   // THE BEAM PROJECTS FROM THE GABLE END, WHICH IS PERPENDICULAR TO THE
   // RIDGE, and the first cut had that inverted. `roofAxis` names the axis the
@@ -1442,7 +1482,7 @@ function tmplChandlery(ctx: MassingContext): Volume[] {
       offsetX: 0, offsetZ: 0,
       width: ctx.footW, depth: ctx.footD,
       bottomY: 0, height: wallH,
-      roofStyle: 'gabled', roofHeight: rise,
+      roofStyle: style, roofHeight: rise,
       roofAxis: ridgeAxis,
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: false,
@@ -1482,7 +1522,7 @@ function tmplChandlery(ctx: MassingContext): Volume[] {
  * not an institution, which the sexton's hut taught expensively.
  */
 function tmplCustomsHouse(ctx: MassingContext): Volume[] {
-  const wallH = STOREY_HEIGHT * (1.85 + rand01(ctx.hash, 1411) * 0.3)
+  const wallH = STOREY_HEIGHT * (1.7 + rand01(ctx.hash, 1411) * 0.6)
   const span = Math.min(ctx.footW, ctx.footD)
   const rise = span * (0.36 + rand01(ctx.hash, 1413) * 0.08)
   const stone = 0xb0a58c
@@ -1526,7 +1566,13 @@ function tmplCustomsHouse(ctx: MassingContext): Volume[] {
       role: 'trim',
       offsetX: -arcW / 2 + (arcW * i) / 3, offsetZ: front + 0.42,
       width: pierT, depth: pierT,
-      bottomY: 0, height: STOREY_HEIGHT * 0.98,
+      // FOOTED. A volume that projects past the footprint rectangle is not
+      // covered by the stair-step plinth, which only spans footprint TILES —
+      // so on any slope its base hangs above the ground next door and
+      // `clash.mjs` correctly reports it standing on air. A pier, a column, a
+      // buttress and a chimney breast all continue below grade in reality;
+      // 0.35m of footing is both true and cheaper than a special case.
+      bottomY: -0.35, height: STOREY_HEIGHT * 0.98 + 0.35,
       roofStyle: 'flat', roofHeight: 0,
       roofAxis: 'x',
       wallColor: stone, roofColor: stone,
@@ -1560,7 +1606,7 @@ function tmplCustomsHouse(ctx: MassingContext): Volume[] {
  * silhouette no other quarter in the town produces.
  */
 function tmplGuardhouse(ctx: MassingContext): Volume[] {
-  const wallH = STOREY_HEIGHT * (1.15 + rand01(ctx.hash, 1421) * 0.25)
+  const wallH = STOREY_HEIGHT * (1.05 + rand01(ctx.hash, 1421) * 0.5)
   const stone = 0x9a978f
   const DECK_T = 0.16
   const vols: Volume[] = [
@@ -1643,7 +1689,7 @@ function tmplGuardhouse(ctx: MassingContext): Volume[] {
  * types have to be unlike each other as well as unlike a tower.
  */
 function tmplArmory(ctx: MassingContext): Volume[] {
-  const wallH = STOREY_HEIGHT * (1.6 + rand01(ctx.hash, 1431) * 0.3)
+  const wallH = STOREY_HEIGHT * (1.45 + rand01(ctx.hash, 1431) * 0.6)
   const span = Math.min(ctx.footW, ctx.footD)
   const stone = 0x8b8a86
   const vols: Volume[] = [
@@ -1667,7 +1713,13 @@ function tmplArmory(ctx: MassingContext): Volume[] {
       role: 'trim',
       offsetX: s * (ctx.footW / 2 + 0.16), offsetZ: 0,
       width: 0.42, depth: Math.min(1.0, ctx.footD * 0.34),
-      bottomY: 0, height: wallH * 0.55,
+      // FOOTED. A volume that projects past the footprint rectangle is not
+      // covered by the stair-step plinth, which only spans footprint TILES —
+      // so on any slope its base hangs above the ground next door and
+      // `clash.mjs` correctly reports it standing on air. A pier, a column, a
+      // buttress and a chimney breast all continue below grade in reality;
+      // 0.35m of footing is both true and cheaper than a special case.
+      bottomY: -0.35, height: wallH * 0.55 + 0.35,
       roofStyle: 'flat', roofHeight: 0,
       roofAxis: 'x',
       wallColor: stone, roofColor: stone,
@@ -1680,7 +1732,10 @@ function tmplArmory(ctx: MassingContext): Volume[] {
       offsetX: s * (ctx.footW / 2 + 0.09), offsetZ: 0,
       width: 0.28, depth: Math.min(0.8, ctx.footD * 0.28),
       bottomY: wallH * 0.55, height: wallH * 0.4,
-      roofStyle: 'flat', roofHeight: 0,
+      // A buttress WEATHERS — the top is a slope that throws water off the
+      // wall, never a flat shelf. Also what stops roofcheck reading it as an
+      // open box, which is the same fact from the other side.
+      roofStyle: 'pointed', roofHeight: 0.22,
       roofAxis: 'x',
       wallColor: stone, roofColor: stone,
       textured: false, cornice: false,
@@ -1706,8 +1761,8 @@ function tmplArmory(ctx: MassingContext): Volume[] {
  * is what makes a ROW of them close over the lane.
  */
 function tmplShambles(ctx: MassingContext): Volume[] {
-  const lowerH = STOREY_HEIGHT * (1.0 + rand01(ctx.hash, 1441) * 0.12)
-  const upperH = STOREY_HEIGHT * (1.15 + rand01(ctx.hash, 1443) * 0.25)
+  const lowerH = STOREY_HEIGHT * (0.95 + rand01(ctx.hash, 1441) * 0.3)
+  const upperH = STOREY_HEIGHT * (1.0 + rand01(ctx.hash, 1443) * 0.6)
   // MAX_OVERHANG is 0.6m and clipToFootprint enforces it per side against
   // whichever neighbours actually exist, so ask for the full budget and let
   // the clip decide. Asking for less would make a terrace of these look
@@ -1745,7 +1800,8 @@ function tmplShambles(ctx: MassingContext): Volume[] {
       // reaches sideways is just a collision.
       width: ctx.footW, depth: ctx.footD + jut,
       bottomY: lowerH, height: upperH,
-      roofStyle: 'gabled', roofHeight: span * (0.44 + rand01(ctx.hash, 1445) * 0.12),
+      roofStyle: rand01(ctx.hash, 1447) < 0.35 ? 'hipped' : 'gabled',
+      roofHeight: span * (0.44 + rand01(ctx.hash, 1445) * 0.12),
       roofAxis: ridgeAxis,
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: false,
@@ -1785,8 +1841,8 @@ function tmplShambles(ctx: MassingContext): Volume[] {
  * row house.
  */
 function tmplSailLoft(ctx: MassingContext): Volume[] {
-  const lowerH = STOREY_HEIGHT * (1.0 + rand01(ctx.hash, 1451) * 0.1)
-  const upperH = STOREY_HEIGHT * (0.95 + rand01(ctx.hash, 1453) * 0.15)
+  const lowerH = STOREY_HEIGHT * (0.9 + rand01(ctx.hash, 1451) * 0.3)
+  const upperH = STOREY_HEIGHT * (0.85 + rand01(ctx.hash, 1453) * 0.45)
   // Short dimension — see the note in tmplChandlery.
   const span = Math.min(ctx.footW, ctx.footD)
   const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
@@ -1805,7 +1861,8 @@ function tmplSailLoft(ctx: MassingContext): Volume[] {
       offsetX: 0, offsetZ: 0,
       width: ctx.footW, depth: ctx.footD,
       bottomY: 0, height: lowerH + upperH,
-      roofStyle: 'gabled', roofHeight: span * (0.42 + rand01(ctx.hash, 1457) * 0.1),
+      roofStyle: rand01(ctx.hash, 1459) < 0.35 ? 'hipped' : 'gabled',
+      roofHeight: span * (0.42 + rand01(ctx.hash, 1457) * 0.1),
       roofAxis: ridgeAxis,
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: false,
@@ -1820,7 +1877,13 @@ function tmplSailLoft(ctx: MassingContext): Volume[] {
       offsetZ: alongZ ? 0 : side * stairOut,
       width: alongZ ? 0.55 : ctx.footD * 0.55,
       depth: alongZ ? ctx.footW * 0.55 : 0.55,
-      bottomY: 0, height: lowerH + 0.15,
+      // FOOTED. A volume that projects past the footprint rectangle is not
+      // covered by the stair-step plinth, which only spans footprint TILES —
+      // so on any slope its base hangs above the ground next door and
+      // `clash.mjs` correctly reports it standing on air. A pier, a column, a
+      // buttress and a chimney breast all continue below grade in reality;
+      // 0.35m of footing is both true and cheaper than a special case.
+      bottomY: -0.35, height: lowerH + 0.5,
       roofStyle: 'flat', roofHeight: 0,
       roofAxis: 'x',
       wallColor: wood, roofColor: wood,
@@ -1860,10 +1923,12 @@ function tmplSailLoft(ctx: MassingContext): Volume[] {
  * has to start at the ground and finish above the ridge.
  */
 function tmplCookshop(ctx: MassingContext): Volume[] {
-  const wallH = STOREY_HEIGHT * (1.85 + rand01(ctx.hash, 1461) * 0.35)
+  const wallH = STOREY_HEIGHT * (1.7 + rand01(ctx.hash, 1461) * 0.75)
   // Short dimension — see the note in tmplChandlery.
   const span = Math.min(ctx.footW, ctx.footD)
   const rise = span * (0.44 + rand01(ctx.hash, 1463) * 0.12)
+  // See the note in tmplChandlery.
+  const style: RoofStyle = rand01(ctx.hash, 1467) < 0.35 ? 'hipped' : 'gabled'
   const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
   const alongZ = ridgeAxis === 'z'
   const flankHalf = (alongZ ? ctx.footW : ctx.footD) / 2
@@ -1896,8 +1961,9 @@ function tmplCookshop(ctx: MassingContext): Volume[] {
       offsetZ: alongZ ? 0 : side * (flankHalf + 0.05),
       width: alongZ ? stackW : stackW * 1.15,
       depth: alongZ ? stackW * 1.15 : stackW,
-      // Clear of the ridge, which is what makes the silhouette.
-      bottomY: 0, height: wallH + rise + 0.65,
+      // Clear of the ridge, which is what makes the silhouette. Footed for
+      // the reason the arcade piers are — see tmplCustomsHouse.
+      bottomY: -0.35, height: wallH + rise + 1.0,
       roofStyle: 'flat', roofHeight: 0,
       roofAxis: 'x',
       wallColor: brick, roofColor: brick,
@@ -1913,7 +1979,12 @@ function tmplCookshop(ctx: MassingContext): Volume[] {
       width: alongZ ? stackW * 1.3 : stackW * 1.45,
       depth: alongZ ? stackW * 1.45 : stackW * 1.3,
       bottomY: wallH + rise + 0.65, height: 0.18,
-      roofStyle: 'flat', roofHeight: 0,
+      // RIDGED, NOT FLAT. `roofcheck` counts a flat-topped volume with
+      // nothing stacked on it as an open box against the sky, and it is
+      // right to: nine cookshops a town put nine of them up there and the
+      // count went +20. A chimney cap is ridged in reality anyway — the
+      // slope is what sheds the rain off the flue.
+      roofStyle: 'pointed', roofHeight: 0.16,
       roofAxis: 'x',
       wallColor: brick, roofColor: brick,
       textured: false, cornice: false,
@@ -1937,7 +2008,7 @@ function tmplCookshop(ctx: MassingContext): Volume[] {
  * the clearest "somebody rich lives here" a silhouette can make.
  */
 function tmplGateLodge(ctx: MassingContext): Volume[] {
-  const wallH = STOREY_HEIGHT * (1.15 + rand01(ctx.hash, 1471) * 0.2)
+  const wallH = STOREY_HEIGHT * (1.05 + rand01(ctx.hash, 1471) * 0.45)
   const span = Math.min(ctx.footW, ctx.footD)
   const stone = 0xc0b8a4
   const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
@@ -1948,7 +2019,8 @@ function tmplGateLodge(ctx: MassingContext): Volume[] {
       offsetX: 0, offsetZ: 0,
       width: ctx.footW, depth: ctx.footD,
       bottomY: 0, height: wallH,
-      roofStyle: 'hipped', roofHeight: span * (0.36 + rand01(ctx.hash, 1473) * 0.08),
+      roofStyle: rand01(ctx.hash, 1475) < 0.35 ? 'gabled' : 'hipped',
+      roofHeight: span * (0.36 + rand01(ctx.hash, 1473) * 0.08),
       roofAxis: ridgeAxis,
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: true,
@@ -1960,7 +2032,13 @@ function tmplGateLodge(ctx: MassingContext): Volume[] {
       offsetX: s * ctx.footW * 0.28,
       offsetZ: ctx.footD / 2 + porchD * 0.5,
       width: 0.22, depth: 0.22,
-      bottomY: 0, height: wallH * 0.86,
+      // FOOTED. A volume that projects past the footprint rectangle is not
+      // covered by the stair-step plinth, which only spans footprint TILES —
+      // so on any slope its base hangs above the ground next door and
+      // `clash.mjs` correctly reports it standing on air. A pier, a column, a
+      // buttress and a chimney breast all continue below grade in reality;
+      // 0.35m of footing is both true and cheaper than a special case.
+      bottomY: -0.35, height: wallH * 0.86 + 0.35,
       roofStyle: 'flat', roofHeight: 0,
       roofAxis: 'x',
       wallColor: stone, roofColor: stone,
@@ -1998,7 +2076,7 @@ function tmplGateLodge(ctx: MassingContext): Volume[] {
  * Capped at one per quarter. An institution repeated is not an institution.
  */
 function tmplOrangery(ctx: MassingContext): Volume[] {
-  const wallH = STOREY_HEIGHT * (1.25 + rand01(ctx.hash, 1481) * 0.15)
+  const wallH = STOREY_HEIGHT * (1.15 + rand01(ctx.hash, 1481) * 0.4)
   const span = Math.min(ctx.footW, ctx.footD)
   const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
   const alongZ = ridgeAxis === 'z'
@@ -2030,7 +2108,13 @@ function tmplOrangery(ctx: MassingContext): Volume[] {
       offsetZ: alongZ ? t : face,
       width: alongZ ? 0.2 : 0.18,
       depth: alongZ ? 0.18 : 0.2,
-      bottomY: 0, height: wallH * 0.94,
+      // FOOTED. A volume that projects past the footprint rectangle is not
+      // covered by the stair-step plinth, which only spans footprint TILES —
+      // so on any slope its base hangs above the ground next door and
+      // `clash.mjs` correctly reports it standing on air. A pier, a column, a
+      // buttress and a chimney breast all continue below grade in reality;
+      // 0.35m of footing is both true and cheaper than a special case.
+      bottomY: -0.35, height: wallH * 0.94 + 0.35,
       roofStyle: 'flat', roofHeight: 0,
       roofAxis: 'x',
       wallColor: stone, roofColor: stone,
@@ -2057,7 +2141,7 @@ function tmplOrangery(ctx: MassingContext): Volume[] {
  */
 function tmplDovecote(ctx: MassingContext): Volume[] {
   const shaftW = Math.min(ctx.footW, ctx.footD) * 0.72
-  const shaftH = STOREY_HEIGHT * (1.5 + rand01(ctx.hash, 1491) * 0.35)
+  const shaftH = STOREY_HEIGHT * (1.35 + rand01(ctx.hash, 1491) * 0.75)
   const stone = 0xb0aa96
   return [
     {

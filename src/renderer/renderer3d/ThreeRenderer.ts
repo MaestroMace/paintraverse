@@ -123,8 +123,20 @@ const ALWAYS_SMOKING = new Set<string>([
  *
  * A cap expressed against a quantity you just changed is the bug this repo
  * keeps recording; this one is expressed against the budget it shares.
+ *
+ * TEN WAS TOO MANY AND `particles.mjs` SAID SO. The always-smoking types are
+ * CLUSTERED by construction — cookshops in the market, smokehouses on the
+ * waterfront, kilns in the artisan quarter — while ordinary chimneys are
+ * spread over the whole town. Giving the priority group ten of sixteen took
+ * the smoke's x-extent from 64% of the town's to 30%: all the smoke in two
+ * quarters and none anywhere else, which reads as a fire rather than as a
+ * town at supper. Five leaves eleven for the spread.
+ *
+ * Nothing else in the harness would have caught this. Sixteen instruments
+ * grade the static world and `particles.mjs` is the only one that looks at a
+ * particle, which is why it exists.
  */
-const SMOKE_PRIORITY_SHARE = 10
+const SMOKE_PRIORITY_SHARE = 5
 function rand01(hash: number, salt: number): number {
   const n = (hash * 2654435761 + salt * 1597334677) >>> 0
   return n / 0xffffffff
@@ -1620,6 +1632,38 @@ export class ThreeRenderer {
     // distance you can't distinguish 4 dots from 2 dots per chimney —
     // both read as a single soft puff. Halving cuts the per-frame
     // particle update loop in half on chimney smoke.
+    // SPREAD THE BUDGET OVER THE TOWN, do not take the first sixteen.
+    //
+    // The collector walks the structure layer in PLACEMENT order, which is
+    // spatially clustered by construction — the placer works outward from the
+    // road network — so truncating at sixteen took sixteen chimneys from one
+    // part of the map. `particles.mjs` measures each system's x-extent as a
+    // fraction of the town's and read 0.30 against the town: all the smoke in
+    // two quarters and none anywhere else, which reads as a fire rather than
+    // as a town at supper.
+    //
+    // Farthest-point selection, seeded by whatever the priority pass already
+    // took, so the industrial types keep their places and the ordinary
+    // chimneys fill the gaps between them. O(n x 16), which is nothing.
+    if (chimneyPositions.length > 16) {
+      const chosen: THREE.Vector3[] = chimneyPositions.slice(0, SMOKE_PRIORITY_SHARE)
+      const rest = chimneyPositions.slice(SMOKE_PRIORITY_SHARE)
+      if (chosen.length === 0 && rest.length) chosen.push(rest.shift() as THREE.Vector3)
+      while (chosen.length < 16 && rest.length) {
+        let bestI = 0, bestD = -1
+        for (let i = 0; i < rest.length; i++) {
+          let near = Infinity
+          for (const c of chosen) {
+            const dx = rest[i].x - c.x, dz = rest[i].z - c.z
+            const d = dx * dx + dz * dz
+            if (d < near) near = d
+          }
+          if (near > bestD) { bestD = near; bestI = i }
+        }
+        chosen.push(rest.splice(bestI, 1)[0])
+      }
+      chimneyPositions = chosen
+    }
     const maxChimneys = Math.min(chimneyPositions.length, 16)
     if (maxChimneys > 0) {
       const perChimney = 2
