@@ -1060,7 +1060,27 @@ export function buildBuildingMeshes(
       })
     }
 
+    const ornamentSeen = new Set<string>()
     const emitCtx = {
+      // Roof ornaments are owned by VolumeRenderer and were never tallied, so
+      // dormers, finials, spire crosses, weather vanes and the new copper cap
+      // were invisible to features.mjs — four pieces of vocabulary that could
+      // have been firing at zero with no way to find out. Same shape as the
+      // `featureCounts` array that had no consumer.
+      //
+      // ONCE PER BUILDING, not once per volume. The first cut tallied on every
+      // volume and the census came back with dormer at 115% of a district and
+      // finial at 125% — a building with two spires counted twice against a
+      // denominator that counts it once. A rate above 100% is a free bug
+      // report about the measurement, and this is the second time this exact
+      // one has appeared (doorstep read 182% for the same reason). The wall
+      // features are per-building, so these have to be as well or the two
+      // halves of one census answer different questions.
+      tallyOrnament: (kind: string) => {
+        if (ornamentSeen.has(kind)) return
+        ornamentSeen.add(kind)
+        tallyIn(kind, district)
+      },
       centerX: wx,
       centerZ: wz,
       baseY: wy,

@@ -146,6 +146,20 @@ export function tickWallEmissive(time: number): void {
 }
 
 export interface EmitVolumeContext {
+  /**
+   * Count a roof ornament that fired, for tools/features.mjs.
+   *
+   * THE ROOF ORNAMENTS WERE NEVER COUNTED. BuildingFactory tallies twenty-one
+   * wall features and this file — which owns dormers, finials, ridge knobs
+   * and weather vanes — had no `tallyIn` at all, so four pieces of the
+   * vocabulary could have been firing at zero and nobody could know. That is
+   * exactly the `featureCounts`-with-no-consumer situation whose first census
+   * found five features that essentially did not exist, including a balcony
+   * that appeared ONCE in 525 buildings.
+   *
+   * Optional so the pixel-art path and any other caller need not supply it.
+   */
+  tallyOrnament?: (kind: string) => void
   /** Building's placed world center (XZ). */
   centerX: number
   centerZ: number
@@ -918,6 +932,7 @@ function emitRoofOrnaments(
     !v.circular &&
     rand01(h, 7) < 0.55
   ) {
+    ctx.tallyOrnament?.('dormer')
     const dormerW = Math.min(0.95, v.width * 0.3)
     const dormerD = 0.35
     const dormerWallH = Math.min(0.45, v.roofHeight * 0.55)
@@ -979,8 +994,41 @@ function emitRoofOrnaments(
     }
   }
 
+  // --- COPPER-TOP CAP on spires and pointed towers ---
+  //
+  // DESIGN.md pillar 2 lists what should distinguish one building from its
+  // neighbour: "a crooked chimney, a copper-top cap, a different roof pitch,
+  // a balcony, a window-box, a taller-than-neighbours profile". Five of those
+  // six exist. This is the sixth, and it was the only one never built.
+  //
+  // A verdigris cap is the strongest thing on this list at the 100ft read —
+  // it is the one ornament that changes a spire's COLOUR rather than its
+  // outline, so it separates two identical spires across a skyline where a
+  // finial cannot. Traverse Town and every Hanseatic town square run on this.
+  //
+  // Applied to the top third of the cone as a shell, not the whole roof: a
+  // fully green spire reads as a different material rather than as weathered
+  // copper sheeting over the top.
+  if ((v.roofStyle === 'spire' || v.roofStyle === 'pointed') &&
+      v.roofHeight > 1.2 && rand01(h, 1327) < 0.34) {
+    ctx.tallyOrnament?.('copperCap')
+    const capH = v.roofHeight * 0.3
+    const capBaseY = peakLocalY - capH
+    // Radius of the cone at the cap's base, so the shell sits ON the slope
+    // rather than floating around it. `peakLocalY` is the apex and the cone
+    // tapers linearly, so this is similar triangles and needs no new state.
+    const rAtBase = Math.max(v.width, v.depth) * 0.5 * (capH / Math.max(0.01, v.roofHeight))
+    const cap = new THREE.ConeGeometry(rAtBase * 1.06, capH, v.circular ? 10 : 4)
+    if (!v.circular) cap.rotateY(Math.PI / 4)
+    localToWorld(cap, lx, capBaseY + capH / 2, lz, leanX, leanZ, rot, cx, cy, cz)
+    // Verdigris. Deliberately light — this is the one roof element allowed to
+    // be brighter than the wall, because oxidised copper genuinely is.
+    ornamentBatch.addPositioned(cap, rand01(h, 1329) < 0.5 ? 0x5f9e86 : 0x6fae90)
+  }
+
   // --- Finial on spires/pointed (ball + optional cross) ---
   if (v.roofStyle === 'spire' || v.roofStyle === 'pointed') {
+    ctx.tallyOrnament?.('finial')
     const ball = new THREE.SphereGeometry(v.roofStyle === 'spire' ? 0.18 : 0.14, 6, 4)
     const extra = v.roofStyle === 'spire' ? 0.16 : 0.12
     localToWorld(ball, lx, peakLocalY + extra, lz, leanX, leanZ, rot, cx, cy, cz)
@@ -991,6 +1039,7 @@ function emitRoofOrnaments(
     // planks rather than reading as finials.
     const hasCross = v.roofStyle === 'spire' && rand01(h, 13) < 0.65
     if (hasCross) {
+      ctx.tallyOrnament?.('spireCross')
       const armH = 0.3, armW = 0.25, armT = 0.075
       const vertical = new THREE.BoxGeometry(armT, armH, armT)
       localToWorld(vertical, lx, peakLocalY + 0.28 + armH / 2, lz,
@@ -1009,6 +1058,7 @@ function emitRoofOrnaments(
     const wantsVane = (v.roofStyle === 'spire' && !hasCross && rand01(h, 1319) < 0.5) ||
       (v.role === 'tower' && v.roofHeight > 1.0 && vaneRoll < 0.5)
     if (wantsVane) {
+      ctx.tallyOrnament?.('weatherVane')
       const vaneBaseY = peakLocalY + (v.roofStyle === 'spire' ? 0.65 : 0.30)
       const poleH = 0.42, poleT = 0.055
       const pole = new THREE.BoxGeometry(poleT, poleH, poleT)
