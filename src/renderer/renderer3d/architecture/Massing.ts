@@ -1379,10 +1379,18 @@ function tmplBoathouse(ctx: MassingContext): Volume[] {
  */
 function tmplChandlery(ctx: MassingContext): Volume[] {
   const wallH = STOREY_HEIGHT * (2.0 + rand01(ctx.hash, 1401) * 0.45)
-  const span = (ctx.footW + ctx.footD) / 2
+  // A PRISM ROOF CROSSES ITS SHORT DIMENSION, so the rise is a fraction of
+  // THAT and not of `(footW + footD) / 2`. On a 1x2 the average is 4.5m
+  // against a real 3m span, so an innocent-looking 0.55 was a 62-degree
+  // pitch — and the measurement said so before the arithmetic did: eyeball's
+  // roofToWall median went 67 -> 84 the moment these types replaced the row
+  // house in four quarters. `ensureRoofPitch` uses `Math.min(w, d)` for
+  // exactly this reason and floors gabled at 0.42; asking against the same
+  // quantity means the floor and the ask finally speak the same units.
+  const span = Math.min(ctx.footW, ctx.footD)
   // `gabled`, never `steep` — steep is in SPAN_PITCH and ensureRoofPitch
   // floors it far above a deliberate ask.
-  const rise = span * (0.5 + rand01(ctx.hash, 1403) * 0.14)
+  const rise = span * (0.44 + rand01(ctx.hash, 1403) * 0.14)
   const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
   // THE BEAM PROJECTS FROM THE GABLE END, WHICH IS PERPENDICULAR TO THE
   // RIDGE, and the first cut had that inverted. `roofAxis` names the axis the
@@ -1457,7 +1465,7 @@ function tmplChandlery(ctx: MassingContext): Volume[] {
  */
 function tmplCustomsHouse(ctx: MassingContext): Volume[] {
   const wallH = STOREY_HEIGHT * (1.85 + rand01(ctx.hash, 1411) * 0.3)
-  const span = (ctx.footW + ctx.footD) / 2
+  const span = Math.min(ctx.footW, ctx.footD)
   const rise = span * (0.36 + rand01(ctx.hash, 1413) * 0.08)
   const stone = 0xb0a58c
   const vols: Volume[] = [
@@ -1536,6 +1544,7 @@ function tmplCustomsHouse(ctx: MassingContext): Volume[] {
 function tmplGuardhouse(ctx: MassingContext): Volume[] {
   const wallH = STOREY_HEIGHT * (1.15 + rand01(ctx.hash, 1421) * 0.25)
   const stone = 0x9a978f
+  const DECK_T = 0.16
   const vols: Volume[] = [
     {
       role: 'mainBody',
@@ -1549,6 +1558,23 @@ function tmplGuardhouse(ctx: MassingContext): Volume[] {
       floors: 1,
     },
   ]
+  // THE DECK, and it is not decoration — a parapet RING leaves the middle of
+  // the flat top open to the sky, which is what `roofcheck` counts, and it
+  // went +3 on a town with six guardhouses in it. A roof you can stand behind
+  // a parapet on has a floor; the ring alone is an open box with a fence
+  // round it.
+  vols.push({
+    role: 'trim',
+    offsetX: 0, offsetZ: 0,
+    width: ctx.footW, depth: ctx.footD,
+    bottomY: wallH, height: DECK_T,
+    roofStyle: 'flat', roofHeight: 0,
+    roofAxis: 'x',
+    wallColor: stone, roofColor: stone,
+    textured: false, cornice: false,
+    habitable: false,
+    floors: 1,
+  })
   // Parapet: four thin walls standing on the roof edge. Emitted as a ring
   // rather than one box, so you read the walk behind it.
   const pT = 0.2, pH = 0.55
@@ -1562,7 +1588,7 @@ function tmplGuardhouse(ctx: MassingContext): Volume[] {
       role: 'trim',
       offsetX: dx, offsetZ: dz,
       width: w, depth: d,
-      bottomY: wallH, height: pH,
+      bottomY: wallH + DECK_T, height: pH,
       roofStyle: 'flat', roofHeight: 0,
       roofAxis: 'x',
       wallColor: stone, roofColor: stone,
@@ -1579,7 +1605,7 @@ function tmplGuardhouse(ctx: MassingContext): Volume[] {
     offsetX: cs * (ctx.footW / 2 - boxW / 2 - pT),
     offsetZ: ctx.footD / 2 - boxW / 2 - pT,
     width: boxW, depth: boxW,
-    bottomY: wallH, height: 1.35,
+    bottomY: wallH + DECK_T, height: 1.35,
     roofStyle: 'pointed', roofHeight: 0.55,
     roofAxis: 'x',
     wallColor: stone, roofColor: ctx.roofColor,
@@ -1599,8 +1625,8 @@ function tmplGuardhouse(ctx: MassingContext): Volume[] {
  * types have to be unlike each other as well as unlike a tower.
  */
 function tmplArmory(ctx: MassingContext): Volume[] {
-  const wallH = STOREY_HEIGHT * (1.45 + rand01(ctx.hash, 1431) * 0.25)
-  const span = (ctx.footW + ctx.footD) / 2
+  const wallH = STOREY_HEIGHT * (1.6 + rand01(ctx.hash, 1431) * 0.3)
+  const span = Math.min(ctx.footW, ctx.footD)
   const stone = 0x8b8a86
   const vols: Volume[] = [
     {
@@ -1608,7 +1634,7 @@ function tmplArmory(ctx: MassingContext): Volume[] {
       offsetX: 0, offsetZ: 0,
       width: ctx.footW, depth: ctx.footD,
       bottomY: 0, height: wallH,
-      roofStyle: 'hipped', roofHeight: span * (0.4 + rand01(ctx.hash, 1433) * 0.1),
+      roofStyle: 'hipped', roofHeight: span * (0.36 + rand01(ctx.hash, 1433) * 0.08),
       roofAxis: ctx.footW >= ctx.footD ? 'x' : 'z',
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: true,
@@ -1669,7 +1695,8 @@ function tmplShambles(ctx: MassingContext): Volume[] {
   // the clip decide. Asking for less would make a terrace of these look
   // ordinary on precisely the tiles where the overhang would have read.
   const jut = MAX_OVERHANG
-  const span = (ctx.footW + ctx.footD) / 2
+  // Short dimension — see the note in tmplChandlery.
+  const span = Math.min(ctx.footW, ctx.footD)
   const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
   return [
     {
@@ -1691,9 +1718,16 @@ function tmplShambles(ctx: MassingContext): Volume[] {
     {
       role: 'upperFloor',
       offsetX: 0, offsetZ: jut * 0.5,
-      width: ctx.footW + jut * 0.5, depth: ctx.footD + jut,
+      // FRONT ONLY. The first cut also widened by `jut * 0.5` on each flank,
+      // and clash.mjs put the four deepest interpenetrations in the town at
+      // one market corner where a shambles and a cookshop reached into each
+      // other — 1.46m, worse than two full overhangs meeting, once the yaw
+      // wobble swung the corners. The character of this type is the jetty
+      // over the LANE; the flanks are party walls and a party wall that
+      // reaches sideways is just a collision.
+      width: ctx.footW, depth: ctx.footD + jut,
       bottomY: lowerH, height: upperH,
-      roofStyle: 'gabled', roofHeight: span * (0.52 + rand01(ctx.hash, 1445) * 0.12),
+      roofStyle: 'gabled', roofHeight: span * (0.44 + rand01(ctx.hash, 1445) * 0.12),
       roofAxis: ridgeAxis,
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: false,
@@ -1735,7 +1769,8 @@ function tmplShambles(ctx: MassingContext): Volume[] {
 function tmplSailLoft(ctx: MassingContext): Volume[] {
   const lowerH = STOREY_HEIGHT * (1.0 + rand01(ctx.hash, 1451) * 0.1)
   const upperH = STOREY_HEIGHT * (0.95 + rand01(ctx.hash, 1453) * 0.15)
-  const span = (ctx.footW + ctx.footD) / 2
+  // Short dimension — see the note in tmplChandlery.
+  const span = Math.min(ctx.footW, ctx.footD)
   const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
   const wood = 0x6b5740
   // The stair climbs the FLANK, which is the face parallel to the ridge —
@@ -1752,7 +1787,7 @@ function tmplSailLoft(ctx: MassingContext): Volume[] {
       offsetX: 0, offsetZ: 0,
       width: ctx.footW, depth: ctx.footD,
       bottomY: 0, height: lowerH + upperH,
-      roofStyle: 'gabled', roofHeight: span * (0.44 + rand01(ctx.hash, 1457) * 0.1),
+      roofStyle: 'gabled', roofHeight: span * (0.42 + rand01(ctx.hash, 1457) * 0.1),
       roofAxis: ridgeAxis,
       wallColor: ctx.wallColor, roofColor: ctx.roofColor,
       textured: true, cornice: false,
@@ -1808,8 +1843,9 @@ function tmplSailLoft(ctx: MassingContext): Volume[] {
  */
 function tmplCookshop(ctx: MassingContext): Volume[] {
   const wallH = STOREY_HEIGHT * (1.85 + rand01(ctx.hash, 1461) * 0.35)
-  const span = (ctx.footW + ctx.footD) / 2
-  const rise = span * (0.5 + rand01(ctx.hash, 1463) * 0.12)
+  // Short dimension — see the note in tmplChandlery.
+  const span = Math.min(ctx.footW, ctx.footD)
+  const rise = span * (0.44 + rand01(ctx.hash, 1463) * 0.12)
   const ridgeAxis: 'x' | 'z' = ctx.footW >= ctx.footD ? 'x' : 'z'
   const alongZ = ridgeAxis === 'z'
   const flankHalf = (alongZ ? ctx.footW : ctx.footD) / 2
@@ -1833,8 +1869,13 @@ function tmplCookshop(ctx: MassingContext): Volume[] {
       // sized so its outer face lands inside the overhang budget — a stack
       // clipped flat against the wall is just a pilaster.
       role: 'trim',
-      offsetX: alongZ ? side * (flankHalf + stackW * 0.28) : 0,
-      offsetZ: alongZ ? 0 : side * (flankHalf + stackW * 0.28),
+      // SEATED, NOT BOLTED ON. At `flankHalf + stackW * 0.28` the outer face
+      // landed 0.04m past MAX_OVERHANG, so the clip shaved it — and what was
+      // left still met the neighbour's geometry. Half the stack is inside the
+      // wall now, which is both within budget and how a real chimney breast
+      // is built.
+      offsetX: alongZ ? side * (flankHalf + 0.05) : 0,
+      offsetZ: alongZ ? 0 : side * (flankHalf + 0.05),
       width: alongZ ? stackW : stackW * 1.15,
       depth: alongZ ? stackW * 1.15 : stackW,
       // Clear of the ridge, which is what makes the silhouette.
@@ -1849,8 +1890,8 @@ function tmplCookshop(ctx: MassingContext): Volume[] {
     {
       // The cap course, so the stack ends in something rather than stopping.
       role: 'trim',
-      offsetX: alongZ ? side * (flankHalf + stackW * 0.28) : 0,
-      offsetZ: alongZ ? 0 : side * (flankHalf + stackW * 0.28),
+      offsetX: alongZ ? side * (flankHalf + 0.05) : 0,
+      offsetZ: alongZ ? 0 : side * (flankHalf + 0.05),
       width: alongZ ? stackW * 1.3 : stackW * 1.45,
       depth: alongZ ? stackW * 1.45 : stackW * 1.3,
       bottomY: wallH + rise + 0.65, height: 0.18,

@@ -517,6 +517,41 @@ with; the lantern ropes were a good hypothesis for the floating-timber class
 and were refuted in one A/B by hiding them and re-counting. Test the suspect,
 then either convict it or stop mentioning it.
 
+**A metric that a lazy fix can max out will be maxed out by one, and the
+highest-scoring town is usually the worst one.** District character counts a
+type as distinctive if its quarter is one of few that list it, so a quarter of
+twenty-one identical sexton's huts scores 100%. Every application of the
+small-exclusive-type pattern has overshot into that on its first run, eleven
+times, and the tell is always the same: a number arriving at its ceiling. When
+a metric reads 100%, ask what the degenerate solution looks like before
+believing the number — it is the mirror of "prefer the metric that only the
+real structure can move".
+
+**A fix aimed at one number through a bigger footprint pays for it in
+another.** Coverage and street width both come out of how many buildings meet
+the kerb, and the board prints them on separate lines as if they were
+independent. Buying two points of coverage with a 2x2 where a 1x2 used to be
+moved the facades three metres apart. When a quarter is short of buildings,
+give it more of the SHAPE it lost.
+
+**Half a fix is a fix you will need again, and the note recording the first
+half will be sitting right above the second.** tenancy's EXPLAINS table had a
+comment explaining exactly what its hand-written copy had cost — and the fix
+applied at the time covered only the dwelling half, so the other half drifted
+by twenty-one types. When you fix a copy-drift, fix the whole table, and grep
+for the sibling copies the same day.
+
+**Two independent failures can agree on "invisible".** The chandlery's hoist
+beam was on the wrong face AND over the overhang budget, and either alone
+produced the same empty frame; fixing one would have "disproved" the other. A
+count of volumes emitted said the beam was there.
+
+**Registry-clean is not wired-in.** `registry.mjs` checks the six ID-KEYED
+tables, which are identity. There are four more that are BEHAVIOUR — the
+massing template, the per-district cap, the building's own prop list, and
+whether it counts as a trade building — and a type missing from those passes
+every static check while being a partial ghost.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
@@ -545,6 +580,12 @@ then either convict it or stop mentioning it.
 - `src/renderer/renderer3d/LanternStrings.ts` — overhead rope+lantern chains
   AND `buildWallLanterns()` — wall-mounted eye-level lanterns
 - `src/renderer/renderer3d/FacadeTexture.ts` — procedural window/wall textures
+- `src/renderer/renderer3d/Materials.ts` — `THATCH_ODDS` / `THATCH_COLORS` /
+  `roofColorFor(defId, hash, paletteRoof)`. **Shared vocabulary: BOTH
+  renderers read it.** The 3D walkaround and the pixel-art export each pick a
+  palette independently, so a second copy of the odds would grow thatched
+  cottages in one and tiled ones in the other with nothing erroring. Same
+  argument as `core/terrain.ts` and `core/types.ts`.
 - `src/renderer/renderer3d/architecture/VolumeRenderer.ts` — `emitVolume`,
   `_wallMatCache`, `tickWallEmissive` (flicker)
 - `src/renderer/renderer3d/architecture/Massing.ts` — building massing templates
@@ -852,9 +893,17 @@ Verified against the code; if you change one, change it here too.
   fourth is new — `emitGlow` finally routes them into the emissive mesh)
 - Washing hangs between upper windows on domestic pairs, sharing the lantern
   pairing pass and its 25-string budget
-- Props come in designed GROUPS — 14 vignettes, ~34 a town, placed before the
+- Props come in designed GROUPS — 22 vignettes, ~34 a town, placed before the
   scatter runs and gated on the building being a home and on which side of it
-  the anchor sits
+  the anchor sits. Every quarter now has at least one of its own; temple and
+  cemetery had none for the whole life of the feature.
+- **Every quarter has two or three small building types that are its alone**,
+  each capped, and `row_house` is confined to residential and the slum. That
+  pair of decisions is what took district character 26 -> 55 -> 86.
+- Roofs come in two materials: tile from the palette, and thatch on the
+  humble and rural types at 6% of buildings (`renderer3d/Materials.ts`)
+- Spires and pointed towers carry a verdigris copper cap on 13% of buildings —
+  DESIGN.md pillar 2's sixth distinguishing feature, and the last one built
 - Birds circle tall spires at dusk only
 - Row-streak placement (continuity 0.7, 2-4 tangent extensions, ±1
   floor variation)
@@ -1212,14 +1261,16 @@ Run these before believing anything about where the project is.
 | enclosure (to a WALL) | streets.mjs | median 3m, 0% over 15m | clean |
 | corridor width | streets.mjs | 4% of road over-wide, was 58% | clean |
 | street width | urbanform.mjs | 12m facade to facade vs 4-10m | recovered |
-| built coverage | urbanform.mjs | 47% vs 50-70% (walls not counted as buildings) | near range |
-| district character | districts.mjs | **52%** distinctive to their quarter (was 26%; residential's own vocabulary took it 49 -> 52) | improving |
+| built coverage | urbanform.mjs | 44% vs 50-70% (walls not counted as buildings) | under range, deliberately — see THE DISTRICT TRADE |
+| district character | districts.mjs | **86%** distinctive to their quarter (was 26%; the row-house split took 55 -> 86) | in range |
 | party walls | urbanform.mjs | 89% vs 60-80% | above range, deliberately |
-| frontage occupancy | urbanform.mjs | **76% of ACHIEVABLE** frontage vs 85-95% (raw 70%) | near range |
+| frontage occupancy | urbanform.mjs | **73% of ACHIEVABLE** frontage vs 85-95% (raw 68%) | the price of the district trade |
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
-| prop tenancy | tenancy.mjs | **42% of props explained by their owner** (38% before vignettes; the older 46% predates a correction) | improving |
-| street dressing gates | features.mjs | 0 wallpaper, 2 ghosts and both correctly rare (temple/cathedral types) | clean |
+| prop tenancy | tenancy.mjs | **44% of props explained by their owner** (42 -> 44 is the TOOL being corrected, not the town) | improving |
+| street dressing gates | features.mjs | 1 wallpaper (copperCap, on a roof style), 3 ghosts and all correctly rare | clean |
+| roof material | features.mjs | thatch on 6% of buildings, spread 0-13% | new |
+| roof ornaments | features.mjs | dormer 38 / finial 26 / weatherVane 16 / copperCap 13 / spireCross 3% | new — never counted before |
 | props in a designed group | genlog `vigOk:` | 41/35/27 groups a town over 14 vignettes | new |
 | washing lines | (see buildLanternStrings) | 28-35 garments a town, 10 of 12 lines over walkable ground | new |
 | interpenetration | clash.mjs | **15 pairs over 0.5m, was 124** — see THE OVERHANG BUDGET | fixed |
@@ -1302,6 +1353,23 @@ Its first run found seven landmark types absent from the export's height and
 roof tables, **including the cathedral and the lighthouse** — the two things
 the vista arc spent itself making visible down a street, exporting at the
 1.8-tile fallback.
+
+**Registry is necessary and not sufficient — there are FOUR more tables it
+cannot see, because they are behaviour rather than identity.** A type can pass
+`registry.mjs` clean and still be a partial ghost:
+
+- `Massing.TEMPLATES` — no entry means the generic archetype, which is how
+  every bridge in the town was built as a house standing in the river.
+- `MAX_PER_DISTRICT` — no entry means uncapped, which is how a quarter becomes
+  twenty-one identical sexton's huts.
+- `getBuildingSpecificProps` — no entry means `[]`, so the type's props are
+  drawn from the district bag at random and explain nothing.
+- `BuildingFactory.TRADE_BUILDINGS` — no entry means no hanging sign, however
+  obviously commercial the building is.
+
+The first two are visible in a screenshot and the second two are not. Add all
+six plus these four the same hour, and run `features.mjs` and `typemix.mjs`
+afterwards rather than assuming.
 
 **`MAX_PER_DISTRICT` exists because giving a quarter its own small building
 immediately overshot into monoculture.** Infill picks the first weighted
@@ -1716,17 +1784,17 @@ The whole device problem list is fixed. What is left:
    crate half-unloaded. `dressEmptyStreets` still answers "is this spot bare",
    which is the metric this arc has been replacing with ownership everywhere
    else. Grade with `tenancy.mjs` (42%) and the `vigOk:` counters, not by eye.
-2. **Trade quarters: measure before believing this item.** It has said "only
-   ~7 of ~200 buildings are trade types" for a long time and the reading has
-   moved — market runs 44-49% distinctive on two seeds of three with
-   `weigh_house` at 6-9 a town. What the last sweep actually found is that
-   **`artisan` does not appear in any of three seeds at all**, and it is the
-   one quarter whose whole table (shop, building_small, row_house, warehouse,
-   corner_building, half_timber, apothecary, staircase) is shared with
-   somewhere else — no exclusive type, small or large. Start by asking
-   `quarters.mjs` whether artisan is being generated before adding vocabulary
-   to it. Seed 31337's market also reads 13% while 4242 and 777 read 44-49%,
-   which is one town's quarter failing rather than the type mix.
+2. **Trade quarters: CLOSED, and the fix was structural rather than more
+   vocabulary.** This item said "only ~7 of ~200 buildings are trade types"
+   for a long time. Market now runs 88-100% distinctive on four seeds
+   (shambles / cookshop / weigh_house), harbor 100% (chandlery / net_loft /
+   sail_loft) and the town reads 86%. Two things got it there and only one was
+   content: seven new small exclusive types, and **taking `row_house` out of
+   four of the six tables it was in.** See the section above. The one open
+   residual is that **`artisan` still does not appear in most seeds** — that
+   is `generateDistricts` not choosing it, not the type mix, and
+   `quarters.mjs` is the tool that answers it. Do not add vocabulary to
+   artisan before asking whether it is being generated.
 3. **Row placement predates the narrowing.** Streets are much tighter than
    when the row-streak logic was tuned; worth revisiting whether rows should
    hug the new lanes more aggressively.
@@ -2751,6 +2819,175 @@ a metric about ordinary dwellings the whole time.
 **A tracked metric that moves when you edit the TOOL must be re-baselined, not
 celebrated.** The harness cannot tell the two apart and will always phrase it
 as an improvement.
+
+### DISTRICT CHARACTER 55% -> 86%, AND THE THREE THINGS THAT GOT IT THERE
+
+Seven new building types (chandlery, customs_house, guardhouse, armory,
+shambles, sail_loft, cookshop) plus one structural change, and the structural
+change was worth more than all seven.
+
+**A CAP AND A SECOND TYPE ARE ONE DECISION.** The small-exclusive-type pattern
+has now worked twelve times and `MAX_PER_DISTRICT` is the other half of it —
+without a cap the quarter becomes a monoculture, which is exactly what the
+first run of this batch measured:
+
+    market    36 buildings, shambles 22    61% of the quarter
+    fortress  26 buildings, guardhouse 21  81%
+    harbor    61 buildings, chandlery 27   44%
+
+Every one read 89-100% "distinctive" and **the number is worthless, because a
+quarter-exclusive type scores as characteristic however many you stamp — a
+monoculture is the highest-scoring possible town.** Eleventh instance.
+
+But the moment the cap BINDS, the quarter falls straight back on the shared
+`row_house` it was given the type to escape: capped, market read row_house 11 /
+shambles 10 and harbor read row_house 31 / net_loft 17 / chandlery 12. **The
+caps have to SUM to the quarter**, which means two or three small exclusives
+rather than one — which is also what a real quarter is. A market street is
+butchers AND cookshops AND a weigh house.
+
+**A TYPE IN OVER A THIRD OF THE TABLES IS INVISIBLE TO THE METRIC BY
+CONSTRUCTION, AND IT IS THE ONE THAT WINS THE FIT LOTTERY.** `row_house` was in
+SIX of eleven tables. `districts.mjs` counts a type as characteristic only if
+it appears in at most a third of the quarters present, so the commonest
+building in the town — 18% of all structures — could never say anything about
+anywhere, and every quarter's character was competing against it, because a
+1x2 gets more plots than any other shape. Removing it from market, artisan,
+waterfront and harbor took character 55 -> 86 on its own, and it was **only
+safe once each of those four had small exclusives of its own**; a batch earlier
+it would have starved them the way the temple quarter halved.
+
+### AND STREET WIDTH WENT 12m -> 15m AND CAME BACK — READ THIS ONE
+
+DESIGN.md calls street width the single number separating a town from a field,
+and this file already records the identical regression from the first district
+arc. It reappeared, and **it was not the change I would have blamed.** The
+row-house removal alone read 12m. What widened the street was the REPAIR: I
+bumped `building_small` in the three quarters that had lost their 1x2, to buy
+back the two points of coverage the split cost.
+
+**A 2x2 slot where a 1x2 used to be is FEWER BUILDINGS ON THE SAME FRONTAGE.**
+Coverage went up two points and the facades moved three metres apart. Reverting
+the 2x2 bumps and raising the caps on the exclusive 1x2s instead — including
+the smokehouse from 4 to 8, waterfront being the one quarter whose only 1x2 was
+capped tight — gave the same coverage, the same character, and 12m again.
+
+> When a quarter is short of buildings, give it more of the SHAPE it lost, not
+> more of a bigger one. Coverage and street width both fall out of how many
+> buildings meet the kerb, so a fix aimed at one through a larger footprint
+> pays for it in the other — and the board prints them on separate lines as if
+> they were independent.
+
+**THE HONEST LEDGER:** character 55 -> 86, street width 12 -> 12, coverage
+46 -> 44, party walls 92 -> 89, achievable frontage 73 -> 68. The frontage is
+the real cost and it is the district trade this file already documents.
+
+### HALF A FIX IS A FIX YOU WILL NEED AGAIN — tenancy's EXPLAINS table
+
+`tenancy.mjs` kept a hand-written EXPLAINS table under a comment saying it
+"mirrors the intent of getBuildingSpecificProps". Four lines below that comment
+sat a note recording what the mirror had ALREADY cost once — `half_timber`
+listed `firewood`, an id the game does not define — and the fix applied at the
+time was to READ the dwelling set instead of restating it. **The other half of
+the same table was left as a copy, and it drifted by twenty-one types**: the
+entire small-exclusive-type arc went into the generator and never into the
+mirror, so a quarter could be two thirds distinctive by its buildings and score
+zero for the props saying so.
+
+`tools/lib/taxonomy.mjs` parses the switch now and throws on a shape change.
+A/B'd as a TOOL change against the old build first, per the rule: 42% -> 44% is
+the correction. **The content moved it by zero**, and the reason is the
+sample-resolution lesson — dwellings host most of the town's props, so twenty
+new types are too small a share of the population for the aggregate to see.
+
+Same session, the same shape one file over: `getBuildingSpecificProps` itself
+returned `[]` for twenty-one types, and `isTradeBldg` was **seven inline `===`
+comparisons** untouched since any district type was added, so a chandlery, a
+shambles and a weigh house could not carry a hanging sign — the butchers' row,
+the one street guaranteed a sign over every door, had none. **A list of literal
+ids IS the pattern; grep it the same day.** It is a `Set` now. shopSign 16% ->
+20%.
+
+### TWO INDEPENDENT FAILURES CAN AGREE ON "INVISIBLE"
+
+The chandlery's cat-head hoist beam — a 1m stick out of the gable, the type's
+whole silhouette — was absent from the photograph for TWO reasons at once, and
+either alone would have produced the same empty frame:
+
+- `roofAxis` names the axis the ridge RUNS ALONG, so a ridge along Z has its
+  gables on Z. I had the beam projecting on the perpendicular, onto a party
+  wall, where `clipToFootprint`'s per-side allowance correctly removed all of
+  it. Settled by reading `tmplSmokehouse`'s vent, whose length is taken from
+  the ridge axis, rather than by reasoning about it — the second time this
+  session that reasoning about an axis got it backwards.
+- It was 0.42m beyond `MAX_OVERHANG` regardless, so the clip would have shaved
+  it even on the right face.
+
+**A count of volumes emitted would have said the beam was there.** The
+photograph is what found it, and `provenance.mjs --def=chandlery` is what
+verified the fix — 24 volumes over 12 buildings, 0 clipped, 0 outside the box —
+rather than a second round of camera-hunting.
+
+### THE ROOF ORNAMENTS HAD NEVER BEEN COUNTED, AND THE FIRST CENSUS READ 125%
+
+`BuildingFactory` tallies twenty-one wall features into `featureCounts` and
+`VolumeRenderer` — which owns dormers, finials, spire crosses and weather vanes
+— had no `tallyIn` at all. Four pieces of vocabulary that could have been
+firing at zero with no way to find out, which is the `featureCounts`-with-no-
+consumer situation whose first census found five near-dead features.
+
+The first cut tallied per VOLUME against a per-BUILDING denominator and read
+dormer 115%, finial 125%. **A rate above 100% is a free bug report about the
+measurement** and this is the second instance of that exact tell (doorstep read
+182%). Fixed with a per-building `ornamentSeen` Set.
+
+    dormer 38%  finial 26%  weatherVane 16%  copperCap 13%  spireCross 3%
+
+The `copperCap` is DESIGN.md pillar 2's sixth distinguishing feature — "a
+crooked chimney, a copper-top cap, a different roof pitch, a balcony, a
+window-box, a taller-than-neighbours profile" — and the only one of the six
+never built. A verdigris shell over the top 30% of a spire, which is the one
+ornament that changes a spire's COLOUR rather than its outline, so two
+identical spires separate across a skyline where a finial cannot.
+
+### THATCH, AND WHY IT LIVES IN Materials.ts
+
+Every roof in the town came out of one palette slot, so pillar 2 was being
+fought with SHAPE alone while the largest surface on the building stayed a
+single colour family. Thatch is keyed by TYPE and not by district: real towns
+banned it after their first fire and it survived on the humble and the rural,
+so a cottage keeps it and a shop does not, and the eye reads that as age
+without being told. **A district gate would paint whole quarters uniformly,
+which is the wallpaper failure.** None of the odds is 1.0 — a terrace of five
+identical thatched cottages is the copy-paste pillar 2 exists to prevent. 6% of
+buildings, spread 0-13%.
+
+`src/renderer/renderer3d/Materials.ts` exists because **TWO renderers draw
+roofs** and the pixel-art export picks its palette independently. A copy would
+give the walkaround thatched cottages and the export tiled ones with nothing
+erroring — the terrain-table drift, one surface over. Both callers hand in
+`stableHash(obj)`, so a roof is the same material in both paths.
+
+The colours were chosen by what weathered straw IS, not by `roofBlackPct`: they
+happen to lift that number and **the moment it becomes the reason, the roofs go
+pale everywhere and pillar 1's dark silhouettes go with them.** Same discipline
+the roof tone floor was chosen by.
+
+### A HEALTHY AGGREGATE CAN HIDE A POPULATION IT NEVER REACHES
+
+Eighteen vignettes and not one listed `temple` or `cemetery` in its district
+gate, so the only groups those quarters could ever draw were the five
+`home: true` ones — and a cathedral close is chapels, bell towers, clergy
+houses and mausolea, barely a dwelling among them. **Two whole quarters got the
+scatter and nothing else, while the vignette census reported a healthy
+town-wide rate.**
+
+That is WALLPAPER'S TWIN. Wallpaper is a feature firing everywhere equally;
+this is a feature with a healthy mean that reaches none of some population.
+`features.mjs` reports SPREAD across districts for exactly this reason and the
+vignette census does not, because `vigOk` is one counter. Four groups added —
+`shrine`, `graveside`, `stoneyard`, `guardpost`. **Whenever content is gated on
+a list, census the members of the list that the gate never names.**
 
 ### HOW TO FIND AN 0.8m THING IN A STREET PHOTOGRAPH — tools/lib/vantage.isolate
 
