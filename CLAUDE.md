@@ -512,6 +512,30 @@ the clamp explicitly skips were padding the denominator, and the true rate was
 always about 10%. Always print both halves of a rate you are about to believe;
 a percentage is two measurements wearing one number.
 
+**AN ENTIRE PASS WAS DEAD BECAUSE ITS GATE ASKED A MAP THAT IS NEVER TRUE.**
+Every clause in `placeCountryside` asked `districtMap[y][x] !== -1`, and
+`generateDistricts` assigns EVERY tile to its nearest centre — so the answer is
+always true and the pass could never run: the terrain painting, the farm
+fields, the orchards, the roadside stones. A reject tally read
+`country~inDistrict:farm` on 80 of 80 attempts. Countryside is land the TOWN
+has not reached, which is a fact about buildings and not about a Voronoi.
+
+**AND THEN THE MEASUREMENT SAID THE LAND BARELY EXISTS.** Rewritten against
+building distance, the map yields 134 open tiles of 2304 at r=1 and 47 at r=2 —
+this town fills its own 48x48 map. So eighty random darts found four
+candidates, and the pass still read as "no land" when the land was there and
+the SEARCH was wrong: gathering the open tiles once, during a grid walk that
+already happens, took orchards from 0 to 8 groups a town. `farm_field` still
+cannot place and its counters now say why — `noRoad` and `edge` — because a
+4x3 field needs a field.
+
+**AND `genlog.mjs` DID NOT PIN ITS SEED**, which is the discipline this file
+repeats more than any other, missing from the one tool whose job is comparing
+one run's rejection counters against another's. Two readings of the same code
+path gave 52 open tiles and then 147; that reads as a code change and was a
+different town. It takes a seed and defaults to 4242 now, and two consecutive
+runs agree exactly.
+
 **THE SQUARE WAS THE ROAD JUNCTION, AND ITS OWN COMPOSITION PASS BELIEVED IT.**
 `placePlazaFeatures` built its occupancy grid from `roadMap`, and the main
 square is exactly where nine main streets converge — the comment on its own

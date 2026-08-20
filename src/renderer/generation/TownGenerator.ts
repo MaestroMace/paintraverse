@@ -5298,10 +5298,57 @@ export class TownGenerator implements IMapGenerator {
     this.markObjects(occupied, buildings, w, h)
     this.markObjects(occupied, existingProps, w, h)
 
-    // Paint countryside terrain (unassigned tiles)
+    // THERE IS NO LAND OUTSIDE A DISTRICT, SO THIS PASS COULD NOT RUN.
+    //
+    // Every gate below asked `districtMap[y][x] !== -1`, and `generateDistricts`
+    // assigns every tile to its nearest centre — so the answer is ALWAYS true
+    // and the whole pass was dead by construction: the terrain painting, the
+    // farm fields, the orchards and the roadside stones. A reject tally read
+    // `country~inDistrict:farm` on 80 of 80 attempts and `orchard` on 4 of 4,
+    // which is what took this from "those props seem rare" to a one-line
+    // cause. `propscale.mjs`'s never-placed census is what pointed here at
+    // all: farm_field, orchard_tree, milestone and standing_stone absent from
+    // five towns in a row, and every one of them placed by this function.
+    //
+    // COUNTRYSIDE IS LAND THE TOWN HAS NOT REACHED, which is a fact about
+    // BUILDINGS and not about the district Voronoi. `growth.mjs` measures
+    // built coverage falling 58% -> 22% from core to edge, so the open land is
+    // real and always was; nothing could see it because the question was
+    // being asked of the wrong map.
+    const builtTiles = new Set<string>()
+    for (const b of buildings) {
+      const fp = b.footprint ?? this.getFootprint(b.definitionId)
+      for (let dy = -1; dy <= fp.h; dy++) {
+        for (let dx = -1; dx <= fp.w; dx++) builtTiles.add(`${b.x + dx},${b.y + dy}`)
+      }
+    }
+    /** Open country: no building within `r` tiles. */
+    const isOpen = (x: number, y: number, r: number): boolean => {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) if (builtTiles.has(`${x + dx},${y + dy}`)) return false
+      }
+      return true
+    }
+
+    /** Every tile the town has not reached, gathered while painting them. */
+    const openTiles: Array<[number, number]> = []
+    // Paint countryside terrain (tiles the town has not reached)
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        if (districtMap[y][x] !== -1 || waterMap[y][x] || roadMap[y][x]) continue
+        // MEASURED, and it is the size of the answer that decided the radius
+        // below: on a 48x48 map this town leaves 52 tiles open at r=1 and
+        // exactly ONE at r=2. There is no countryside — the town fills its
+        // own map — so anything here that needs a clear field will not fire,
+        // and this counter says so rather than leaving it to be rediscovered.
+        // COLLECTED, NOT DARTED AT. 134 of 2304 tiles are open on this seed —
+        // 5.8% — so eighty random samples of the whole map found four, and
+        // the pass read as "the land is not there" when the land was there and
+        // the SEARCH was wrong. Gathering the candidates once costs one pass
+        // over a grid that is already being walked.
+        if (isOpen(x, y, 2)) rejected('countryTilesOpen@2')
+        if (!isOpen(x, y, 1) || waterMap[y][x] || roadMap[y][x]) continue
+        rejected('countryTilesOpen@1')
+        openTiles.push([x, y])
         const n = noise.fbm(x * 0.08, y * 0.08, 2)
         terrainTiles[y][x] = n > 0.2 ? 1 : n > -0.1 ? 0 : 5 // dirt/grass/dark grass
       }
@@ -5312,7 +5359,7 @@ export class TownGenerator implements IMapGenerator {
     for (let attempt = 0; attempt < 50 && windmills < 2; attempt++) {
       const wx = Math.floor(rng() * (w - 6)) + 2
       const wy = Math.floor(rng() * (h - 6)) + 2
-      if (districtMap[wy]?.[wx] !== -1) continue
+      if (!isOpen(wx, wy, 1)) continue   // windmill still darts; it is 3x3 and rare
       if (this.areaFree(occupied, wx, wy, 3, 3, w, h)) {
         countryside.push(this.createObj('windmill', wx, wy, 0))
         this.markArea(occupied, wx, wy, 3, 3, w, h)
@@ -5322,12 +5369,16 @@ export class TownGenerator implements IMapGenerator {
 
     // Place farm fields near roads in countryside
     let farms = 0
-    for (let attempt = 0; attempt < 80 && farms < 3; attempt++) {
-      const fx = Math.floor(rng() * (w - 6)) + 2
-      const fy = Math.floor(rng() * (h - 5)) + 2
-      if (districtMap[fy]?.[fx] !== -1) continue
-      if (!this.isRoadAdjacent(fx, fy, roadMap, w, h)) continue
+    // EVERY GATE COUNTS ITSELF, third pass today to need it. `propscale`'s
+    // never-placed census found `farm_field`, `orchard_tree`, `milestone` and
+    // `standing_stone` in NONE of five towns, and all four are placed here.
+    for (let attempt = 0; attempt < 80 && farms < 3 && openTiles.length; attempt++) {
+      const [fx, fy] = openTiles[Math.floor(rng() * openTiles.length)]
+      if (fx < 2 || fy < 2 || fx > w - 6 || fy > h - 5) { rejected('country~edge:farm'); continue }
+      if (!this.isRoadAdjacent(fx, fy, roadMap, w, h)) { rejected('country~noRoad:farm'); continue }
+      if (!this.areaFree(occupied, fx, fy, 4, 3, w, h)) rejected('country~blocked:farm')
       if (this.areaFree(occupied, fx, fy, 4, 3, w, h)) {
+        rejected('countryOk:farm')
         countryside.push(this.createObj('farm_field', fx, fy, 0))
         this.markArea(occupied, fx, fy, 4, 3, w, h)
         farms++
@@ -5335,14 +5386,13 @@ export class TownGenerator implements IMapGenerator {
     }
 
     // Scatter orchard trees in groups
-    for (let g = 0; g < 4; g++) {
-      const gx = Math.floor(rng() * (w - 4)) + 2
-      const gy = Math.floor(rng() * (h - 4)) + 2
-      if (districtMap[gy]?.[gx] !== -1) continue
+    for (let g = 0; g < 8 && openTiles.length; g++) {
+      const [gx, gy] = openTiles[Math.floor(rng() * openTiles.length)]
+      rejected('countryOk:orchard')
       for (let i = 0; i < 3 + Math.floor(rng() * 3); i++) {
         const tx = gx + Math.floor(rng() * 4)
         const ty = gy + Math.floor(rng() * 4)
-        if (tx < w && ty < h && !occupied[ty][tx] && districtMap[ty]?.[tx] === -1) {
+        if (tx < w && ty < h && !occupied[ty][tx] && isOpen(tx, ty, 0)) {
           countryside.push(this.createObj('orchard_tree', tx, ty, 0))
           occupied[ty][tx] = true
         }

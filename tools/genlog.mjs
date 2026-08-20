@@ -8,8 +8,24 @@ await win.waitForLoadState('domcontentloaded')
 await win.waitForTimeout(3000)
 await win.getByText('Landscape', { exact: false }).first().click()
 await win.waitForTimeout(1000)
+// PIN THE SEED. This clicked Generate and took whatever seed the UI happened
+// to hold, so every reject tally it printed came from a possibly DIFFERENT
+// town — and this is the tool whose whole job is comparing one run's counters
+// against another's. Two readings of the same code path an hour apart gave
+// 52 open tiles and then 147, which reads as a code change and was a
+// different map. "Pin the seed" is the discipline this repo repeats more than
+// any other and the instrument for A/B-ing the placer did not follow it.
+const seed = Number(process.argv.slice(2).find((a) => /^\d+$/.test(a)) ?? 4242)
+await win.evaluate((s) => {
+  const inp = [...document.querySelectorAll('.left-panel input')]
+    .find((i) => i.type !== 'range' && /^\d+$/.test(i.value))
+  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+  set.call(inp, s); inp.dispatchEvent(new Event('input', { bubbles: true }))
+}, seed)
+await win.waitForTimeout(200)
 await win.getByRole('button', { name: /^generate$/i }).first().click()
 await win.waitForTimeout(3000)
+console.log(`SEED: ${seed}`)
 const n = await win.evaluate(() => {
   const m = window.__pt.store.getState().map
   return m.layers.map((l) => `${l.type}:${l.objects?.length ?? (l.terrainTiles ? 'tiles' : 0)}`).join(' ')
