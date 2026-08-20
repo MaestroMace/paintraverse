@@ -343,7 +343,17 @@ for (let i = 0; i < spots.length; i++) {
             if (isDark ? L[i] > ringMed : L[i] < ringMed) inWrong++
           }
         }
-        if (inN && inWrong / inN > 0.06) continue
+        // ONLY THE DARK PATCHES GET THIS TEST. It exists because a dark RING
+        // around two lit windows scored as one 12000px hole, and a hole is a
+        // hard-edged thing so requiring a clean interior costs nothing. A
+        // GLOW is not hard-edged: a lamp pool fades to nothing at its rim by
+        // design, so the corners of its bounding box are dark road and the
+        // test rejected every one of them. The tool then reported 1 pool
+        // against 44 lit windows and I nearly filed DESIGN.md pillar 5's
+        // ground layer as missing — an overhead night photograph shows the
+        // pools plainly. Same shape as river.mjs's phantom dangling bridges,
+        // caught the same way: the photograph adjudicates.
+        if (isDark && inN && inWrong / inN > 0.06) continue
         // A HOLE IS ROUGHLY OPENING-SHAPED. The first honest run reported
         // seven survivors at aspect ratios of 11:1 to 25:1 — those are string
         // courses, sill shadows and the dark line under a jetty, all of which
@@ -593,6 +603,22 @@ for (const h of holes) {
 }
 
 console.log(`ORDINARY WALL in these views: median luma ${q(wallSamples, 0.5).toFixed(3)}`)
+// PILLAR 5's GROUND LAYER, counted rather than squinted at. DESIGN.md asks
+// for "warm ground pools under every lamppost" as the first of three layers
+// of warm light, and looking at a dusk street I could not tell whether they
+// were rendering at all — the road in front of the camera reads near-black
+// and there is a lamppost in frame. The bright-patch pass already finds and
+// attributes every lit thing, so splitting it by surface orientation answers
+// the question with a number: a patch on a near-horizontal face is a POOL,
+// one on a vertical face is a window. Nothing else in the harness looks.
+const pools = lits.filter((l) => (l.up ?? 0) > 0.7)
+console.log(`  of which ${pools.length} lie on a near-horizontal surface — the LAMP POOLS,`)
+console.log(`  DESIGN.md pillar 5's ground layer; ${lits.length - pools.length} are on walls.`)
+console.log('  Read the pool figure as a FLOOR. A pool is a soft radial glow seen')
+console.log('  at a grazing angle, so it is a faint ellipse a few pixels tall and')
+console.log('  the size floor drops most of them; the overhead night view shows')
+console.log('  more than this counts. It is here to catch the pools going to ZERO,')
+console.log('  not to census them.')
 console.log(`LIT OPENINGS (the control — this is an opening that works):`)
 if (lits.length) {
   console.log(`  ${lits.length} found · median ${q(lits.map((l) => l.ratio), 0.5).toFixed(2)}x its surround` +

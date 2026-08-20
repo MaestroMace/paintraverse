@@ -46,7 +46,7 @@
     "stackedMed": 79,
     "roofOver80": 9,
     "dwellingsOver4": 14,
-    "wallLuma": 89,
+    "wallLuma": 88,
     "roofBlackPct": 32
   },
   "facade": {
@@ -70,11 +70,40 @@
   },
   "particles": {
     "offTown": 0,
-    "smokeLow": 1,
+    "smokeLow": 0,
     "smokeSpread100": 93
   },
   "holes": {
     "holes": 6,
-    "litOpenings": 5
+    "litOpenings": 12
+  },
+  "river": {
+    "bankRelief": 1.3,
+    "dangling": 0,
+    "descent": 73
+  },
+  "site": {
+    "quay": 47,
+    "wallSealed": 80
+  },
+  "vistas": {
+    "landmarkEnds": 19
+  },
+  "features": {
+    "ghosts": 3,
+    "wallpaper": 0
+  },
+  "tenancy": {
+    "explained": 51,
+    "orphaned": 5
+  },
+  "streets": {
+    "overWide": 6
+  },
+  "budget": {
+    "textureMB": 98.1
+  },
+  "propscale": {
+    "outOfRange": 7
   }
 }
