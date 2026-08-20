@@ -1207,6 +1207,37 @@ Verified against the code; if you change one, change it here too.
 
 ## Current state summary (as of last commit)
 
+**This session's arc, in one place.** The board is 28 checks and reads 0 gate
+failures / 0 regressions. What moved:
+
+- `hours.mjs` — all four arms of `updateLighting` in one table, gated on the
+  SILHOUETTE (is the sky brighter than the buildings), a blackout line and
+  whether the branch was measured at all. The arms could rot one at a time
+  before this and two of them had.
+- Open-topped volumes **22 -> 0**. One line: the post-wealthScale storey floor
+  raised a ceiling up through the floor resting on it.
+- `staircase` was built as a two-storey HOUSE — no massing override, and the
+  sweep that should have caught it filtered on `category` while a staircase
+  says `category: 'building'`. It is a stepped street now, and it was 12.6% of
+  an average street view as a blank surface.
+- A flank's ground storey is BLIND (bricked-up openings) rather than absent.
+  flank/front 0.56 -> 0.64.
+- Four outbuildings (potting_shed, sexton_hut, coach_house, mausoleum) had no
+  override either: an 11.4m potting shed, and a 28% chance of a spire.
+- `shed` roof primitive, so `tmplLeanTo` has the mono-pitch its own comment
+  said it could not have; the winding audit enumerates from a compiler-checked
+  table so a new style cannot go untested.
+- **Every street view in the harness was facing the wall beside the street** —
+  a yaw table rotated 90 degrees, in two hand-written copies. `streetVantages`
+  is in lib now.
+- Prop tone at dusk: measured properly for the first time (0.065 med, 47%
+  black) and deliberately left alone.
+- Curtain walls have a plinth, a string course and buttresses; sheds no longer
+  smoke.
+
+**Named and open**: `workshop:mainBody x stone_wall_v` overlapping 0.73m at
+(5,60) on seed 31337 — see the deepClash note above.
+
 - Scale fixed (FLOOR_HEIGHT 1.8), lamp pools as ground discs, chimneys
   anchored to mainBody with 7 whimsical variants
 - Terrain slopes continuously (corner-shared heights, retaining walls
