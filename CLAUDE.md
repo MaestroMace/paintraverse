@@ -404,6 +404,63 @@ the roof batch — which uses the noised path — compiled, ran, and did nothing
 The measurement is what caught it: the number did not move by a single point.
 When a field is read in one method, grep for the others that should read it.
 
+**A CLAMP THAT MOVES A SURFACE MUST TELL WHAT IS STANDING ON IT.** Every one
+of the 22 open-topped volumes in the town was `mainBody`, authored flat, on
+eleven ordinary types — and the whole count was ONE LINE. The post-wealthScale
+storey floor raised a volume's `height` in place, so a jetty's deliberately
+squat 0.32 ground floor, pushed under STOREY_HEIGHT by a slum multiplier of
+0.78, grew its ceiling up THROUGH the upper floor resting on it while that
+floor's `bottomY` stayed put. Same shape as the bridge deck versus the terrain:
+two authors of one surface, and the fix is that whoever moves it lifts what
+sits on it. **22 -> 0 over five seeds and not one other tracked metric moved** —
+clash, provenance, eyeball, facade, humanscale, variety and odd are all
+byte-identical, which is what a correct local fix looks like.
+
+The route there is the whole point and took three keys on one tally rather than
+any reading of the source. `definitionId:role` said every offender was the
+principal volume, so not a template quirk. Adding the roof style said all of
+them were authored `flat` with rise 0, not a rise collapsed by a clamp — two
+arms of a disjunction that want opposite fixes. Adding WHY the coverage test
+failed said `sitsTooLow` on every one, which turns "which template forgot a
+roof" into "where did the thing above it go". Then one A/B — the suspected line
+disabled, rebuilt — read 18 -> 0 and convicted it before a word was written
+down. **A counting metric buys guesses; each extra key on the tally bought a
+whole class of hypothesis eliminated.**
+
+**A SHARED DEFINITION THAT ONE OF ITS TWO CALLERS DOES NOT CALL IS NOT SHARED,
+IT IS A COPY WITH BETTER PAPERWORK.** `doorColorFor` was put in Materials.ts —
+the file whose entire justification is that BOTH renderers pick a palette
+independently — and wired into FacadeTexture only. The pixel-art export kept
+its own door table, which runs down to 0.112 sRGB luma against a floor of 0.3
+and is darker than any door in the 3D palette, so the fix reached one path of
+two on the day after the file was pointed at exactly this failure for roofs.
+The tell is cheap: after adding anything to a shared-vocabulary module, grep
+the OTHER renderer for the table it is supposed to replace. And apply it at the
+POINT OF USE rather than at the palette table, or the next palette added skips
+it silently.
+
+**A CONSTANT CHOSEN FOR PARITY WITH A MEASURED QUANTITY IS AT PARITY ONLY ON
+THE DAY YOU SET IT.** The roof tone floor was picked by a principle — parity
+with the wall beneath it, because a roof darker than its own wall reads as a
+hole rather than a surface — and the comment recording it also recorded the
+wall figure it was matched against, 0.046. That single number is what made the
+drift provable months later: raising the dusk arm took the wall to 0.105 and
+left the floor at 0.18, so the parity it was set to hold had quietly gone. The
+durable fix is not a better constant, it is **both numbers on the same line of
+the board**; `hours.mjs` prints dusk roof beside dusk wall for exactly this.
+Write down the quantity you calibrated against, or the next person cannot tell
+a considered value from a leftover one.
+
+**AND THE ARITHMETIC OF A CLAMP CAN CLOSE A QUESTION WITHOUT A BUILD.** The
+tempting fix was to raise that floor and recover the last 15%. The roof palette
+runs 0.097-0.290 linear luma and the wall palette 0.224-0.812 — roofing is
+intrinsically about three times darker than masonry, which is what a clay tile
+is — so 0.18 already lifts five of eight colours and 0.25 lifts seven and
+squeezes the palette into 0.25-0.29. **A floor is a clamp on the LOW end of a
+distribution; pushed past that distribution's median it stops being a floor and
+becomes the colour.** Pillar 2 spent to buy a tenth of pillar 1. Thirty seconds
+of arithmetic on the palette beat two builds and an A/B.
+
 **Choose a tuning value by a PRINCIPLE, not by taste or by whichever number
 moves most.** The roof floor's defect was stated precisely — roofs reading
 darker than the walls beneath them, which is a hole rather than a surface —
@@ -1326,7 +1383,7 @@ Run these before believing anything about where the project is.
 | bare untextured wall | odd.mjs | 9 over z=3, was 36 — a jettied ground floor authored blank | improving |
 | copy-paste twins | variety.mjs | 14% have an interchangeable twin within 15m (23% before the roof-style sweep) | the price of capped exclusives in rows |
 | **build determinism** | **harness --repeat=3** | **spread 0 on every metric, was up to 12** | **fixed** |
-| open-topped volumes | roofcheck.mjs | ~6 per town | near-clean |
+| open-topped volumes | roofcheck.mjs | **0 over 5 seeds, was 22** | **fixed** |
 | human scale | humanscale.mjs | door 2.05m, window 1.35m, storey 2.90m, 0% sub-human | clean |
 | street emptiness | emptiness.mjs | median 3m, 0% over 12m | satisfiable by scatter — see below |
 | enclosure (to a WALL) | streets.mjs | median 3m, 0% over 15m | clean |
@@ -2406,6 +2463,11 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   size fractions, or FacadeTexture. Read the numbers, not a screenshot.
 - `node tools/roofcheck.mjs [seeds...]` — volumes whose top is flat with
   nothing stacked on them, i.e. open boxes against the sky. Should stay near 0.
+  **It names them now** (`definitionId:role`, most first): the count went 6 ->
+  22 across a content arc that added ten building types and nothing could say
+  which of them did it. Note the population — volumes declaring
+  `habitable: false` are excluded, because masonry is meant to end in sky, so
+  what is left is a ROOM with a flat slab on it.
 - `node tools/bisect.mjs [seed] [--x= --z= --up= --yaw= --pitch=] [--mesh]` — screenshot
   one vantage point with each top-level scene group hidden in turn, so "what IS
   that artifact?" is a diff instead of a guess. TS `private` is compile-time

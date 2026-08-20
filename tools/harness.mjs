@@ -4,7 +4,7 @@
  *
  * WHY THIS EXISTS.
  *
- * There are twenty-eight tools in here and no way to run them. That is not a
+ * There were twenty-eight tools in here and no way to run them. That is not a
  * cosmetic problem; it is the single most expensive failure this project has
  * had. District character was recorded at 55%, nothing re-ran the town battery
  * for the whole length of the river arc, and it read 36% by the end — eighteen
@@ -274,11 +274,17 @@ const CHECKS = [
     // together.
     cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/hours.mjs', '31337']],
     extract: (o) => {
-      const row = (name) =>
-        new RegExp(`^\\s+${name}\\s+[\\d.]+\\s+([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)\\s+(\\d+)%`, 'm')
+      // Fields taken POSITIONALLY off the row rather than by a regex that
+      // spells out every column, because adding a column is a normal thing to
+      // do to this table — a prop mask went in the day after it was written —
+      // and a positional regex breaks on the addition rather than on the
+      // metric moving. Indices are 1-based past the hour: 1 sky, 2 wall,
+      // 3 roof, 4 ground, 5 prop. Too few fields still returns null and the
+      // board still reports UNPARSED, which is the behaviour that matters.
       const cell = (name, i) => {
-        const m = o.match(row(name))
-        return m ? Math.round(Number(m[i]) * 1000) : null
+        const m = o.match(new RegExp(`^\\s+${name}\\s+\\d.*$`, 'm'))
+        const nums = m ? m[0].match(/[\d.]+/g) : null
+        return nums && nums.length > i ? Math.round(Number(nums[i]) * 1000) : null
       }
       return {
         // The WALL at each hour, x1000. This is the quantity that rotted:
@@ -287,6 +293,16 @@ const CHECKS = [
         duskWall: cell('dusk', 2),
         goldenWall: cell('golden', 2),
         dayWall: cell('day', 2),
+        // THE ROOF AT DUSK, BESIDE THE WALL AT DUSK, because the roof tone
+        // floor was chosen by a principle — parity with the wall beneath it,
+        // since a roof darker than its own wall reads as a hole rather than a
+        // surface — and the comment that records it also records the wall
+        // figure it was matched against: 0.046. Raising the dusk arm took the
+        // wall to 0.105 and left the floor where it was. A CONSTANT CHOSEN
+        // FOR PARITY WITH A MEASURED QUANTITY IS AT PARITY ONLY ON THE DAY
+        // YOU SET IT, and the durable answer is not a better constant, it is
+        // having both numbers on the same line.
+        duskRoof: cell('dusk', 3),
         // The SKY at night, because "unlit" and "dark" are indistinguishable
         // in a wall reading alone and this is the number that separates them.
         nightSky: cell('night', 1),
@@ -310,12 +326,12 @@ const CHECKS = [
     // better" is wrong for that row and an argument for the others; what
     // matters is that a drop shows up on the board instead of in a phone
     // screenshot six weeks later.
-    dir: { nightWall: 0, duskWall: 0, goldenWall: 0, dayWall: 0, nightSky: 0 },
+    dir: { nightWall: 0, duskWall: 0, goldenWall: 0, dayWall: 0, nightSky: 0, duskRoof: 0 },
     // VERIFIED with --repeat=3: spread 0 on all eight metrics. The camera
     // spots, the ray grid and the build are all deterministic and there is no
     // randomness left in the path, so the band is three thousandths of a
     // luma — enough slack for a rasteriser boundary pixel and nothing more.
-    band: { nightWall: 3, duskWall: 3, goldenWall: 3, dayWall: 3, nightSky: 3 },
+    band: { nightWall: 3, duskWall: 3, goldenWall: 3, dayWall: 3, nightSky: 3, duskRoof: 3 },
   },
   {
     name: 'facade',
@@ -359,17 +375,24 @@ const CHECKS = [
     cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/holes.mjs', '4242', '--views=4', '--time=12']],
     extract: (o) => ({
       holes: num(o, /opening-shaped, and BLACK:\s*(\d+)/),
+      // THE TOOL MEASURES TWO THINGS AND THE BOARD WATCHED ONE. A HOLE is a
+      // dark patch where a wall should be; a BLANK is a patch with nothing ON
+      // it, and the annotated frames say the blanks are the bigger defect at
+      // street level — DESIGN.md's 30ft read is exactly a wall with something
+      // on it. Tracking half a tool's output is how a class goes unwatched.
+      blanks: num(o, /filling 4%\+ of the view:\s*(\d+)/),
+      blankFrac: num(o, /^\s+([\d.]+)% of an average street view is a single flat/m),
       // The CONTROL, tracked so a "clean" board cannot mean the detector
       // stopped finding anything. A run with no lit openings has no control
       // and its hole figure is a hypothesis — `odd.mjs --feature=` silently
       // killed its own control once and every verdict fell back to a string.
       litOpenings: num(o, /^\s+(\d+) found · median/m),
     }),
-    dir: { holes: -1, litOpenings: 0 },
+    dir: { holes: -1, litOpenings: 0, blanks: -1, blankFrac: 0 },
     // Deterministic within a build — same seed, same views, same framebuffer
     // — so the band is tight. A wide band on a deterministic metric is a
     // regression detector switched off.
-    band: { holes: 2, litOpenings: 3 },
+    band: { holes: 2, litOpenings: 3, blanks: 2, blankFrac: 2 },
   },
   // ==== THE INSTRUMENTS NOBODY WAS RUNNING ==============================
   //

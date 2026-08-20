@@ -137,10 +137,12 @@ const rows = []
 for (const { h, name } of HOURS) {
   await win.evaluate((t) => window.__pt.store.getState().updateEnvironment({ timeOfDay: t }), h)
   await win.waitForTimeout(700)
-  const acc = { sky: [], wall: [], roof: [], ground: [] }
+  const acc = { sky: [], wall: [], roof: [], ground: [], prop: [] }
+  const propIds = new Map()
   for (const sp of spots) {
     const pts = await win.evaluate(async ({ sp, volumes, pitch }) => {
       const pt = window.__pt, three = pt.renderer(), THREE = pt.THREE
+      const props = pt.store.getState().map.layers.find((l) => l.type === 'prop')?.objects ?? []
       pt.flyTo(sp.x, (pt.heightAt(sp.x, sp.y) ?? 0) + 1.6, sp.y, sp.yaw, pitch)
       for (let k = 0; k < 4; k++) await new Promise((r) => requestAnimationFrame(r))
       await new Promise((r) => setTimeout(r, 120))
@@ -153,10 +155,29 @@ for (const { h, name } of HOURS) {
       gl.render(sc, cam)
       g2.drawImage(src, 0, 0)
       const px = g2.getImageData(0, 0, cw, ch).data
+      // TAGGED BY GROUP, so a prop can be told from a wall. CLAUDE.md has
+      // carried "nothing is known about prop tone at dusk" as an open item
+      // since eyeball's `other` row was misread as a prop measurement — that
+      // row is every sample no building volume owns and is not horizontal, so
+      // vertical river-bank cuts and grazing water sit in it with the barrels,
+      // 265 samples against 9865 for walls. The mask it asked for is one line
+      // here, because the groups are already walked separately.
       const blockers = []
+      const groupOf = new Map()
       for (const g of ['buildingGroup', 'propGroup', 'terrainGroup']) {
         const grp = three[g]
-        if (grp) grp.traverse((o) => { if (o.isMesh && o.visible) blockers.push(o) })
+        if (!grp) continue
+        grp.traverse((o) => {
+          if (!o.isMesh || !o.visible) return
+          // A LAMP POOL IS NOT A SURFACE. eyeball drops depthWrite:false
+          // meshes for this reason and it matters more here than there: the
+          // ground light pools are horizontal discs in propGroup, so without
+          // this the prop column would be measuring the brightest thing in
+          // the town and reporting that props are fine.
+          const mats = Array.isArray(o.material) ? o.material : [o.material]
+          if (mats.every((m) => !m || m.depthWrite === false)) return
+          blockers.push(o); groupOf.set(o, g)
+        })
       }
       const ray = new THREE.Raycaster()
       const ndc = new THREE.Vector2()
@@ -178,6 +199,26 @@ for (const { h, name } of HOURS) {
           if (!hit) { out.push({ k: 'sky', L }); continue }
           const p = hit.point
           const up = hit.face ? Math.abs(hit.face.normal.y) : 0
+          // A PROP IS A PROP WHATEVER IT IS STANDING ON. Asked first, because
+          // the orientation fallback below would file a barrel's side as
+          // `wall` and its lid as `ground`, which is how the question went
+          // unanswered for so long.
+          if (groupOf.get(hit.object) === 'propGroup') {
+            // NAME IT. A prop median that is really a TREE median would be a
+            // bucket measuring something other than its label, which is the
+            // mistake that put "props read 88% black" in CLAUDE.md off a row
+            // containing river banks and grazing water. The batch merges every
+            // prop into one mesh, so identity comes from the nearest prop
+            // object — unambiguous inside two tiles, since props do not stack.
+            let near = null, bd = 2.2 * 2.2
+            for (const o of props) {
+              const dx = (o.x + 0.5) * 3.0 - p.x, dz = (o.y + 0.5) * 3.0 - p.z
+              const d = dx * dx + dz * dz
+              if (d < bd) { bd = d; near = o }
+            }
+            out.push({ k: 'prop', L, id: near ? near.definitionId : '?' })
+            continue
+          }
           let owner = null
           for (const vv of volumes) {
             if (p.x >= vv.x0 - 0.2 && p.x <= vv.x1 + 0.2 &&
@@ -190,20 +231,26 @@ for (const { h, name } of HOURS) {
       }
       return out
     }, { sp, volumes: scene.volumes, pitch: PITCH })
-    for (const s of pts) acc[s.k]?.push(s.L)
+    for (const s of pts) {
+      acc[s.k]?.push(s.L)
+      if (s.k === 'prop') propIds.set(s.id, (propIds.get(s.id) ?? 0) + 1)
+    }
   }
   const med = (a) => a.length ? a.slice().sort((x, y) => x - y)[a.length >> 1] : 0
   const blk = (a) => a.length ? Math.round(100 * a.filter((v) => v < BLACK).length / a.length) : 0
   rows.push({
     name, h,
     sky: med(acc.sky), wall: med(acc.wall), roof: med(acc.roof), ground: med(acc.ground),
-    wallBlack: blk(acc.wall), skyN: acc.sky.length, wallN: acc.wall.length,
+    prop: med(acc.prop),
+    wallBlack: blk(acc.wall), propBlack: blk(acc.prop),
+    skyN: acc.sky.length, wallN: acc.wall.length, propN: acc.prop.length,
+    propIds: [...propIds].sort((a, b) => b[1] - a[1]).slice(0, 6),
   })
 }
 await app.close()
 
-console.log('  branch    hour     sky    wall    roof  ground   wall black   silhouette')
-console.log('  ---------------------------------------------------------------------------')
+console.log('  branch    hour     sky    wall    roof  ground    prop   wall black   silhouette')
+console.log('  ------------------------------------------------------------------------------------')
 let inverted = 0
 let blackout = 0
 let unmeasured = 0
@@ -220,13 +267,23 @@ for (const r of rows) {
   if (ok.startsWith('NO SKY')) unmeasured++
   if (r.wallBlack >= 80) blackout++
   console.log(`  ${r.name.padEnd(8)} ${String(r.h).padStart(5)}   ` +
-    `${r.sky.toFixed(3)}  ${r.wall.toFixed(3)}  ${r.roof.toFixed(3)}  ${r.ground.toFixed(3)}` +
-    `      ${String(r.wallBlack).padStart(3)}%   ${ok}`)
+    `${r.sky.toFixed(3)}  ${r.wall.toFixed(3)}  ${r.roof.toFixed(3)}  ${r.ground.toFixed(3)}  ${r.prop.toFixed(3)}` +
+    `       ${String(r.wallBlack).padStart(3)}%   ${ok}`)
 }
-console.log('  ---------------------------------------------------------------------------')
+console.log('  ------------------------------------------------------------------------------------')
 console.log(`  mid-grey is 0.22; "black" is eyeball's 0.06 line, reused not reinvented.`)
-console.log(`  samples per branch: ${rows[0]?.skyN ?? 0} sky, ${rows[0]?.wallN ?? 0} wall` +
-  ` (${VIEWS} views x 400 rays)`)
+console.log(`  samples per branch: ${rows[0]?.skyN ?? 0} sky, ${rows[0]?.wallN ?? 0} wall,` +
+  ` ${rows[0]?.propN ?? 0} prop (${VIEWS} views x 400 rays)`)
+// THE PROP COLUMN IS THE MASK CLAUDE.md ASKED FOR. Reported with its own
+// black share and sample count, because a prop is small on screen and a
+// median over a handful of samples is a hypothesis. If propN is thin, say so
+// rather than quoting the median.
+for (const r of rows) {
+  if (r.propN < 20) console.log(`  prop median at ${r.name} is ${r.propN} samples — too thin to quote.`)
+}
+console.log(`  props read black: ` + rows.map((r) => `${r.name} ${r.propBlack}%`).join(' · '))
+console.log(`  what is IN the prop bucket: ` +
+  (rows[0]?.propIds ?? []).map(([id, n]) => `${id} x${n}`).join(', '))
 console.log(`\nVERDICT: ${inverted} inverted, ${blackout} blacked out, ${unmeasured} unmeasured.`)
 console.log('  A branch reading near zero everywhere is not a dark branch, it is an')
 console.log('  UNLIT one, and the two look identical in a single-hour tone table.')

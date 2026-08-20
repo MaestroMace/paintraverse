@@ -124,6 +124,14 @@ export function roofColorFor(defId: string, hash: number, paletteRoof: number): 
  * The general lesson is the one this repo keeps paying for: A MECHANISM THAT
  * COULD PRODUCE A NUMBER IS NOT EVIDENCE THAT IT DID, and the cheap
  * discipline is to change the suspected thing and watch the metric.
+ *
+ * AND IT LIVES HERE FOR THE SAME REASON `roofColorFor` DOES: BOTH RENDERERS
+ * PICK A PALETTE INDEPENDENTLY. Put in on the first pass and wired only into
+ * FacadeTexture, it reached the 3D walkaround and not the pixel-art export —
+ * whose own table runs down to 0.112 luma, darker than any door in the 3D one.
+ * A shared definition that one of its two callers does not call is not shared;
+ * it is a copy with better paperwork. Apply it at the POINT OF USE in both
+ * paths, never at the palette table, or the next palette added skips it.
  */
 export const DOOR_MIN_LUMA = 0.3
 

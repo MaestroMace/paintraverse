@@ -21,7 +21,7 @@
     "subHuman": 0
   },
   "roofcheck": {
-    "openTops": 22
+    "openTops": 0
   },
   "odd": {
     "overZ3": 26,
@@ -75,7 +75,9 @@
   },
   "holes": {
     "holes": 6,
-    "litOpenings": 12
+    "blanks": 7,
+    "blankFrac": 11.9,
+    "litOpenings": 13
   },
   "river": {
     "bankRelief": 1.3,
@@ -109,8 +111,9 @@
   "hours": {
     "nightWall": 32,
     "duskWall": 105,
-    "goldenWall": 186,
+    "goldenWall": 187,
     "dayWall": 169,
+    "duskRoof": 89,
     "nightSky": 65,
     "inverted": 0,
     "blackedOut": 0,

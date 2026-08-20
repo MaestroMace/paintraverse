@@ -432,6 +432,13 @@ export interface BuildingDiagnostics {
    *  unfinished building, so this makes that measurable. */
   roofStyles: Record<string, number>
   flatToppedTallVolumes: number
+  /** WHICH type and WHICH volume role produced each open box, `defId:role`.
+   *  A counting metric buys you guesses and an explaining one buys you the
+   *  answer — two changes went on "233 tiles where the wall placer did not
+   *  build" before that tool was asked to classify by cause, and this count
+   *  went 6 -> 22 across a content arc with nothing able to say which of the
+   *  ten new types did it. */
+  flatTopBy: Record<string, number>
   /** Street-dressing features that are gated behind district/type rules. */
   featureCounts: Record<string, number>
   /** Per-building human-scale samples — see BuildingScale. */
@@ -512,6 +519,7 @@ let _lastDiagnostics: BuildingDiagnostics = {
   ornamentFragments: 0,
   roofStyles: {},
   flatToppedTallVolumes: 0,
+  flatTopBy: {},
   featureCounts: {},
   scaleSamples: [],
 }
@@ -544,6 +552,7 @@ export function buildBuildingMeshes(
    *  What matters is the split, so record it. */
   const tallyIn = (k: string, d: string) => { tally(k); tally(`${k}@${d}`) }
   let flatToppedTallVolumes = 0
+  const flatTopBy: Record<string, number> = {}
   // THE ROOF BATCH WAS THE ONLY BATCH IN THE RENDERER WITH NO TONE FLOOR.
   //
   // Props carry 0.12 and the laundry 0.30, and roofs carried nothing, so at
@@ -568,6 +577,24 @@ export function buildBuildingMeshes(
   // already sits above it; the response is very non-linear and the useful
   // range is narrow. `liftToFloor` only touches colours already below the
   // floor and multiplies channels, so hue survives and a red roof stays red.
+  //
+  // AND THAT PARITY HAS SINCE DRIFTED, WHICH IS WHY THE 0.046 IS WRITTEN DOWN.
+  // A CONSTANT CHOSEN FOR PARITY WITH A MEASURED QUANTITY IS AT PARITY ONLY ON
+  // THE DAY YOU SET IT. The dusk arm of `updateLighting` was later found still
+  // carrying pre-tone-arc numbers and was raised; the wall went 0.046 -> 0.105
+  // and this floor stayed where it was. `tools/hours.mjs` now reads dusk at
+  // roof 0.089 against wall 0.105 and both are on the board on one line, which
+  // is the durable fix — the constant will drift again and now it is watched.
+  //
+  // IT IS DELIBERATELY NOT BEING RAISED TO CLOSE THAT 15%, and the palette is
+  // the reason. The eight roof colours run 0.097 to 0.290 linear luma against
+  // walls at 0.224 to 0.812 — roofing is INTRINSICALLY about three times
+  // darker than masonry, which is what a clay tile is. 0.18 already lifts five
+  // of the eight; 0.25 lifts seven and squeezes the whole palette into
+  // 0.25-0.29, trading terracotta, slate, verdigris and shingle for one flat
+  // tone. That is pillar 2 spent to buy a tenth of pillar 1, and a floor is a
+  // clamp on the LOW end of a palette — pushed past the palette's own median
+  // it stops being a floor and becomes the colour.
   const roofBatch = Object.assign(new BatchedMeshBuilder(), { toneFloor: 0.18 })
   const detailBatch = new BatchedMeshBuilder()
   const ornamentBatch = new BatchedMeshBuilder()
@@ -981,8 +1008,38 @@ export function buildBuildingMeshes(
         if (v.habitable === false) continue
         v.width = Math.min(maxW, Math.max(v.width, Math.min(MIN_HABITABLE_W, maxW)))
         v.depth = Math.min(maxD, Math.max(v.depth, Math.min(MIN_HABITABLE_W, maxD)))
-        if (v.role === 'mainBody' || v.role === 'upperFloor') {
-          v.height = Math.max(v.height, STOREY_HEIGHT)
+      }
+      // AND THE VERTICAL HALF OF THAT FLOOR HAS TO CARRY WHAT IS STANDING ON
+      // IT. Raising a storey's height in place, which is what this used to do
+      // in the loop above, moves its ceiling up THROUGH whatever was resting
+      // on the old one: `tmplJettiedUpper` authors a deliberately squat 0.32
+      // ground floor, a slum multiplier of 0.78 takes it under STOREY_HEIGHT,
+      // the floor pushed it back to 2.9m and the jetty's underside stayed
+      // where it was. `roofcheck` counted every one as an open box — 18 over
+      // two seeds, and turning this one line off read 0 — while `clash` was
+      // carrying the interpenetration it created.
+      //
+      // TWO AUTHORS OF ONE QUANTITY, the same shape as the bridge deck and
+      // the terrain, and the fix is the same: whoever moves the surface tells
+      // the things standing on it. Ascending order, so a lift propagates up
+      // through a stack rather than stopping at the first storey.
+      for (const v of [...massing.volumes].sort((a, b) => a.bottomY - b.bottomY)) {
+        if (v.role !== 'mainBody' && v.role !== 'upperFloor') continue
+        if (v.habitable === false) continue
+        if (v.height >= STOREY_HEIGHT) continue
+        const oldTop = v.bottomY + v.height
+        v.height = STOREY_HEIGHT
+        const lift = v.bottomY + v.height - oldTop
+        for (const o of massing.volumes) {
+          // RESTING ON IT, not merely above it: the 0.06 window is the seam
+          // tolerance templates already use (tmplTenement seats its upper
+          // floor 0.04 low on purpose so the join does not show), and the
+          // plan overlap is what stops a chimney breast beside the body from
+          // being dragged along with it.
+          if (o === v || Math.abs(o.bottomY - oldTop) > 0.06) continue
+          if (Math.abs(o.offsetX - v.offsetX) >= (o.width + v.width) / 2) continue
+          if (Math.abs(o.offsetZ - v.offsetZ) >= (o.depth + v.depth) / 2) continue
+          o.bottomY += lift
         }
       }
     }
@@ -1275,7 +1332,28 @@ export function buildBuildingMeshes(
       // category error humanscale made counting a 1.6m wall as a storey under
       // head height. A tool's two halves have to count the same population.
       if (v.habitable === false) continue
-      if (isFlatTop && !covered && v.height >= 2.0) flatToppedTallVolumes++
+      if (isFlatTop && !covered && v.height >= 2.0) {
+        flatToppedTallVolumes++
+        // ROOF STYLE IN THE KEY, because `isFlatTop` is a disjunction and its
+        // two arms want opposite fixes: a volume AUTHORED `flat`/`none` is a
+        // template decision, and one whose roofHeight COLLAPSED to zero under
+        // a clamp is a bug in the clamp. A count cannot tell them apart and
+        // the first run of this attribution could not either.
+        // AND WHY COVERAGE FAILED. Every offender came back `mainBody` and
+        // authored flat, which in each candidate template is the LOWER BODY
+        // OF A JETTY — a volume that is supposed to have an upper floor on
+        // top of it. So the question is no longer "which template" but
+        // "where did the thing that covers it go", and there are only two
+        // answers: nothing overlaps it in plan, or something does and sits
+        // too low. They want opposite fixes.
+        const overlapsInPlan = massing.volumes.some(o =>
+          o !== v &&
+          Math.abs(o.offsetX - v.offsetX) < (o.width + v.width) / 2 &&
+          Math.abs(o.offsetZ - v.offsetZ) < (o.depth + v.depth) / 2)
+        const why = overlapsInPlan ? 'sitsTooLow' : 'nothingAbove'
+        const k = `${obj.definitionId}:${v.role}:${v.roofStyle}${v.roofHeight <= 0 ? '/rise0' : ''}:${why}`
+        flatTopBy[k] = (flatTopBy[k] ?? 0) + 1
+      }
     }
     // Horizontal extents travel with the vertical ones for the same reason
     // BuildingTop exists at all: anything hanging off a wall — lanterns,
@@ -3205,6 +3283,7 @@ export function buildBuildingMeshes(
     ornamentFragments,
     roofStyles,
     flatToppedTallVolumes,
+    flatTopBy,
     scaleSamples,
     featureCounts,
   }

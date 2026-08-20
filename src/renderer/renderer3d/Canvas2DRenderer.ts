@@ -9,7 +9,7 @@ import { stableHash } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { SpatialGrid } from './SpatialGrid'
 import { TERRAIN_COLORS } from '../core/terrain'
-import { roofColorFor } from './Materials'
+import { roofColorFor, doorColorFor } from './Materials'
 
 // ── Spatial grids for fast object culling (built once per map, reused across frames) ──
 let _structureGrid: SpatialGrid | null = null
@@ -1567,7 +1567,13 @@ function addBuildingDrawables(
             const doorH = faceH * 0.22
             const doorX = fp[0].sx + faceW * 0.5
             const doorY = fp[0].sy
-            const doorColor = applyFog(shadeFace(palette.door, face.nx, face.ny, face.nz, lighting), avgDepth, lighting)
+            // doorColorFor, NOT palette.door. BOTH renderers pick a palette
+            // independently and this table's doors run down to 0.112 sRGB luma
+            // — darker than any entry in the 3D one — so the floor added to
+            // FacadeTexture reached one path of two. That is the drift
+            // Materials.ts exists to prevent, committed the day after the file
+            // was pointed at exactly this failure for roofs.
+            const doorColor = applyFog(shadeFace(doorColorFor(palette.door), face.nx, face.ny, face.nz, lighting), avgDepth, lighting)
             ctx.fillStyle = hexToCSS(doorColor)
             // Arched door top for larger buildings
             const isArchedDoor = def.id === 'chapel' || def.id === 'guild_hall' || def.id === 'mansion' || def.id === 'town_gate' || def.id === 'archway'
@@ -3307,7 +3313,7 @@ function renderBlueprint(
     const shape = elem as ShapeDesc
     const color = shape.colorKey === 'wall' ? palette.wall
       : shape.colorKey === 'roof' ? palette.roof
-      : shape.colorKey === 'door' ? palette.door
+      : shape.colorKey === 'door' ? doorColorFor(palette.door)
       : palette.wall
     const sx = ox + shape.offset.x * ts
     const sy = oy + shape.offset.y * ts
