@@ -1408,18 +1408,56 @@ export class ThreeRenderer {
     const sunZ = this.townCenterZ + 10
 
     if (isNight) {
-      this.sunLight.intensity = 0.15
-      this.sunLight.color.setHex(0x4466aa)
+      // NIGHT WAS NOT DARK, IT WAS UNLIT — and nobody had ever measured it.
+      // The first reading of this branch, on the same six street views the
+      // board grades dusk on:
+      //
+      //     sky 0.005 · wall 0.000 · roof 0.000 · ground 0.012
+      //     90% of wall pixels and 100% of roof pixels read black
+      //
+      // A person moving the time slider to night got a black screen with
+      // windows floating in it. THE SKY WAS AS BLACK AS THE BUILDINGS, so
+      // DESIGN.md pillar 1 had nothing to work with: a silhouette needs
+      // something to be silhouetted AGAINST, and at 0.005 the roofline and
+      // the sky are the same colour.
+      //
+      // The cause is DOUBLE-DARKENING — a near-black COLOUR multiplied by a
+      // low INTENSITY. Dusk's hemisphere is 0xffaa88 at 0.70 and contributes
+      // about 0.51; night's was 0x101830 at 0.26 and contributed 0.024,
+      // twenty-one times less. That is not a night-to-dusk ratio, it is a
+      // term that has been dimmed twice by two people who each only looked
+      // at one of the two numbers.
+      //
+      // Raised by the same principle the dusk branch was: at night the moon
+      // is a weak disc and SKYGLOW is what actually reaches a wall in a
+      // street, so the hemisphere leads. The stopping point is legibility,
+      // not brightness — surfaces should read as shapes in deep blue, far
+      // below mid-grey at 0.22, with the warm windows and lanterns (emissive
+      // at glow 1.4, untouched here) still the brightest thing by an order
+      // of magnitude.
+      this.sunLight.intensity = 0.32
+      this.sunLight.color.setHex(0x6a8ac8)
       this.sunLight.position.set(this.townCenterX, 40, sunZ) // moonlight from above
-      this.ambientLight.intensity = 0.26
-      this.ambientLight.color.setHex(0x2a3858)
-      this.hemiLight.color.setHex(0x101830)
-      this.hemiLight.groundColor.setHex(0x14100c)
-      this.hemiLight.intensity = 0.26
-      this._fog.color.setHex(0x101830); this._fog.density = 0.008
+      // AMBIENT LEADS AT NIGHT, NOT THE HEMISPHERE, and the measurement is
+      // why. Hemisphere light is orientation-dependent — an up-facing surface
+      // takes the full sky colour — so pushing it lifted the GROUND to 0.165
+      // while walls sat at 0.042 and the sky at 0.022. That inverts the
+      // silhouette: the street became the brightest thing in frame and the
+      // rooflines vanished into a sky darker than the buildings in front of
+      // it. Ambient is uniform, so it lifts a wall and a road together.
+      this.ambientLight.intensity = 1.15
+      this.ambientLight.color.setHex(0x4a5980)
+      this.hemiLight.color.setHex(0x3d5280)
+      this.hemiLight.groundColor.setHex(0x241f16)
+      this.hemiLight.intensity = 0.6
+      this._fog.color.setHex(0x141c34); this._fog.density = 0.008
       if (this.skyUniforms) {
-        this.skyUniforms.uZenith.value.setHex(0x0a0e2a)
-        this.skyUniforms.uHorizon.value.setHex(0x101830)
+        // The sky has to sit ABOVE the buildings or there is no silhouette.
+        // THE SKY MUST OUT-READ THE BUILDINGS or there is no silhouette, and
+        // these colours go through the same tone mapping as everything else —
+        // 0x1b2350 measured 0.022 on screen, a fifth of its nominal luma.
+        this.skyUniforms.uZenith.value.setHex(0x39447e)
+        this.skyUniforms.uHorizon.value.setHex(0x5a6a9c)
         this.skyUniforms.uCloudColor.value.setHex(0x303a52)
         this.skyUniforms.uCloud.value = 0.4
         // Distant mountains read as nearly black at night.
@@ -1487,11 +1525,30 @@ export class ThreeRenderer {
       this.sunLight.intensity = 1.0
       this.sunLight.color.setHex(0xffe8c0)
       this.sunLight.position.set(sunX, sunY, sunZ)
-      this.ambientLight.intensity = 0.36
-      this.ambientLight.color.setHex(0x706050)
+      // GOLDEN WAS DIMMER THAN DUSK, WHICH CANNOT BE RIGHT. Laid side by
+      // side, the four branches were never graded against each other:
+      //
+      //     noon    ambient 0.62  hemi 0.95
+      //     golden  ambient 0.36  hemi 0.40   <-- between the two, and lowest
+      //     dusk    ambient 0.40  hemi 0.70
+      //     night   ambient 0.26  hemi 0.26
+      //
+      // Golden hour is 15:00-17:00 with the sun still well up; it is the
+      // BRIGHTER neighbour of dusk and it carried barely half its skylight.
+      // Nobody noticed because each branch was only ever edited while
+      // measuring at its own hour — the same failure that left dusk with the
+      // pre-tone-arc numbers for a whole arc. Measured, golden read walls at
+      // 0.115 with 36% of their pixels black, worse than it has any reason
+      // to be with the sun up.
+      //
+      // Interpolated between its neighbours rather than tuned: golden sits
+      // between dusk's 0.40/0.70 and noon's 0.62/0.95, which is also what the
+      // sun angle says.
+      this.ambientLight.intensity = 0.52
+      this.ambientLight.color.setHex(0x786754)
       this.hemiLight.color.setHex(0xe8d8c8)
       this.hemiLight.groundColor.setHex(0x50442e)
-      this.hemiLight.intensity = 0.40
+      this.hemiLight.intensity = 0.85
       this._fog.color.setHex(0xe8d8c8); this._fog.density = 0.004
       if (this.skyUniforms) {
         this.skyUniforms.uZenith.value.setHex(0x5588bb)
