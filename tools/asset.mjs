@@ -76,8 +76,21 @@ if (shots.none) {
     // Eye level first, then step up. A building is meant to be seen from the
     // street; the higher candidates are the fallback for one hemmed in by
     // neighbours, which is most of a terrace.
+    //
+    // UNLESS THE SUBJECT IS FLAT, and that is a property of the box rather
+    // than a flag. A stepped street is 6m x 9m and a metre tall: from eye
+    // level at ten metres it is a dark line behind the near paving, and the
+    // frame is honestly unoccluded and completely useless — the same "thirty
+    // pixels" failure this tool was written to end, rotated onto the vertical.
+    // Anything you have to look DOWN at to see — a stair, a quay, a dock, a
+    // bridge deck — is identifiable from its own proportions, so the tier
+    // order is derived and every one of them is fixed at once.
+    const flat = (box.max[1] - box.min[1]) <
+      0.5 * Math.min(box.max[0] - box.min[0], box.max[2] - box.min[2])
     const view = await lookAt(win, box, {
-      dists: [10, 14, 19, 26, 34], heights: [0, 2, 5, 11], dirs: 20, maxFill: 0.7,
+      dists: flat ? [8, 11, 15, 21] : [10, 14, 19, 26, 34],
+      heights: flat ? [7, 5, 11, 3] : [0, 2, 5, 11],
+      dirs: 20, maxFill: 0.7,
     })
     if (!view.ok) { console.log(`  ✗ ${defId} @(${v.x},${v.y}): ${view.why}`); continue }
     await markSubject(win, view.screen)

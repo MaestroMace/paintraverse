@@ -404,6 +404,51 @@ the roof batch — which uses the noised path — compiled, ran, and did nothing
 The measurement is what caught it: the number did not move by a single point.
 When a field is read in one method, grep for the others that should read it.
 
+**A RATE THAT MOVES WITH ITS DENOMINATOR HAS NOT MOVED.** `habitablePinned`
+jumped 5% -> 16% on the staircase change and read as the worst regression of
+the day. Split into its two halves against the previous source: **numerator
+32 -> 32, denominator 598 -> 311.** Not one additional volume became pinned.
+`provenance.mjs` was deciding "habitable" from the ROLE — the `mainBody`-means-
+two-things bug this file already records fixing in the SOURCE with
+`Volume.habitable`, sitting unfixed in the tool — so 287 masonry volumes that
+the clamp explicitly skips were padding the denominator, and the true rate was
+always about 10%. Always print both halves of a rate you are about to believe;
+a percentage is two measurements wearing one number.
+
+**A CATEGORY FIELD IS NOT A TAXONOMY, AND THE SWEEP THAT USES ONE WILL MISS.**
+`staircase` had no DEF_OVERRIDE, so all ~8 a town were built as two-storey
+houses with hipped roofs and 28% of them got a spire — the bridge finding, one
+type over, and CLAUDE.md already said to sweep for it. The sweep was run and
+came back clean, because it filtered on `category: 'infrastructure'` and a
+staircase's definition says `category: 'building'`. Its TAGS say
+`structure, elevation`. Sweeping by tag found it in one command. What actually
+found the defect first was neither: `holes.mjs` named it as 7 of 16 blank
+patches and 12.6% of an average street view, which is the whole argument for a
+tool that selects by SCREEN PRESENCE rather than by a field somebody typed.
+
+**AND THE POPULATION WAS THE OPPOSITE OF THE ONE I DESIGNED FOR.** The
+replacement was a stepped street derived from `ctx.groundDrop`, with a perron
+as the flat-ground fallback. Measured across five seeds: 42 staircases, ONE
+with a drop over 0.9m, median 0.35m — the placer draws the type from a weighted
+district table and never asks the terrain anything, so the fallback was the
+whole town and the first build was a 6m raised slab. Same blank surface, new
+shape. **Check what the bucket CONTAINS before deciding which case is
+degenerate.** Capping the landing and the width to a street's took it to a
+narrow flight that leaves most of its reserved rectangle as open ground:
+blanks 16 -> 9 patches, 21.5% -> 9.0% of an average view, with every other
+definitionId's figures unchanged.
+
+**AND FOUR CAMERA HUNTS WERE SETTLED BY ONE COLOUR PROBE.** A 0.9m stone
+platform in a shadowed corner is unreadable at noon and at golden hour, from
+eye level and from above, and I took all four shots before remembering the note
+in this file. `isolate()` cannot help — the geometry is merged into a batch —
+so the equivalent is the door probe: paint the volumes magenta for one build,
+which costs six seconds and shows the shape exactly. The permanent half of the
+fix is in `asset.mjs`: **a subject flatter than half its own footprint is
+looked DOWN at**, derived from the box rather than a flag, so stairs, quays,
+docks and bridge decks are all framed correctly instead of photographed
+edge-on as a dark line behind the near paving.
+
 **A CLAMP THAT MOVES A SURFACE MUST TELL WHAT IS STANDING ON IT.** Every one
 of the 22 open-topped volumes in the town was `mainBody`, authored flat, on
 eleven ordinary types — and the whole count was ONE LINE. The post-wealthScale
@@ -2232,7 +2277,13 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   back you must stand is decided by HEIGHT, which only the built scene knows,
   so it walks out until the projected footprint box fits. The magenta outline
   is not decoration — two rounds went on guessing which box in the frame was
-  the subject. Both halves are `tools/lib/vantage.mjs` now.
+  the subject. Both halves are `tools/lib/vantage.mjs` now. **And a subject
+  FLATTER than half its own footprint is looked DOWN at**, derived from the box
+  rather than a flag: a 6x9m stepped street a metre tall is a dark line behind
+  the near paving from eye level — honestly unoccluded and completely useless —
+  and the same goes for a quay, a dock and a bridge deck. When even that fails,
+  and merged batch geometry cannot be `isolate`d, paint the volumes magenta for
+  one build. Six seconds, and it settled four camera hunts.
 - `node tools/holes.mjs [seed] [--views=N] [--time=] [--all]` — **dark
   rectangles a person reads as a HOLE in a wall, and large featureless
   surfaces they read as a BLANK one.** The class every other instrument here

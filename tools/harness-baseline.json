@@ -15,7 +15,7 @@
     "outsideBox": 0,
     "doubled": 17,
     "spireAtCap": 0,
-    "habitablePinned": 5
+    "habitablePinned": 10
   },
   "humanscale": {
     "subHuman": 0
@@ -24,8 +24,8 @@
     "openTops": 0
   },
   "odd": {
-    "overZ3": 26,
-    "bareWall": 8
+    "overZ3": 22,
+    "bareWall": 10
   },
   "urbanform": {
     "coverage": 48,
@@ -37,8 +37,8 @@
     "character": 75
   },
   "clash": {
-    "deepClash": 25,
-    "onAir": 20,
+    "deepClash": 24,
+    "onAir": 18,
     "buried": 0
   },
   "eyeball": {
@@ -46,7 +46,7 @@
     "stackedMed": 79,
     "roofOver80": 9,
     "dwellingsOver4": 14,
-    "wallLuma": 88,
+    "wallLuma": 84,
     "roofBlackPct": 32
   },
   "facade": {
@@ -56,7 +56,7 @@
   },
   "variety": {
     "twinNear": 14,
-    "twinAny": 40
+    "twinAny": 43
   },
   "traverse": {
     "reachPct": 78,
@@ -75,9 +75,9 @@
   },
   "holes": {
     "holes": 6,
-    "blanks": 7,
-    "blankFrac": 11.9,
-    "litOpenings": 13
+    "blanks": 6,
+    "blankFrac": 10.1,
+    "litOpenings": 14
   },
   "river": {
     "bankRelief": 1.3,

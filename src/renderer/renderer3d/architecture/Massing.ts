@@ -149,6 +149,11 @@ export interface TracedVolume {
   ox: number; oz: number
   /** Needed to know which cap applies to the roof — see MAX_ROOF_SPAN_RATIO. */
   rs: string
+  /** Whether the template declared this a ROOM. A pier, a parapet, a stair
+   *  tread and a curtain wall all use `role: 'mainBody'` for the other meaning
+   *  of that word — "the principal volume" — and the habitability rules do
+   *  not apply to any of them. */
+  hab: boolean
 }
 export interface TraceRow {
   id: number; def: string; stage: string
@@ -177,6 +182,14 @@ export function traceStage(
       h: +v.height.toFixed(3), rh: +v.roofHeight.toFixed(3),
       ox: +v.offsetX.toFixed(3), oz: +v.offsetZ.toFixed(3),
       rs: v.roofStyle,
+      // THE DECLARATION, not the role. `role: 'mainBody'` carries two
+      // meanings — "the principal volume" and "a room, so apply the
+      // habitability rules" — and this repo has already split them once with
+      // Volume.habitable. provenance.mjs kept deciding from the role, so
+      // every bridge pier, footbridge trestle and stair tread was graded
+      // against a rule that explicitly does not apply to it. A tool cannot
+      // read a word the trace does not carry.
+      hab: v.habitable !== false,
     })),
   })
 }
@@ -2304,6 +2317,184 @@ function tmplFootbridge(ctx: MassingContext): Volume[] {
 }
 
 /**
+ * A PUBLIC STEPPED STREET — a flight of steps between two low parapets.
+ *
+ * `staircase` had no entry in DEF_OVERRIDE, so every one of the ~8 a town fell
+ * through to the generic archetype and was built as a two-storey house with a
+ * hipped roof, and 28% of the time the landmark promotion gave it a spire. The
+ * bridge finding, one type over: content with no way in, and the tell was the
+ * same — an infrastructure object in the STRUCTURE layer with nothing routing
+ * it anywhere. It hid longer because its definition says `category: 'building'`
+ * (its tags say `structure, elevation`), so a sweep by category could not see
+ * it; `tools/holes.mjs` found it by looking, as 7 of 16 blank patches and
+ * 12.6% of an average street view — the single largest featureless surface in
+ * the town.
+ *
+ * DESIGN.md names Lisbon, Porto and Gion, and all three have the same object:
+ * a stepped street climbing a slope with a wall either side. That is what this
+ * builds, and the whole geometry is derived from `ctx.groundDrop` — the drop
+ * the footprint actually spans — rather than from a nominal wall height, for
+ * the reason the cottage cost two rounds learning: a thing with an intrinsic
+ * size must not inherit whatever the plot would otherwise have carried.
+ *
+ * Steps DESCEND. The placement base is the highest ground the footprint covers
+ * — that is what makes a house sit on the high corner with a plinth under the
+ * rest — so a stair measured upward from it would start at the top of the
+ * slope and climb into the air. Negative `bottomY` is the same declaration the
+ * bridges make, and it earns the same plinth exemption: a massing that sends a
+ * volume below the base has taken responsibility for the drop.
+ */
+function tmplStaircase(ctx: MassingContext): Volume[] {
+  // The run is the LONG axis and the drop is what the ground gives us. Floored
+  // at 0.6 so a stair on near-flat ground is still a threshold with a couple
+  // of steps in it rather than a slab; capped so a freak drop does not produce
+  // a ladder.
+  const alongX = ctx.footW >= ctx.footD
+  const run = Math.max(2.0, alongX ? ctx.footW : ctx.footD)
+  // Capped HARD. A public stepped street is about as wide as an alley; at
+  // 4.2m the assembly photographed as a walled plaza with a step in it, which
+  // is the blank surface this change exists to remove wearing a new shape.
+  // 2.6m is two people passing, and it leaves most of the reserved rectangle
+  // as open ground.
+  const across = Math.min(2.6, Math.max(1.4, (alongX ? ctx.footD : ctx.footW) - 0.5))
+  const rise = Math.min(5.0, Math.max(0.6, ctx.groundDrop))
+  // AND WHEN THERE IS NO DROP TO SPAN IT STANDS PROUD INSTEAD OF SINKING.
+  // The placement base is the HIGHEST ground the footprint covers, so a stair
+  // measured downward from it disappears into the terrain wherever the ground
+  // is flat — the first build read as a dark line in the paving, which is a
+  // better failure than a house and still not a stair. Lifting the whole
+  // assembly by the shortfall puts the FOOT on the real ground and the head
+  // proud of it, which turns the degenerate case into a perron: a stepped
+  // platform, which is what a temple forecourt or a noble entrance has. On a
+  // genuine slope the shortfall is zero and nothing moves.
+  const lift = rise - Math.min(rise, ctx.groundDrop)
+  // A COMFORTABLE PUBLIC STAIR IS SHALLOW. Riser near 0.17m is the domestic
+  // figure; a civic stepped street runs shallower and longer, so the tread
+  // comes out of the run rather than being fixed and the count is whichever
+  // gives a riser a person can take. humanscale grades a storey and a door;
+  // nothing grades a step, so the number is written from what a step IS.
+  const steps = Math.max(2, Math.min(20, Math.round(rise / 0.17)))
+  const riser = rise / steps
+  // TREAD IS A PHYSICAL SIZE, NOT A SHARE OF THE RUN. Dividing the run by the
+  // step count gave 1.8m treads on a gentle slope, which is not a flight of
+  // steps, it is a set of terraces — the same mistake as deriving a cottage's
+  // "low wall" from whatever the plot would otherwise have carried. A real
+  // tread is 0.4-0.9m, so the FLIGHT takes the length it needs and whatever
+  // is left over becomes a LANDING at the head, which is exactly how a gently
+  // sloping stepped street is built.
+  const tread = Math.min(0.62, run / steps)
+  // AND THE LANDING IS CAPPED, BECAUSE THE FLAT CASE IS THE WHOLE POPULATION.
+  // Measured across five seeds: 42 staircases, ONE with a drop over 0.9m and a
+  // median of 0.35m — the placer draws this type from a weighted district
+  // table and never asks the terrain anything. So the slope this template was
+  // designed around is the rare case and the perron is the ordinary one, which
+  // is the "check what the bucket CONTAINS" lesson arriving from the other
+  // side: I designed for a population that barely exists.
+  //
+  // Letting the landing absorb the remaining run therefore produced a 6m
+  // raised slab — a blank surface, which is the defect this whole change is
+  // reducing. Capped, the assembly is mostly STEPS and simply does not fill
+  // its reserved rectangle; the leftover tiles stay open ground, which is the
+  // placer's business and not the geometry's.
+  const landing = Math.min(1.4, Math.max(0, run - steps * tread))
+  const used = steps * tread + landing
+  const head = -used / 2
+  /** Deck height at a position along the run — flat over the landing, then
+   *  descending one riser per tread. One definition, so the parapets cannot
+   *  disagree with the steps about where the surface is. */
+  const deckAt = (p: number): number => {
+    const along = p - (head + landing)
+    if (along <= 0) return lift
+    return lift - Math.min(rise - riser, Math.floor(along / tread) * riser)
+  }
+  const stone = 0x8a8378
+  const trim = 0x76705f
+  const vols: Volume[] = []
+  if (landing > 0.4) {
+    vols.push({
+      role: 'mainBody',
+      walkable: true,
+      offsetX: alongX ? head + landing / 2 : 0,
+      offsetZ: alongX ? 0 : head + landing / 2,
+      width: alongX ? landing : across,
+      depth: alongX ? across : landing,
+      bottomY: lift - rise - 0.3, height: rise + 0.3,
+      roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+      wallColor: stone, roofColor: stone,
+      textured: false, cornice: false, floors: 1,
+    })
+  }
+  for (let i = 0; i < steps; i++) {
+    // Each step is solid to below grade rather than a floating slab: real
+    // masonry steps are a stack, and a floating one is the defect the
+    // terrain-step generator in ThreeRenderer already had to fix.
+    const top = lift - i * riser
+    const bottom = lift - rise - 0.3
+    const centre = head + landing + (i + 0.5) * tread
+    vols.push({
+      role: 'mainBody',
+      // WALKABLE, so `standAt` puts a player on the treads instead of on the
+      // terrain underneath them. That is the whole point of a stair and it is
+      // the half of the bridge fix that was invisible until traverse.mjs
+      // asked whether a person could get there.
+      walkable: true,
+      offsetX: alongX ? centre : 0,
+      offsetZ: alongX ? 0 : centre,
+      width: alongX ? tread + 0.04 : across,
+      depth: alongX ? across : tread + 0.04,
+      bottomY: bottom, height: top - bottom,
+      roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+      wallColor: stone, roofColor: stone,
+      textured: false, cornice: false, floors: 1,
+    })
+  }
+  // The two parapets, in three descending segments each. A stepped street
+  // without them reads as a ramp with lines drawn on it; the wall is what
+  // makes it a street. Deliberately below eye level, same argument as
+  // tmplLowWall: you see over it into the quarter beyond.
+  const SEGS = 3
+  for (const s of [-1, 1]) {
+    for (let k = 0; k < SEGS; k++) {
+      const segLen = used / SEGS
+      const centre = head + (k + 0.5) * segLen
+      // Follow the surface, via the one definition of where it is — a
+      // parapet that ramps while the steps have a landing under them is two
+      // authors of one profile.
+      const topAt = deckAt(centre) - lift
+      vols.push({
+        role: 'trim',
+        offsetX: alongX ? centre : s * (across / 2 + 0.16),
+        offsetZ: alongX ? s * (across / 2 + 0.16) : centre,
+        width: alongX ? segLen : 0.32,
+        depth: alongX ? 0.32 : segLen,
+        bottomY: lift - rise - 0.3, height: topAt + 0.85 + rise + 0.3,
+        roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+        wallColor: trim, roofColor: trim,
+        textured: false, cornice: false, floors: 1,
+      })
+    }
+    // Newel blocks at head and foot — the one detail that stops a parapet
+    // reading as an extruded box, the same single volume tmplLowWall spends
+    // on its coping.
+    for (const e of [-1, 1]) {
+      const at = e * (used / 2 - 0.22)
+      const topAt = e < 0 ? 0.22 : -rise + 0.22   // head end, foot end
+      vols.push({
+        role: 'trim',
+        offsetX: alongX ? at : s * (across / 2 + 0.16),
+        offsetZ: alongX ? s * (across / 2 + 0.16) : at,
+        width: 0.44, depth: 0.44,
+        bottomY: lift - rise - 0.3, height: topAt + rise + 0.3,
+        roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+        wallColor: stone, roofColor: stone,
+        textured: false, cornice: false, floors: 1,
+      })
+    }
+  }
+  return masonry(vols)
+}
+
+/**
  * A STONE BRIDGE — piers standing in the bed, a deck across them, parapets.
  *
  * Reported as "there are essentially no bridges", and 20 of every 23 placed
@@ -2629,6 +2820,7 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   windmill: (ctx) => tmplWindmill(ctx),
   stone_wall: (ctx) => tmplWallSegment(ctx),
   footbridge: (ctx) => tmplFootbridge(ctx),
+  staircase: (ctx) => tmplStaircase(ctx),
   bridge: (ctx) => tmplStoneBridge(ctx),
   stone_bridge: (ctx) => tmplStoneBridge(ctx),
   arched_bridge: (ctx) => tmplStoneBridge(ctx),
