@@ -980,6 +980,9 @@ export function buildBuildingMeshes(
       1.0
     const sizeScale = wealthScale * landmarkScale
     if (Math.abs(sizeScale - 1.0) > 0.02 && !NO_JITTER.has(obj.definitionId)) {
+      // WHAT THE TEMPLATE ASKED FOR, kept so the re-floor below can restore
+      // the scale without OVERRULING the template. See the storey floor.
+      const authored = massing.volumes.map((v) => v.height)
       massing.volumes = massing.volumes.map(v => ({
         ...v,
         width: v.width * sizeScale,
@@ -1023,12 +1026,25 @@ export function buildBuildingMeshes(
       // the terrain, and the fix is the same: whoever moves the surface tells
       // the things standing on it. Ascending order, so a lift propagates up
       // through a stack rather than stopping at the first storey.
+      // A FLOOR THAT UNDOES A SCALE MUST NOT OVERRULE THE THING IT RESTORES.
+      // This floored every mainBody at STOREY_HEIGHT flat, so any template
+      // asking for LESS was silently overridden — and several intrinsic-size
+      // types do: a potting shed asks for 2.32-3.07m and came out at exactly
+      // 2.9 every time, which `variety.mjs` found as four identical sheds in
+      // a row, all "4.5m tall", the largest near-twin cluster in the town.
+      // The purpose here is to undo wealthScale's shrinkage, and the honest
+      // target is therefore the AUTHORED height capped at a storey: a slum
+      // multiplier can no longer crush a house, and a garden shed is allowed
+      // to be a garden shed.
+      const authoredOf = new Map<(typeof massing.volumes)[number], number>()
+      massing.volumes.forEach((v, i) => authoredOf.set(v, authored[i] ?? STOREY_HEIGHT))
       for (const v of [...massing.volumes].sort((a, b) => a.bottomY - b.bottomY)) {
         if (v.role !== 'mainBody' && v.role !== 'upperFloor') continue
         if (v.habitable === false) continue
-        if (v.height >= STOREY_HEIGHT) continue
+        const target = Math.min(STOREY_HEIGHT, authoredOf.get(v) ?? STOREY_HEIGHT)
+        if (v.height >= target) continue
         const oldTop = v.bottomY + v.height
-        v.height = STOREY_HEIGHT
+        v.height = target
         const lift = v.bottomY + v.height - oldTop
         for (const o of massing.volumes) {
           // RESTING ON IT, not merely above it: the 0.06 window is the seam

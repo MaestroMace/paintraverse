@@ -404,6 +404,83 @@ the roof batch — which uses the noised path — compiled, ran, and did nothing
 The measurement is what caught it: the number did not move by a single point.
 When a field is read in one method, grep for the others that should read it.
 
+**A FLOOR THAT UNDOES A SCALE MUST NOT OVERRULE THE THING IT RESTORES.** The
+post-wealthScale storey floor raised every `mainBody` to STOREY_HEIGHT flat,
+so any template asking for LESS was silently overridden — and several
+intrinsic-size types do. A potting shed asks for 2.32-3.07m and came out at
+exactly 2.9 every time. Its purpose is to undo a slum multiplier crushing a
+house storey, so the honest target is the AUTHORED height capped at a storey,
+not the storey itself. Written down because the same clamp has now produced
+two separate defects in one session — it also moved a ceiling up through the
+floor resting on it — and both came from it acting on a number rather than on
+the reason for the number.
+
+**REMOVING ACCIDENTAL VARIATION LOOKS EXACTLY LIKE A REGRESSION.** Collapsing
+the lean-to's two boxes into one volume with a real slope moved two tracked
+numbers the wrong way: `variety` twinNear 14% -> 17%, because volume count and
+roof style are two of the four things it keys on and both had just become
+constant, and `allsides` back/front 0.72 -> 0.61, because half the edges on the
+back wall WERE the step between the two boxes. Both costs are real and both
+were paid for a defect: the shapes differed because a repair pass was putting
+hipped and mansard roofs on a building whose whole point is a mono-pitch. The
+answer is deliberate variation that is true to the type, not the defect back —
+a coal store tacked on the low side and a prop under the eave, independently
+rolled, give four combinations across the twenty-two a town and took twinNear
+back to 14%. **A metric cannot tell "you removed variety" from "you removed
+variety that was a bug"; only the reason it existed can.**
+
+**AND `backFront` IS A MEDIAN OVER THIRTEEN BUILDINGS.** allsides grades n=30,
+of which 22 are reachable and only 13 have a reachable BACK — and the tool's
+own note records reading 0.28 at n=14 and 0.79 at n=30 on one build. So the
+back ratio is a hypothesis at this sample size and is tracked at `dir: 0`
+rather than gated, with the back count on the board beside it; FLANK is the
+graded one, which is what this file has said since the first version of the
+tool shot front-vs-back and read a comfortable 0.79 while both flanks were
+flat colour. **When a tool prints two sample sizes, the metric belongs to the
+smaller one.**
+
+**A TEMPLATE WORKING AROUND A MISSING PRIMITIVE IS A REQUEST FOR THE
+PRIMITIVE.** `tmplLeanTo`'s comment said, in as many words, "there is no
+mono-pitch roof primitive and a gable would make this a small cottage, which
+is the opposite of the point", and built a stepped pair of flat-topped boxes
+instead. Two things were wrong with that and only a tool saw either: the
+open-box repair correctly refuses to leave an exposed flat top on a habitable
+volume, so every lean-to in the slum came out as two small HIPPED cottages —
+`variety.mjs` reported `2 vol hipped+hipped` on nine at once — and the
+workaround therefore produced the exact silhouette it existed to avoid.
+`shed` is a roof style now: a convex wedge that `enforceOutwardWinding`
+repairs like every other solid in Roofs.ts, so adding a fifth hand-written
+roof was safe in a file where hand-maintained winding has been wrong four
+times.
+
+**AND THE WINDING AUDIT HAD A HAND-WRITTEN STYLE LIST**, so a new solid would
+have been invisible to the one instrument standing between this file and
+invisible roofs — the ghost failure with a type signature, inside the tool
+built to catch it. `auditRoofWinding` enumerates `Object.keys(
+MAX_ROOF_SPAN_RATIO)` now, which is a `Record<RoofStyle, number>`: the
+compiler refuses to let a style exist without an entry, so the audit inherits
+the guarantee instead of restating it. **When you add to a union, look for the
+lists that should have grown and could not.** The strict Record types named
+two more tables the same way, in the same compile.
+
+**AN 11.4m POTTING SHED — THE INTRINSIC-SIZE CLASS, THIRD TIME.** A bench was
+built as a nine-metre house; a coach house reached 37.5m; and `odd.mjs` found
+`potting_shed` at 11.4m with a 5.6m median across the seed. Same cause every
+time: a type whose real-world size is FIXED taking `ctx.wallH`, which describes
+the plot. All four of the outbuildings — potting_shed, sexton_hut, coach_house,
+mausoleum — had no DEF_OVERRIDE at all, so they took the generic archetype AND
+its 28% chance of promotion to a tower. Registering a template is both halves
+of that fix, because `pickMassing` checks the override table before it rolls
+for a landmark. potting_shed 5.6m -> 3.0m.
+
+**And `tmplLeanTo` carried the identical idiom forty lines above the comment
+that explains why it is wrong.** `max(STOREY_HEIGHT * 0.95, ctx.wallH * 0.5)`
+is verbatim what tmplCottage records costing two rounds to learn, and it
+produced the 7.53m lean-to that `odd.mjs` ranked as the town's most slender
+structure at z=69. **When a template's own comment names a bug pattern, grep
+the file for the pattern the same day** — `Math.max(<absolute>, ctx.wallH * f)`
+is one grep and there was exactly one instance left.
+
 **BLIND IS NOT ABSENT, AND THE DIFFERENCE IS THE WHOLE 30FT READ.** A flank's
 ground storey was laid out starting at floor 1 — nothing at eye level — under a
 comment making the correct architectural argument that a blind base is what

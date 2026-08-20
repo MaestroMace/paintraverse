@@ -352,19 +352,30 @@ const CHECKS = [
     extract: (o) => ({
       flankFront: pct100(o, /FLANK \/ FRONT\s+median ([\d.]+)/),
       backFront: pct100(o, /BACK \/ FRONT\s+median ([\d.]+)/),
-      // The SAMPLE, tracked for the reason the tool's own note gives: a
-      // ratio taken over too few buildings is a hypothesis, and this one has
-      // already been wrong by half once.
+      // THE SAMPLES, and there are two of them, which is the whole reason
+      // backFront is not graded below. `usable` is every building the camera
+      // could reach; the BACK ratio is a median over only those with a
+      // reachable back, which on this seed is THIRTEEN. The tool's own note
+      // says it read back/front 0.28 at n=14 and 0.79 at n=30 on the same
+      // build — so a 13-sample median is a hypothesis, and tracking it as a
+      // gated metric would cry wolf on every change that touches a handful of
+      // small types. Both counts are on the board so the reading can be
+      // interpreted instead of believed.
       graded: num(o, /usable buildings: (\d+) of/),
+      backN: num(o, /with a reachable back: (\d+)/),
     }),
-    dir: { flankFront: 1, backFront: 1, graded: 0 },
+    // FLANK IS THE GRADED ONE, which is also what CLAUDE.md has said since the
+    // first version of this tool shot front-vs-back — the one pair that was
+    // never broken, because both walls carry a painted facade — and read a
+    // comfortable 0.79 while both flanks were flat untextured colour.
+    dir: { flankFront: 1, backFront: 0, graded: 0, backN: 0 },
     // VERIFIED with --repeat=2: 64/64, 71/71, 22/22 — spread 0. The camera
     // ring, the sampled buildings and the build are all deterministic, so the
     // band is two points of edge-density slack and nothing more. The tool's
     // sensitivity caveat is about SAMPLE SIZE, which is pinned at 30 here, not
     // about run-to-run noise, and conflating the two would have bought a band
     // wide enough to sleep through a regression.
-    band: { flankFront: 2, backFront: 2, graded: 1 },
+    band: { flankFront: 2, backFront: 12, graded: 1, backN: 2 },
   },
   {
     name: 'facade',

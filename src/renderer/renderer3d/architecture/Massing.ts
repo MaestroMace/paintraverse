@@ -244,6 +244,10 @@ function roofHeightFor(style: RoofStyle, wallH: number, sv: StyleVector): number
     case 'spire': return wallH * (1.1 + sv.roofPitch * 0.9)
     case 'dome': return wallH * (0.35 + sv.roofPitch * 0.2)
     case 'mansard': return wallH * (0.28 + sv.roofPitch * 0.15)
+    // Only ever asked for explicitly, by tmplLeanTo. `roofFromStyle` does not
+    // return it: a shed roof on a random townhouse is not a style choice, it
+    // is a building missing half its roof.
+    case 'shed': return wallH * (0.30 + sv.roofPitch * 0.14)
   }
 }
 
@@ -1002,33 +1006,109 @@ function tmplTenement(ctx: MassingContext): Volume[] {
 /**
  * A LEAN-TO: the shed somebody ended up living in.
  *
- * There is no mono-pitch roof primitive and a gable would make this a small
- * cottage, which is the opposite of the point. It is built as a stepped pair
- * of flat-topped boxes — tall side against the neighbour, low side to the
- * yard — which reads as a slope from any distance and as improvised from
- * close up. The 4cm overlap is the same trick pickMassing uses: two exactly
- * coincident faces are a depth-buffer tie whether or not the geometry is
- * "correct".
+ * IT HAS A REAL MONO-PITCH NOW. This used to say "there is no mono-pitch roof
+ * primitive and a gable would make this a small cottage, which is the opposite
+ * of the point", and built a stepped pair of flat-topped boxes instead. Two
+ * things were wrong with that. The stated intent was defeated downstream —
+ * `pickMassing`'s open-box repair correctly refuses to leave an exposed flat
+ * top on a habitable volume, so every lean-to in the slum came out as two
+ * small HIPPED cottages, which `variety.mjs` reported as `2 vol hipped+hipped`
+ * on nine of them at once. And a template working around a missing primitive
+ * is a request for the primitive: `shed` is in Roofs.ts, it is a convex wedge
+ * that `enforceOutwardWinding` repairs like every other solid there, and the
+ * outshot, the porch and the cold frame can all reach for it next.
+ *
+ * One volume, one slope. The lean direction is a coin flip so a row of them
+ * is not a row of the same thing.
  */
 function tmplLeanTo(ctx: MassingContext): Volume[] {
-  const hiH = Math.max(STOREY_HEIGHT * 0.95, ctx.wallH * 0.5)
-  const loH = hiH * 0.7
+  // ABSOLUTE, and the comment explaining why is forty lines below this one.
+  // `max(STOREY_HEIGHT * 0.95, ctx.wallH * 0.5)` is the exact idiom
+  // tmplCottage records costing two rounds: on a tall plot the "low" side came
+  // out at 7.5m and `odd.mjs` ranked a 7.53m lean-to as the town's most
+  // slender structure at z=69. A shed does not get taller because the plot
+  // next to it would have carried a townhouse. Range widened to keep the
+  // per-instance jitter that pinning a type otherwise throws away.
+  const hiH = STOREY_HEIGHT * (0.92 + rand01(ctx.hash, 1601) * 0.30)
+  // AND A SECOND SILHOUETTE, because pinning the height cost variety. Making
+  // the wall absolute took `twinNear` 14% -> 17%: 22 lean-tos a town used to
+  // inherit the plot's jitter and now share one range, which is the trade the
+  // note above tmplChandlery records. Widening the range alone does not fix
+  // it — `variety.mjs` keys on type, volume count, roof styles and every
+  // dimension within 5%, so a row of one type has ONE silhouette however wide
+  // its height range is, and the fix is a second shape. A lean-to leans
+  // either way and its pitch is whatever the builder had; both are free.
   const along = ctx.footW >= ctx.footD
-  const w = along ? ctx.footW / 2 + 0.02 : ctx.footW
-  const d = along ? ctx.footD : ctx.footD / 2 + 0.02
-  const off = (along ? ctx.footW : ctx.footD) / 4
-  const mk = (role: VolumeRole, sign: number, height: number): Volume => ({
-    role,
-    offsetX: along ? sign * off : 0,
-    offsetZ: along ? 0 : sign * off,
-    width: w, depth: d,
-    bottomY: 0, height,
-    roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+  const span = Math.min(ctx.footW, ctx.footD)
+  // The high eave runs ALONG the long side, so the slope falls the short way —
+  // which is what a lean-to propped against a party wall does. `roofAxis`
+  // names the direction the high edge runs in, matching the prism's ridge.
+  const rise = span * (0.34 + rand01(ctx.hash, 1605) * 0.22)
+  const vols: Volume[] = [{
+    role: 'mainBody',
+    offsetX: 0, offsetZ: 0,
+    width: ctx.footW * 0.94, depth: ctx.footD * 0.94,
+    bottomY: 0, height: hiH,
+    roofStyle: 'shed', roofHeight: rise,
+    roofAxis: along ? 'x' : 'z',
     wallColor: ctx.wallColor, roofColor: ctx.roofColor,
     textured: true, cornice: false,
     floors: 1,
-  })
-  return [mk('mainBody', -1, hiH), mk('wing', 1, loH)]
+  }]
+  // A LEAN-TO ACCRETES, and that is where its variety comes from now.
+  //
+  // Collapsing the old stepped pair into one volume with a real slope cost
+  // two tracked numbers: `variety.mjs` twinNear 15% -> 17%, because volume
+  // count and roof style are two of the four things it keys on and both just
+  // became constant, and `allsides` back/front 0.72 -> 0.61, because half the
+  // edges on the back wall were the step between the two boxes. Both are the
+  // price of removing ACCIDENTAL variation — the old shapes differed because
+  // a repair pass was putting hipped and mansard roofs on a mono-pitch
+  // building — and the answer is to put back deliberate variation that is
+  // true to the type rather than to restore the defect.
+  //
+  // A store tacked onto the low side, independently of the prop, gives four
+  // combinations across the twenty-two a town instead of one, and a lean-to
+  // with a lean-to on it is exactly what this building is.
+  const lowSide = (along ? ctx.footD : ctx.footW) * 0.5
+  if (rand01(ctx.hash, 1607) < 0.45) {
+    const storeH = hiH * 0.42
+    const storeD = Math.max(0.8, (along ? ctx.footD : ctx.footW) * 0.3)
+    vols.push({
+      role: 'wing',
+      offsetX: along ? 0 : lowSide + storeD / 2 - 0.1,
+      offsetZ: along ? lowSide + storeD / 2 - 0.1 : 0,
+      width: along ? ctx.footW * 0.6 : storeD,
+      depth: along ? storeD : ctx.footD * 0.6,
+      bottomY: 0, height: storeH,
+      roofStyle: 'shed', roofHeight: storeD * 0.34,
+      roofAxis: along ? 'x' : 'z',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      // Not a room — it is a coal store, and MIN_HABITABLE_W would inflate a
+      // 0.9m box to 2.6m and make it a second house.
+      habitable: false,
+      textured: true, cornice: false,
+      floors: 1,
+    })
+  }
+  // A prop under the low eave on half of them — the post someone jammed in
+  // when the roof started to sag.
+  if (rand01(ctx.hash, 1603) < 0.5) {
+    const out = (along ? ctx.footD : ctx.footW) * 0.42
+    vols.push({
+      role: 'trim',
+      offsetX: along ? ctx.footW * 0.3 : out,
+      offsetZ: along ? out : ctx.footD * 0.3,
+      width: 0.16, depth: 0.16,
+      bottomY: 0, height: hiH * 0.82,
+      roofStyle: 'none', roofHeight: 0, roofAxis: 'x',
+      wallColor: 0x6d5b44, roofColor: 0x6d5b44,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    })
+  }
+  return vols
 }
 
 /**
@@ -2356,8 +2436,15 @@ function tmplStaircase(ctx: MassingContext): Volume[] {
   // is the blank surface this change exists to remove wearing a new shape.
   // 2.6m is two people passing, and it leaves most of the reserved rectangle
   // as open ground.
-  const across = Math.min(2.6, Math.max(1.4, (alongX ? ctx.footD : ctx.footW) - 0.5))
-  const rise = Math.min(5.0, Math.max(0.6, ctx.groundDrop))
+  const across = Math.min(2.15 + rand01(ctx.hash, 1803) * 0.95,
+    Math.max(1.4, (alongX ? ctx.footD : ctx.footW) - 0.5))
+  // PER-INSTANCE, and the reason is the note above tmplChandlery arriving on
+  // the very next type. A flat floor made every stair on flat ground identical
+  // — and 41 of 42 ARE on flat ground — so `variety.mjs` reported eight of the
+  // twelve on seed 31337 in two groups of four, the largest twin cluster in
+  // the town. A stepped street is built by whoever owns the slope; its rise,
+  // its width, its landing and its wall are not standard parts.
+  const rise = Math.min(5.0, Math.max(0.62 + rand01(ctx.hash, 1801) * 0.55, ctx.groundDrop))
   // AND WHEN THERE IS NO DROP TO SPAN IT STANDS PROUD INSTEAD OF SINKING.
   // The placement base is the HIGHEST ground the footprint covers, so a stair
   // measured downward from it disappears into the terrain wherever the ground
@@ -2396,7 +2483,7 @@ function tmplStaircase(ctx: MassingContext): Volume[] {
   // reducing. Capped, the assembly is mostly STEPS and simply does not fill
   // its reserved rectangle; the leftover tiles stay open ground, which is the
   // placer's business and not the geometry's.
-  const landing = Math.min(1.4, Math.max(0, run - steps * tread))
+  const landing = Math.min(0.9 + rand01(ctx.hash, 1805) * 1.1, Math.max(0, run - steps * tread))
   const used = steps * tread + landing
   const head = -used / 2
   /** Deck height at a position along the run — flat over the landing, then
@@ -2407,6 +2494,7 @@ function tmplStaircase(ctx: MassingContext): Volume[] {
     if (along <= 0) return lift
     return lift - Math.min(rise - riser, Math.floor(along / tread) * riser)
   }
+  const parapet = 0.70 + rand01(ctx.hash, 1807) * 0.34
   const stone = 0x8a8378
   const trim = 0x76705f
   const vols: Volume[] = []
@@ -2467,7 +2555,7 @@ function tmplStaircase(ctx: MassingContext): Volume[] {
         offsetZ: alongX ? s * (across / 2 + 0.16) : centre,
         width: alongX ? segLen : 0.32,
         depth: alongX ? 0.32 : segLen,
-        bottomY: lift - rise - 0.3, height: topAt + 0.85 + rise + 0.3,
+        bottomY: lift - rise - 0.3, height: topAt + parapet + rise + 0.3,
         roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
         wallColor: trim, roofColor: trim,
         textured: false, cornice: false, floors: 1,
@@ -2803,6 +2891,195 @@ const DRAMATIC_POOL: TemplateFn[] = [
 /** Definition-ID overrides for specialty buildings. Some fork probabilistically
  *  so e.g. half of cathedrals get a central spire tower (crossPlan) and half
  *  get a plain nave+transept cross. */
+/**
+ * THE OUTBUILDINGS — four types whose size is INTRINSIC and which had no
+ * massing override at all, so each took `ctx.wallH` from the generic archetype
+ * and had a 28% chance of being promoted to a tower on top of that.
+ *
+ * `odd.mjs` found them by ranking deviation rather than by any check somebody
+ * knew to write: an 11.4m POTTING SHED, four storeys of garden shed, and a
+ * median of 5.6m across the seed. It is the bench-built-as-a-nine-metre-house
+ * class and the coach-house-at-37m class, a third time — and the tell each
+ * time is a type whose real-world size is fixed inheriting a number that
+ * describes the plot.
+ *
+ * Registering them here also takes them out of the landmark promotion, which
+ * is the other half of the fix: `pickMassing` checks DEF_OVERRIDE first, so a
+ * potting shed can no longer be handed a spire.
+ *
+ * Each takes an absolute wall with a WIDE multiplier range, per the note above
+ * tmplChandlery — pinning a type to a physical number also pins away the
+ * per-instance jitter, and `variety.mjs` reads that as twins.
+ */
+function tmplPottingShed(ctx: MassingContext): Volume[] {
+  // A garden shed: head height at the eave, and that is all.
+  const wallH = STOREY_HEIGHT * (0.80 + rand01(ctx.hash, 1701) * 0.26)
+  const span = Math.min(ctx.footW, ctx.footD)
+  const along = ctx.footW >= ctx.footD
+  const frameH = Math.max(0.55, wallH * (0.26 + rand01(ctx.hash, 1709) * 0.20))
+  // Which side the sun is on, and how far the frame runs. Two rolls, for the
+  // same reason the lean-to mirrors: six potting sheds with one silhouette
+  // read as one asset stamped six times.
+  const frameSide = rand01(ctx.hash, 1711) < 0.5 ? 1 : -1
+  const frameRun = 0.44 + rand01(ctx.hash, 1713) * 0.34
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW * 0.82, depth: ctx.footD * 0.82,
+      bottomY: 0, height: wallH,
+      // JITTERED, because pinning the WALL and leaving the RISE constant is
+      // the same mistake one line down: `provenance.mjs` read this rise at
+      // p10 = med = p90 = 0.35 of span, which is its signature for a clamp
+      // that has become the design, and `variety.mjs` found three pairs of
+      // identical sheds in one garden row.
+      // A SECOND ROOF SHAPE, which is the fix that worked for the trade
+      // types and the only one that halves a matching population outright:
+      // variety keys on roof style, so a row of one type has ONE silhouette
+      // however wide its dimension ranges are. Registering these four took
+      // twinNear 14% -> 17% because each replaced a NINE-template pool with a
+      // single shape — accidental variation that was also a potting shed
+      // built as a step-back tower.
+      roofStyle: rand01(ctx.hash, 1723) < 0.5 ? 'gabled' : 'hipped',
+      roofHeight: span * (0.38 + rand01(ctx.hash, 1715) * 0.20),
+      roofAxis: along ? 'x' : 'z',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: false,
+      floors: 1,
+    },
+    // A COLD FRAME along the sunny side — a low glazed box leaning on the
+    // wall. It is the one thing that says "potting shed" rather than "shed",
+    // it is the reason the type exists in the garden quarter, and it is a
+    // single volume. Not a room: 55cm of frame must not be widened to
+    // MIN_HABITABLE_W, which is the trap four masonry templates fell into.
+    {
+      role: 'trim',
+      offsetX: along ? 0 : frameSide * ctx.footW * 0.46,
+      offsetZ: along ? frameSide * ctx.footD * 0.46 : 0,
+      width: along ? ctx.footW * frameRun : 0.7,
+      depth: along ? 0.7 : ctx.footD * frameRun,
+      bottomY: 0, height: frameH,
+      roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+      wallColor: 0x9fb0a8, roofColor: 0x9fb0a8,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    },
+  ]
+}
+
+function tmplSextonHut(ctx: MassingContext): Volume[] {
+  // A churchyard workman's hut: one room, a stove, a steep little roof.
+  const wallH = STOREY_HEIGHT * (0.86 + rand01(ctx.hash, 1703) * 0.28)
+  const span = Math.min(ctx.footW, ctx.footD)
+  const along = ctx.footW >= ctx.footD
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW * 0.86, depth: ctx.footD * 0.86,
+      bottomY: 0, height: wallH,
+      roofStyle: rand01(ctx.hash, 1725) < 0.5 ? 'steep' : 'gabled',
+      roofHeight: span * (0.56 + rand01(ctx.hash, 1717) * 0.18),
+      roofAxis: along ? 'x' : 'z',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: false,
+      floors: 1,
+    },
+    // The stove flue, on the gable end and standing clear of the ridge —
+    // footed 0.35m below grade for the reason the arcade piers are, since a
+    // breast standing proud of the footprint hangs over the ground next door
+    // on any slope and clash.mjs is right to call that standing on air.
+    {
+      role: 'trim',
+      offsetX: along ? ctx.footW * 0.40 : 0,
+      offsetZ: along ? 0 : ctx.footD * 0.40,
+      width: 0.52, depth: 0.52,
+      bottomY: -0.35, height: wallH + span * 0.62 + 0.9,
+      roofStyle: 'gabled', roofHeight: 0.16, roofAxis: 'x',
+      wallColor: 0x7d6c5c, roofColor: 0x7d6c5c,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    },
+  ]
+}
+
+function tmplCoachHouse(ctx: MassingContext): Volume[] {
+  // TALL ENOUGH FOR A CART TO GO IN, and no taller. That is the whole
+  // dimension that distinguishes a coach house from a shed, and it is why
+  // this one is the tallest of the four rather than the shortest.
+  const wallH = STOREY_HEIGHT * (1.30 + rand01(ctx.hash, 1705) * 0.34)
+  const span = Math.min(ctx.footW, ctx.footD)
+  const along = ctx.footW >= ctx.footD
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: ctx.footW * 0.88, depth: ctx.footD * 0.88,
+      bottomY: 0, height: wallH,
+      roofStyle: rand01(ctx.hash, 1727) < 0.5 ? 'hipped' : 'gabled',
+      roofHeight: span * (0.34 + rand01(ctx.hash, 1719) * 0.16),
+      roofAxis: along ? 'x' : 'z',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: true,
+      floors: 2,
+    },
+    // The LOFT GABLE over the cart door, with the hoist beam under it —
+    // hay went in above and the carriage below, and the little gable
+    // breaking the eaves is what the type looks like from the street.
+    {
+      role: 'upperFloor',
+      offsetX: along ? 0 : ctx.footW * 0.30,
+      offsetZ: along ? ctx.footD * 0.30 : 0,
+      width: along ? ctx.footW * 0.42 : ctx.footW * 0.34,
+      depth: along ? ctx.footD * 0.34 : ctx.footD * 0.42,
+      bottomY: wallH - 0.06, height: span * 0.34,
+      roofStyle: 'gabled', roofHeight: span * 0.30,
+      roofAxis: along ? 'z' : 'x',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: false,
+      floors: 1,
+    },
+  ]
+}
+
+function tmplMausoleum(ctx: MassingContext): Volume[] {
+  // A tomb is a small ashlar box with a heavy cap, and the cap is the type.
+  // Low on purpose: a cemetery of house-height mausolea is a housing estate
+  // with the doors bricked up.
+  const wallH = STOREY_HEIGHT * (0.98 + rand01(ctx.hash, 1707) * 0.30)
+  const span = Math.min(ctx.footW, ctx.footD)
+  const w = ctx.footW * 0.72, d = ctx.footD * 0.72
+  return [
+    {
+      role: 'mainBody',
+      offsetX: 0, offsetZ: 0,
+      width: w, depth: d,
+      bottomY: 0, height: wallH,
+      roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+      wallColor: ctx.wallColor, roofColor: ctx.roofColor,
+      textured: true, cornice: true,
+      floors: 1,
+    },
+    // Cornice slab, then a shallow pyramid. A flat top with nothing on it is
+    // an open box against the sky and roofcheck counts it; a tomb ends in a
+    // cap, which is both true and the reason it reads at fifty metres.
+    {
+      role: 'trim',
+      offsetX: 0, offsetZ: 0,
+      width: w + 0.34, depth: d + 0.34,
+      bottomY: wallH - 0.04, height: 0.26,
+      roofStyle: 'pointed', roofHeight: span * (0.32 + rand01(ctx.hash, 1721) * 0.20),
+      roofAxis: 'x',
+      wallColor: 0xa89f90, roofColor: 0xa89f90,
+      textured: false, cornice: false,
+      habitable: false,
+      floors: 1,
+    },
+  ]
+}
+
 const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   tower: (ctx) => tmplCircularTower(ctx, false),
   watchtower: (ctx) => tmplCircularTower(ctx, false),
@@ -2845,6 +3122,13 @@ const DEF_OVERRIDE: Record<string, (ctx: MassingContext) => Volume[]> = {
   // needling. A lean-to is the only mono-pitch thing in town.
   tenement: (ctx) => tmplTenement(ctx),
   lean_to: (ctx) => tmplLeanTo(ctx),
+  // THE OUTBUILDINGS. See the note above tmplPottingShed: all four had no
+  // override, so each took the plot's wall height and could be promoted to a
+  // tower. Registering them here is both halves of that fix.
+  potting_shed: (ctx) => tmplPottingShed(ctx),
+  sexton_hut: (ctx) => tmplSextonHut(ctx),
+  coach_house: (ctx) => tmplCoachHouse(ctx),
+  mausoleum: (ctx) => tmplMausoleum(ctx),
   // The ordinary quarter's pair. Both invert the town's usual proportion — a
   // low wall under a big roof — which is a silhouette no other type here has
   // and costs nothing but the massing.

@@ -18,6 +18,15 @@ export type RoofStyle =
   | 'pointed' | 'spire'
   | 'dome'
   | 'mansard'
+  // A SINGLE SLOPE. The one primitive this library did not have, and its
+  // absence was load-bearing: `tmplLeanTo`'s comment says in as many words
+  // that it builds a stepped pair of flat boxes "because there is no
+  // mono-pitch roof primitive and a gable would make this a small cottage,
+  // which is the opposite of the point" — and then the open-box repair pass
+  // put a HIPPED roof on both halves, so every lean-to in the slum was two
+  // small cottages after all. A template working around a missing primitive
+  // is a request for the primitive.
+  | 'shed'
 
 /** Ridge axis for gabled / hipped / mansard roofs. */
 export type RoofAxis = 'x' | 'z'
@@ -50,6 +59,7 @@ export function eaveProjFor(style: RoofStyle): number {
   switch (style) {
     case 'gabled':
     case 'steep':
+    case 'shed':
       return EAVE_PROJ_GABLED
     case 'hipped':
       return EAVE_PROJ_HIPPED
@@ -119,6 +129,10 @@ export const MAX_ROOF_SPAN_RATIO: Record<RoofStyle, number> = {
   // With riseForSpan below deriving the ask from the span, the cap goes back
   // to being a backstop and can sit where the architecture is.
   steep: 1.9, pointed: 2.4, spire: 3.8,
+  // A shed roof is a lean-to's whole silhouette and it is SHALLOW — a single
+  // slope steeper than about 30 degrees stops reading as a lean-to and starts
+  // reading as half a gable that lost its other half.
+  shed: 0.75,
 }
 
 /**
@@ -173,6 +187,9 @@ const MAX_ROOF_WALL_RATIO: Record<RoofStyle, number> = {
   none: 0, flat: 0,
   hipped: 0.85, gabled: 0.95, mansard: 0.80, dome: 0.90,
   steep: 1.25, pointed: 1.70, spire: 2.60,
+  // A shed on a low wall is the one case where a big roof-to-wall ratio is
+  // the type rather than the defect — but only just; a lean-to is mostly wall.
+  shed: 0.70,
 }
 
 /**
@@ -216,6 +233,10 @@ const MIN_ROOF_SPAN_RATIO: Record<RoofStyle, number> = {
   none: 0, flat: 0,
   hipped: 0.35, gabled: 0.42, mansard: 0.32, dome: 0.40,
   steep: 0.71, pointed: 0.98, spire: 1.54,
+  // Floor and ceiling deliberately close together: the pitch of a lean-to is
+  // not a style choice, it is whatever sheds the rain off the back of the
+  // building it leans on.
+  shed: 0.30,
 }
 
 /**
@@ -278,6 +299,10 @@ export function buildRoof(
 
   if (style === 'mansard') {
     return buildMansard(w, d, h, axis)
+  }
+
+  if (style === 'shed') {
+    return buildShed(w, d, h, axis)
   }
 
   // gabled / hipped / steep all use the prism. Hipped never sags (different
@@ -479,6 +504,51 @@ function buildGablePrism(w: number, d: number, h: number, axis: RoofAxis, hipped
 /* Mansard — two-pitch roof (steep lower, shallow upper)              */
 /* ------------------------------------------------------------------ */
 
+/**
+ * A MONO-PITCH — one plane falling from a high eave to a low one.
+ *
+ * A convex wedge, so `enforceOutwardWinding` can repair it the same way it
+ * repairs the prism and the mansard: winding has been wrong by hand in this
+ * file four separate times, and the only reason it is safe to add a fifth
+ * solid is that nothing here maintains it by hand any more.
+ *
+ * `axis` names the direction the HIGH EAVE RUNS ALONG, matching the prism's
+ * convention that the axis is the ridge — a shed's high edge is its ridge with
+ * nothing on the other side of it. The slope therefore falls across the
+ * perpendicular, which for a 1x2 footprint is the short way, which is what a
+ * lean-to against a party wall actually does.
+ */
+function buildShed(w: number, d: number, h: number, axis: RoofAxis): THREE.BufferGeometry {
+  const hw = w / 2, hd = d / 2
+  const e = EAVE_PROJ_GABLED
+  const ow = hw + e, od = hd + e
+  // Corners of the sloped plane, named by where they sit: HI is the tall eave.
+  // Written for axis 'x' (high edge running along X at -Z) and mirrored into
+  // the other axis by swapping the two horizontal components, rather than by
+  // a second hand-written vertex list — the second list is where the four
+  // historical winding bugs lived.
+  const P = (u: number, y: number, v: number): [number, number, number] =>
+    axis === 'x' ? [u, y, v] : [v, y, u]
+  const hiL = P(-ow, h, -od), hiR = P(ow, h, -od)
+  const loL = P(-ow, 0, od), loR = P(ow, 0, od)
+  const btL = P(-ow, 0, -od), btR = P(ow, 0, -od)
+  const tri = (a: number[], b: number[], c: number[]): number[] => [...a, ...b, ...c]
+  const verts = [
+    // The slope itself
+    ...tri(hiL, hiR, loR), ...tri(hiL, loR, loL),
+    // The tall end wall under the high eave
+    ...tri(btL, btR, hiR), ...tri(btL, hiR, hiL),
+    // Two triangular flanks
+    ...tri(btR, loR, hiR), ...tri(btL, hiL, loL),
+    // Underside, so the roof is not an open shell seen from the street below
+    ...tri(btL, loL, loR), ...tri(btL, loR, btR),
+  ]
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
+  geo.computeVertexNormals()
+  return enforceOutwardWinding(geo)
+}
+
 function buildMansard(w: number, d: number, h: number, axis: RoofAxis): THREE.BufferGeometry {
   const hw = w / 2, hd = d / 2
   const ow = hw + EAVE_PROJ_MANSARD, od = hd + EAVE_PROJ_MANSARD
@@ -564,7 +634,15 @@ export function auditRoofWinding(): Array<{
   triangles: number; inward: number; inwardCentroids: string[]
 }> {
   const out: ReturnType<typeof auditRoofWinding> = []
-  const styles: RoofStyle[] = ['gabled', 'hipped', 'steep', 'mansard', 'pointed', 'spire', 'dome']
+  // ENUMERATED FROM A COMPILER-CHECKED TABLE, not restated. This was a
+  // hand-written list, so adding `shed` to RoofStyle would have added a solid
+  // that the one audit standing between this file and invisible roofs never
+  // looked at — the ghost failure with a type signature, in the tool built to
+  // catch it. `MAX_ROOF_SPAN_RATIO` is a `Record<RoofStyle, number>`, so the
+  // compiler refuses to let a style exist without an entry, and the audit now
+  // inherits that guarantee. The flat styles build nothing and drop out on
+  // their own via the null return below.
+  const styles = Object.keys(MAX_ROOF_SPAN_RATIO) as RoofStyle[]
   for (const style of styles) {
     for (const axis of ['x', 'z'] as RoofAxis[]) {
       for (const sag of [0, 0.08]) {

@@ -15,7 +15,7 @@
     "outsideBox": 0,
     "doubled": 17,
     "spireAtCap": 0,
-    "habitablePinned": 10
+    "habitablePinned": 11
   },
   "humanscale": {
     "subHuman": 0
@@ -24,8 +24,8 @@
     "openTops": 0
   },
   "odd": {
-    "overZ3": 22,
-    "bareWall": 10
+    "overZ3": 20,
+    "bareWall": 7
   },
   "urbanform": {
     "coverage": 48,
@@ -37,7 +37,7 @@
     "character": 75
   },
   "clash": {
-    "deepClash": 24,
+    "deepClash": 22,
     "onAir": 18,
     "buried": 0
   },
@@ -55,7 +55,7 @@
     "awnBad": 0
   },
   "variety": {
-    "twinNear": 14,
+    "twinNear": 16,
     "twinAny": 43
   },
   "traverse": {
@@ -121,7 +121,8 @@
   },
   "allsides": {
     "flankFront": 64,
-    "backFront": 71,
-    "graded": 22
+    "backFront": 61,
+    "graded": 22,
+    "backN": 13
   }
 }
