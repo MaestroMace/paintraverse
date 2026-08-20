@@ -924,7 +924,7 @@ export class TownGenerator implements IMapGenerator {
     const plazaProps = this.placePlazaFeatures(
       width, height, mainCenter, plazaRadius, districts,
       taken(), density, rng,
-      roadMap, waterMap,
+      roadMap, waterMap, terrainTiles,
     )
     placedProps.push(...plazaProps)
 
@@ -4470,13 +4470,37 @@ export class TownGenerator implements IMapGenerator {
     districts: District[],
     existingObjs: PlacedObject[],
     density: number, rng: () => number,
-    roadMap: boolean[][], waterMap: boolean[][],
+    roadMap: boolean[][], waterMap: boolean[][], terrain: number[][],
   ): PlacedObject[] {
     const props: PlacedObject[] = []
     // BUG FIX: was creating a blank occupied map, so fountains / statues /
     // market stalls / cafe tables in plaza features could land on roads or
     // water. Using createOccupied which marks both.
-    const occupied = this.createOccupied(w, h, roadMap, waterMap)
+    // THE SQUARE IS THE JUNCTION, AND roadMap CALLS THE WHOLE OF IT ROAD.
+    //
+    // `createOccupied` marks every roadMap tile, and this town's main square
+    // is exactly where nine main streets converge — the comment on the
+    // fountain below already says so. So the pass that exists to furnish the
+    // square was told the square was a carriageway, and a tally on its two
+    // return paths read `plazaOk: 1 bench` against 25 blocked. `bench`,
+    // `statue`, `wagon` and `market_tent` are placed HERE AND NOWHERE ELSE,
+    // and `propscale`'s never-placed census found all four absent from five
+    // towns in a row.
+    //
+    // `carvePlaza` paints the square as flagstone and `isCirculation` says
+    // flagstone is NOT circulation — the terrain table has drawn this
+    // distinction since ids 14/15/16 were split out from 8, precisely so a
+    // designed paved space could be told from a street. CLAUDE.md's rule is
+    // "ask isCirculation(terrain), never roadMap"; it is written up as the
+    // precinct wall placing itself in an alley, and this is the same rule
+    // failing in the other direction — roadMap OVER-reports here rather than
+    // under-reporting.
+    const occupied = Array.from({ length: h }, () => Array.from({ length: w }, () => false))
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (isCirculation(terrain?.[y]?.[x]) || waterMap[y][x]) occupied[y][x] = true
+      }
+    }
     this.markObjects(occupied, existingObjs, w, h)
 
     // Fountain at main center
@@ -4551,9 +4575,17 @@ export class TownGenerator implements IMapGenerator {
     // the whole plaza visually composes as a circle around the center.
     const innerR = Math.max(2, plazaRadius * 0.45)
     const outerR = Math.max(3, plazaRadius * 0.85)
+    // EVERY RING PLACEMENT COUNTS ITSELF. `propscale.mjs`'s new never-placed
+    // census found that `bench`, `statue`, `wagon` and `market_tent` appear in
+    // NONE of five towns — and all four are placed here and nowhere else, so
+    // the whole ring composition was failing silently. Two return paths, no
+    // counters, which is the shape this repo has now fixed for the gate
+    // census, the vignettes and the yard fence: a pass that can decline
+    // without saying so will decline forever.
     const placePlaza = (defId: string, cx: number, cy: number, fpW = 1, fpH = 1, facingY?: number) => {
-      if (cx < 0 || cy < 0 || cx + fpW > w || cy + fpH > h) return false
-      if (!this.areaFree(occupied, cx, cy, fpW, fpH, w, h)) return false
+      if (cx < 0 || cy < 0 || cx + fpW > w || cy + fpH > h) { rejected(`plaza~offMap:${defId}`); return false }
+      if (!this.areaFree(occupied, cx, cy, fpW, fpH, w, h)) { rejected(`plaza~blocked:${defId}`); return false }
+      rejected(`plazaOk:${defId}`)
       const obj = this.createObj(defId, cx, cy)
       if (typeof facingY === 'number') obj.properties.facingY = facingY
       props.push(obj)

@@ -22,6 +22,7 @@
  *   xvfb-run -a -s "-screen 0 1400x900x24" node tools/propscale.mjs [seeds...]
  */
 import { _electron as electron } from 'playwright-core'
+import { readFileSync } from 'node:fs'
 
 const seeds = process.argv.slice(2).map(Number)
 if (seeds.length === 0) seeds.push(4242, 777, 31337)
@@ -38,6 +39,12 @@ const EXPECT = {
   // was ungraded and drawing at 0.62m — knee height, which reads as a border
   // edging rather than a boundary.
   picket_fence:  [2.4, 6.2, 0.85, 1.20],
+  // A market marquee FILLS its plot, which is why the width range is wide —
+  // the same reason a dock and a fence are allowed to. The HEIGHT is the
+  // number with an answer: you stand under a tent, so the eave is over head
+  // height and the ridge above that. It drew 1.78m to the tip of its flag
+  // until the plaza pass that places it started working.
+  market_tent:   [2.2, 6.6, 2.6, 4.2],
   crate:         [0.5, 1.2, 0.4, 1.0],
   crate_stack:   [0.8, 1.8, 0.9, 2.0],
   bench:         [1.2, 2.2, 0.4, 1.1],   // two of three variants are backless
@@ -149,4 +156,45 @@ console.log('Ungraded types have no honest real-world answer — a dock is as')
 console.log('long as its plot — and inventing a target for them would be')
 console.log("grading this tool's opinion rather than the town.")
 for (const b of bad) console.log(`  ${b.verdict.padEnd(10)} ${b.id}: ${b.w.toFixed(2)}m wide, ${b.h.toFixed(2)}m tall vs ${b.exp}`)
+
+/*
+ * THE REVERSE GHOST, FOR PROPS.
+ *
+ * `features.mjs` censuses gated FEATURES and `registry.mjs` censuses the
+ * id-keyed TABLES; between them they still cannot see a prop that is defined,
+ * has finished geometry, and simply never appears in a town. This repo has
+ * found that class three times — twenty river props the store never defined,
+ * every bridge in the town routed to the wrong factory, and a picket fence
+ * with pointed slats and a rail that nothing placed — and each time it was
+ * found by hand, by one grep somebody happened to run.
+ *
+ * This walks every prop in every seed above, so it reports what a town
+ * ACTUALLY CONTAINS rather than what the source mentions. A type absent from
+ * one seed may be correctly rare; absent from all of them it is art with no
+ * way in. The distinction is the seed count, which is why this prints it.
+ */
+const src = readFileSync('src/renderer/renderer3d/PropFactory.ts', 'utf8')
+const drawable = new Set([...src.matchAll(/\bid === '([a-z_0-9]+)'/g)].map((m) => m[1]))
+const store = readFileSync('src/renderer/app/store.ts', 'utf8')
+const defined = new Set([...store.matchAll(/\bid: '([a-z_0-9]+)'/g)].map((m) => m[1]))
+const seen = new Set(rows.map((r) => r.id))
+const missing = [...drawable].filter((d) => defined.has(d) && !seen.has(d)).sort()
+const dead = [...drawable].filter((d) => !defined.has(d)).sort()
+console.log(`\nNEVER PLACED — defined, drawable, and in none of the ${seeds.length} towns: ${missing.length}`)
+if (missing.length) {
+  for (let i = 0; i < missing.length; i += 6) {
+    console.log('  ' + missing.slice(i, i + 6).join('  '))
+  }
+  console.log('  Some of these are correctly rare and tied to a quarter or a site —')
+  console.log('  a gravestone needs a cemetery and a mooring ring needs a quay. Read')
+  console.log('  the list against which QUARTERS these seeds grew (quarters.mjs)')
+  console.log('  before calling one a ghost. What it cannot be is content you')
+  console.log('  believe you have.')
+}
+if (dead.length) {
+  console.log(`\nDEAD ART — PropFactory draws it and the store defines no id: ${dead.join(' ')}`)
+  console.log('  Nothing can place these. Either give them a definition or delete')
+  console.log('  the branch; a draw path with no id is a maintenance cost that')
+  console.log('  cannot ever appear on screen.')
+}
 process.exit(bad.some((b) => b.verdict === 'TOO BIG') ? 1 : 0)

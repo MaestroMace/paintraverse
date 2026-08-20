@@ -937,31 +937,41 @@ export function buildPropMeshes(
         emitRot(pyramid, 0, 2.4, 0, 0xbab2a8)
       } else {
         const statueVariant = hash % 4
-        emitRot(new THREE.BoxGeometry(0.55, 0.55, 0.55), 0, 0.275, 0, 0x9a9288)
+        // A CIVIC STATUE IS TALLER THAN A PERSON, plinth included, and this
+        // drew 1.42m against a 1.8-5m target — a garden ornament on the main
+        // square. Ungraded until the plaza pass started placing them, which
+        // is the propscale pattern exactly: content nobody could see was
+        // content nobody had measured. A pedestal you look UP at, and every
+        // figure offset raised with it through one helper rather than
+        // twenty-three edited numbers.
+        const PLINTH = 1.05
+        const sEmit = (g: THREE.BufferGeometry, dx: number, dy: number, dz: number, c: number) =>
+          emitRot(g, dx, dy + (PLINTH - 0.55), dz, c)
+        emitRot(new THREE.BoxGeometry(0.62, PLINTH, 0.62), 0, PLINTH / 2, 0, 0x9a9288)
         if (statueVariant === 0) {
           // Equestrian — the horse faces the propRot direction
-          emitRot(new THREE.BoxGeometry(0.55, 0.28, 0.2), 0, 0.75, 0, 0xbab2a8)
-          emitRot(new THREE.BoxGeometry(0.18, 0.24, 0.14), 0.25, 0.95, 0, 0xbab2a8)
+          sEmit(new THREE.BoxGeometry(0.55, 0.28, 0.2), 0, 0.75, 0, 0xbab2a8)
+          sEmit(new THREE.BoxGeometry(0.18, 0.24, 0.14), 0.25, 0.95, 0, 0xbab2a8)
           for (const [lx, lz] of [[-0.22, -0.07], [0.22, -0.07], [-0.22, 0.07], [0.22, 0.07]] as const) {
-            emitRot(new THREE.BoxGeometry(0.06, 0.22, 0.06), lx, 0.65, lz, 0xbab2a8)
+            sEmit(new THREE.BoxGeometry(0.06, 0.22, 0.06), lx, 0.65, lz, 0xbab2a8)
           }
-          emitRot(new THREE.BoxGeometry(0.18, 0.3, 0.15), 0.02, 1.1, 0, 0xbab2a8)
-          emitRot(new THREE.SphereGeometry(0.1, 6, 5), 0.02, 1.32, 0, 0xbab2a8)
+          sEmit(new THREE.BoxGeometry(0.18, 0.3, 0.15), 0.02, 1.1, 0, 0xbab2a8)
+          sEmit(new THREE.SphereGeometry(0.1, 6, 5), 0.02, 1.32, 0, 0xbab2a8)
         } else if (statueVariant === 1) {
-          emitRot(new THREE.BoxGeometry(0.24, 0.5, 0.18), 0, 0.85, 0, 0xbab2a8)
-          emitRot(new THREE.SphereGeometry(0.11, 6, 5), 0, 1.2, 0, 0xbab2a8)
-          emitRot(new THREE.BoxGeometry(0.08, 0.42, 0.08), 0.18, 0.85, 0, 0xbab2a8)
-          emitRot(new THREE.BoxGeometry(0.22, 0.2, 0.16), 0, 0.67, 0, 0xbab2a8)
+          sEmit(new THREE.BoxGeometry(0.24, 0.5, 0.18), 0, 0.85, 0, 0xbab2a8)
+          sEmit(new THREE.SphereGeometry(0.11, 6, 5), 0, 1.2, 0, 0xbab2a8)
+          sEmit(new THREE.BoxGeometry(0.08, 0.42, 0.08), 0.18, 0.85, 0, 0xbab2a8)
+          sEmit(new THREE.BoxGeometry(0.22, 0.2, 0.16), 0, 0.67, 0, 0xbab2a8)
         } else if (statueVariant === 2) {
-          emitRot(new THREE.CylinderGeometry(0.12, 0.18, 0.15, 8), 0, 0.63, 0, 0xbab2a8)
+          sEmit(new THREE.CylinderGeometry(0.12, 0.18, 0.15, 8), 0, 0.63, 0, 0xbab2a8)
           const urnBody = new THREE.SphereGeometry(0.22, 7, 6)
           urnBody.scale(1.0, 0.85, 1.0)
-          emitRot(urnBody, 0, 0.88, 0, 0xbab2a8)
-          emitRot(new THREE.CylinderGeometry(0.12, 0.16, 0.12, 8), 0, 1.1, 0, 0xbab2a8)
-          emitRot(new THREE.CylinderGeometry(0.18, 0.14, 0.05, 8), 0, 1.18, 0, 0xbab2a8)
+          sEmit(urnBody, 0, 0.88, 0, 0xbab2a8)
+          sEmit(new THREE.CylinderGeometry(0.12, 0.16, 0.12, 8), 0, 1.1, 0, 0xbab2a8)
+          sEmit(new THREE.CylinderGeometry(0.18, 0.14, 0.05, 8), 0, 1.18, 0, 0xbab2a8)
         } else {
-          emitRot(new THREE.CylinderGeometry(0.1, 0.13, 0.9, 6), 0, 1.0, 0, 0xbab2a8)
-          emitRot(new THREE.SphereGeometry(0.22, 7, 6), 0, 1.58, 0, 0xbab2a8)
+          sEmit(new THREE.CylinderGeometry(0.1, 0.13, 0.9, 6), 0, 1.0, 0, 0xbab2a8)
+          sEmit(new THREE.SphereGeometry(0.22, 7, 6), 0, 1.58, 0, 0xbab2a8)
         }
       }
 
@@ -1036,12 +1046,9 @@ export function buildPropMeshes(
       }
 
     } else if (id === 'cafe_table') {
-      const top = new THREE.CylinderGeometry(0.3, 0.3, 0.03, 8)
-      top.translate(px, elev + 0.55, pz)
-      batch.addPositioned(top, 0x8a7a5a)
-      const leg = new THREE.CylinderGeometry(0.03, 0.05, 0.55, 4)
-      leg.translate(px, elev + 0.275, pz)
-      batch.addPositioned(leg, 0x8a7a5a)
+      // 0.74m is table height. It drew 0.57 — you would eat off it kneeling.
+      emitRot(new THREE.CylinderGeometry(0.32, 0.32, 0.035, 8), 0, 0.72, 0, 0x8a7a5a)
+      emitRot(new THREE.CylinderGeometry(0.035, 0.06, 0.72, 4), 0, 0.36, 0, 0x8a7a5a)
 
     } else if (id === 'hanging_sign' || id === 'sign') {
       // Three sign variants by hash: hanging tavern sign on bracket,
@@ -1073,51 +1080,62 @@ export function buildPropMeshes(
       }
 
     } else if (id === 'wagon' || id === 'cart') {
+      // A WAGON IS BIGGER THAN A CART, and both were drawn at the same size.
+      // Measured at 1.65m long and 0.82m tall against a 1.6-3.2 / 1.2-2.6
+      // target — a cart, which is what `cart` is for. Two ids sharing a draw
+      // path is fine; two ids sharing a SIZE is the pair not meaning anything.
+      // The wagon scales as a whole through one helper, so its wheels, bed
+      // and sides keep their proportions to each other.
+      const wagonScale = id === 'wagon' ? 1.55 : 1.0
+      const wEmit = (g: THREE.BufferGeometry, dx: number, dy: number, dz: number, c: number) => {
+        if (wagonScale !== 1) g.scale(wagonScale, wagonScale, wagonScale)
+        emitRot(g, dx * wagonScale, dy * wagonScale, dz * wagonScale, c)
+      }
       // Three wagon variants: heavy market wagon, covered wagon, small cart.
       const wv = hash % 3
       if (wv === 0) {
-        emitRot(new THREE.BoxGeometry(1.4, 0.08, 0.7), 0, 0.42, 0, 0x6a5030)
+        wEmit(new THREE.BoxGeometry(1.4, 0.08, 0.7), 0, 0.42, 0, 0x6a5030)
         for (const sz of [-0.35, 0.35]) {
-          emitRot(new THREE.BoxGeometry(1.4, 0.25, 0.04), 0, 0.57, sz, 0x6a5030)
+          wEmit(new THREE.BoxGeometry(1.4, 0.25, 0.04), 0, 0.57, sz, 0x6a5030)
         }
         for (const [wx, wz] of [[-0.5, -0.4], [0.5, -0.4], [-0.5, 0.4], [0.5, 0.4]] as const) {
           const wheel = new THREE.CylinderGeometry(0.24, 0.24, 0.06, 8)
           wheel.rotateX(Math.PI / 2)
-          emitRot(wheel, wx, 0.24, wz, 0x3a2818)
+          wEmit(wheel, wx, 0.24, wz, 0x3a2818)
           for (let sp = 0; sp < 2; sp++) {
             const spoke = new THREE.BoxGeometry(0.03, 0.42, 0.03)
             spoke.rotateZ(sp * Math.PI / 2)
-            emitRot(spoke, wx, 0.24, wz, 0x5a4028)
+            wEmit(spoke, wx, 0.24, wz, 0x5a4028)
           }
         }
-        emitRot(new THREE.BoxGeometry(0.8, 0.35, 0.5), 0, 0.64, 0, 0x8a6a3a)
+        wEmit(new THREE.BoxGeometry(0.8, 0.35, 0.5), 0, 0.64, 0, 0x8a6a3a)
       } else if (wv === 1) {
-        emitRot(new THREE.BoxGeometry(1.3, 0.08, 0.65), 0, 0.38, 0, 0x6a5030)
+        wEmit(new THREE.BoxGeometry(1.3, 0.08, 0.65), 0, 0.38, 0, 0x6a5030)
         for (const [wx, wz] of [[-0.45, -0.35], [0.45, -0.35], [-0.45, 0.35], [0.45, 0.35]] as const) {
           const wheel = new THREE.CylinderGeometry(0.2, 0.2, 0.05, 8)
           wheel.rotateX(Math.PI / 2)
-          emitRot(wheel, wx, 0.2, wz, 0x3a2818)
+          wEmit(wheel, wx, 0.2, wz, 0x3a2818)
         }
         const cover = new THREE.CylinderGeometry(0.4, 0.4, 1.2, 8, 1, false, 0, Math.PI)
         cover.rotateZ(Math.PI / 2)
-        emitRot(cover, 0, 0.82, 0, 0xd8c8a0)
+        wEmit(cover, 0, 0.82, 0, 0xd8c8a0)
         for (let ri = 0; ri < 3; ri++) {
           const rib = new THREE.TorusGeometry(0.4, 0.02, 3, 8, Math.PI)
           rib.rotateZ(Math.PI / 2)
           rib.rotateY(Math.PI / 2)
-          emitRot(rib, (ri - 1) * 0.45, 0.82, 0, 0x8a7a50)
+          wEmit(rib, (ri - 1) * 0.45, 0.82, 0, 0x8a7a50)
         }
       } else {
-        emitRot(new THREE.BoxGeometry(0.9, 0.08, 0.5), 0, 0.32, 0, 0x6a5030)
+        wEmit(new THREE.BoxGeometry(0.9, 0.08, 0.5), 0, 0.32, 0, 0x6a5030)
         for (const sz of [-0.27, 0.27]) {
-          emitRot(new THREE.BoxGeometry(0.9, 0.18, 0.03), 0, 0.45, sz, 0x6a5030)
+          wEmit(new THREE.BoxGeometry(0.9, 0.18, 0.03), 0, 0.45, sz, 0x6a5030)
         }
         for (const wx of [-0.35, 0.35]) {
           const wheel = new THREE.CylinderGeometry(0.2, 0.2, 0.04, 8)
           wheel.rotateX(Math.PI / 2)
-          emitRot(wheel, wx, 0.2, 0.3, 0x3a2818)
+          wEmit(wheel, wx, 0.2, 0.3, 0x3a2818)
         }
-        emitRot(new THREE.BoxGeometry(0.04, 0.04, 0.75), 0, 0.35, -0.5, 0x5a3820)
+        wEmit(new THREE.BoxGeometry(0.04, 0.04, 0.75), 0, 0.35, -0.5, 0x5a3820)
       }
 
     } else if (id === 'potted_plant' || id === 'flower_box' || id === 'planter_box') {
@@ -1598,24 +1616,30 @@ export function buildPropMeshes(
       }
 
     } else if (id === 'tent' || id === 'pavilion' || id === 'market_tent') {
-      // Peaked cloth tent — pyramidal cone on a square base platform
-      const base = new THREE.BoxGeometry(fp.w * 0.85, 0.08, fp.h * 0.85)
-      base.translate(px, elev + 0.04, pz)
-      batch.addPositioned(base, 0x6a5030)
-      // Cone tent top
-      const r = Math.max(fp.w, fp.h) * 0.55
-      const tent = new THREE.ConeGeometry(r, 1.4, 4)
+      // A TENT YOU CAN STAND UNDER. This drew 1.78m to the tip of its flag —
+      // a cone sitting almost on the ground, which is a tent for a doll. It
+      // had never been measured because it had never been PLACED: the plaza
+      // pass that puts it out was asking roadMap whether the square was free
+      // and roadMap calls the square a road, so `propscale.mjs`'s never-placed
+      // census found it absent from five towns in a row. Content with no way
+      // in arrives at whatever scale it was authored at, which is this file's
+      // own lesson from the riverbank boulders.
+      //
+      // A market marquee: corner posts at head height, the cloth above them.
+      const EAVE = 2.05
+      emitRot(new THREE.BoxGeometry(fp.w * 0.85, 0.08, fp.h * 0.85), 0, 0.04, 0, 0x6a5030)
+      const halfW = fp.w * 0.40, halfD = fp.h * 0.40
+      for (const [cx2, cz2] of [[-halfW, -halfD], [halfW, -halfD], [-halfW, halfD], [halfW, halfD]] as const) {
+        emitRot(new THREE.BoxGeometry(0.08, EAVE, 0.08), cx2, EAVE / 2, cz2, 0x6a5030)
+      }
+      const r = Math.max(fp.w, fp.h) * 0.58
+      const tent = new THREE.ConeGeometry(r, 1.15, 4)
       tent.rotateY(Math.PI / 4)
-      tent.translate(px, elev + 0.78, pz)
       const tentColors = [0xc04040, 0x404080, 0x60803a, 0x805020]
-      batch.addPositioned(tent, tentColors[hash % tentColors.length])
+      emitRot(tent, 0, EAVE + 0.52, 0, tentColors[hash % tentColors.length])
       // Flag at the peak
-      const flagpole = new THREE.BoxGeometry(0.03, 0.35, 0.03)
-      flagpole.translate(px, elev + 1.6, pz)
-      batch.addPositioned(flagpole, 0x3a2818)
-      const flag = new THREE.PlaneGeometry(0.3, 0.15)
-      flag.translate(px + 0.15, elev + 1.7, pz)
-      batch.addPositioned(flag, 0xe0e0e0)
+      emitRot(new THREE.BoxGeometry(0.035, 0.4, 0.035), 0, EAVE + 1.3, 0, 0x3a2818)
+      emitRot(new THREE.PlaneGeometry(0.34, 0.17), 0.17, EAVE + 1.42, 0, 0xe0e0e0)
 
     } else if (id === 'dock' || id === 'pier') {
       // Wooden pier: long plank deck supported by visible posts sticking into water

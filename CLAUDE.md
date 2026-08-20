@@ -512,6 +512,35 @@ the clamp explicitly skips were padding the denominator, and the true rate was
 always about 10%. Always print both halves of a rate you are about to believe;
 a percentage is two measurements wearing one number.
 
+**THE SQUARE WAS THE ROAD JUNCTION, AND ITS OWN COMPOSITION PASS BELIEVED IT.**
+`placePlazaFeatures` built its occupancy grid from `roadMap`, and the main
+square is exactly where nine main streets converge — the comment on its own
+fountain says so. So the pass that exists to furnish the square was told the
+square was a carriageway. A tally on its two return paths read **`plazaOk: 1
+bench` against 25 blocked**, and `bench`, `statue`, `wagon` and `market_tent`
+are placed HERE AND NOWHERE ELSE. `carvePlaza` paints the square as flagstone
+and `isCirculation` says flagstone is not circulation — the terrain table has
+drawn that distinction since 14/15/16 were split out of 8, for exactly this.
+**"Ask isCirculation(terrain), never roadMap" is written up as the precinct
+wall placing itself in an alley; this is the same rule failing in the other
+direction, with roadMap OVER-reporting.**
+
+**AND A CENSUS OF WHAT A TOWN ACTUALLY CONTAINS IS NOT THE SAME AS A CENSUS OF
+WHAT THE SOURCE MENTIONS.** `registry.mjs` checks the id-keyed tables and
+`features.mjs` censuses gated features; neither can see a prop that is defined,
+has finished geometry, is NAMED in three placement paths, and never appears.
+`propscale.mjs` walks every prop in every seed it runs, so the census was four
+lines: **13 defined-and-drawable types in none of five towns**, plus five
+DEAD ART ids PropFactory draws that the store defines no id for. That is how
+the plaza bug was found — not by suspecting the plaza, but by asking what is
+missing and noticing that four of the absent types share one placer.
+
+**AND CONTENT WITH NO WAY IN ARRIVES AT WHATEVER SCALE IT WAS AUTHORED AT** —
+the riverbank-boulder lesson, now with a fourth instance. The moment those four
+started placing, propscale graded them: a market tent 1.78m to the tip of its
+flag, a civic statue at 1.42m, a wagon the same size as the cart it is supposed
+to be bigger than. All three were invisible for as long as they were unplaced.
+
 **A LOOKUP WITH A DEFAULT HAS NO ABSENT STATE — AND `PropFactory` WAS READING
 THE WRONG FOOTPRINT ENTIRELY.** `const fpT = def?.footprint || { w: 1, h: 1 }`
 takes the DEFINITION's rectangle, not the one the placer reserved, which is
