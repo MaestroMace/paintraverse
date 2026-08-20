@@ -40,6 +40,41 @@ function parseSet(file, name) {
 export const DWELLINGS = parseSet('src/renderer/core/types.ts', 'DWELLING_TYPES')
 
 /**
+ * A BOUNDARY, NOT A BUILDING — and not a prop that belongs to one either.
+ *
+ * FOURTH TIME this repo has had to tell barriers apart from buildings, and the
+ * first three each did it in the tool's own head: `urbanform.mjs` counted 47
+ * wall segments as buildings and inflated party walls, because a ring of wall
+ * is a hundred mutual "neighbours" and not one of them is a terrace;
+ * `districts.mjs` scored them as not distinctive to their own quarter;
+ * `variety.mjs` reported 104 of 307 "structures" as twins when a town wall
+ * made of 28 identical pieces is a WALL. CLAUDE.md's verdict at the time was
+ * "the filter belongs in one place, not in each tool's head", and it then
+ * stayed in each tool's head.
+ *
+ * `tenancy.mjs` is the fourth. Its `UNOWNED_BY_NATURE` set already listed
+ * `stone_wall` and `stone_wall_v` and not the other six barriers, so switching
+ * on yard fences dropped explained tenancy seven points — forty boundaries
+ * scored as props with no owner, which is exactly the category error the two
+ * entries already in that set exist to prevent.
+ *
+ * Read from the store's own TAGS, so a new barrier joins by being one.
+ */
+export const BARRIERS = (() => {
+  const src = readFileSync('src/renderer/app/store.ts', 'utf8')
+  const out = new Set()
+  for (const m of src.matchAll(/id:\s*'([a-z_0-9]+)',[\s\S]{0,220}?tags:\s*\[([^\]]*)\]/g)) {
+    if (/'barrier'/.test(m[2])) out.add(m[1])
+  }
+  if (out.size < 3) {
+    throw new Error(`taxonomy: BARRIERS parsed ${out.size} ids from store.ts — ` +
+      'the declaration shape changed. Failing rather than grading the town ' +
+      'against a population that is silently wrong.')
+  }
+  return out
+})()
+
+/**
  * WHAT EACH BUILDING TYPE WOULD PLAUSIBLY OWN — read out of the generator.
  *
  * `tenancy.mjs` kept a hand-written EXPLAINS table under a comment saying it

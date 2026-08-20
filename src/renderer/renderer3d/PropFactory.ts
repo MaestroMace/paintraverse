@@ -9,7 +9,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
-import { stableHash } from '../core/types'
+import { stableHash, footprintOf } from '../core/types'
 import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { TILE } from './scale'
 
@@ -238,7 +238,13 @@ export function buildPropMeshes(
     const h = PROP_HEIGHTS[id] ?? 0.6
     // Tiles vs world, same split as BuildingFactory: fpT indexes the map,
     // fp is a geometry extent. See scale.ts.
-    const fpT = def?.footprint || { w: 1, h: 1 }
+    // THE RESERVED RECTANGLE, not the definition's. `footprintOf` is the one
+    // way to ask a PlacedObject this — reading `def.footprint` directly is
+    // exactly what the enabling refactor exists to prevent, and CLAUDE.md
+    // says so in as many words. It cost a 5.52m picket fence standing on a
+    // one-tile reservation: the placer reserved a tile and PropFactory drew
+    // the definition's two, straight through the neighbour.
+    const fpT = footprintOf(obj, def)
     const fp = { w: fpT.w * TILE, h: fpT.h * TILE }
     const ptx = obj.x + fpT.w / 2, ptz = obj.y + fpT.h / 2
     const px = ptx * TILE, pz = ptz * TILE
@@ -960,85 +966,72 @@ export function buildPropMeshes(
       }
 
     } else if (id === 'fence' || id === 'iron_fence' || id === 'stone_wall' || id === 'crenellated_wall' || id === 'picket_fence') {
+      // EVERY FENCE IN TOWN RAN EAST-WEST. This whole branch baked world
+      // coordinates straight into `.translate(px + dx, ..., pz)` and never
+      // touched `propRot`, which is precisely what the comment above emitRot
+      // warns against — so a boundary meant to run north-south was drawn
+      // across its own street. It affected `fence`, `iron_fence`, `stone_wall`
+      // and `crenellated_wall`, all of which are placed today, and it is why
+      // `picket_fence` could not simply be switched on.
+      //
+      // A fence's facing is DECIDED, not rolled: propRot falls back to a
+      // random angle up to a half turn on a 1x1 prop, which is right for a
+      // barrel and meaningless for a boundary, so the placer sets `facingY`
+      // from the side the street is on.
       const crenellated = id === 'crenellated_wall' || (id === 'stone_wall' && (hash % 3 === 0))
       if (crenellated) {
         // Low crenellated stone wall — body + merlons along the top.
-        const body = new THREE.BoxGeometry(fp.w * 0.9, 0.65, 0.22)
-        body.translate(px, elev + 0.325, pz)
-        batch.addPositioned(body, 0x787268)
+        emitRot(new THREE.BoxGeometry(fp.w * 0.9, 0.65, 0.22), 0, 0.325, 0, 0x787268)
         const merlonCount = Math.max(3, Math.floor(fp.w * 2))
         for (let mi = 0; mi < merlonCount; mi++) {
           if (mi % 2 === 0) continue // gaps form the battlement pattern
           const mx = -fp.w * 0.42 + mi * (fp.w * 0.84 / (merlonCount - 1))
-          const merlon = new THREE.BoxGeometry(fp.w * 0.84 / (merlonCount - 1) * 0.8, 0.2, 0.22)
-          merlon.translate(px + mx, elev + 0.75, pz)
-          batch.addPositioned(merlon, 0x787268)
+          emitRot(new THREE.BoxGeometry(fp.w * 0.84 / (merlonCount - 1) * 0.8, 0.2, 0.22),
+            mx, 0.75, 0, 0x787268)
         }
       } else if (id === 'stone_wall') {
         // Stacked rough-stone wall — body + stone course band (darker)
-        const body = new THREE.BoxGeometry(fp.w * 0.9, 0.65, 0.22)
-        body.translate(px, elev + 0.325, pz)
-        batch.addPositioned(body, 0x807a70)
-        const cap = new THREE.BoxGeometry(fp.w * 0.95, 0.08, 0.28)
-        cap.translate(px, elev + 0.69, pz)
-        batch.addPositioned(cap, 0x6a6458)
+        emitRot(new THREE.BoxGeometry(fp.w * 0.9, 0.65, 0.22), 0, 0.325, 0, 0x807a70)
+        emitRot(new THREE.BoxGeometry(fp.w * 0.95, 0.08, 0.28), 0, 0.69, 0, 0x6a6458)
       } else if (id === 'iron_fence') {
         // Ornate iron fence with posts, rails, finials on posts
-        const rail1 = new THREE.BoxGeometry(fp.w * 0.9, 0.04, 0.04)
-        rail1.translate(px, elev + 0.15, pz)
-        batch.addPositioned(rail1, 0x1a1a1a)
-        const rail2 = new THREE.BoxGeometry(fp.w * 0.9, 0.04, 0.04)
-        rail2.translate(px, elev + 0.72, pz)
-        batch.addPositioned(rail2, 0x1a1a1a)
+        emitRot(new THREE.BoxGeometry(fp.w * 0.9, 0.04, 0.04), 0, 0.15, 0, 0x1a1a1a)
+        emitRot(new THREE.BoxGeometry(fp.w * 0.9, 0.04, 0.04), 0, 0.72, 0, 0x1a1a1a)
         const numBars = Math.max(3, Math.floor(fp.w * 3))
         for (let bi = 0; bi < numBars; bi++) {
           const bx = -fp.w * 0.4 + bi * (fp.w * 0.8 / Math.max(1, numBars - 1))
-          const bar = new THREE.CylinderGeometry(0.015, 0.015, 0.7, 3)
-          bar.translate(px + bx, elev + 0.43, pz)
-          batch.addPositioned(bar, 0x1a1a1a)
+          emitRot(new THREE.CylinderGeometry(0.015, 0.015, 0.7, 3), bx, 0.43, 0, 0x1a1a1a)
           // Point finials on every third bar
-          if (bi % 3 === 0) {
-            const finial = new THREE.ConeGeometry(0.03, 0.1, 4)
-            finial.translate(px + bx, elev + 0.82, pz)
-            batch.addPositioned(finial, 0x1a1a1a)
-          }
+          if (bi % 3 === 0) emitRot(new THREE.ConeGeometry(0.03, 0.1, 4), bx, 0.82, 0, 0x1a1a1a)
         }
         // Posts at the ends (taller, thicker)
         for (const pxSide of [-fp.w * 0.45, fp.w * 0.45]) {
-          const post = new THREE.BoxGeometry(0.08, 0.95, 0.08)
-          post.translate(px + pxSide, elev + 0.47, pz)
-          batch.addPositioned(post, 0x1a1a1a)
-          const ball = new THREE.SphereGeometry(0.06, 5, 4)
-          ball.translate(px + pxSide, elev + 0.97, pz)
-          batch.addPositioned(ball, 0x1a1a1a)
+          emitRot(new THREE.BoxGeometry(0.08, 0.95, 0.08), pxSide, 0.47, 0, 0x1a1a1a)
+          emitRot(new THREE.SphereGeometry(0.06, 5, 4), pxSide, 0.97, 0, 0x1a1a1a)
         }
       } else if (id === 'picket_fence') {
         // Picket fence — pointed-top slats with a rail behind them.
-        const rail = new THREE.BoxGeometry(fp.w * 0.92, 0.04, 0.04)
-        rail.translate(px, elev + 0.35, pz - 0.02)
-        batch.addPositioned(rail, 0xd8c8a8)
+        // WAIST HIGH, which is what a picket fence is for: you see the garden
+        // OVER it. It drew at 0.62m — knee height, a border edging rather than
+        // a boundary — and `propscale.mjs` had no target for it, so nothing
+        // said so. Two rails now, because one rail on a 0.9m slat sags.
+        const SLAT_H = 0.88
+        emitRot(new THREE.BoxGeometry(fp.w * 0.92, 0.045, 0.04), 0, 0.24, -0.025, 0xd8c8a8)
+        emitRot(new THREE.BoxGeometry(fp.w * 0.92, 0.045, 0.04), 0, 0.70, -0.025, 0xd8c8a8)
         const slatCount = Math.max(4, Math.floor(fp.w * 3))
         for (let si = 0; si < slatCount; si++) {
           const sx = -fp.w * 0.42 + si * (fp.w * 0.84 / Math.max(1, slatCount - 1))
-          const slat = new THREE.BoxGeometry(0.06, 0.55, 0.03)
-          slat.translate(px + sx, elev + 0.275, pz)
-          batch.addPositioned(slat, 0xe8d8b8)
+          emitRot(new THREE.BoxGeometry(0.07, SLAT_H, 0.035), sx, SLAT_H / 2, 0, 0xe8d8b8)
           // Pointed cap
-          const cap = new THREE.ConeGeometry(0.04, 0.08, 4)
-          cap.translate(px + sx, elev + 0.58, pz)
-          batch.addPositioned(cap, 0xe8d8b8)
+          emitRot(new THREE.ConeGeometry(0.05, 0.11, 4), sx, SLAT_H + 0.05, 0, 0xe8d8b8)
         }
       } else {
         // Classic wooden fence (2 rails + 3 posts)
         for (const ry of [0.2, 0.45]) {
-          const r = new THREE.BoxGeometry(fp.w * 0.9, 0.04, 0.03)
-          r.translate(px, elev + ry, pz)
-          batch.addPositioned(r, 0x6a4a28)
+          emitRot(new THREE.BoxGeometry(fp.w * 0.9, 0.04, 0.03), 0, ry, 0, 0x6a4a28)
         }
         for (const fx of [-fp.w * 0.4, 0, fp.w * 0.4]) {
-          const post = new THREE.BoxGeometry(0.06, 0.55, 0.06)
-          post.translate(px + fx, elev + 0.275, pz)
-          batch.addPositioned(post, 0x6a4a28)
+          emitRot(new THREE.BoxGeometry(0.06, 0.55, 0.06), fx, 0.275, 0, 0x6a4a28)
         }
       }
 

@@ -96,7 +96,8 @@
     "wallpaper": 0
   },
   "tenancy": {
-    "explained": 51,
+    "explainable": 56,
+    "explained": 44,
     "orphaned": 5
   },
   "streets": {
@@ -106,7 +107,7 @@
     "textureMB": 92.4
   },
   "propscale": {
-    "outOfRange": 7
+    "outOfRange": 6
   },
   "hours": {
     "nightWall": 38,

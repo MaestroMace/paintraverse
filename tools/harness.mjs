@@ -515,11 +515,20 @@ const CHECKS = [
     electron: true,
     cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/tenancy.mjs']],
     extract: (o) => ({
+      // THE GRADED ROW IS THE ONE OVER THE OWNABLE POPULATION. `explained`
+      // divides by ALL props, so it is partly a measure of how many
+      // UNOWNABLE props the town has: switching on forty yard fences moved it
+      // seven points without a single prop changing owner, because a barrier
+      // lands in the civic bucket AND stays in the denominator. On the honest
+      // denominator the same change reads 58% -> 56%. Both are tracked, and
+      // the all-props one is `dir: 0` so it can never fail on its own
+      // arithmetic again.
+      explainable: num(o, /OF THE PROPS THAT COULD BE:\s+(\d+)%/),
       explained: num(o, /^EXPLAINED\s+(\d+)%/m),
       orphaned: num(o, /^ORPHANED\s+(\d+)%/m),
     }),
-    dir: { explained: 1, orphaned: -1 },
-    band: { explained: 3, orphaned: 2 },
+    dir: { explainable: 1, explained: 0, orphaned: -1 },
+    band: { explainable: 3, explained: 8, orphaned: 2 },
   },
   {
     name: 'streets',

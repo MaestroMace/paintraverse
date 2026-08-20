@@ -873,6 +873,23 @@ export class TownGenerator implements IMapGenerator {
       solid(), heightMap, terrainTiles, rng)
     blockers.push(...precinctWalls)
 
+    // 12b-ii. And the DOMESTIC scale of the same argument — a picket fence
+    // round the yards that face a street. Run here, beside the precinct
+    // walls and before every prop pass, because a designed boundary must
+    // claim its ground before the scatter does: three separate passes have
+    // arrived to find the spot already taken.
+    // INTO THE PROP LAYER, NOT `blockers`. A picket fence's geometry lives in
+    // PropFactory and its definition is `infrastructure`; `blockers` flows
+    // into `allStructures`, which BuildingFactory draws — and BuildingFactory
+    // has no entry for it, so the first run built every fence as a generic
+    // two-storey HOUSE. That is the bridge finding exactly: the object and its
+    // art in different layers, with nothing erroring. When a type looks wrong,
+    // check which FACTORY draws its layer before checking the art.
+    const yardFences = this.buildYardFences(
+      width, height, roadMap, waterMap, districtMap, districts,
+      solid(), [...buildings, ...landmarks], heightMap, terrainTiles, rng)
+    placedProps.push(...yardFences)
+
     // 12d. THE WATERFRONT CLAIMS ITS OWN BANK, before the global prop passes
     // get to it. Run late, after placeVegetation and the rest, it found half
     // the bank already taken by scattered bushes and trees — the generic
@@ -5707,6 +5724,148 @@ export class TownGenerator implements IMapGenerator {
    *   change can move a metric for a reason that is not the reason you
    *   intended, it will.
    */
+  /**
+   * YARD FENCES — the domestic scale of the precinct wall.
+   *
+   * `picket_fence` has finished geometry in PropFactory — pointed slats, a
+   * rail behind them, pale timber — a definition in the store, and NOTHING
+   * placed it. That is the reverse ghost: not content gated into nonexistence
+   * but content with no way in, which this repo has now found for a whole
+   * river vocabulary, for every bridge in the town, and here for a fence.
+   * The tell is one grep: the ids PropFactory DRAWS against the ids the
+   * generator NAMES.
+   *
+   * WHERE A FENCE BELONGS IS NOT WHERE A WALL BELONGS. `encloseSparseQuarters`
+   * walls a whole QUARTER because a sparse quarter leaves gaps in the street
+   * line. A picket fence encloses a YARD, so it needs three things at once and
+   * all three are cheap to ask:
+   *
+   *   · soft ground — grass, dirt, garden, wildflower. A fence standing on
+   *     flagstone is a fence round nothing, and paving is where the town has
+   *     already decided the space is public.
+   *   · a street beside it, because a boundary that faces no one defines no
+   *     edge. Asked through `isCirculation`, never `roadMap`: carveAlleys
+   *     paints tile 9 straight into the terrain and this pass runs after it.
+   *   · a DWELLING within a tile, because a yard belongs to a house. Without
+   *     this the pass becomes field boundaries on the periphery, which is the
+   *     scatter the urban-form arc spent itself removing — and CLAUDE.md
+   *     already records a second infill pass being written, measured at 0.7
+   *     of a point and reverted for exactly that reason.
+   *
+   * Gates for the same reason the precinct wall has them, and a gap at the
+   * corner so two runs meeting do not read as a sealed box.
+   *
+   * It is `infrastructure` with a `barrier` tag, so urbanform counts it as
+   * boundary frontage and NOT as built coverage or a party wall. Grade it on
+   * the boundary line; a 1m fence encloses a street about as much as a 1.45m
+   * wall does, which is to say it defines an edge and not a room.
+   */
+  private buildYardFences(
+    w: number, h: number,
+    roadMap: boolean[][], waterMap: boolean[][],
+    districtMap: number[][], districts: District[],
+    placed: PlacedObject[], buildings: PlacedObject[],
+    heightMap: number[][], terrain: number[][],
+    rng: () => number,
+  ): PlacedObject[] {
+    // The quarters where people live and keep a yard. Market, harbor and
+    // fortress are working ground and the civic four already have a precinct
+    // wall — fencing both would read as a maze, which is the failure the
+    // precinct pass documents about interior boundaries.
+    const DOMESTIC = new Set<DistrictType>(['residential', 'slum', 'artisan', 'garden', 'waterfront'])
+    // NOT SOFT GROUND — NOT A DESIGNED SURFACE. The first cut required grass,
+    // dirt or garden underfoot on the reasoning that a fence on flagstone is a
+    // fence round nothing, and it placed ONE fence a town. The reject tally
+    // said why in a single run: of the tiles that are free, non-street and
+    // street-adjacent, 61 of 88 were HARD GROUND. Street frontage is paved and
+    // `softenBackOfBlock` unpaves the BACK, so "soft" and "faces a street" are
+    // very nearly mutually exclusive — two conditions composing into a filter
+    // rather than a clamp, which is the washing-line failure exactly.
+    //
+    // A property line exists on cobble. What must NOT be fenced is a surface
+    // the town DESIGNED as public: plaza flagstone, which is a square, and a
+    // gravel path, which is somewhere to walk.
+    const NEVER_FENCE = new Set([13, 14])   // gravel path, plaza flagstone
+    const GATE_EVERY = 6
+    const out: PlacedObject[] = []
+
+    const isStreet = (x: number, y: number): boolean =>
+      isCirculation(terrain?.[y]?.[x]) || !!roadMap[y]?.[x]
+
+    const occupied = new Set<string>()
+    for (const o of placed) {
+      const fp = o.footprint ?? this.getFootprint(o.definitionId)
+      for (let dy = 0; dy < fp.h; dy++) {
+        for (let dx = 0; dx < fp.w; dx++) occupied.add(`${o.x + dx},${o.y + dy}`)
+      }
+    }
+    // A YARD BELONGS TO A BUILDING, and the honest way to ask that here is the
+    // BUILDINGS LIST — not a hand-written id set, and not DWELLING_TYPES,
+    // which the first cut used and which rejected 34 tiles beside workshops,
+    // bakeries and taverns that all keep a yard. The categories live in
+    // store.ts and the generator cannot import it without a cycle, so every
+    // other pass that needs this reaches for a literal list that then drifts.
+    // This one does not have to: the caller already separates what it placed
+    // as a building from what it placed as a barrier.
+    const homes = new Set<string>()
+    for (const o of buildings) {
+      const fp = o.footprint ?? this.getFootprint(o.definitionId)
+      for (let dy = 0; dy < fp.h; dy++) {
+        for (let dx = 0; dx < fp.w; dx++) homes.add(`${o.x + dx},${o.y + dy}`)
+      }
+    }
+    const nearHome = (x: number, y: number): boolean => {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) if (homes.has(`${x + dx},${y + dy}`)) return true
+      }
+      return false
+    }
+
+    const byDistrict = new Map<number, DistrictType>()
+    for (const d of districts) byDistrict.set(d.id, d.type)
+
+    let run = 0
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const dt = byDistrict.get(districtMap[y]?.[x] ?? -1)
+        if (!dt || !DOMESTIC.has(dt)) continue
+        if (occupied.has(`${x},${y}`) || waterMap[y][x]) { rejected('fence~taken'); continue }
+        if (isStreet(x, y)) { rejected('fence~isStreet'); continue }
+        const rN = isStreet(x, y - 1), rS = isStreet(x, y + 1)
+        const rW = isStreet(x - 1, y), rE = isStreet(x + 1, y)
+        if (!(rN || rS || rE || rW)) { rejected('fence~noStreetBeside'); continue }
+        // EVERY CLAUSE COUNTS ITSELF. The first cut placed ONE fence a town —
+        // a ghost — and the three conditions are the kind that compose into a
+        // filter rather than a clamp, which is the failure the washing lines
+        // already taught. A tally says which one, and it is cheaper than any
+        // amount of reasoning about it.
+        if (NEVER_FENCE.has(terrain[y]?.[x] ?? -1)) { rejected('fence~publicSurface'); continue }
+        if (!nearHome(x, y)) { rejected('fence~noHomeNear'); continue }
+        // A tile the street passes THROUGH is a threshold, not a boundary —
+        // the same clause the precinct wall needed and for the same reason.
+        if ((rN && rS) || (rE && rW)) { rejected('fence~threshold'); continue }
+        run++
+        if (run % GATE_EVERY === 0) continue      // the garden gate
+        out.push({
+          id: uuid(),
+          definitionId: 'picket_fence',
+          x, y,
+          rotation: 0, scaleX: 1, scaleY: 1,
+          elevation: Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2),
+          footprint: { w: 1, h: 1 },
+          // `facingY` DECIDES the fence's direction. PropFactory falls back to
+          // a random angle up to a half turn on a 1x1 prop, which is right for
+          // a barrel and nonsense for a boundary; the fence runs ALONG the
+          // street, so it turns a quarter when the street is east or west.
+          properties: { district: dt, boundary: true, facingY: (rN || rS) ? 0 : Math.PI / 2 },
+        })
+        rejected('fenceOk')
+        occupied.add(`${x},${y}`)
+      }
+    }
+    return out
+  }
+
   private encloseSparseQuarters(
     w: number, h: number,
     roadMap: boolean[][], waterMap: boolean[][],

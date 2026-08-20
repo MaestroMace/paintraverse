@@ -512,6 +512,47 @@ the clamp explicitly skips were padding the denominator, and the true rate was
 always about 10%. Always print both halves of a rate you are about to believe;
 a percentage is two measurements wearing one number.
 
+**A LOOKUP WITH A DEFAULT HAS NO ABSENT STATE — AND `PropFactory` WAS READING
+THE WRONG FOOTPRINT ENTIRELY.** `const fpT = def?.footprint || { w: 1, h: 1 }`
+takes the DEFINITION's rectangle, not the one the placer reserved, which is
+exactly what `footprintOf(obj, def)` and the whole PlacedObject refactor exist
+to prevent — CLAUDE.md's words: "anything reading `def.footprint` directly is a
+bug waiting for the next structural change". It cost a 5.52m picket fence
+standing on a one-tile reservation, drawn straight through the neighbour, and
+it will have been silently wrong for every prop whose object footprint differs
+from its type's.
+
+**AND EVERY FENCE IN TOWN RAN EAST-WEST.** The whole `fence | iron_fence |
+stone_wall | crenellated_wall | picket_fence` branch baked world coordinates
+into `.translate(px + dx, ..., pz)` and never touched `propRot` — which is
+precisely what the comment above `emitRot` warns against, four hundred lines
+above the code that ignores it. Three of those ids are placed today, so a
+boundary meant to run north–south was drawn across its own street. A fence's
+facing also has to be DECIDED rather than rolled: propRot falls back to a
+random angle up to a half turn on a 1x1 prop, which is right for a barrel and
+meaningless for a boundary.
+
+**A BOUNDARY IS NOT A PROP THAT BELONGS TO A BUILDING, AND THAT FILTER IS NOW
+IN ONE PLACE.** Fourth time barriers have had to be told apart from buildings
+and the first three each did it in the tool's own head — urbanform inflating
+party walls with 47 wall segments, districts scoring them as not distinctive,
+variety calling a town wall 104 twins. This file's verdict at the time was
+"the filter belongs in one place, not in each tool's head", and it then stayed
+in each tool's head. `tools/lib/taxonomy.BARRIERS` parses the store's own
+`barrier` TAG, so a new barrier joins by being one; it found nine, including a
+`hedge` nobody had listed.
+
+**AND `tenancy` DIVIDED BY A POPULATION ITS NUMERATOR CANNOT CONTAIN.**
+Switching on forty yard fences dropped explained tenancy 51% -> 44% without one
+prop changing owner: a barrier lands in the civic bucket AND stays in the
+denominator, so the rate is partly a measure of how many UNOWNABLE props the
+town has. On the honest denominator the same change reads **58% -> 56%**, and
+the towns either side are near-neighbours rather than an isolation, because
+adding a generation pass perturbs the RNG stream. `EXPLAINED, OF THE PROPS
+THAT COULD BE` is the graded row now and the all-props one is `dir: 0`. Third
+instance of this exact shape in a week, after `habitablePinned` and the
+feature census reading 182%.
+
 **RELIEF, NOT TEXTURE, IS WHAT MAKES A BIG PLAIN SURFACE READ.** The curtain
 wall is 6.5m tall, 1.6m thick, `textured: false` and therefore one flat colour
 from the cobbles to the merlons — and there are ~47 segments a town, so it is

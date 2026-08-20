@@ -33,6 +33,11 @@ if (seeds.length === 0) seeds.push(4242, 777, 31337)
  */
 const EXPECT = {
   barrel:        [0.5, 1.0, 0.7, 1.2],
+  // A picket fence is chest-high on a child and waist-high on an adult; the
+  // whole point of one is that you see the garden OVER it. Graded because it
+  // was ungraded and drawing at 0.62m — knee height, which reads as a border
+  // edging rather than a boundary.
+  picket_fence:  [2.4, 6.2, 0.85, 1.20],
   crate:         [0.5, 1.2, 0.4, 1.0],
   crate_stack:   [0.8, 1.8, 0.9, 2.0],
   bench:         [1.2, 2.2, 0.4, 1.1],   // two of three variants are backless

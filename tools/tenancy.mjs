@@ -29,7 +29,7 @@
  *   xvfb-run -a -s "-screen 0 1400x900x24" node tools/tenancy.mjs [seeds...]
  */
 import { _electron as electron } from 'playwright-core'
-import { DWELLINGS, parseBuildingProps } from './lib/taxonomy.mjs'
+import { DWELLINGS, BARRIERS, parseBuildingProps } from './lib/taxonomy.mjs'
 
 // READ THE GENERATOR'S OWN TABLE, do not restate it. See the note on the
 // EXPLAINS constant below for what the restatement cost.
@@ -63,8 +63,9 @@ for (const seed of seeds) {
   // uses it is built in the PAGE, so it has to cross the boundary explicitly —
   // a closure over a module import silently becomes a ReferenceError inside
   // evaluate. Sent as an array because a Set does not survive serialisation.
-  const r = await win.evaluate(({ dwellingIds, buildingProps }) => {
+  const r = await win.evaluate(({ dwellingIds, barrierIds, buildingProps }) => {
     const DWELLINGS = new Set(dwellingIds)
+    const BARRIERS = new Set(barrierIds)
     const st = window.__pt.store.getState()
     const map = st.map
     const defs = st.objectDefinitions
@@ -102,10 +103,18 @@ for (const seed of seeds) {
       'trellis_arch', 'iron_fence', 'sign', 'well']
     // A lamppost belongs to the STREET and a tree to the ground; neither wants
     // a building owner, so they are not counted as failures of tenancy.
-    const UNOWNED_BY_NATURE = new Set(['lamppost', 'street_lamp_double', 'tree',
+    // A BOUNDARY IS UNOWNED FOR THE SAME REASON A LAMPPOST IS. This set had
+    // `stone_wall` and `stone_wall_v` in it and not the other seven barriers —
+    // hand-written, so it drifted, which is what the note directly below says
+    // about the OTHER table in this file. Switching on yard fences dropped
+    // explained tenancy seven points on forty boundaries scored as props with
+    // no owner. `BARRIERS` is parsed from the store's own `barrier` tag, so a
+    // new one joins by being one.
+    const UNOWNED_BY_NATURE = new Set([...BARRIERS,
+      'lamppost', 'street_lamp_double', 'tree',
       'bush', 'well', 'fountain', 'road_marker', 'signpost', 'monument',
       'gravestone', 'cemetery_cross', 'dock', 'crane', 'fishing_boat',
-      'bunting_pole', 'prayer_flags', 'stone_wall', 'stone_wall_v'])
+      'bunting_pole', 'prayer_flags'])
     // AND THIS TABLE IS NOW READ, NOT RESTATED.
     //
     // It used to be nineteen hand-written rows under a comment saying it
@@ -185,7 +194,7 @@ for (const seed of seeds) {
       ownedN, explainedN, orphanN, insideN, civicN,
       orphanKinds, ownedKinds, typeCounts, propsByDistrict,
     }
-  }, { dwellingIds: [...DWELLINGS], buildingProps: BUILDING_PROPS })
+  }, { dwellingIds: [...DWELLINGS], barrierIds: [...BARRIERS], buildingProps: BUILDING_PROPS })
   if (!r) { console.log(`seed ${seed}: no terrain`); continue }
   rows.push({ seed, ...r })
   await win.waitForTimeout(150)
@@ -214,9 +223,26 @@ console.log('-'.repeat(50))
 console.log(`OWNED     ${pct(O, P)}%  — sits on some building's perimeter`)
 console.log(`EXPLAINED ${pct(E, P)}%  — and that building would plausibly have it`)
 console.log(`ORPHANED  ${pct(R, P)}%  — touching nothing; there is no reason it is here`)
-console.log(`(civic and natural props — lampposts, trees, wells, monuments — are`)
-console.log(` excluded: they belong to the street or the ground, not a building.`)
-console.log(` ${C} of ${P} props, ${pct(C, P)}%. Percentages above are of ALL props.)`)
+console.log(`(civic and natural props — lampposts, trees, wells, monuments and`)
+console.log(` every BARRIER — are excluded: they belong to the street or the`)
+console.log(` ground, not a building. ${C} of ${P} props, ${pct(C, P)}%.)`)
+// OF THE PROPS THAT COULD HAVE AN OWNER — and this is the line to read.
+//
+// The three rates above divide by ALL props, which the footer has always
+// said and which quietly makes them a function of how many UNOWNABLE props
+// the town has. Switching on forty yard fences moved `explained` seven points
+// without a single prop changing owner: they landed in the civic bucket AND
+// stayed in the denominator, so the rate fell for a reason that has nothing
+// to do with tenancy. That is the numerator and denominator counting
+// different populations — the mistake this file's own header records making
+// twice already, and `provenance.mjs` made a third time this week with
+// `habitablePinned`, where the numerator was 32 before and after and only the
+// denominator moved.
+const OWNABLE = P - C
+console.log(`\nEXPLAINED, OF THE PROPS THAT COULD BE:  ${pct(E, OWNABLE)}%  (${E} of ${OWNABLE})`)
+console.log('  A lamppost and a fence have no building owner by construction, so')
+console.log('  including them in the denominator measures how many of them the')
+console.log('  town happens to have. This is the row to grade.')
 
 const ok = merge('orphanKinds')
 const top = Object.entries(ok).sort((a, b) => b[1] - a[1]).slice(0, 12)
