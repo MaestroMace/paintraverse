@@ -512,6 +512,31 @@ the clamp explicitly skips were padding the denominator, and the true rate was
 always about 10%. Always print both halves of a rate you are about to believe;
 a percentage is two measurements wearing one number.
 
+**A CONVENTION RESTATED IN A TOOL INSTEAD OF DERIVED FROM THE CODE THAT OWNS
+IT IS THE TERRAIN TABLE AGAIN, IN RADIANS.** `lib/vantage.lookAt` computes a
+heading as `atan2(target.z - eye.z, target.x - eye.x)`, so yaw 0 looks +X. Two
+hand-written street-vantage pickers had that table rotated ninety degrees, so
+every "street view" in `hours.mjs` was taken facing the wall BESIDE the street
+— which is why it needed a 9-degree up-pitch to find any sky and why its prop
+column collected eleven samples. `eyeball.mjs`'s copy was worse still: it
+counted road only in the +x and +z directions and only ever yawed positive, so
+a tile at the west end of an east–west street scored zero both ways and
+photographed a facade from a metre away. One such frame contributed thousands
+of wall samples from a single wall and put `potting_shed` top of "what
+dominates the town's own streets" at 98.9%.
+
+`streetVantages` in lib now: all four directions, longest clear run, and
+candidates with no corridor at all are dropped rather than pointed somewhere
+arbitrary. Every view is a street. **The tone rows moved a long way and NONE
+of it is the town** — eyeball wallLuma 83 -> 131 and roofBlackPct 32 -> 45 are
+a camera change and were re-baselined as one; the harness printed "(+49
+better)", which is precisely the thing it cannot tell apart.
+
+**And the conclusion published an hour earlier survived the correction, which
+is the only reason to check.** Props re-measured on honest vantages read 0.065
+median and 47% black — the same figures the broken sample gave. It could
+easily have gone the other way.
+
 **A CATEGORY FIELD IS NOT A TAXONOMY, AND THE SWEEP THAT USES ONE WILL MISS.**
 `staircase` had no DEF_OVERRIDE, so all ~8 a town were built as two-storey
 houses with hipped roofs and 28% of them got a spire — the bridge finding, one

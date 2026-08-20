@@ -51,7 +51,7 @@
  */
 import { _electron as electron } from 'playwright-core'
 import { waitForScene } from './lib/scene.mjs'
-import { hideChrome } from './lib/vantage.mjs'
+import { hideChrome, streetVantages } from './lib/vantage.mjs'
 
 const argv = process.argv.slice(2)
 const seed = Number(argv.find((a) => /^\d+$/.test(a)) ?? 31337)
@@ -101,33 +101,11 @@ await hideChrome(win)
 
 const scene = await win.evaluate(() => window.__pt.sceneFeatures())
 
-const spots = await win.evaluate((n) => {
-  const pt = window.__pt, st = pt.store.getState()
-  const terrain = st.map.layers.find((l) => l.type === 'terrain').terrainTiles
-  const H = terrain.length, W = terrain[0].length
-  const road = []
-  for (let y = 2; y < H - 2; y++) {
-    for (let x = 2; x < W - 2; x++) if (pt.isCirculation(terrain[y][x])) road.push([x, y])
-  }
-  const out = []
-  const step = Math.max(1, Math.floor(road.length / n))
-  for (let i = 0; i < road.length && out.length < n; i += step) {
-    const [x, y] = road[i]
-    let best = 0, bestYaw = 0
-    for (const [dx, dy, yaw] of [[1, 0, Math.PI / 2], [-1, 0, -Math.PI / 2], [0, 1, 0], [0, -1, Math.PI]]) {
-      let run = 0
-      for (let k = 1; k < 14; k++) {
-        const nx = x + dx * k, ny = y + dy * k
-        if (nx < 0 || ny < 0 || nx >= W || ny >= H) break
-        if (!pt.isCirculation(terrain[ny][nx])) break
-        run++
-      }
-      if (run > best) { best = run; bestYaw = yaw }
-    }
-    out.push({ x: x + 0.5, y: y + 0.5, yaw: bestYaw })
-  }
-  return out
-}, VIEWS)
+// SHARED, see lib/vantage.streetVantages. This picker was written here
+// first and correct — all four directions, longest clear run — and
+// `eyeball.mjs` had a second copy that only looked two ways. Two copies of a
+// camera is the terrain-table drift with a lens on it.
+const spots = await streetVantages(win, VIEWS)
 
 console.log(`=== HOURS — seed ${seed}, ${spots.length} street views per branch ===`)
 console.log('Every arm of updateLighting, side by side. Each one has been edited')
@@ -284,6 +262,11 @@ for (const r of rows) {
 console.log(`  props read black: ` + rows.map((r) => `${r.name} ${r.propBlack}%`).join(' · '))
 console.log(`  what is IN the prop bucket: ` +
   (rows[0]?.propIds ?? []).map(([id, n]) => `${id} x${n}`).join(', '))
+console.log('  `?` is a propGroup mesh with no object of the prop LAYER within two')
+console.log('  tiles — ThreeRenderer.generateStaircases adds up to 30 bare terrain')
+console.log('  step blocks straight to that group, and the lamp bulbs are there too.')
+console.log('  Printed rather than hidden: a bucket you cannot name is a bucket you')
+console.log('  should not quote, and that is the mistake this column exists to undo.')
 console.log(`\nVERDICT: ${inverted} inverted, ${blackout} blacked out, ${unmeasured} unmeasured.`)
 console.log('  A branch reading near zero everywhere is not a dark branch, it is an')
 console.log('  UNLIT one, and the two look identical in a single-hour tone table.')

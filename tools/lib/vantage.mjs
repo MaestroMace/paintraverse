@@ -475,3 +475,79 @@ export async function isolate(win, meshName) {
     }),
   }
 }
+
+/**
+ * STREET VANTAGES — n road tiles spread over the map, each facing DOWN its
+ * street rather than at the wall beside it.
+ *
+ * One definition, because there were two and one of them was wrong.
+ * `eyeball.mjs` counted road only in the +x and +z directions and only ever
+ * yawed positive, so a tile at the west end of an east–west street scored
+ * zero both ways, defaulted to facing +x, and photographed a facade from a
+ * metre away. That is not a small error in a small tool: eyeball is the
+ * instrument that reports what FILLS a street view and grades the town's
+ * absolute tone, and one such frame contributed thousands of wall samples
+ * from a single wall — and put `potting_shed` at the top of "what dominates
+ * the town's own streets" with 98.9%, off one camera pressed against a shed.
+ *
+ * All four directions, longest clear run wins, which is what `hours.mjs`
+ * already did. A third copy would have drifted the same way; three copies of
+ * the terrain table taught this repo that once already.
+ *
+ * Returns tile coordinates and a yaw, in the same units flyTo takes.
+ */
+export async function streetVantages(win, n, reach = 14) {
+  return win.evaluate(({ n, reach }) => {
+    const pt = window.__pt, st = pt.store.getState()
+    const terrain = st.map.layers.find((l) => l.type === 'terrain').terrainTiles
+    const H = terrain.length, W = terrain[0].length
+    const road = []
+    for (let y = 2; y < H - 2; y++) {
+      for (let x = 2; x < W - 2; x++) if (pt.isCirculation(terrain[y][x])) road.push([x, y])
+    }
+    // A DEAD END HAS NO GOOD YAW. Scoring every candidate first and taking the
+    // best-connected ones is what stops a camera being planted a metre from a
+    // wall: on the first corrected run, five of six views were proper street
+    // corridors and the sixth was still 95% of the frame filled by one
+    // building_small, because that tile simply had no road neighbour to look
+    // along. A view that cannot see a street is not a street view, and one of
+    // them dragged the whole tone table.
+    const scored = []
+    const step = Math.max(1, Math.floor(road.length / (n * 3)))
+    for (let i = 0; i < road.length; i += step) {
+      const [x, y] = road[i]
+      let best = -1, bestYaw = 0
+      // YAW 0 LOOKS +X. Taken from `lookAt` above, which derives it as
+      // `atan2(target.z - eye.z, target.x - eye.x)` — the one place in this
+      // harness that computes a heading from a direction. Both copies of this
+      // picker had the table rotated ninety degrees, so every "street view"
+      // in `hours.mjs` was taken facing the wall BESIDE the street: that is
+      // why it needed a 9-degree up-pitch to find any sky at all and why its
+      // prop column collected eleven samples. A convention restated in a tool
+      // instead of derived from the code that owns it is the terrain table
+      // again, in radians.
+      for (const [dx, dy, yaw] of [
+        [1, 0, 0], [-1, 0, Math.PI], [0, 1, Math.PI / 2], [0, -1, -Math.PI / 2],
+      ]) {
+        let run = 0
+        for (let k = 1; k < reach; k++) {
+          const nx = x + dx * k, ny = y + dy * k
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) break
+          if (!pt.isCirculation(terrain[ny][nx])) break
+          run++
+        }
+        if (run > best) { best = run; bestYaw = yaw }
+      }
+      scored.push({ x: x + 0.5, y: y + 0.5, yaw: bestYaw, run: best, i })
+    }
+    // Keep the ones with a real corridor, then re-spread them over the map so
+    // the views are not all in whichever quarter has the longest streets.
+    const good = scored.filter((c) => c.run >= 3)
+    const pool = good.length >= n ? good : scored.sort((a, b) => b.run - a.run)
+    pool.sort((a, b) => a.i - b.i)
+    const out = []
+    const gap = Math.max(1, Math.floor(pool.length / n))
+    for (let k = 0; k < pool.length && out.length < n; k += gap) out.push(pool[k])
+    return out
+  }, { n, reach })
+}

@@ -30,7 +30,7 @@
  */
 import { _electron as electron } from 'playwright-core'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { hideChrome, FRAME } from './lib/vantage.mjs'
+import { hideChrome, FRAME, streetVantages } from './lib/vantage.mjs'
 import { waitForScene } from './lib/scene.mjs'
 import { DWELLINGS } from './lib/taxonomy.mjs'
 
@@ -68,29 +68,14 @@ const byId = new Map(scene.structures.map((s) => [s.id, s]))
 // Vantages: walkable tiles spread across the map, looking along the street.
 // Not a fixed list — fixed vantages are how walkshots keeps photographing the
 // same five places while the rest of the town goes unlooked-at.
-const spots = await win.evaluate((n) => {
-  const pt = window.__pt, st = pt.store.getState()
-  const terrain = st.map.layers.find((l) => l.type === 'terrain').terrainTiles
-  const H = terrain.length, W = terrain[0].length
-  const road = []
-  for (let y = 2; y < H - 2; y++) {
-    for (let x = 2; x < W - 2; x++) if (pt.isCirculation(terrain[y][x])) road.push([x, y])
-  }
-  // Even sample so the views are spread over the map rather than clustered.
-  const step = Math.max(1, Math.floor(road.length / n))
-  const out = []
-  for (let i = 0; i < road.length && out.length < n; i += step) {
-    const [x, y] = road[i]
-    // Aim along whichever axis has more road — down the street, not at a wall.
-    let ex = 0, ez = 0
-    for (let d = 1; d <= 6; d++) {
-      if (pt.isCirculation(terrain[y]?.[x + d])) ex++
-      if (pt.isCirculation(terrain[y + d]?.[x])) ez++
-    }
-    out.push({ x: x + 0.5, y: y + 0.5, yaw: ex >= ez ? 0 : Math.PI / 2 })
-  }
-  return out
-}, views)
+// ONE DEFINITION, in lib/vantage.mjs, and the copy that used to live here was
+// the broken one: it counted road only in the +x and +z directions and only
+// ever yawed positive, so a tile at the west end of an east–west street scored
+// zero both ways, defaulted to facing +x and photographed a wall from a metre
+// away. In a tool whose whole job is "what fills a street view", one such frame
+// contributed thousands of wall samples from a single facade and put
+// `potting_shed` top of the dominance table at 98.9%.
+const spots = await streetVantages(win, views)
 
 console.log(`=== EYEBALL — seed ${seed}, ${built.succeeded} structures, ${spots.length} street views ===`)
 console.log('What FILLS THE FRAME at eye level, chosen by screen presence rather')

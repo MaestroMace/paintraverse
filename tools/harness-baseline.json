@@ -46,8 +46,8 @@
     "stackedMed": 79,
     "roofOver80": 9,
     "dwellingsOver4": 14,
-    "wallLuma": 82,
-    "roofBlackPct": 32
+    "wallLuma": 131,
+    "roofBlackPct": 45
   },
   "facade": {
     "overOpening": 0,
@@ -109,11 +109,11 @@
     "outOfRange": 7
   },
   "hours": {
-    "nightWall": 32,
-    "duskWall": 105,
-    "goldenWall": 187,
-    "dayWall": 169,
-    "duskRoof": 89,
+    "nightWall": 38,
+    "duskWall": 88,
+    "goldenWall": 215,
+    "dayWall": 174,
+    "duskRoof": 65,
     "nightSky": 65,
     "inverted": 0,
     "blackedOut": 0,
