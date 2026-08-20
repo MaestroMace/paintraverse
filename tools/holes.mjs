@@ -143,6 +143,8 @@ console.log('ratio against the surface the patch sits in, so the same run means'
 console.log('the same thing at noon and at dusk.\n')
 
 const holes = []
+/** Dark patches that are NOT in a wall — a prop or the ground. See below. */
+const silhouettes = []
 const lits = []
 const blanksAll = []
 let wallSamples = []
@@ -582,7 +584,23 @@ for (let i = 0; i < spots.length; i++) {
   if (res.skyFrac > 0.01) framesWithSky++
   nearMisses += res.nearMiss ?? 0
   if (res.wallMed) wallSamples.push(res.wallMed)
-  for (const c of res.dark) holes.push({ ...c, view: i })
+  // A HOLE IS A HOLE IN A WALL. Split before counting, because the largest
+  // finding of one run was a lamppost's base — a 548px near-black rectangle
+  // at 0.09x its surround, standing on bright noon paving — and the
+  // photograph says it is a black iron post doing exactly what a black iron
+  // post does. That is a SILHOUETTE against the ground, which is the class
+  // this tool's own "what this does not see" note hands to anomaly.mjs when
+  // the backdrop is the sky; the backdrop being the pavement changes nothing
+  // about whose question it is. The BLANK pass one block down already
+  // excludes props for the same reason and the hole pass never learned it.
+  //
+  // Reported on its own line rather than dropped: an excused class that goes
+  // quiet is how a real defect hides inside a filter.
+  for (const c of res.dark) {
+    const d = String(c.def ?? '')
+    if (d.startsWith('prop:') || d.startsWith('ground:')) silhouettes.push({ ...c, view: i })
+    else holes.push({ ...c, view: i })
+  }
   for (const c of res.bright) lits.push({ ...c, view: i })
   for (const c of res.blanks ?? []) blanksAll.push({ ...c, view: i })
   if (res.png) {
@@ -629,6 +647,15 @@ if (lits.length) {
 }
 
 console.log(`\nHOLES — dark, compact, opening-shaped, and BLACK: ${holes.length}`)
+if (silhouettes.length) {
+  const byS = new Map()
+  for (const c of silhouettes) byS.set(c.def, (byS.get(c.def) ?? 0) + 1)
+  console.log(`  (plus ${silhouettes.length} dark patches that are NOT on a building — ` +
+    [...byS].map(([d, n]) => `${d} x${n}`).join(', ') + '.')
+  console.log('   A black iron lamppost on bright paving is a SILHOUETTE, not a')
+  console.log('   hole in a wall, and this tool hands that class to anomaly.mjs.')
+  console.log('   Listed so an excused category cannot go quiet.)')
+}
 console.log(`  (${nearMisses} more are dark against their surround but not black —` +
   ` an ordinary\n   window in daylight is one of those, which is why the` +
   ` absolute line is here)`)
