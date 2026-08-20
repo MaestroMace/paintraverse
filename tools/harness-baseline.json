@@ -46,7 +46,7 @@
     "stackedMed": 79,
     "roofOver80": 9,
     "dwellingsOver4": 14,
-    "wallLuma": 84,
+    "wallLuma": 82,
     "roofBlackPct": 32
   },
   "facade": {
@@ -75,8 +75,8 @@
   },
   "holes": {
     "holes": 6,
-    "blanks": 6,
-    "blankFrac": 10.1,
+    "blanks": 5,
+    "blankFrac": 8.2,
     "litOpenings": 14
   },
   "river": {
@@ -103,7 +103,7 @@
     "overWide": 6
   },
   "budget": {
-    "textureMB": 98.1
+    "textureMB": 92.4
   },
   "propscale": {
     "outOfRange": 7
@@ -118,5 +118,10 @@
     "inverted": 0,
     "blackedOut": 0,
     "unmeasured": 0
+  },
+  "allsides": {
+    "flankFront": 64,
+    "backFront": 71,
+    "graded": 22
   }
 }

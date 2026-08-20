@@ -404,6 +404,26 @@ the roof batch — which uses the noised path — compiled, ran, and did nothing
 The measurement is what caught it: the number did not move by a single point.
 When a field is read in one method, grep for the others that should read it.
 
+**BLIND IS NOT ABSENT, AND THE DIFFERENCE IS THE WHOLE 30FT READ.** A flank's
+ground storey was laid out starting at floor 1 — nothing at eye level — under a
+comment making the correct architectural argument that a blind base is what
+makes a side wall read as a side wall rather than a second front. The argument
+is right and the implementation threw away the thing that expresses it: a real
+terraced side elevation is covered in BRICKED-UP openings, and a flat colour
+field is not a blind wall, it is an unfinished one. The machinery already
+existed — `blocked` cells are drawn with frame, lintel, sill and a
+stretcher-bond fill — so the fix was to emit floor 0 with every cell forced
+blind, and it cost no new drawing code.
+
+    flank/front (allsides, n=30)   0.56 -> 0.64
+    blank patches (holes, 6 views)    9 -> 8,  9.0% -> 7.6% of a view
+    facade overOpening / offWall    0 / 0, held — the timber frame still
+                                    clears a whole extra floor of openings
+    eyeball wallLuma               84 -> 82, which is the COST and is correct:
+                                    a bricked-up opening is darker than the
+                                    wall it replaces, and flat colour was
+                                    scoring well by having nothing on it
+
 **A RATE THAT MOVES WITH ITS DENOMINATOR HAS NOT MOVED.** `habitablePinned`
 jumped 5% -> 16% on the staircase change and read as the worst regression of
 the day. Split into its two halves against the previous source: **numerator
@@ -1452,7 +1472,7 @@ Run these before believing anything about where the project is.
 | **the river** | **river.mjs** | **bank relief 0.67m med / 1.28m max (was 0.03m), drop +3.6m** | **fixed** |
 | river severance | site.mjs | 0 of 5 seeds have an unreachable district, was 2 | clean |
 | waterfront dressing | (see dressWaterfront) | 10 maritime/natural types at the bank, was 2 | improving |
-| **360-degree read** | **allsides.mjs** | **flank/front 0.74 / 0.51 on two seeds, was 0.42 / 0.28** | **improving** |
+| **360-degree read** | **allsides.mjs** | **flank/front 0.64, back/front 0.71 at n=30 — ON THE BOARD now** | **improving** |
 | **the district seam** | **seam.mjs** | **90% of quarter crossings marked, 3 unmarked in 8 towns** | **closed — was believed unbuilt** |
 | which quarters exist | quarters.mjs | 5.8 a town; residential and market 12/12, artisan 9/12, cemetery 7, noble 4 | improving |
 
@@ -2595,7 +2615,7 @@ failure, a regression outside the metric's noise band, or an extractor that
 could not parse its tool. `--save` records the current readings; `--quick`
 skips everything needing Electron; `--only=audit,odd` narrows it.
 
-**TWENTY-SEVEN CHECKS NOW, AND THE EIGHT MOST RECENT WERE SITTING UNRUN.**
+**TWENTY-EIGHT CHECKS NOW, AND THE EIGHT MOST RECENT WERE SITTING UNRUN.**
 Nineteen instruments were on the board and twenty-nine were not. Most of the
 twenty-nine are PHOTOGRAPHERS — asset, bisect, walkshots, rivershot,
 bridgeshot, inspect, pixelart, webshot — and belong off it; they answer "what
@@ -2605,8 +2625,8 @@ propscale. They are on it now, every extractor written against captured
 output and tested before it went in.
 
 Still off the board and worth adding when someone has the runtime budget:
-`allsides`, `squares`, `emptiness`, `seam`, `relief`, `slivers`, `overhang`,
-`typemix`, `quarters`, `anomaly`. `anomaly` is the notable omission — it is
+`squares`, `emptiness`, `seam`, `relief`, `slivers`, `overhang`,
+`typemix`, `quarters`, `anomaly`. (`allsides` and `hours` went on.) `anomaly` is the notable omission — it is
 the pixel-defect detector and it has a stated noise floor, so it needs a
 `--repeat` before a band can be chosen honestly.
 

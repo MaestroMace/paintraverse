@@ -334,6 +334,39 @@ const CHECKS = [
     band: { nightWall: 3, duskWall: 3, goldenWall: 3, dayWall: 3, nightSky: 3, duskRoof: 3 },
   },
   {
+    name: 'allsides',
+    why: 'is a building worth looking at from any side a player can reach',
+    electron: true,
+    // n=30 IS NOT A PREFERENCE, IT IS THE TOOL'S STATED FLOOR. The same build
+    // read back/front 0.28 at n=14 and 0.79 at n=30, and its own note says it
+    // cannot grade a feature rarer than its sample resolves. A cheaper run
+    // would be a number that moves on nothing.
+    //
+    // Watch FLANK, not back. The first version of this tool shot only
+    // front-vs-back — the one pair that was never broken, since both carry a
+    // painted facade — and read a comfortable 0.79 while both flanks were flat
+    // untextured colour. On the board because it grades the axis DESIGN.md
+    // calls the 30ft read, and because nothing else here can see a wall that
+    // is textured and still looks flat.
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/allsides.mjs', '4242', '--n=30']],
+    extract: (o) => ({
+      flankFront: pct100(o, /FLANK \/ FRONT\s+median ([\d.]+)/),
+      backFront: pct100(o, /BACK \/ FRONT\s+median ([\d.]+)/),
+      // The SAMPLE, tracked for the reason the tool's own note gives: a
+      // ratio taken over too few buildings is a hypothesis, and this one has
+      // already been wrong by half once.
+      graded: num(o, /usable buildings: (\d+) of/),
+    }),
+    dir: { flankFront: 1, backFront: 1, graded: 0 },
+    // VERIFIED with --repeat=2: 64/64, 71/71, 22/22 — spread 0. The camera
+    // ring, the sampled buildings and the build are all deterministic, so the
+    // band is two points of edge-density slack and nothing more. The tool's
+    // sensitivity caveat is about SAMPLE SIZE, which is pinned at 30 here, not
+    // about run-to-run noise, and conflating the two would have bought a band
+    // wide enough to sleep through a regression.
+    band: { flankFront: 2, backFront: 2, graded: 1 },
+  },
+  {
     name: 'facade',
     why: '3D detail nailed to a wall, against the openings PAINTED on it',
     electron: true,
@@ -640,6 +673,12 @@ const CHECKS = [
     dir: { smokeSpread100: 1 }, band: { smokeSpread100: 25 },
   },
 ]
+
+/** A 0..1 ratio as a percentage, so the board and its bands stay whole. */
+function pct100(out, re) {
+  const m = out.match(re)
+  return m ? Math.round(Number(m[1]) * 100) : null
+}
 
 /** A 0..1 reading carried as an integer, so the board and its bands stay whole. */
 function pct1000(out, re) {

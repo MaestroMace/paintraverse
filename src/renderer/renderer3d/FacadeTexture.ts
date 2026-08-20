@@ -320,7 +320,18 @@ export function facadeOpenings(
   // Ground-floor flanks stay blind — that is where the party wall, the
   // buttress and the lean-to go. A blind base with openings above is what
   // makes a side wall read as a side wall rather than a second front.
-  const firstFloor = face === 'side' && floorsThatFit > 1 ? 1 : 0
+  //
+  // BLIND IS NOT ABSENT, AND THAT DISTINCTION WAS WORTH 3.5% OF A STREET VIEW.
+  // This used to start the layout at floor 1 and emit NOTHING at eye level, so
+  // a flank's ground storey was flat colour — `tools/holes.mjs` reports those
+  // as BLANK patches and `allsides.mjs` reads flank/front at 0.56. The
+  // architectural intent above is right and the implementation threw away the
+  // thing that expresses it: a real terraced side elevation is covered in
+  // BRICKED-UP openings, which is what a blind base actually looks like. The
+  // machinery already exists — `blocked` cells are drawn with their frame,
+  // lintel, sill and a stretcher-bond fill — so the ground floor comes back
+  // with every cell forced blind and costs no new drawing code at all.
+  const blindBase = face === 'side' && floorsThatFit > 1
 
   // Deterministic per-face jitter: the texture is CACHED, so anything random
   // here has to come out of the inputs or two buildings with the same config
@@ -361,7 +372,7 @@ export function facadeOpenings(
   const marginU = Math.min(0.45, (0.24 + winWm / 2) / wallWm)
 
   const cells: WinCell[] = []
-  for (let floor = firstFloor; floor < floorsThatFit; floor++) {
+  for (let floor = 0; floor < floorsThatFit; floor++) {
     for (let col = 0; col < cols; col++) {
       cells.push({
       // KEEP THE OUTERMOST COLUMN OFF THE CORNER. A timber-framed wall has a
@@ -376,7 +387,7 @@ export function facadeOpenings(
         vH: WIN_H_M / wallHm,
         floor,
         col,
-        blocked: next() < blockRate,
+        blocked: (blindBase && floor === 0) || next() < blockRate,
       })
     }
   }
