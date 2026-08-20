@@ -2161,7 +2161,32 @@ The whole device problem list is fixed. What is left:
    BENEATH THEM, so parity with the wall is the stop. 0.18 lands there; 0.25
    makes roofs brighter than walls and 0.055 moves nothing because the palette
    already sits above it.
-6. **"PROPS READ 88% BLACK AT DUSK" WAS NOT A MEASUREMENT OF PROPS.** Filed
+6. **"PROPS READ 88% BLACK AT DUSK" — CLOSED BY MEASUREMENT, AND THE ANSWER
+   IS THAT PROPS ARE FINE.** `eyeball.mjs` has a real prop MASK now: propGroup
+   membership, asked BEFORE the orientation fallback that used to file a
+   barrel's side as `other` and its lid as `ground`. At dusk over six views:
+
+       prop   353 samples   med 0.065   47% reads black
+       wall  6530 samples   med 0.075   31%
+       other  318 samples   med 0.025   76%   <- the figure that was filed
+
+   Props are 13% darker than the walls they stand against, which is what wood
+   and iron are against plaster, and the filed claim was overstated by roughly
+   double because `other` is a different population. Raising the prop tone
+   floor 0.12 -> 0.18 moved the row by ZERO (the palette already sits above
+   it); 0.45, tried only to prove the floor still reaches those meshes, takes
+   props to 0.133 — nearly twice the wall, which is pillar 1 flattened. **The
+   fix was to build the mask, and then to change nothing.**
+
+   `hours.mjs` has the same mask and refuses to quote it: pitching up 9
+   degrees for the sky collects ELEVEN prop samples, and it says "too thin to
+   quote" instead of printing a median. A guard like that is why the four-row
+   table can be trusted at all.
+
+   The original note is kept below, because its reasoning was right and it is
+   the reason the mask exists.
+
+   **"PROPS READ 88% BLACK AT DUSK" WAS NOT A MEASUREMENT OF PROPS.** Filed
    here as an open item off eyeball's `other` row, and eyeball's own comment
    says what that row is: *"terrain, water, a prop or a wall mesh"* — every
    sample no building volume owns, that is not horizontal, at 265 samples

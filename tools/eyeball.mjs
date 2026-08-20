@@ -97,7 +97,7 @@ console.log('What FILLS THE FRAME at eye level, chosen by screen presence rather
 console.log('than by any audit\'s opinion. This is what a person sees first.\n')
 
 const tally = new Map()   // definitionId -> { frames, area, maxH }
-const tone = { sky: [], roof: [], wall: [], ground: [], other: [] }
+const tone = { sky: [], roof: [], wall: [], ground: [], prop: [], other: [] }
 let totalHit = 0, totalSamples = 0
 
 for (let i = 0; i < spots.length; i++) {
@@ -110,6 +110,17 @@ for (let i = 0; i < spots.length; i++) {
     three.renderer.render(three.scene, three.camera)
 
     const blockers = []
+    // WHICH MESHES ARE PROPS. CLAUDE.md has carried "nothing is known about
+    // prop tone at dusk" as an open item since the `other` row below was
+    // misread as a prop measurement — that row is every sample no building
+    // volume owns and is not horizontal, so vertical river-bank cuts and
+    // grazing water sit in it with the barrels. The mask it asked for is a
+    // Set: propGroup already exists, and this is the tool that looks LEVEL
+    // and takes thousands of samples, which is what a small object needs.
+    // (hours.mjs has the same mask and honestly refuses to quote it — it
+    // pitches up 9 degrees for the sky and collects eleven prop samples.)
+    const propSet = new Set()
+    if (three.propGroup) three.propGroup.traverse((o) => { if (o.isMesh) propSet.add(o) })
     three.scene.traverse((o) => {
       if (!o.isMesh || !o.visible) return
       if (o === three.skyMesh) return
@@ -144,8 +155,9 @@ for (let i = 0; i < spots.length; i++) {
         const L = (0.2126 * px[ix] + 0.7152 * px[ix + 1] + 0.0722 * px[ix + 2]) / 255
         pts.push(h
           ? { p: [+h.point.x.toFixed(2), +h.point.y.toFixed(2), +h.point.z.toFixed(2)],
-              up: h.face ? +Math.abs(h.face.normal.y).toFixed(2) : 0, L: +L.toFixed(3) }
-          : { p: null, up: 0, L: +L.toFixed(3) })
+              up: h.face ? +Math.abs(h.face.normal.y).toFixed(2) : 0, L: +L.toFixed(3),
+              prop: propSet.has(h.object) }
+          : { p: null, up: 0, L: +L.toFixed(3), prop: false })
       }
     }
     return pts
@@ -158,6 +170,10 @@ for (let i = 0; i < spots.length; i++) {
     totalSamples++
     const p = s.p
     if (!p) { tone.sky.push(s.L); continue }
+    // A PROP IS A PROP WHATEVER IT STANDS ON, and it is asked FIRST: the
+    // orientation fallback below files a barrel's side as `other` and its lid
+    // as `ground`, which is how a whole surface class stayed unmeasured.
+    if (s.prop) { tone.prop.push(s.L); continue }
     let owner = null
     for (const v of scene.volumes) {
       if (p[0] >= v.x0 - 0.2 && p[0] <= v.x1 + 0.2 &&
@@ -165,8 +181,9 @@ for (let i = 0; i < spots.length; i++) {
           p[1] >= v.y0 - 0.2 && p[1] <= v.y1 + 0.2) { owner = v; break }
     }
     if (!owner) {
-      // No volume owns it: terrain, water, a prop or a wall mesh. Split by
-      // orientation — a horizontal face down here is the ground you walk on.
+      // No volume owns it: terrain, water, or a wall mesh — NOT a prop any
+      // more, those are taken above. Split by orientation: a horizontal face
+      // down here is the ground you walk on.
       tone[s.up > 0.7 ? 'ground' : 'other'].push(s.L)
       continue
     }
@@ -213,7 +230,7 @@ for (let i = 0; i < spots.length; i++) {
 const tq = (a, f) => { const s2 = a.slice().sort((x, y) => x - y); return s2.length ? s2[Math.floor(s2.length * f)] : 0 }
 console.log(`\nTONE AT ${String(timeOfDay).padStart(2, '0')}:00 — absolute luma, by surface:`)
 console.log('  surface   samples   p10    med    p90   share under 0.06 (reads black)')
-for (const k of ['sky', 'roof', 'wall', 'ground', 'other']) {
+for (const k of ['sky', 'roof', 'wall', 'ground', 'prop', 'other']) {
   const a = tone[k]
   if (!a.length) continue
   const black = a.filter((x) => x < 0.06).length / a.length

@@ -205,6 +205,25 @@ export function buildPropMeshes(
   // not the light: a quarter of the authored prop colours are under 0.05
   // linear luma. See BatchedMeshBuilder.toneFloor. 0.055 is a dark object
   // that still reads as an object; below that a barrel is a silhouette.
+  //
+  // AND IT STAYS AT 0.12, MEASURED. CLAUDE.md carried "props read 88% black
+  // at dusk" as an open item for a long time, off eyeball's `other` row —
+  // which is every sample no building volume owns and is not horizontal, so
+  // river-bank cuts and grazing water were in it with the barrels. eyeball
+  // has a real prop MASK now (propGroup, asked before the orientation
+  // fallback) and the honest figures at dusk are:
+  //
+  //     prop   353 samples   med 0.065   47% black
+  //     wall  6530 samples   med 0.075   31% black
+  //     other  318 samples   med 0.025   76% black   <- the old number
+  //
+  // So props are 13% darker than the walls they stand against, not invisible,
+  // and the filed claim was overstated by roughly double. Raising the floor
+  // to 0.18 moved the row by ZERO — the palette already sits above it — and
+  // 0.45, tried purely to prove the floor still reaches these meshes, takes
+  // props to 0.133, nearly twice the wall. A barrel brighter than the house
+  // behind it is not a fix, it is pillar 1 flattened. Wood and iron against
+  // plaster ARE darker; the item is closed by measurement, not by a change.
   batch.toneFloor = 0.12
   const lampposts: THREE.Object3D[] = []
   // Geometry for emissive lamp bulbs, accumulated per-lamppost with lamppost
