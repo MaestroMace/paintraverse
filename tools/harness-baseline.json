@@ -105,5 +105,15 @@
   },
   "propscale": {
     "outOfRange": 7
+  },
+  "hours": {
+    "nightWall": 32,
+    "duskWall": 105,
+    "goldenWall": 186,
+    "dayWall": 169,
+    "nightSky": 65,
+    "inverted": 0,
+    "blackedOut": 0,
+    "unmeasured": 0
   }
 }

@@ -255,6 +255,69 @@ const CHECKS = [
     band: { roofToWallMed: 2, stackedMed: 4, roofOver80: 2, dwellingsOver4: 2, wallLuma: 4, roofBlackPct: 2 },
   },
   {
+    name: 'hours',
+    why: 'ALL FOUR arms of updateLighting, so none of them can rot unwatched',
+    electron: true,
+    // THE CHECK ABOVE IS WHY THIS ONE EXISTS. eyeball grades ONE hour — the
+    // right call, because 18.5 is the view the design is written against —
+    // and that is precisely how the other three arms went unmeasured for the
+    // whole life of the project. The tone arc edited the NOON arm because
+    // every measurement it took was at noon; dusk kept the pre-arc numbers
+    // and CLAUDE.md filed the resulting 0.058 wall as a regression it could
+    // not attribute. Graded for the first time afterwards, NIGHT read sky
+    // 0.005 / wall 0.000 with 90% of wall black — a black screen with windows
+    // floating in it — and GOLDEN carried barely half the skylight of the
+    // dimmer hour beside it.
+    //
+    // A single-hour tone table cannot show any of that, and neither can four
+    // of them read on four different days. The four rows have to sit
+    // together.
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/hours.mjs', '31337']],
+    extract: (o) => {
+      const row = (name) =>
+        new RegExp(`^\\s+${name}\\s+[\\d.]+\\s+([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)\\s+(\\d+)%`, 'm')
+      const cell = (name, i) => {
+        const m = o.match(row(name))
+        return m ? Math.round(Number(m[i]) * 1000) : null
+      }
+      return {
+        // The WALL at each hour, x1000. This is the quantity that rotted:
+        // every arm's failure showed up here first.
+        nightWall: cell('night', 2),
+        duskWall: cell('dusk', 2),
+        goldenWall: cell('golden', 2),
+        dayWall: cell('day', 2),
+        // The SKY at night, because "unlit" and "dark" are indistinguishable
+        // in a wall reading alone and this is the number that separates them.
+        nightSky: cell('night', 1),
+        inverted: num(o, /VERDICT: (\d+) inverted/),
+        blackedOut: num(o, /VERDICT: \d+ inverted, (\d+) blacked out/),
+        unmeasured: num(o, /VERDICT: \d+ inverted, \d+ blacked out, (\d+) unmeasured/),
+      }
+    },
+    // A SILHOUETTE IS THE GATE, not any luma. DESIGN.md pillar 1 is warm
+    // windows against dark silhouettes, and a silhouette needs the sky to be
+    // brighter than what stands in front of it. `unmeasured` is a gate for
+    // the reason this tool's first run demonstrated: pointed level it got six
+    // sky samples out of four hundred, printed "no sky" on all four rows and
+    // counted zero failures. A missing measurement must not read as a pass.
+    gates: {
+      inverted: (v) => v === 0,
+      unmeasured: (v) => v === 0,
+      blackedOut: (v) => v === 0,
+    },
+    // The lumas are tracked, not gated. Night SHOULD be dark, so "higher is
+    // better" is wrong for that row and an argument for the others; what
+    // matters is that a drop shows up on the board instead of in a phone
+    // screenshot six weeks later.
+    dir: { nightWall: 0, duskWall: 0, goldenWall: 0, dayWall: 0, nightSky: 0 },
+    // VERIFIED with --repeat=3: spread 0 on all eight metrics. The camera
+    // spots, the ray grid and the build are all deterministic and there is no
+    // randomness left in the path, so the band is three thousandths of a
+    // luma — enough slack for a rasteriser boundary pixel and nothing more.
+    band: { nightWall: 3, duskWall: 3, goldenWall: 3, dayWall: 3, nightSky: 3 },
+  },
+  {
     name: 'facade',
     why: '3D detail nailed to a wall, against the openings PAINTED on it',
     electron: true,

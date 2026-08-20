@@ -582,6 +582,26 @@ pre-arc numbers for the whole subsequent arc, and this file recorded the
 resulting 0.058 wall as a mysterious regression. When a fix is a value in a
 switch, grep the other cases the same day.
 
+**And the general answer to that is an instrument that grades every arm by
+construction, not a note asking the next person to remember.** `hours.mjs`
+prints all four rows together and is on the board. Grading one hour is the
+right call for `eyeball.mjs` — 18.5 is the view the design is written against
+— and it is exactly why the other three could rot: the tone arc edited noon,
+night was later found reading sky 0.005 / wall 0.000 with 90% black, and
+golden carried barely half the skylight of the dimmer hour beside it. The
+gates are the SILHOUETTE (is the sky brighter than what stands in front of
+it), a blackout line, and whether the branch was measured at all.
+
+**A camera pointed where the defect is not will report that there is none.**
+hours.mjs's first run pointed level at eye height and got SIX sky samples out
+of four hundred — a 12m street between 10m buildings is wall from edge to
+edge — so the sky column read 0.000 on every row, the silhouette test printed
+"no sky", and the verdict counted zero failures. A green board that had never
+looked at anything, in the tool written to stop exactly that. Pitched up 9
+degrees it takes 312. The vantage lesson (`anomaly.mjs` looks UP, walkshots
+carries `gable-up`) is now three tools deep, and the fix that matters is the
+second one: **too few samples to answer is a FAILURE, not a pass.**
+
 **Registry-clean is not wired-in.** `registry.mjs` checks the six ID-KEYED
 tables, which are identity. There are four more that are BEHAVIOUR — the
 massing template, the per-district cap, the building's own prop list, and
@@ -2184,6 +2204,18 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   which nothing else asks and which is the largest visible defect in the town
   (p90 199%). Read its note about apex vs wall height before quoting a storey
   count.
+- `node tools/hours.mjs [seed] [--views=N]` — **all four arms of
+  `updateLighting`, side by side.** eyeball grades ONE hour, correctly, and
+  that is exactly how the other three rotted: the tone arc edited noon because
+  every measurement it took was at noon, night was later found at sky 0.005 /
+  wall 0.000, golden at half the skylight of the dimmer hour beside it. Two
+  questions per branch — is any surface class effectively BLACK (eyeball's
+  0.06, reused not reinvented), and **is the sky brighter than the buildings**,
+  because pillar 1's dark silhouettes need something to be silhouetted
+  against. Deliberately coarse: a tripwire, not a portrait. Reads sky/wall
+  night 0.065/0.032 · dusk 0.226/0.105 · golden 0.232/0.186 · day 0.233/0.169,
+  spread 0 over three runs. **It looks UP by 9 degrees** — see the vantage
+  lesson; level, it got six sky samples out of four hundred and passed itself.
 - `node tools/facade.mjs [seed] [--shots=N]` — **does the 3D detail on a wall
   collide with the openings PAINTED on it?** The fourth axis, and the one that
   found the timber-over-windows defect: a wall has two authors, FacadeTexture
@@ -2450,7 +2482,7 @@ failure, a regression outside the metric's noise band, or an extractor that
 could not parse its tool. `--save` records the current readings; `--quick`
 skips everything needing Electron; `--only=audit,odd` narrows it.
 
-**TWENTY-SIX CHECKS NOW, AND THE EIGHT MOST RECENT WERE SITTING UNRUN.**
+**TWENTY-SEVEN CHECKS NOW, AND THE EIGHT MOST RECENT WERE SITTING UNRUN.**
 Nineteen instruments were on the board and twenty-nine were not. Most of the
 twenty-nine are PHOTOGRAPHERS — asset, bisect, walkshots, rivershot,
 bridgeshot, inspect, pixelart, webshot — and belong off it; they answer "what
