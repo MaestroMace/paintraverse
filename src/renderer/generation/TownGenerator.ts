@@ -600,14 +600,14 @@ const VIGNETTES: Vignette[] = [
 ]
 
 const DISTRICT_PROPS: Record<DistrictType, string[]> = {
-  market: ['market_stall', 'market_tent', 'crate', 'crate_stack', 'barrel', 'hanging_sign', 'wagon', 'sign', 'cafe_table', 'cart', 'market_tent', 'bunting_pole', 'tent', 'handcart', 'sack_pile', 'well_grand'],
+  market: ['market_stall', 'market_tent', 'crate', 'crate_stack', 'barrel', 'hanging_sign', 'wagon', 'sign', 'cafe_table', 'cart', 'market_tent', 'bunting_pole', 'tent', 'handcart', 'sack_pile'],
   residential: ['potted_plant', 'bench', 'well', 'fence', 'planter_box', 'flower_box', 'cloth_line', 'rain_barrel', 'woodpile', 'ladder', 'mounting_block', 'handcart'],
   artisan: ['barrel', 'crate', 'barrel_stack', 'sign', 'fence', 'crate_stack', 'woodpile', 'cart', 'rain_barrel', 'forge_brazier', 'forge_brazier', 'ladder', 'handcart', 'sack_pile'],
-  noble: ['potted_plant', 'planter_box', 'bench', 'statue', 'fountain', 'wall_lantern', 'column', 'monument', 'garden_arch', 'flower_box', 'heraldic_banner', 'heraldic_banner', 'hedge', 'mounting_block', 'water_trough'],
+  noble: ['potted_plant', 'planter_box', 'bench', 'statue', 'fountain', 'wall_lantern', 'column', 'garden_arch', 'flower_box', 'heraldic_banner', 'heraldic_banner', 'hedge', 'mounting_block', 'water_trough'],
   waterfront: ['barrel', 'crate', 'wagon', 'sign', 'bench', 'crate_stack', 'horse_post', 'rain_barrel', 'fish_rack', 'rope_coil', 'sack_pile', 'handcart'],
-  temple: ['statue', 'potted_plant', 'stone_wall', 'wall_lantern', 'column', 'monument', 'garden_arch', 'prayer_flags', 'prayer_flags', 'hedge', 'well_grand'],
+  temple: ['statue', 'potted_plant', 'stone_wall', 'wall_lantern', 'column', 'garden_arch', 'prayer_flags', 'prayer_flags', 'hedge'],
   slum: ['barrel', 'crate', 'barrel_stack', 'woodpile', 'rain_barrel', 'rubble_pile', 'rubble_pile', 'rubble_pile', 'ladder', 'sack_pile'],
-  garden: ['potted_plant', 'planter_box', 'bench', 'fountain', 'bush', 'tree', 'flower_box', 'garden_arch', 'trellis_arch', 'flower_bed', 'flower_bed', 'hedge', 'beehive', 'pavilion', 'haystack'],
+  garden: ['potted_plant', 'planter_box', 'bench', 'fountain', 'bush', 'tree', 'flower_box', 'garden_arch', 'trellis_arch', 'flower_bed', 'flower_bed', 'hedge', 'beehive'],
   harbor: ['barrel', 'crate', 'crate_stack', 'wagon', 'horse_post', 'dock', 'crane', 'fishing_boat', 'rain_barrel', 'fish_rack', 'fish_rack', 'rope_coil', 'rope_coil', 'sack_pile', 'handcart'],
   // Fortress is the one quarter whose palette had no FIRE in it, and it is
   // the quarter that would be manned all night. A brazier is also the only
@@ -4653,6 +4653,55 @@ export class TownGenerator implements IMapGenerator {
     const sx = Math.round(center.x + Math.cos(statueAng) * (innerR * 0.55))
     const sy = Math.round(center.y + Math.sin(statueAng) * (innerR * 0.55))
     placePlaza('statue', sx, sy, 1, 1, statueAng + Math.PI)
+
+    // A CIVIC CENTREPIECE FOR EVERY QUARTER, PLACED BY SEARCH.
+    //
+    // `propscale.mjs`'s never-placed census found `monument`, `well_grand`,
+    // `pavilion` and `fountain` absent from five towns in a row. All four are
+    // 2x2, all four sit in DISTRICT_PROPS — and DISTRICT_PROPS is consumed by
+    // a PERIMETER placer, one tile beside a building, so a 2x2 can never fit
+    // there. The bag's own comment says "only small ground clutter that
+    // belongs at the kerb"; seven 2x2 entries had been sitting in it against
+    // that contract, diluting the odds of the small props that CAN fit and
+    // placing nothing themselves. A shape that cannot fit its placer is not a
+    // rare prop, it is a ghost with a weight.
+    //
+    // The main square already knows the fix, in as many words: "it has to
+    // SEARCH, because the exact centre is never free". A district centre is
+    // built on for the same reason the town centre is a junction. Same spiral,
+    // one centrepiece per quarter, and each is the object that quarter would
+    // actually have.
+    const CENTREPIECE: Partial<Record<DistrictType, string>> = {
+      market: 'well_grand',      // the market well, where the town draws water
+      temple: 'monument',        // a memorial obelisk in the close
+      cemetery: 'monument',
+      garden: 'pavilion',        // a summer house, which is what a garden has
+      noble: 'fountain',         // the statue below takes the centre; this
+                                 // searches outward from it
+    }
+    for (const d of districts) {
+      const piece = CENTREPIECE[d.type]
+      if (!piece) continue
+      const f = this.getFootprint(piece)
+      let done = false
+      spiralCentre:
+      for (let r = 0; r <= 7 && !done; r++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (r > 0 && Math.abs(dx) !== r && Math.abs(dy) !== r) continue
+            const cx = d.center.x - Math.floor(f.w / 2) + dx
+            const cy = d.center.y - Math.floor(f.h / 2) + dy
+            if (!this.areaFree(occupied, cx, cy, f.w, f.h, w, h)) continue
+            props.push(this.createObj(piece, cx, cy))
+            this.markArea(occupied, cx, cy, f.w, f.h, w, h)
+            rejected(`centrepieceOk:${piece}`)
+            done = true
+            break spiralCentre
+          }
+        }
+      }
+      if (!done) rejected(`centrepiece~noRoom:${piece}`)
+    }
 
     // District plaza features — richer per-district
     for (const d of districts) {

@@ -512,6 +512,18 @@ the clamp explicitly skips were padding the denominator, and the true rate was
 always about 10%. Always print both halves of a rate you are about to believe;
 a percentage is two measurements wearing one number.
 
+**A SHAPE THAT CANNOT FIT ITS PLACER IS NOT A RARE PROP, IT IS A GHOST WITH A
+WEIGHT.** `monument`, `well_grand`, `pavilion` and `fountain` were absent from
+five towns; all four are 2x2 and all four sat in `DISTRICT_PROPS`, which is
+consumed by a PERIMETER placer — one tile beside a building. The bag's own
+comment two lines below it says "only small ground clutter that belongs at the
+kerb", and seven 2x2 entries had been sitting in it against that contract,
+diluting the odds of the small props that CAN fit and placing nothing
+themselves. The main square already knew the fix in as many words — "it has to
+SEARCH, because the exact centre is never free" — so every quarter gets one
+civic centrepiece placed by the same spiral, and the kerb bag now holds only
+what the kerb can take. Never-placed 12 -> 8.
+
 **AN ENTIRE PASS WAS DEAD BECAUSE ITS GATE ASKED A MAP THAT IS NEVER TRUE.**
 Every clause in `placeCountryside` asked `districtMap[y][x] !== -1`, and
 `generateDistricts` assigns EVERY tile to its nearest centre — so the answer is
@@ -2534,7 +2546,18 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   could never see this: it reads the one tile between water and land, and a
   ravine is a cross-section. Names the worst tiles by coordinate so you can go
   and stand on one.
-- `node tools/propscale.mjs [seeds...]` — **every prop's real size in metres
+- `node tools/propscale.mjs [seeds...]` — **every prop's real size in metres,
+  AND a census of the ones that never appear at all.** The second half is the
+  reverse ghost: `registry.mjs` checks the id-keyed tables and `features.mjs`
+  censuses gated features, and neither can see a prop that is defined, has
+  finished geometry, is named in three placement paths and simply never
+  exists. It walks every prop in every seed, so it reports what a town
+  CONTAINS rather than what the source mentions — and it prints DEAD ART too,
+  ids PropFactory draws that the store defines no id for. Its first run found
+  thirteen absent types and, because four of them shared one placer, the cause:
+  the main square's composition pass asking roadMap whether the square was
+  free. Read the list against `quarters.mjs` before calling one a ghost; a
+  gravestone needs a cemetery.
   against what that thing measures in the world.** humanscale.mjs does this
   for buildings and has caught three scale bugs; nothing did it for props, and
   the gap had a live defect in it — boulders 2.7m across and rowboats 5.3m
