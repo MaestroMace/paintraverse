@@ -37,8 +37,8 @@
     "character": 75
   },
   "clash": {
-    "deepClash": 22,
-    "onAir": 18,
+    "deepClash": 25,
+    "onAir": 17,
     "buried": 0
   },
   "eyeball": {
@@ -71,12 +71,12 @@
   "particles": {
     "offTown": 0,
     "smokeLow": 0,
-    "smokeSpread100": 93
+    "smokeSpread100": 94
   },
   "holes": {
     "holes": 6,
     "blanks": 5,
-    "blankFrac": 8.2,
+    "blankFrac": 7.7,
     "litOpenings": 14
   },
   "river": {

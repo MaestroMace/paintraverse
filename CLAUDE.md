@@ -512,6 +512,37 @@ the clamp explicitly skips were padding the denominator, and the true rate was
 always about 10%. Always print both halves of a rate you are about to believe;
 a percentage is two measurements wearing one number.
 
+**RELIEF, NOT TEXTURE, IS WHAT MAKES A BIG PLAIN SURFACE READ.** The curtain
+wall is 6.5m tall, 1.6m thick, `textured: false` and therefore one flat colour
+from the cobbles to the merlons — and there are ~47 segments a town, so it is
+the largest blank surface class the town can have; `eyeball.mjs` reports "100%
+bare wall" whenever one closes a vista. Texturing it is the wrong fix, because
+a facade paints WINDOWS and a curtain wall has none. What real masonry has
+instead is a battered plinth, a string course under the parapet and buttresses
+at intervals — three volume kinds, all masonry, all untextured, no new drawing
+code, and they cast their own shadow, which is the whole mechanism.
+
+**AND THE +3 IT COST ON `deepClash` IS DIAGNOSTIC, NOT CAUSED.** Classified,
+every new pair is at ONE coordinate: `workshop:mainBody x stone_wall_v` at
+(5,60) on seed 31337, already overlapping 0.73m mainBody-to-mainBody before
+any of this. The three new trim volumes simply occupy the same space, so an
+existing collision is counted three more times. **Open, with coordinates**: the
+per-side overhang clip builds its occupancy set from EVERY structure-layer
+object, walls included, so `sideTaken` should have zeroed the workshop's
+allowance on that face and did not. `provenance outsideBox` reads 0, which
+bounds it at footprint + 0.6m, so the overlap is at the edge of what the clip
+permits rather than beyond it. Worth one focused look with
+`clash.mjs 31337 --all`.
+
+**AND A GARDEN SHED HAS NO HEARTH.** The smoke collector drew a chimney from
+every structure in the layer, which was harmless while the shortest thing in
+town was a house and stopped being harmless the hour the outbuildings got
+intrinsic heights and a potting shed became 3m instead of 5.6m. `particles.mjs`
+was the only thing that noticed — smoke venting 2.4m above its own ground,
+which is not the tile-coordinate bug that gate exists for and is still a plume
+out of a shed roof at head height. **A gate can fail for a reason it was not
+written for, and that reading is worth more than the one it was written for.**
+
 **A CONVENTION RESTATED IN A TOOL INSTEAD OF DERIVED FROM THE CODE THAT OWNS
 IT IS THE TERRAIN TABLE AGAIN, IN RADIANS.** `lib/vantage.lookAt` computes a
 heading as `atan2(target.z - eye.z, target.x - eye.x)`, so yaw 0 looks +X. Two
@@ -1548,9 +1579,12 @@ Run these before believing anything about where the project is.
 | openings off their own wall | facade.mjs | 0 (was 44 — a NEW check, new class) | clean |
 | awning slope | facade.mjs | 6.8° down, p10 = med = p90, 0 tilting up | clean |
 | bare untextured wall | odd.mjs | 9 over z=3, was 36 — a jettied ground floor authored blank | improving |
-| copy-paste twins | variety.mjs | 14% have an interchangeable twin within 15m (23% before the roof-style sweep) | the price of capped exclusives in rows |
+| copy-paste twins | variety.mjs | 16% have an interchangeable twin within 15m | the price of capped exclusives and of four correct outbuilding templates |
 | **build determinism** | **harness --repeat=3** | **spread 0 on every metric, was up to 12** | **fixed** |
 | open-topped volumes | roofcheck.mjs | **0 over 5 seeds, was 22** | **fixed** |
+| all four lighting arms | hours.mjs | sky>wall on every branch, 0 blacked out, 0 unmeasured | **new — clean** |
+| holes in a wall | holes.mjs | 6 at noon; BLANKS 5 patches, 7.7% of a street view (was 21.5%) | improving |
+| moving content | particles.mjs | 0 off-town, 0 smoke at head height, spread 0.94 | clean |
 | human scale | humanscale.mjs | door 2.05m, window 1.35m, storey 2.90m, 0% sub-human | clean |
 | street emptiness | emptiness.mjs | median 3m, 0% over 12m | satisfiable by scatter — see below |
 | enclosure (to a WALL) | streets.mjs | median 3m, 0% over 15m | clean |
@@ -1568,7 +1602,7 @@ Run these before believing anything about where the project is.
 | roof ornaments | features.mjs | dormer 38 / finial 26 / weatherVane 16 / copperCap 13 / spireCross 3% | new — never counted before |
 | props in a designed group | genlog `vigOk:` | 41/35/27 groups a town over 14 vignettes | new |
 | washing lines | (see buildLanternStrings) | 28-35 garments a town, 10 of 12 lines over walkable ground | new |
-| interpenetration | clash.mjs | **15 pairs over 0.5m, was 124** — see THE OVERHANG BUDGET | fixed |
+| interpenetration | clash.mjs | **25 pairs over 0.5m, was 124** — see THE OVERHANG BUDGET | fixed; the residual is named |
 | bridges you can walk onto | bridgeshot.mjs | **0.34-0.58m step up, was 2.2-2.4m over head** | fixed |
 | **can a person get there** | **traverse.mjs** | **78-91% reachable, 0 impassable crossings, 32 clamber pairs** | **the terrain relax is derived from the 0.6m step now** |
 | **the river** | **river.mjs** | **bank relief 0.67m med / 1.28m max (was 0.03m), drop +3.6m** | **fixed** |

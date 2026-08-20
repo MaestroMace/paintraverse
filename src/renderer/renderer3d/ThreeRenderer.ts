@@ -13,7 +13,7 @@ import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
 import { footprintOf, stableHash } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { buildTerrainMesh, getTerrainHeight, groundYAtWorld, tickWater, setWaterSky, TERRAIN_WORLD_SCALE } from './TerrainMesh'
-import { TILE } from './scale'
+import { TILE, STOREY_HEIGHT } from './scale'
 
 // First-person walkaround constants. Minecraft-ish feel.
 const EYE_HEIGHT = 1.6
@@ -946,6 +946,15 @@ export class ThreeRenderer {
         if (!def) continue
         const top = topById.get(obj.id)
         if (!top) continue
+        // A GARDEN SHED HAS NO HEARTH. This drew from every structure in the
+        // layer, which was harmless while the shortest thing in town was a
+        // house — and stopped being harmless the moment the outbuildings got
+        // their own intrinsic heights and a potting shed became 3m instead of
+        // 5.6m. `particles.mjs` caught it as smoke venting 2.4m above its own
+        // ground on seed 8080, which is not the tile-coordinate bug that gate
+        // exists for but is still a plume coming out of a shed roof at head
+        // height. A hearth needs a room and a room needs a storey.
+        if (top.mainWallTopY - top.baseY < STOREY_HEIGHT * 1.4) continue
         const fp = { w: def.footprint.w, h: def.footprint.h }
         const jitter = !NO_JITTER_MAP.has(obj.definitionId)
         const jitterDX = jitter ? (rand01(hash, 2) - 0.5) * 0.35 : 0

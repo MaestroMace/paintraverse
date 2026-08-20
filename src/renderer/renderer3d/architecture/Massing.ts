@@ -2748,8 +2748,64 @@ function tmplWallSegment(ctx: MassingContext): Volume[] {
     textured: false, cornice: false,
     floors: 1,
   }]
-  // Crenellated merlons: alternating blocks along the wall's top edge.
   const runLen = longAxisX ? wallW : wallD
+  // A CURTAIN WALL IS THE LARGEST BLANK SURFACE A TOWN CAN HAVE, and there are
+  // about forty-seven segments of it. 6.5m tall, 1.6m thick, `textured: false`
+  // and therefore one flat colour from the cobbles to the merlons — a person
+  // standing in the street sees a brown plane, and `eyeball.mjs` reports it as
+  // "100% bare wall" whenever one closes a vista.
+  //
+  // Texturing it is the wrong fix: a facade paints WINDOWS, and a curtain wall
+  // has none. What real masonry has instead is RELIEF — a battered plinth, a
+  // string course under the parapet, and buttresses at intervals — and relief
+  // is what makes a big plain surface read, because it casts its own shadow.
+  // Three volume kinds, all masonry, all untextured, no new drawing code.
+  const plinthOut = 0.30, courseOut = 0.20
+  volumes.push({
+    role: 'trim',
+    offsetX: 0, offsetZ: 0,
+    width: wallW + (longAxisX ? 0 : plinthOut * 2),
+    depth: wallD + (longAxisX ? plinthOut * 2 : 0),
+    // Founded below grade: the plinth is the one part that must not float on
+    // a slope, and a footing is what a plinth IS.
+    bottomY: -0.3, height: 1.25,
+    roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+    wallColor: 0x7d786d, roofColor: 0x7d786d,
+    textured: false, cornice: false, floors: 1,
+  })
+  volumes.push({
+    role: 'trim',
+    offsetX: 0, offsetZ: 0,
+    width: wallW + (longAxisX ? 0 : courseOut * 2),
+    depth: wallD + (longAxisX ? courseOut * 2 : 0),
+    bottomY: wallH - 0.55, height: 0.28,
+    roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
+    wallColor: 0x9a9488, roofColor: 0x9a9488,
+    textured: false, cornice: false, floors: 1,
+  })
+  // Buttresses on the OUTER face only — the side a besieger stands on is the
+  // side that needs bracing, and doubling them would eat the rampart walk.
+  // Which side that is cannot be known here, so they go on both and stay
+  // shallow enough to read as pilasters rather than as a second wall.
+  const buttPitch = 4.2
+  const buttCount = Math.max(1, Math.round(runLen / buttPitch))
+  for (let b = 0; b < buttCount; b++) {
+    const t = (b + 0.5) / buttCount - 0.5
+    for (const side of [-1, 1]) {
+      volumes.push({
+        role: 'trim',
+        offsetX: longAxisX ? t * runLen : side * (thickness / 2 + 0.16),
+        offsetZ: longAxisX ? side * (thickness / 2 + 0.16) : t * runLen,
+        width: longAxisX ? 0.85 : 0.42,
+        depth: longAxisX ? 0.42 : 0.85,
+        bottomY: -0.3, height: wallH * 0.78 + 0.3,
+        roofStyle: 'shed', roofHeight: 0.34, roofAxis: longAxisX ? 'x' : 'z',
+        wallColor: 0x847e72, roofColor: 0x847e72,
+        textured: false, cornice: false, floors: 1,
+      })
+    }
+  }
+  // Crenellated merlons: alternating blocks along the wall's top edge.
   // Merlons are ~0.6-1m of stone with a similar gap. At a 0.4m pitch a 6m
   // wall grew 31 of them, each 19cm wide — which past a few metres is not
   // crenellation, it is a fuzzy line, and it was 31 extra volumes per segment
