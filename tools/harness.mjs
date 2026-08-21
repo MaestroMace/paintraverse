@@ -695,6 +695,13 @@ const CHECKS = [
       // one. Spread says they cover the town; this says the town under them
       // explains them.
       ffNature: num(o, /fireflies over soft ground or water (\d+)%/),
+      // DOES ANYTHING REACT TO THE PLAYER? Every other row here is a
+      // property of a FROZEN scene — extent, spread, tenancy — and none of
+      // them can tell a world that acknowledges you from scenery that does
+      // not. The pigeons are the only system whose state depends on where
+      // the camera is, and the probe carries its own negative case: the
+      // flocks the player did NOT walk into must not move.
+      noReact: num(o, /(\d+) seeds where nothing reacts to the player/),
     }),
     gates: {
       offTown: (v) => v === 0, smokeLow: (v) => v === 0,
@@ -703,6 +710,7 @@ const CHECKS = [
       // means the tile set or the lookup has broken rather than that the
       // town drifted.
       ffNature: (v) => v >= 90,
+      noReact: (v) => v === 0,
     },
     dir: { smokeSpread100: 1 }, band: { smokeSpread100: 25 },
   },

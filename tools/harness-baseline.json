@@ -72,7 +72,8 @@
     "offTown": 0,
     "smokeLow": 0,
     "smokeSpread100": 94,
-    "ffNature": 97
+    "ffNature": 100,
+    "noReact": 0
   },
   "holes": {
     "holes": 6,

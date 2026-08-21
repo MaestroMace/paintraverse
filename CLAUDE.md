@@ -1161,6 +1161,31 @@ a dark street and pillar 5 wants POOLS and a uniform floor is neither. Every
 building casts one and they overlap, so the per-building value is set by what
 the SUM looks like.
 
+**NOTHING IN THIS TOWN KNEW THE PLAYER WAS THERE.** DESIGN.md pillar 4 is
+"motion breathes" and every moving thing was AMBIENT: smoke rises whoever is
+watching, birds circle a spire, moths work a lamp, mist creeps over water. A
+world that runs identically whether you are in it or not is scenery, and no
+instrument here could have said so — extent, spread and tenancy are all
+properties of a FROZEN scene. Pigeons on the square that burst off the
+flagstones as you walk in are the cheapest possible answer.
+
+**THE FLOCK GOES UP TOGETHER, AND IT SETTLES AGAIN.** One bird startling
+alone is a bird; proximity is tested against the GROUP's home, and they are
+placed in contiguous blocks so the group is `floor(i / PER_FLOCK)` with
+nothing to store. The landing is gated on the camera having MOVED OFF, or a
+completed flight drops them back into the player's feet and they take off
+forever.
+
+**AND THE REACTIVITY PROBE'S FIRST BAR WAS A NUMBER I MADE UP.** "Moved more
+than 3m" passed on one seed and failed on another at 1.19m with an identical
+mechanism, because under SwiftShader at 5 FPS the flight advances less in the
+same wall-clock — a hand-written target of exactly the kind `propscale.mjs`
+got wrong three times out of three. The untouched flocks read EXACTLY 0m,
+because a grounded bird is pinned to its origin, so they are the floor and the
+RATIO is the reading. The probe carries its own negative case for the reason
+`celestial.mjs` keeps `sunAngle`: a test with no negative case has never been
+tested.
+
 **MIST ON THE RIVER — THE FIRST PARTICLE SYSTEM THAT BELONGS TO A PLACE.**
 The river arc carved a channel, walled the urban bank, quayed it, dressed it
 and bridged it, and after dark the water was a dark ribbon with nothing

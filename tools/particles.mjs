@@ -48,6 +48,7 @@ await win.waitForTimeout(1200)
 
 let offTown = 0, belowRoof = 0, systems = 0, familyGaps = 0, adrift = 0
 let fireflyNature = null
+let reactFails = 0
 for (const seed of seeds) {
   await win.evaluate((s) => {
     const inp = [...document.querySelectorAll('.left-panel input')]
@@ -234,6 +235,75 @@ for (const seed of seeds) {
     }
   }
 
+  // DOES ANYTHING REACT TO THE PLAYER?
+  //
+  // Every system above is AMBIENT — it runs the same whether anyone is there
+  // or not — and no instrument here could have told the difference, because
+  // extent, spread and tenancy are all properties of a frozen scene. The
+  // pigeons are the first thing in this town that knows where the player is,
+  // so the check is: stand far away and record, walk up to ONE flock and
+  // record again, and require that flock to have moved and the OTHERS not to
+  // have. The untouched flocks are the negative case, and celestial.mjs is
+  // the reason there is one — a test with no negative case has never been
+  // tested, and its first version passed a control that was demonstrably
+  // dead.
+  const react = await win.evaluate(async () => {
+    const pt = window.__pt, r3 = pt.renderer()
+    const ps = (r3.particleSystems || []).find((p) => p.type === 'flock')
+    if (!ps) return null
+    const PER = 7
+    const flocks = r3.flockHomes
+    if (!flocks || !flocks.length) return null
+    const nf = flocks.length / 2
+    const snap = () => Array.from(ps.positions)
+    const spread = (a, b, f) => {
+      let d = 0
+      for (let i = f * PER; i < (f + 1) * PER && i < ps.count; i++) {
+        d = Math.max(d, Math.hypot(a[i * 3] - b[i * 3], a[i * 3 + 2] - b[i * 3 + 2]))
+      }
+      return d
+    }
+    // Somewhere far from every flock, so nothing is startled to begin with.
+    let fx = 0, fz = 0, bestD = -1
+    for (let gx = 4; gx < 44; gx += 6) for (let gz = 4; gz < 44; gz += 6) {
+      let d = Infinity
+      for (let f = 0; f < nf; f++) {
+        d = Math.min(d, Math.hypot(gx * pt.TILE - flocks[f * 2], gz * pt.TILE - flocks[f * 2 + 1]))
+      }
+      if (d > bestD) { bestD = d; fx = gx; fz = gz }
+    }
+    pt.flyTo(fx, 14, fz, 0, -0.2)
+    await new Promise((r) => setTimeout(r, 1400))
+    const before = snap()
+    // Now stand on flock 0.
+    pt.flyToWorld(flocks[0] + 1.5, 12, flocks[1] + 1.5, 0, -0.6)
+    await new Promise((r) => setTimeout(r, 2200))
+    const after = snap()
+    const moved = []
+    for (let f = 0; f < nf; f++) moved.push(+spread(before, after, f).toFixed(2))
+    return { nf, approached: moved[0], others: moved.slice(1) }
+  })
+  if (react) {
+    const quiet = react.others.length ? Math.max(...react.others) : 0
+    // AGAINST THE MEASURED NEGATIVE CASE, not an invented distance. The first
+    // bar was "moved more than 3m", which passed on one seed and failed on
+    // another at 1.19m — and the mechanism was identical in both, because
+    // under SwiftShader at 5 FPS the flight simply advances less in the same
+    // wall-clock. That is a hand-written target of exactly the kind
+    // propscale.mjs got wrong three times out of three. The untouched flocks
+    // read EXACTLY 0m because a grounded bird is pinned to its origin, so
+    // they are the floor and the ratio is the reading.
+    const live = react.approached > Math.max(0.5, quiet * 10)
+    if (!live) reactFails++
+    console.log(`  pigeons: approached flock moved ${react.approached}m, ` +
+      `the ${react.others.length} untouched ${quiet}m (bar ` +
+      `${Math.max(0.5, quiet * 10).toFixed(2)}m) — ` +
+      (live ? 'they react to the player' : 'NO REACTION (or all of them moved)'))
+  } else {
+    console.log('  pigeons: NO FLOCK SYSTEM — that is the finding, not a pass.')
+    reactFails++
+  }
+
   // LANTERN FAMILIES — a zero here is the finding, not the total.
   const fam = r.lanternFamilies || {}
   const names = ['lamppost', 'wall', 'rope']
@@ -253,7 +323,8 @@ for (const seed of seeds) {
 console.log(`\nVERDICT: ${offTown} particles outside the town box across ` +
   `${systems} systems; smoke starts within 3m of the ground on ${belowRoof}; ` +
   `${familyGaps} seeds miss a lantern family; ${adrift} camera-local boxes adrift; ` +
-  `fireflies over soft ground or water ${fireflyNature === null ? 'n/a' : fireflyNature + '%'}.`)
+  `fireflies over soft ground or water ${fireflyNature === null ? 'n/a' : fireflyNature + '%'}; ` +
+  `${reactFails} seeds where nothing reacts to the player.`)
 console.log('  `spread` is each system\'s x-extent as a fraction of the town\'s;')
 console.log('  `cam` means the system travels with the player and is graded on')
 console.log('  whether its box is centred there instead.')

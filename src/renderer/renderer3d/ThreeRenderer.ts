@@ -294,7 +294,7 @@ interface ParticleSystem {
   lifetimes: Float32Array
   origins: Float32Array
   count: number
-  type: 'smoke' | 'firefly' | 'bird' | 'moth' | 'precip' | 'mist'
+  type: 'smoke' | 'firefly' | 'bird' | 'moth' | 'precip' | 'mist' | 'flock'
   /**
    * TRUE when the system travels with the player rather than sitting over the
    * town. Rain and snow are everywhere by definition, so they are drawn as a
@@ -2002,6 +2002,11 @@ void main() {
         mat.size = isNight ? 0.12 : 0.04
       } else if (ps.type === 'bird') {
         mat.opacity = birdsRoosted ? 0.0 : birdOpacity
+      } else if (ps.type === 'flock') {
+        // Pigeons roost after dark and are gone by then; they are a daytime
+        // and dusk creature, which is also the only time you can see a
+        // 20cm dark dot against flagstones.
+        mat.opacity = isNight ? 0 : isDusk || isDawn ? 0.75 : 0.9
       } else if (ps.type === 'mist') {
         // MIST IS A COOLING EFFECT, so it is thickest before dawn and gone by
         // mid-morning — the one system here whose schedule is not simply
@@ -2194,6 +2199,7 @@ void main() {
     // Mist belongs to the river, so it is spawned here where the water tiles
     // were already gathered rather than walking the map a second time.
     this.initRiverMist(water, heightMap, waterLevel)
+    this.initFlock(tiles, heightMap)
   }
 
   /** Birds circling tall spires — 4 per spire, capped at 8 spires (32 birds
@@ -2242,6 +2248,113 @@ void main() {
     this.particleGroup.add(points)
     this.particleSystems.push({
       points, positions, velocities, lifetimes, origins, count, type: 'bird',
+    })
+  }
+
+  /**
+   * PIGEONS THAT SCATTER WHEN YOU WALK INTO THE SQUARE — the seventh particle
+   * system, and the first thing in this town that knows the player is there.
+   *
+   * DESIGN.md pillar 4 is "motion breathes" and every moving thing here is
+   * AMBIENT: smoke rises whoever is watching, birds circle a spire, moths
+   * work a lamp, mist creeps over water. None of it acknowledges you, and a
+   * world that carries on identically whether you are in it or not is
+   * scenery. A flock bursting off the flagstones two metres ahead is the
+   * cheapest possible answer and it is a moment people remember.
+   *
+   * On PLAZA tiles by preference — a square is open by construction, which is
+   * both where pigeons actually are and the only ground where a startle has
+   * room to read. Falling back to street cobble, because a town without a
+   * designed square should still have them.
+   *
+   * THE FLOCK TAKES OFF TOGETHER. One bird startling alone is a bird; the
+   * whole patch going up at once is the effect, so proximity is tested
+   * against the GROUP's home rather than each bird's, and they are placed in
+   * contiguous blocks so the group is `floor(i / PER_FLOCK)` with nothing to
+   * store.
+   *
+   * And they SETTLE AGAIN. A flight that ends with the player still standing
+   * there would drop them back into his feet, so the landing is gated on the
+   * camera having moved off — they keep their distance while you are there
+   * and come back to the same patch once you have passed, which is what
+   * pigeons do and costs one extra condition.
+   */
+  private flockHomes: Float32Array | null = null
+
+  private initFlock(tiles: number[][] | null, heightMap: number[][] | null): void {
+    if (!tiles) return
+    const plaza: Array<[number, number]> = []
+    const street: Array<[number, number]> = []
+    for (let ty = 1; ty < tiles.length - 1; ty++) {
+      for (let tx = 1; tx < (tiles[ty]?.length ?? 0) - 1; tx++) {
+        const t = tiles[ty][tx]
+        if (t === 14) plaza.push([tx, ty])
+        else if (t === 8) street.push([tx, ty])
+      }
+    }
+    const pool = plaza.length >= 8 ? plaza : street
+    if (pool.length < 8) return
+
+    const PER_FLOCK = 7
+    const FLOCKS = Math.min(4, Math.floor(pool.length / 10) || 1)
+    const count = FLOCKS * PER_FLOCK
+    const positions = new Float32Array(count * 3)
+    const velocities = new Float32Array(count * 3)
+    const lifetimes = new Float32Array(count)
+    const origins = new Float32Array(count * 3)
+    this.flockHomes = new Float32Array(FLOCKS * 2)
+
+    // Spread the flocks over the pool rather than taking the first few, which
+    // would put every pigeon in town in one corner — the same truncation that
+    // had all the chimney smoke venting over two quarters.
+    const chosen: Array<[number, number]> = [pool[0]]
+    while (chosen.length < FLOCKS) {
+      let best = -1, bestD = -1
+      for (let i = 0; i < pool.length; i++) {
+        let d = Infinity
+        for (const c of chosen) {
+          d = Math.min(d, (pool[i][0] - c[0]) ** 2 + (pool[i][1] - c[1]) ** 2)
+        }
+        if (d > bestD) { bestD = d; best = i }
+      }
+      if (best < 0 || bestD <= 0) break
+      chosen.push(pool[best])
+    }
+
+    for (let f = 0; f < chosen.length; f++) {
+      const [ctx, ctz] = chosen[f]
+      const hx = (ctx + 0.5) * TILE, hz = (ctz + 0.5) * TILE
+      this.flockHomes[f * 2] = hx
+      this.flockHomes[f * 2 + 1] = hz
+      for (let k = 0; k < PER_FLOCK; k++) {
+        const i = f * PER_FLOCK + k
+        const i3 = i * 3
+        const a = (k / PER_FLOCK) * Math.PI * 2 + f
+        const r = 0.5 + Math.random() * 1.6
+        const x = hx + Math.cos(a) * r
+        const z = hz + Math.sin(a) * r
+        const g = heightMap ? getTerrainHeight(heightMap, x / TILE, z / TILE) : 0
+        origins[i3] = x; origins[i3 + 1] = g + 0.09; origins[i3 + 2] = z
+        positions[i3] = x; positions[i3 + 1] = g + 0.09; positions[i3 + 2] = z
+        // Scatter bearing, climb rate, wingbeat phase.
+        velocities[i3] = Math.cos(a + (Math.random() - 0.5) * 0.9)
+        velocities[i3 + 1] = 0.8 + Math.random() * 0.5
+        velocities[i3 + 2] = Math.sin(a + (Math.random() - 0.5) * 0.9)
+        lifetimes[i] = 0
+      }
+    }
+
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    const mat = new THREE.PointsMaterial({
+      color: 0x4a4640, size: 0.2, transparent: true, opacity: 0.9,
+      sizeAttenuation: true, depthWrite: false,
+    })
+    const points = new THREE.Points(geo, mat)
+    points.name = 'pigeons'
+    this.particleGroup.add(points)
+    this.particleSystems.push({
+      points, positions, velocities, lifetimes, origins, count, type: 'flock',
     })
   }
 
@@ -2627,6 +2740,48 @@ void main() {
           const rattr = this._rainLines.geometry.getAttribute('position') as THREE.BufferAttribute
           rattr.needsUpdate = true
         }
+        continue
+      }
+
+      // Pigeons: the only system whose state depends on WHERE THE PLAYER IS.
+      if (ps.type === 'flock') {
+        const cam = this.camera.position
+        const PER_FLOCK = 7
+        const STARTLE = 5.5      // metres — close enough to feel deliberate
+        const SETTLE = 8.0       // and they will not land back inside you
+        const flocks = this.flockHomes
+        for (let i = 0; i < ps.count; i++) {
+          const i3 = i * 3
+          const f = Math.floor(i / PER_FLOCK)
+          const hx = flocks ? flocks[f * 2] : orig[i3]
+          const hz = flocks ? flocks[f * 2 + 1] : orig[i3 + 2]
+          const near = Math.hypot(cam.x - hx, cam.z - hz)
+          // THE WHOLE FLOCK GOES AT ONCE. Testing each bird's own position
+          // would ripple the takeoff across the patch, which reads as a bug
+          // rather than as a flock.
+          if (life[i] === 0 && near < STARTLE) life[i] = 0.001
+          if (life[i] === 0) {
+            pos[i3] = orig[i3]; pos[i3 + 1] = orig[i3 + 1]; pos[i3 + 2] = orig[i3 + 2]
+            continue
+          }
+          life[i] += dt * 0.34
+          if (life[i] >= 1) {
+            // Only settle once the player has actually moved off, or they
+            // land in his feet and take off again forever.
+            if (near > SETTLE) { life[i] = 0; continue }
+            life[i] = 0.55            // hold a wide circle instead
+          }
+          const t = life[i]
+          const climb = Math.sin(Math.min(1, t * 1.7) * Math.PI * 0.5)
+          const out = t * 13
+          pos[i3] = orig[i3] + vel[i3] * out
+          pos[i3 + 2] = orig[i3 + 2] + vel[i3 + 2] * out
+          // Wingbeat on the way up: a dot that rises smoothly is a balloon.
+          pos[i3 + 1] = orig[i3 + 1] + climb * 5.2 * vel[i3 + 1]
+            + Math.sin(time * 11 + i) * 0.09 * climb
+        }
+        const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
+        attr.needsUpdate = true
         continue
       }
 
