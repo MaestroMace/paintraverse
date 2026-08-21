@@ -712,6 +712,33 @@ const CHECKS = [
       // patchHeightFog collapsed otherwise-identical materials onto one
       // compiled program and threw away every shader injection on them.
       noSway: num(o, /(\d+) hanging-sway failures/),
+      // AND WAS EVERY HANGING MESH ACTUALLY LOOKED AT. The sway gate is "at
+      // least one moves", deliberately, and for four seeds it read a clean
+      // zero while `laundryLines` printed TOO FEW PIXELS on every single run
+      // — the one hanging thing whose placement had just changed was the one
+      // never graded, because all four subjects were measured from a rope
+      // lantern's vantage. A camera pointed where the subject is not will
+      // report that there is none. Each mesh is framed at its own instance
+      // now and this counts the ones that still cannot be seen.
+      swayBlind: num(o, /(\d+) hanging meshes unseeable at their own box/),
+      // MIST IS THE ONE SYSTEM WHOSE IDENTITY IS A PLACE, so it gets the one
+      // tenancy figure that is not the shared soft-ground-OR-water mask. That
+      // mask reads 80-96% and counts a meadow; the water share is 77-89% and
+      // is what "river mist" means. On three seeds in four the two are
+      // IDENTICAL, which is why the original 97% claim went unquestioned —
+      // it was measured where they happened to coincide.
+      //
+      // AND IT IS THE NOISIEST ROW ON THIS BOARD, which is why it is `dir: 0`.
+      // Five runs of the SAME seed read 69, 72, 81, 81, 83 — spread 14, where
+      // almost everything else here is spread 0. The cause is not drift:
+      // pooling four samples across a second and a half read the same spread,
+      // because the mist is scattered with `Math.random()` at init, so every
+      // run is a different cloud over the same channel. Pinning the seed pins
+      // the LAYOUT and not the scatter. A directional band under a spread of
+      // 14 is a regression detector switched off, so this row is tracked and
+      // printed and never failed on; `mistOffRiver` is the gate.
+      mistWater: num(o, /mist over water (\d+)% worst seed/),
+      mistOffRiver: num(o, /mist over water \d+% worst seed, (\d+) off the river/),
     }),
     gates: {
       offTown: (v) => v === 0, smokeLow: (v) => v === 0,
@@ -722,8 +749,18 @@ const CHECKS = [
       ffNature: (v) => v >= 90,
       noReact: (v) => v === 0,
       noSway: (v) => v === 0,
+      swayBlind: (v) => v === 0,
+      // Not a tuning target: the particles are 3m smudges deliberately
+      // drifting off the channel so the bank is soft rather than knife-edged,
+      // and a tile is 3m, so a fifth of them landing on the near bank is the
+      // design. The threshold behind this counter sits at 40% — two of the
+      // measured 14-point spreads below the worst reading ever observed — so
+      // it can only fire for a system that has come off the river altogether,
+      // which is the failure that would make it fog rather than river mist.
+      mistOffRiver: (v) => v === 0,
     },
-    dir: { smokeSpread100: 1 }, band: { smokeSpread100: 25 },
+    dir: { smokeSpread100: 1, mistWater: 0 },
+    band: { smokeSpread100: 25, mistWater: 30 },
   },
   {
     name: 'celestial',

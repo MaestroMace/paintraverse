@@ -1432,6 +1432,74 @@ to prevent. **A guard tuned against a broken population is tuned against
 nothing**; it is one in three now and lands on the 4-6 lines a town the feature
 was measured at before the bias was found.
 
+**AND THE SWAY PROBE GRADED FOUR MESHES FROM ONE MESH'S VANTAGE.** It flew to a
+rope lantern — correctly, because measuring where the subject is was the fix
+for its previous failure — and then measured all four hanging meshes from
+there. `laundryLines` printed `TOO FEW PIXELS` on every seed for the life of
+the check and the verdict read **0 hanging-sway failures**, so the one hanging
+thing whose placement had just been changed was the one thing never graded. **A
+camera pointed where the subject is not will report that there is none**, and
+the tell was sitting in the tool's own output the whole time.
+
+**AND FRAMING BY THE MERGED MESH'S BOUNDING BOX AIMED AT A MEANINGLESS
+CENTROID — the garment-cluster failure, reproduced by the fix for it.**
+`laundryLines` is every washing line in the town in one buffer, so its box IS
+the town and its centre is a field between them. The first cut of the per-mesh
+vantage did exactly that and made things WORSE — `ropeLanterns` 0.00226 ->
+0.0001 — which is the useful kind of wrong, because it moved a row that was
+already working. **A VERTEX IS BY DEFINITION ON A REAL INSTANCE**: take one
+near the middle of the buffer, gather everything within a room's width, frame
+that. No clustering step, no centroid, nothing to drift.
+
+    laundryLines   TOO FEW PIXELS  ->  0.00508-0.00799 against its own bar
+    ropeLanterns   0.0001          ->  0.00086-0.00725
+    unseeable at their own box                          0 on four seeds
+
+**AND THE NEGATIVE CASE WAS MERELY ABSENT, WHICH PROVES NOTHING.**
+`windowSpill` is the declared must-not-move row and it read `TOO FEW PIXELS`
+because the probe runs at NOON — deliberately, since nothing else animates
+then — and the spill's opacity is driven by `windowGlow`, so at midday it is
+switched off rather than static. Measured at dusk with everything else
+isolated away it reads **exactly 0.00000** against a floor of 0.00001, on all
+four seeds. That single row is what makes the other three trustworthy: with the
+scene isolated and the camera still, a static mesh reads exact zero, so any
+nonzero figure IS motion rather than noise. Same argument that keeps
+`sunAngle` in celestial.mjs's table, and the same one this file records for
+`propscale.mjs`'s invented targets — a test with no negative case has never
+been tested.
+
+**A SUBJECT FLATTER THAN HALF ITS OWN FOOTPRINT IS LOOKED DOWN AT**, which is
+`asset.mjs`'s rule and it applies here for the same reason: the spill is a band
+lying on the cobbles and at eye level it is a sliver behind the near paving.
+Derived from the box, not from a name list, so a quay or a bridge deck gets it
+too.
+
+**AND MIST WAS GRADED ON A MASK THAT COULD NOT ASK ITS QUESTION.**
+`particles.mjs` reports one tenancy column, `nature`, meaning soft ground OR
+water — right for a firefly, where a glow over a meadow and a glow over a pond
+are both correct. **River mist's claim is WATER and nothing else**, because it
+forms where the air cools faster than the surface under it does, and that is
+the entire reason it is a river system rather than a scatter. Split:
+
+    seed        2024    65535    4242    999999
+    nature       80%      84%     96%       77%
+    water        80%      84%     89%       77%
+
+**On three seeds in four the two are IDENTICAL**, which is exactly why the 97%
+recorded in this file went unquestioned for the life of the feature — it was
+measured where they happened to coincide. Only 4242 has meadows near the
+channel, and there the combined figure over-reports by seven points.
+
+**AND ITS NOISE FLOOR IS 14 POINTS ON AN IDENTICAL SEED, WHICH IS NOT DRIFT.**
+Five runs read 69, 72, 81, 81, 83. Pooling four buffer reads across a second
+and a half — the obvious fix if the cause were the cloud moving — read 81, 91,
+95, the same spread, so it was **measured at zero and removed**. The variance
+is `Math.random()` at init: every run is a different cloud over the same
+channel, and **pinning the seed pins the LAYOUT and not the scatter**, which is
+this repo's oldest lesson wearing a particle costume. Tracked at `dir: 0` with
+the gate on a count two spreads below anything observed — a directional band
+under a spread of 14 is a regression detector switched off.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
@@ -2216,7 +2284,7 @@ Run these before believing anything about where the project is.
 | open-topped volumes | roofcheck.mjs | **0 over 5 seeds, was 22** | **fixed** |
 | all four lighting arms | hours.mjs | sky>wall on every branch, 0 blacked out, 0 unmeasured | **new — clean** |
 | holes in a wall | holes.mjs | 6 at noon; BLANKS 5 patches, 7.7% of a street view (was 21.5%) | improving |
-| moving content | particles.mjs | 0 off-town, 0 smoke at head height, spread 0.94-0.95, **8 systems, 0 missing with their prerequisite present, 0 seeds with no washing**, fireflies 97-100% over soft ground, 0 unreactive, 0 sway failures | clean |
+| moving content | particles.mjs | 0 off-town, 0 smoke at head height, spread 0.94-0.95, **8 systems, 0 missing with their prerequisite present, 0 seeds with no washing**, fireflies 97-100% over soft ground, **mist 77-89% over WATER (not the `nature` mask), 0 off the river**, 0 unreactive, **0 sway failures and 0 hanging meshes unseeable at their own box** | clean |
 | **do the controls DO anything** | **celestial.mjs** | **1 of 7 dead, and it is the declared negative case** | **new — clean** |
 | human scale | humanscale.mjs | door 2.05m, window 1.35m, storey 2.90m, 0% sub-human | clean |
 | street emptiness | emptiness.mjs | median 3m, 0% over 12m | satisfiable by scatter — see below |
@@ -3262,6 +3330,19 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   found `wash~notBothHomes` on 24 of 25 pairs and, once the denominators
   `pool~homes` and `pool~homePairs` were added, distinguished a selection
   failure from an empty pool. Nobody notices absent content.
+  **The sway probe frames EACH hanging mesh at its own instance**, because
+  grading all four from a rope lantern's vantage left `laundryLines` reading
+  `TOO FEW PIXELS` on every seed while the verdict said zero failures — and
+  framing by the merged mesh's BOUNDING BOX instead aims at a meaningless
+  centroid, since `laundryLines` is every line in the town in one buffer. A
+  vertex is by definition on a real instance. `windowSpill` is the negative
+  case and is measured at DUSK, because it is driven by `windowGlow` and at
+  noon it is switched off rather than static; isolated, it reads exactly
+  0.00000, which is what makes the other three rows trustworthy.
+  **And mist is graded on WATER rather than on the shared `nature` mask** —
+  the two are identical on three seeds in four, which is why the 97% on record
+  went unquestioned. Read its noise note before believing a delta: 14 points
+  on an identical seed, and it is the init scatter rather than drift.
 - `node tools/hours.mjs [seed] [--views=N] [--weather]` — **all four arms of
   `updateLighting`, and with `--weather` all twenty hour-weather
   combinations.** The cross is why weather's three sky bugs were found at all:

@@ -74,7 +74,10 @@
     "smokeSpread100": 94,
     "ffNature": 100,
     "noReact": 0,
-    "noSway": 0
+    "noSway": 0,
+    "swayBlind": 0,
+    "mistWater": 70,
+    "mistOffRiver": 0
   },
   "holes": {
     "holes": 6,

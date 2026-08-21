@@ -49,8 +49,9 @@ await win.waitForTimeout(1200)
 
 let offTown = 0, belowRoof = 0, systems = 0, familyGaps = 0, adrift = 0
 let fireflyNature = null
+let mistWater = null, mistOffRiver = 0
 let reactFails = 0
-let swayFails = 0
+let swayFails = 0, swayBlind = 0
 let missingSystems = 0
 let laundryGaps = 0
 for (const seed of seeds) {
@@ -101,6 +102,17 @@ for (const seed of seeds) {
     const layer = pt.store.getState().map.layers.find((l) => l.type === 'terrain')
     const tt = layer?.terrainTiles || null
     const SOFT = new Set([0, 1, 5, 6, 10, 11, 12])
+    // BOTH SHARES, BECAUSE ONE MASK CANNOT ANSWER TWO CLAIMS. The firefly's
+    // claim is soft ground OR water — a glow over a meadow and a glow over a
+    // pond are both right. River mist's claim is WATER, and nothing else,
+    // because mist forms where the air cools faster than the surface does and
+    // that is the whole reason it is a river system rather than a scatter.
+    //
+    // Grading it on the combined figure reads 81-90% and calls that healthy,
+    // when a fifth of the town's mist could be sitting over a field. That is
+    // the bucket lesson in its usual clothes: check what a population CONTAINS
+    // before filing a number against it. Returned split; each consumer asks
+    // its own question.
     const groundUnder = (o, drawn) => {
       if (!tt) return null
       const p2 = o.geometry.getAttribute('position')
@@ -113,7 +125,11 @@ for (const seed of seeds) {
         if (t === 3) water++
         else if (SOFT.has(t)) soft++
       }
-      return n ? Math.round(((soft + water) / n) * 100) : null
+      if (!n) return null
+      return {
+        nature: Math.round(((soft + water) / n) * 100),
+        water: Math.round((water / n) * 100),
+      }
     }
 
     const out = []
@@ -153,6 +169,7 @@ for (const seed of seeds) {
       // a box left at the origin is invisible everywhere else.
       const local = sys?.cameraLocal === true ||
         (o.name === 'rainfall' || o.name === 'snowfall')
+      const under = local ? null : groundUnder(o, Math.max(1, drawn))
       out.push({
         // Camera-local systems prefer their MESH name, because precipitation
         // is one simulation with two draw objects — a Points for snow and a
@@ -166,7 +183,8 @@ for (const seed of seeds) {
           ? +Math.hypot((x0 + x1) / 2 - cam.x, (z0 + z1) / 2 - cam.z).toFixed(1)
           : null,
         n: drawn, outside: local ? 0 : outside,
-        overNature: local ? null : groundUnder(o, Math.max(1, drawn)),
+        overNature: under?.nature ?? null,
+        overWater: under?.water ?? null,
         x: [+x0.toFixed(1), +x1.toFixed(1)], z: [+z0.toFixed(1), +z1.toFixed(1)],
         y: [+y0.toFixed(1), +y1.toFixed(1)],
         // The fraction of the town's own footprint this system covers. A
@@ -225,10 +243,10 @@ for (const seed of seeds) {
     }
   }
 
-  // FIREFLY TENANCY is the one `nature` figure with a claim attached: a
-  // firefly over cobbles is a dust mote. The others are printed for
-  // comparison and graded at nothing, because smoke comes out of a roof and
-  // a bird is over whatever it circles.
+  // FIREFLY TENANCY is one of two `nature` figures with a claim attached: a
+  // firefly over cobbles is a dust mote. The rest are printed for comparison
+  // and graded at nothing, because smoke comes out of a roof and a bird is
+  // over whatever it circles.
   const ff = r.systems.find((x) => x.kind === 'firefly')
   if (ff && ff.overNature !== null) {
     fireflyNature = ff.overNature
@@ -236,6 +254,51 @@ for (const seed of seeds) {
       console.log(`             ^ only ${ff.overNature}% of fireflies are over soft ground`)
       console.log('               or water. The rest are over cobbles and rooftops,')
       console.log('               where a pale dot reads as dust.')
+    }
+  }
+
+  // MIST IS GRADED ON WATER, NOT ON `nature`, and the two disagree by a fifth.
+  //
+  // Every other system here is graded on WHERE IT REACHES; mist is the one
+  // whose whole identity is a PLACE, because it forms where air cools faster
+  // than the surface under it does. So "is it over water" is not a nicety, it
+  // is the difference between river mist and a fog machine — and the shared
+  // soft-ground-OR-water mask cannot ask it. It read 81-90% and the water
+  // share is what that number was standing in for.
+  //
+  // The residual is REAL and expected rather than a defect: the particles are
+  // 3m smudges deliberately drifting off the channel so the bank is soft
+  // rather than knife-edged, and a tile is 3m. Gated low enough to catch a
+  // system that has come off the river altogether, which is the failure that
+  // matters, and printed always so the drift is visible before it is a gate.
+  //
+  // STATE THE NOISE FLOOR. This row read 69, 72, 81, 81, 83 across five runs
+  // of the SAME seed — spread 14, against spread 0 on nearly everything else
+  // here. It is a fact about the subject and not a fault in the measurement,
+  // and it means a single-run delta on this row is worth nothing. The gate
+  // sits two spreads below the worst observed.
+  //
+  // POOLING OVER TIME WAS TRIED, MEASURED AT ZERO, AND REMOVED. Four buffer
+  // reads 450ms apart read 81 / 91 / 95 across three runs — the same spread as
+  // one read — because the variance is not DRIFT. Mist is scattered with
+  // `Math.random()` at init, so each run gets a different cloud over the same
+  // channel, and no amount of sampling within a run can average that out.
+  // Pinning the seed pins the LAYOUT and not the scatter, which is this
+  // repo's oldest lesson wearing a particle costume.
+  //
+  // So the row is tracked at `dir: 0` rather than graded: a spread of 14
+  // cannot support a directional band, and pretending otherwise is a
+  // regression detector switched off. The GATE is `mistOffRiver`, which is a
+  // count over a threshold two spreads below anything observed.
+  const mi = r.systems.find((x) => x.kind === 'mist')
+  if (mi && mi.overWater !== null) {
+    mistWater = mistWater === null ? mi.overWater : Math.min(mistWater, mi.overWater)
+    console.log(`             ^ mist over WATER ${mi.overWater}% (nature ${mi.overNature}%) — ` +
+      'the nature mask counts a meadow, this does not')
+    if (mi.overWater < 40) {
+      mistOffRiver++
+      console.log(`               only ${mi.overWater}% is actually over the channel; the`)
+      console.log('               rest has drifted onto land, which is not river mist.')
     }
   }
 
@@ -337,30 +400,113 @@ for (const seed of seeds) {
       }
       return out
     }, grid)
-    // STAND AT A STRING. The first version of this shot the whole town from
-    // 26m up on a 128 grid, where one sample is over a metre of world and a
-    // 7cm sway cannot move a single one — it read exactly 0 on all three and
-    // would have reported a working feature as dead. That is the moon
-    // failure for the third time in this repo: A METRIC CANNOT GRADE A
-    // FEATURE SMALLER THAN ITS SAMPLE RESOLVES, and the fix is never a
-    // threshold, it is to measure where the subject is.
+    // STAND AT THE SUBJECT — AT EACH SUBJECT, not at one of them.
     //
-    // At 6m the frame spans about 8m, so a sample is ~3cm and the sway moves
-    // several. `lampAnchors` already knows where every rope lantern hangs.
-    const ok = await win.evaluate(() => {
-      const pt = window.__pt
-      pt.store.getState().updateEnvironment({ timeOfDay: 12 })
-      const rope = (pt.lampAnchors ? pt.lampAnchors() : []).filter((a) => a.kind === 'rope')
-      if (!rope.length) return false
-      const a = rope[Math.floor(rope.length / 2)]
-      pt.flyToWorld(a.x - 5.5, a.y + 0.4, a.z - 2.0,
-        Math.atan2(2.0, 5.5), -0.05)
-      return true
-    })
-    if (!ok) return [['(no rope lanterns)', null, 'NOT IN SCENE']]
-    await new Promise((r) => setTimeout(r, 1200))
+    // The first version of this shot the whole town from 26m up on a 128 grid,
+    // where one sample is over a metre of world and a 7cm sway cannot move a
+    // single one: it read exactly 0 on all three and would have reported a
+    // working feature as dead. That is the moon failure for the third time in
+    // this repo — A METRIC CANNOT GRADE A FEATURE SMALLER THAN ITS SAMPLE
+    // RESOLVES, and the fix is never a threshold, it is to measure where the
+    // subject is.
+    //
+    // The SECOND version fixed that halfway. It flew to a rope lantern and
+    // then graded all four meshes from there, so `laundryLines` read TOO FEW
+    // PIXELS on every seed — the one hanging thing whose placement had just
+    // been changed was the one thing never graded, and the verdict said
+    // "0 hanging-sway failures". A camera pointed where the subject is not
+    // will report that there is none. Each mesh gets its own vantage now,
+    // derived from its own world box.
+    //
+    // At ~6m the frame spans about 8m, so a sample is ~3cm and the sway moves
+    // several.
+    // ONE INSTANCE, NOT THE MERGED MESH.
+    //
+    // `laundryLines` is every washing line in the town in one buffer and
+    // `windowSpill` is every lit elevation's pool of light, so their BOUNDING
+    // BOXES are the town and a camera at the box centre is standing in a field
+    // between them. That is the garment-cluster failure this repo already
+    // records — "the camera was aimed at a meaningless centroid" — and the
+    // first cut of this vantage reproduced it exactly, dropping ropeLanterns
+    // from 0.00226 to 0.0001 and leaving laundry unseeable.
+    //
+    // A VERTEX IS BY DEFINITION ON A REAL INSTANCE. Take one near the middle
+    // of the buffer, gather everything within a room's width of it, and frame
+    // THAT. No clustering, no centroid, nothing to drift.
+    const CLUSTER_R = 7
+    const meshBox = (name) => win.evaluate(([n, R]) => {
+      const three = window.__pt.renderer()
+      const drawable = (o) => o.isMesh || o.isPoints || o.isLine || o.isLineSegments
+      const pts = []
+      three.scene.traverse((o) => {
+        if (!drawable(o) || o.name !== n) return
+        const p = o.geometry.getAttribute('position')
+        if (!p || !p.count) return
+        o.updateWorldMatrix(true, false)
+        const m = o.matrixWorld.elements
+        for (let i = 0; i < p.count; i++) {
+          const x = p.getX(i), y = p.getY(i), z = p.getZ(i)
+          pts.push([
+            m[0] * x + m[4] * y + m[8] * z + m[12],
+            m[1] * x + m[5] * y + m[9] * z + m[13],
+            m[2] * x + m[6] * y + m[10] * z + m[14],
+          ])
+        }
+      })
+      if (!pts.length) return null
+      const s = pts[Math.floor(pts.length / 2)]
+      const lo = [...s], hi = [...s]
+      let n2 = 0
+      for (const w of pts) {
+        if ((w[0] - s[0]) ** 2 + (w[2] - s[2]) ** 2 > R * R) continue
+        n2++
+        for (let k = 0; k < 3; k++) {
+          if (w[k] < lo[k]) lo[k] = w[k]
+          if (w[k] > hi[k]) hi[k] = w[k]
+        }
+      }
+      return { min: lo, max: hi, verts: n2, total: pts.length }
+    }, [name, CLUSTER_R])
     const out = []
     for (const name of ['laundryLines', 'ropeLanterns', 'lanternRopes', 'windowSpill']) {
+      // THE NEGATIVE CASE HAS TO BE LIT TO BE A NEGATIVE CASE. Every other
+      // subject is measured at noon, deliberately, because nothing else in the
+      // scene animates then. The window spill is DRIVEN BY windowGlow and is
+      // therefore opacity zero at midday, so at noon it is absent rather than
+      // static — and an absent negative case has never been tested, which is
+      // the same argument that keeps `sunAngle` in celestial.mjs's table.
+      // Isolated, dusk shows the spill and nothing else, so the measurement
+      // stays as exact as the others.
+      await win.evaluate((h) => window.__pt.store.getState()
+        .updateEnvironment({ timeOfDay: h }), name === 'windowSpill' ? 18.5 : 12)
+      const box = await meshBox(name)
+      if (!box) { out.push([name, null, 'NOT IN SCENE']); continue }
+      // Broadside from 6m at the subject's own height, which is the shape the
+      // rope vantage already used and is correct for anything strung across a
+      // gap. No occlusion search: these meshes hang over the street by
+      // construction, and a raycast sweep against a 200k-triangle merged scene
+      // costs minutes for four subjects on four seeds.
+      const cx = (box.min[0] + box.max[0]) / 2, cz = (box.min[2] + box.max[2]) / 2
+      const cy = (box.min[1] + box.max[1]) / 2
+      // Look along the SHORT axis of the box so a line of washing crosses the
+      // frame rather than receding down it — `w >= h` guessing an axis is a
+      // documented failure here, and a box that is genuinely square gets an
+      // arbitrary answer that is equally good.
+      const spanX = box.max[0] - box.min[0], spanZ = box.max[2] - box.min[2]
+      const spanY = box.max[1] - box.min[1]
+      // A SUBJECT FLATTER THAN HALF ITS OWN FOOTPRINT IS LOOKED DOWN AT —
+      // `asset.mjs`'s rule, derived from the box rather than from a flag. The
+      // window spill is a band lying on the cobbles, so at eye level it is a
+      // sliver behind the near paving; the same is true of a quay or a bridge
+      // deck, which is why the rule lives in the box and not in a name list.
+      const flat = spanY < Math.min(spanX, spanZ) * 0.5
+      const [ox, oz] = spanX >= spanZ ? [0.8, 6.0] : [6.0, 0.8]
+      const rise = flat ? Math.max(4.5, Math.max(spanX, spanZ) * 0.7) : 0.4
+      const pitch = flat ? -Math.atan2(rise, Math.hypot(ox, oz)) : -0.05
+      await win.evaluate(([x, y, z, dx, dz, up, pi]) => {
+        window.__pt.flyToWorld(x - dx, y + up, z - dz, Math.atan2(dz, dx), pi)
+      }, [cx, cy, cz, ox, oz, rise, pitch])
+      await new Promise((r) => setTimeout(r, 1200))
       const iso = await isolate(win, name)
       if (!iso.found) { out.push([name, null, 'NOT IN SCENE']); await iso.restore(); continue }
       await new Promise((r) => setTimeout(r, 500))
@@ -378,9 +524,12 @@ for (const seed of seeds) {
         frames.push(await shootGrid())
         if (k === 0) {
           // The floor, from the same pixels, as close together as this
-          // renderer allows. `windowSpill` — the intended negative case — is
-          // not in frame at a rope-lantern vantage, and a check with no
-          // negative case has never been tested.
+          // renderer allows. `windowSpill` is the NEGATIVE CASE and is now
+          // measured at its own vantage rather than being off-frame: a pool
+          // of light on the cobbles is named, isolated and deliberately does
+          // not sway, so it is the one row that must read below its bar. A
+          // negative case that is merely absent proves nothing, which is the
+          // same argument that keeps `sunAngle` in celestial.mjs's table.
           await new Promise((r) => setTimeout(r, 70))
           frames.push(await shootGrid())
         }
@@ -395,7 +544,7 @@ for (const seed of seeds) {
       }
       const bar = Math.max(1e-5, floor * 4)
       out.push([name, +sig.toFixed(5), lit < 12 ? 'TOO FEW PIXELS' : null,
-        +bar.toFixed(5), sig > bar])
+        +bar.toFixed(5), sig > bar, { verts: box.verts, total: box.total, lit }])
       await iso.restore()
     }
     return out
@@ -405,11 +554,38 @@ for (const seed of seeds) {
     const moving = movers.filter((r) => r[4]).length
     console.log('  hanging:   ' + sway.map(([n, d, why, bar]) =>
       `${n} ${why ? why : `${d}/${bar}`}`).join('  ·  '))
+    // AN UNGRADED MESH IS NOT A CLEAN ONE. Each subject now gets a camera
+    // pointed at its own box, so `TOO FEW PIXELS` no longer means "the
+    // vantage was chosen for something else" — it means the camera was aimed
+    // at this mesh and could not see it, which is a finding. Reported
+    // separately from the sway gate so a framing failure and a dead shader do
+    // not read as the same defect.
+    const blind = sway.filter((r) => r[0] !== 'windowSpill' && r[2] === 'TOO FEW PIXELS')
+    swayBlind += blind.length
+    for (const [n, , , , , d] of blind) {
+      // SAY WHICH HALF FAILED. `could not be seen` is a count that buys
+      // guesses: a cluster of 4 vertices means the instance picker landed on a
+      // stray, and a cluster of 400 that lights 3 pixels means the camera is
+      // pointed at it and something is in the way. Those want opposite fixes.
+      console.log(`             ^ ${n} was framed at its own instance and still could`)
+      console.log(`               not be seen — ${d.verts} of ${d.total} verts in the ` +
+        `cluster, ${d.lit} lit samples of 65536.`)
+      console.log('               Too few samples to answer is a FAILURE, not a pass.')
+    }
+    // The negative case has to fail. A probe whose "does not move" row is
+    // itself unmeasurable has never been tested.
+    const neg = sway.find((r) => r[0] === 'windowSpill')
+    if (neg && neg[1] !== null && !neg[2] && neg[4]) {
+      swayFails++
+      console.log('             ^ windowSpill MOVED. It is the negative case — a ground')
+      console.log('               quad that must not sway — so either the displacement')
+      console.log('               is reaching a mesh it should not, or the floor is bad.')
+    }
     if (!movers.length) {
       swayFails++
       console.log('             ^ NOTHING GRADED. No hanging mesh had enough pixels')
-      console.log('               at this vantage — too few samples to answer is a')
-      console.log('               FAILURE, not a pass.')
+      console.log('               even framed at its own box — too few samples to')
+      console.log('               answer is a FAILURE, not a pass.')
     } else if (moving === 0) {
       // AT LEAST ONE, NOT ALL THREE. The failure this guards against is
       // GLOBAL: the sway is one shader applied by one function, and when it
@@ -526,8 +702,11 @@ console.log(`\nVERDICT: ${offTown} particles outside the town box across ` +
   `${systems} systems; smoke starts within 3m of the ground on ${belowRoof}; ` +
   `${familyGaps} seeds miss a lantern family; ${adrift} camera-local boxes adrift; ` +
   `fireflies over soft ground or water ${fireflyNature === null ? 'n/a' : fireflyNature + '%'}; ` +
+  `mist over water ${mistWater === null ? 'n/a' : mistWater + '%'} worst seed, ` +
+  `${mistOffRiver} off the river; ` +
   `${reactFails} seeds where nothing reacts to the player; ` +
-  `${swayFails} hanging-sway failures; ${missingSystems} systems missing with ` +
+  `${swayFails} hanging-sway failures, ${swayBlind} hanging meshes unseeable at their own box; ` +
+  `${missingSystems} systems missing with ` +
   `their prerequisite present; ${laundryGaps} seeds with no washing lines.`)
 console.log('  `spread` is each system\'s x-extent as a fraction of the town\'s;')
 console.log('  `cam` means the system travels with the player and is graded on')
