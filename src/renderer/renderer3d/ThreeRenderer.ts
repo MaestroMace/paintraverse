@@ -46,7 +46,7 @@ const MOUSE_PITCH_SENS = 0.002
 import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, volumeBoxes, facadeParts, type BuildingBatchResult, type BuildingTop, FLOOR_HEIGHT } from './BuildingFactory'
 import { tickWallEmissive } from './architecture/VolumeRenderer'
 import { buildLanternStrings, buildWallLanterns, buildWindowSpill, setLanternEmissiveIntensity, setWindowSpillOpacity, tickLanternEmissive, lampAnchors, resetLampAnchors, type LampAnchor } from './LanternStrings'
-import { buildPropMeshes, setLampPoolOpacity, propSizes, propInstances, type PropBatchResult } from './PropFactory'
+import { buildPropMeshes, setLampPoolOpacity, LAMP_POOL_TEX, propSizes, propInstances, type PropBatchResult } from './PropFactory'
 import { starIntensityFor, starThresholdFor, moonPhaseDir, weatherAir, OVERCAST_SKY } from './Materials'
 
 /**
@@ -294,7 +294,7 @@ interface ParticleSystem {
   lifetimes: Float32Array
   origins: Float32Array
   count: number
-  type: 'smoke' | 'firefly' | 'bird' | 'moth' | 'precip'
+  type: 'smoke' | 'firefly' | 'bird' | 'moth' | 'precip' | 'mist'
   /**
    * TRUE when the system travels with the player rather than sitting over the
    * town. Rain and snow are everywhere by definition, so they are drawn as a
@@ -1152,7 +1152,8 @@ void main() {
     // Spawn particles
     this.initParticles(
       chimneyPositions, map.gridWidth * TILE, map.gridHeight * TILE,
-      terrainLayer?.terrainTiles ?? null, heightMap)
+      terrainLayer?.terrainTiles ?? null, heightMap,
+      terrainLayer?.waterLevel ?? null)
 
     // Weather, which allocates once at its maximum and is then scaled by
     // draw range. Before initMoths so the moths keep their place in the
@@ -2001,6 +2002,20 @@ void main() {
         mat.size = isNight ? 0.12 : 0.04
       } else if (ps.type === 'bird') {
         mat.opacity = birdsRoosted ? 0.0 : birdOpacity
+      } else if (ps.type === 'mist') {
+        // MIST IS A COOLING EFFECT, so it is thickest before dawn and gone by
+        // mid-morning — the one system here whose schedule is not simply
+        // "when it is dark". Keyed off the hour rather than the isNight
+        // boolean because the interesting part is the RAMP: at 18.5, the hour
+        // the board grades, there should be a hint on the water and not a
+        // bank of fog.
+        const t = timeOfDay
+        const amt = t < 4 ? 1.0
+          : t < 8 ? 1.0 - (t - 4) / 4        // burning off through the morning
+          : t < 17 ? 0                        // daylight
+          : t < 20 ? (t - 17) / 3 * 0.55      // gathering after sunset
+          : 0.55 + (Math.min(t, 24) - 20) / 4 * 0.45
+        mat.opacity = 0.14 * amt
       } else if (ps.type === 'moth') {
         // KEYED TO THE LANTERNS, NOT TO A HOUR TABLE OF ITS OWN. A moth at
         // an unlit lamp is an insect hovering over a pole, so this reads the
@@ -2018,6 +2033,7 @@ void main() {
   private initParticles(
     chimneyPositions: THREE.Vector3[], worldW: number, worldH: number,
     tiles: number[][] | null, heightMap: number[][] | null,
+    waterLevel: number[][] | null,
   ): void {
     // Chimney smoke: 2 particles per chimney × max 16 chimneys = 32.
     // Was 4 × 16 = 64 (originally 8 × 20 = 160). At dusk-walkaround
@@ -2121,10 +2137,12 @@ void main() {
     // Water is in as well as soft ground, because a river at dusk is the
     // place you would actually stand to watch them.
     const soft: Array<[number, number]> = []
+    const water: Array<[number, number]> = []
     if (tiles) {
       for (let ty = 0; ty < tiles.length; ty++) {
         for (let tx = 0; tx < (tiles[ty]?.length ?? 0); tx++) {
           const t = tiles[ty][tx]
+          if (t === 3) water.push([tx, ty])
           if (isSoftGround(t) || t === 3) soft.push([tx, ty])
         }
       }
@@ -2172,6 +2190,10 @@ void main() {
       points: ffPoints, positions: ffPositions, velocities: ffVelocities,
       lifetimes: ffLifetimes, origins: ffOrigins, count: fireflyCount, type: 'firefly',
     })
+
+    // Mist belongs to the river, so it is spawned here where the water tiles
+    // were already gathered rather than walking the map a second time.
+    this.initRiverMist(water, heightMap, waterLevel)
   }
 
   /** Birds circling tall spires — 4 per spire, capped at 8 spires (32 birds
@@ -2220,6 +2242,79 @@ void main() {
     this.particleGroup.add(points)
     this.particleSystems.push({
       points, positions, velocities, lifetimes, origins, count, type: 'bird',
+    })
+  }
+
+  /**
+   * MIST ON THE RIVER — the sixth particle system, and the one that belongs
+   * to a place rather than to the whole map.
+   *
+   * The river arc carved a channel, walled the urban bank, quayed it, dressed
+   * it and bridged it, and after dark the water is a dark ribbon with nothing
+   * happening over it. Mist forms on water at night because the air cools
+   * faster than the water does, so it is exactly and only a river thing —
+   * which makes it the first particle system that can be GRADED on where it
+   * is: `particles.mjs` reports the ground under every system, and this one
+   * should read ~100% water or it is not river mist.
+   *
+   * Large, slow, and very faint. A mist particle that reads individually is
+   * not mist, it is a ghost: the effect is the SUM, so each one is a 3m
+   * radial smudge at a tenth of an opacity and there are enough of them to
+   * overlap. That is also why it uses the lamp pool's texture — a hard-edged
+   * square point at 3m is a box, and what a soft falloff looks like is one
+   * decision this repo already made.
+   *
+   * Sits just above the waterline rather than at a fixed altitude, and the
+   * waterline is resolved the same way TerrainMesh resolves it, because a
+   * mist bank floating a metre over the surface is a cloud.
+   */
+  private initRiverMist(
+    water: Array<[number, number]>,
+    heightMap: number[][] | null,
+    waterLevel: number[][] | null,
+  ): void {
+    if (water.length < 12) return
+    // Scaled to the channel: a pond gets a wisp and a river gets a bank.
+    const count = Math.min(90, Math.max(24, Math.round(water.length * 0.45)))
+    const positions = new Float32Array(count * 3)
+    const velocities = new Float32Array(count * 3)
+    const lifetimes = new Float32Array(count)
+    const origins = new Float32Array(count * 3)
+
+    for (let i = 0; i < count; i++) {
+      const i3 = i * 3
+      const [tx, tz] = water[Math.floor(Math.random() * water.length)]
+      const x = (tx + Math.random()) * TILE
+      const z = (tz + Math.random()) * TILE
+      const raw = waterLevel?.[tz]?.[tx]
+      const surface = raw === undefined || Number.isNaN(raw)
+        ? (heightMap ? getTerrainHeight(heightMap, x / TILE, z / TILE) : 0)
+        : raw * TERRAIN_WORLD_SCALE
+      const y = surface + 0.15 + Math.random() * 0.9
+      origins[i3] = x; origins[i3 + 1] = y; origins[i3 + 2] = z
+      positions[i3] = x; positions[i3 + 1] = y; positions[i3 + 2] = z
+      // Drift radius, rate and phase. Mist does not fall or rise, it CREEPS,
+      // so this is a slow closed orbit rather than an integration — same
+      // shape as the birds and the moths, and for the same reason: nothing
+      // to accumulate, nothing to respawn, two trig calls a particle.
+      velocities[i3] = 0.9 + Math.random() * 2.4
+      velocities[i3 + 1] = 0.04 + Math.random() * 0.07
+      velocities[i3 + 2] = Math.random() * Math.PI * 2
+      lifetimes[i] = Math.random()
+    }
+
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    const mat = new THREE.PointsMaterial({
+      color: 0xc4d2dc, size: 3.0, transparent: true, opacity: 0,
+      map: LAMP_POOL_TEX, sizeAttenuation: true, depthWrite: false,
+      blending: THREE.NormalBlending,
+    })
+    const points = new THREE.Points(geo, mat)
+    points.name = 'rivermist'
+    this.particleGroup.add(points)
+    this.particleSystems.push({
+      points, positions, velocities, lifetimes, origins, count, type: 'mist',
     })
   }
 
@@ -2532,6 +2627,25 @@ void main() {
           const rattr = this._rainLines.geometry.getAttribute('position') as THREE.BufferAttribute
           rattr.needsUpdate = true
         }
+        continue
+      }
+
+      // Mist: a very slow closed orbit, so it CREEPS rather than falling or
+      // rising. Same derive-from-time shape as the birds and the moths.
+      if (ps.type === 'mist') {
+        const mat = ps.points.material as THREE.PointsMaterial
+        if (mat.opacity <= 0) continue
+        for (let i = 0; i < ps.count; i++) {
+          const i3 = i * 3
+          const r = vel[i3], w = vel[i3 + 1], phase = vel[i3 + 2]
+          const a = time * w + phase
+          pos[i3] = orig[i3] + Math.cos(a) * r
+          pos[i3 + 2] = orig[i3 + 2] + Math.sin(a * 0.8 + phase) * r
+          // Barely any vertical travel. Mist that bobs reads as smoke.
+          pos[i3 + 1] = orig[i3 + 1] + Math.sin(a * 1.3) * 0.12
+        }
+        const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
+        attr.needsUpdate = true
         continue
       }
 

@@ -62,7 +62,10 @@ export function buildLampPoolTexture(): THREE.CanvasTexture {
   return tex
 }
 
-const _lampPoolTex = buildLampPoolTexture()
+/** THE shared instance. `buildLampPoolTexture` is the builder and calling it
+ *  twice allocates a second identical 64x64 — one decision, one texture. */
+export const LAMP_POOL_TEX = buildLampPoolTexture()
+const _lampPoolTex = LAMP_POOL_TEX
 // A flat horizontal disc lit with the radial-gradient alpha map reads as
 // a proper ground light pool — elongated ellipse at oblique angles, circle
 // when looked straight down. Sprites (previous approach) always faced the

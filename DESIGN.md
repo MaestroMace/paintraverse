@@ -84,7 +84,8 @@ twinkle sits at 0.18–0.40 Hz deliberately below the window flicker: two
 things breathing together read as one strobe, and that is the defect the
 flicker was dropped from 2.2–4.4 Hz to fix.
 
-Moths are the first moving thing that knows where the LIGHTS are. Smoke
+Moths are the first moving thing that knows where the LIGHTS are, and river
+mist is the first that belongs to a PLACE. Smoke
 comes out of chimneys, birds circle spires, fireflies are scattered over
 the map at random; a lantern with nothing at it is a lamp, and a lantern
 with a few moths at it is a summer evening. They orbit erratically rather

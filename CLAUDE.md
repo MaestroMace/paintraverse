@@ -1161,6 +1161,27 @@ a dark street and pillar 5 wants POOLS and a uniform floor is neither. Every
 building casts one and they overlap, so the per-building value is set by what
 the SUM looks like.
 
+**MIST ON THE RIVER — THE FIRST PARTICLE SYSTEM THAT BELONGS TO A PLACE.**
+The river arc carved a channel, walled the urban bank, quayed it, dressed it
+and bridged it, and after dark the water was a dark ribbon with nothing
+happening over it. Mist forms on water because the air cools faster than the
+water does, so it is exactly and only a river thing — which makes it the first
+system that can be GRADED on where it is rather than merely on its extent:
+**97% over water**, and anything else would mean it is not river mist.
+
+**A MIST PARTICLE THAT READS INDIVIDUALLY IS NOT MIST, IT IS A GHOST.** The
+effect is the SUM, so each is a 3m radial smudge at a tenth of an opacity and
+there are enough to overlap. It also gets the lamp pool's texture rather than
+a second copy, because a hard-edged square point at 3m is a box and what a
+soft falloff looks like is one decision this repo already made — `LAMP_POOL_TEX`
+is the shared instance now, after a third caller started calling the BUILDER
+and quietly allocating its own identical 64x64.
+
+**And its schedule is the one thing here that is not "when it is dark".** Mist
+is thickest before dawn and burns off through the morning, so it is keyed off
+the HOUR rather than the `isNight` boolean — at 18.5, the hour the board
+grades, there is a hint on the water and not a bank of fog.
+
 **A FIREFLY OVER COBBLES IS A DUST MOTE, AND THE SPREAD METRIC COULD NOT SEE
 IT.** They were scattered by `Math.random()` over the whole map, so
 `particles.mjs` read a perfect 0.99 x-extent while 44% of them hung over

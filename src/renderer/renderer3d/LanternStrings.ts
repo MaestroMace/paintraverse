@@ -15,7 +15,7 @@ import type { MapDocument, ObjectDefinition } from '../core/types'
 import { stableHash, DWELLING_TYPES } from '../core/types'
 import { getTerrainHeight } from './TerrainMesh'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
-import { buildLampPoolTexture } from './PropFactory'
+import { LAMP_POOL_TEX } from './PropFactory'
 import type { BuildingTop } from './BuildingFactory'
 import { TILE } from './scale'
 
@@ -193,7 +193,7 @@ export function resetLampAnchors(): void { lampAnchors.length = 0 }
  * same reason: a couple of hundred additive quads is a couple of hundred
  * draw calls otherwise, and the phone is the machine that cares.
  */
-const _spillTex = buildLampPoolTexture()
+const _spillTex = LAMP_POOL_TEX
 const _spillMat = new THREE.MeshBasicMaterial({
   color: 0xffc98a,
   // BOTH `map` AND `alphaMap`, which is what makes it a pool rather than a
