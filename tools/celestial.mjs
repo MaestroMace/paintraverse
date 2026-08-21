@@ -1,0 +1,301 @@
+/**
+ * CELESTIAL — do the Environment panel's sliders do anything?
+ *
+ * `moonPhase` and `starDensity` were declared in EnvironmentState, defaulted
+ * in the store AND in the generator, and wired to two sliders reporting a
+ * percentage, and NOTHING READ EITHER OF THEM for the whole life of the app.
+ * That is the ghost failure with a user interface, and it is worse than the
+ * plain kind: nobody notices absent content, but a labelled control is a
+ * promise, so a person drags it, watches the number move and concludes the
+ * feature is there and subtle.
+ *
+ * `registry.mjs` audits definitions and `features.mjs` audits gated features.
+ * Neither can see this, because a control is not a definition and not a gate
+ * — so it needs the one test that has no way to be fooled: SET IT TO BOTH
+ * EXTREMES AND COUNT THE PIXELS THAT CHANGED. No thresholds, no model of what
+ * the slider ought to do, and it cannot pass on a control that is wired to
+ * something irrelevant either, because the frames would differ in the wrong
+ * place — which is why it also writes them out to be looked at.
+ *
+ * A control whose two extremes render identically is DEAD. That is the whole
+ * verdict.
+ *
+ *   xvfb-run -a -s "-screen 0 1400x900x24" node tools/celestial.mjs [seed]
+ */
+import { _electron as electron } from 'playwright-core'
+import { waitForScene } from './lib/scene.mjs'
+import { hideChrome } from './lib/vantage.mjs'
+import { mkdirSync } from 'node:fs'
+
+const seed = Number(process.argv.slice(2).find((a) => /^\d+$/.test(a))) || 4242
+mkdirSync('.shots/celestial', { recursive: true })
+
+const app = await electron.launch({ args: ['.'], cwd: process.cwd() })
+const win = await app.firstWindow()
+win.on('pageerror', (e) => console.log('PAGEERROR:', e.message))
+await win.waitForLoadState('domcontentloaded')
+await win.waitForTimeout(3000)
+await win.getByText('Landscape', { exact: false }).first().click()
+await win.waitForTimeout(1200)
+
+await win.evaluate((s) => {
+  const inp = [...document.querySelectorAll('.left-panel input')]
+    .find((i) => i.type !== 'range' && /^\d+$/.test(i.value))
+  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+  set.call(inp, s); inp.dispatchEvent(new Event('input', { bubbles: true }))
+}, seed)
+await win.waitForTimeout(150)
+await win.getByRole('button', { name: /^generate$/i }).first().click()
+await win.waitForTimeout(2600)
+await win.getByRole('button', { name: '3D', exact: true }).click()
+await waitForScene(win)
+await hideChrome(win)
+
+const setEnv = (patch) =>
+  win.evaluate((p) => {
+    const st = window.__pt.store.getState()
+    st.updateEnvironment({ ...p, celestial: { ...st.map.environment.celestial, ...(p.celestial || {}) } })
+  }, patch)
+
+// LOOK UP. Both controls live in the sky and a level camera sees almost none
+// of it — the same trap hours.mjs documents getting six sky samples out of
+// four hundred and passing itself on an empty measurement.
+const aim = async (pitch) => {
+  await win.evaluate((pi) => {
+    const pt = window.__pt, r3 = pt.renderer()
+    const c = r3.camera
+    pt.flyToWorld(c.position.x, c.position.y, c.position.z, 0.6, pi)
+  }, pitch)
+  await win.waitForTimeout(500)
+}
+
+const shoot = async (name) => {
+  await win.locator('canvas').last().screenshot({ path: `.shots/celestial/${seed}-${name}.png` })
+  // A LUMA GRID, NOT THE PNG BYTES.
+  //
+  // The first version compared PNG files and reported all three controls
+  // live — INCLUDING sunAngle, which the 3D renderer demonstrably does not
+  // read. False positive from a scene that ANIMATES: moths, fireflies,
+  // smoke, window flicker and water shimmer all move, so any two frames
+  // differ in some byte and a boolean "differs" can only ever answer yes.
+  // The instrument was measuring the passage of time.
+  return win.evaluate((n) => {
+    const cv = window.__pt.renderer().renderer.domElement
+    const c2 = document.createElement('canvas')
+    c2.width = n; c2.height = n
+    const g2 = c2.getContext('2d', { willReadFrequently: true })
+    g2.drawImage(cv, 0, 0, n, n)
+    const d = g2.getImageData(0, 0, n, n).data
+    const out = new Array(n * n)
+    for (let i = 0; i < n * n; i++) {
+      out[i] = (0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2]) / 255
+    }
+    return out
+  }, GRID)
+}
+
+// 256, NOT 96, AND ENERGY, NOT A COUNT — and both because the tool got the
+// moon WRONG in the other direction, twice.
+//
+// With a 96 grid and a thresholded fraction it read moonPhase as DEAD, and
+// the photograph said otherwise: the new moon is completely invisible and
+// the full moon is a clean disc, which is the feature working exactly. The
+// moon is ~20px in a 935px frame, so at 96 it lands on two samples out of
+// nine thousand — 0.02%, under any floor by construction. A METRIC CANNOT
+// GRADE A FEATURE SMALLER THAN ITS SAMPLE RESOLVES, which this repo already
+// records for ivy at 4% of buildings, and a fraction-of-frame statistic is
+// blind to one small bright thing by design.
+//
+// Mean absolute difference sees both shapes: a whole moon vanishing is a few
+// samples changing by a lot, and a sky filling with stars is many samples
+// changing a little. So the tool reports it alongside the fraction and grades
+// on it, with the fraction kept because it is the one a person can picture.
+const GRID = 256
+const EPS = 0.02
+const stats = (a, b, mask) => {
+  let n = 0, sum = 0, total = 0
+  for (let i = 0; i < a.length; i++) {
+    if (mask && !mask[i]) continue
+    total++
+    const d = Math.abs(a[i] - b[i])
+    sum += d
+    if (d > EPS) n++
+  }
+  return { frac: n / Math.max(1, total), mad: sum / Math.max(1, total) }
+}
+
+/**
+ * SAMPLES AROUND ONE WORLD POINT, so a small subject is not graded against
+ * the whole frame's animation.
+ *
+ * The moon is ~20px in a 935px frame and the night sky behind it is full of
+ * flickering windows, so whole-frame energy reads the FLICKER and calls a
+ * working control dead: floor 0.00026 against a moon signal of 0.00047. No
+ * threshold fixes that, because the noise genuinely is larger than the signal
+ * when you measure the wrong area — and turning the stars off, which was the
+ * right move for a different confound, did not help because the windows were
+ * never the stars.
+ *
+ * `subjectPixels` in lib/vantage solved the same problem the same way: it
+ * raycasts a mask rather than measuring the projected box, because the box
+ * also holds sky, a street and four neighbours. Projecting the moon's own
+ * world position is EXACT — the tool is TOLD where the subject is rather than
+ * inferring it — and returns null when the subject is off screen, which is a
+ * failure and not a pass.
+ */
+const maskAround = async (world, radiusFrac) =>
+  win.evaluate(({ w, rf, n }) => {
+    const pt = window.__pt, r3 = pt.renderer(), THREE = pt.THREE
+    const v = new THREE.Vector3(w[0], w[1], w[2]).project(r3.camera)
+    if (v.z > 1 || Math.abs(v.x) > 1.2 || Math.abs(v.y) > 1.2) return null
+    const cx = (v.x * 0.5 + 0.5) * n
+    const cy = (1 - (v.y * 0.5 + 0.5)) * n
+    const r = rf * n
+    const out = new Array(n * n).fill(false)
+    let hit = 0
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r) { out[y * n + x] = true; hit++ }
+      }
+    }
+    return hit ? out : null
+  }, { w: world, rf: radiusFrac, n: GRID })
+
+const rows = []
+let dead = 0
+
+/**
+ * One control, measured against a noise floor taken AT ITS OWN VANTAGE.
+ *
+ * Per-vantage on purpose: looking up at the moon is mostly empty sky and
+ * almost no animation, while a level street view is full of moths and
+ * flickering windows. One global floor would be too strict for the first and
+ * too slack for the second, which is the numerator/denominator lesson wearing
+ * a camera.
+ */
+const probe = async (label, pitch, hour, apply, cases, focus) => {
+  await setEnv({ timeOfDay: hour })
+  await aim(pitch)
+  const mask = focus ? await maskAround(focus.world, focus.radius) : null
+  if (focus && !mask) console.log(`  ${label}: SUBJECT OFF SCREEN — cannot grade. Not a pass.`)
+  const n0 = await shoot(`${label}-noise-a`)
+  await win.waitForTimeout(900)
+  const n1 = await shoot(`${label}-noise-b`)
+  const floor = stats(n0, n1, mask)
+  // THREE TIMES THE MEASURED NOISE, and NOTHING ELSE.
+  //
+  // There was an absolute minimum of 0.0006 here, invented by me, and it
+  // failed the moon: with the star confound removed the moon's own signal is
+  // 0.00025 against a floor near zero — twelve times its noise and a tenth of
+  // a number I made up. Three hand-written targets in propscale.mjs were
+  // wrong on their first run and this was the fourth. The epsilon that
+  // remains exists only so a perfectly static frame cannot divide the bar to
+  // zero; it is four times under the quietest floor ever measured here.
+  const bar = Math.max(1e-5, floor.mad * 3)
+
+  const frames = {}
+  for (const [name, value] of cases) {
+    await apply(value)
+    frames[name] = await shoot(`${label}-${name}`)
+  }
+  return { floor, bar, frames, mask }
+}
+
+/**
+ * A graded row, or an INFORMATIONAL one when the label is indented.
+ *
+ * The intermediate comparisons — 50% against each end, quarter against full —
+ * cover half the sweep by construction, so grading them against the full
+ * sweep's bar prints DEAD on a control that plainly works and reads as a
+ * finding. They are here to show the slider is monotonic and that its default
+ * sits between the ends, which is a magnitude to read rather than a gate to
+ * pass. Print the number, withhold the verdict.
+ */
+const record = (label, what, p, a, b) => {
+  const bar = p.bar
+  const st = stats(a, b, p.mask)
+  const graded = !label.startsWith('  ')
+  const live = st.mad > bar
+  if (graded && !live) dead++
+  rows.push([label, what, st, bar, graded ? (live ? 'live' : 'NO — DEAD') : 'ref'])
+}
+
+// STAR DENSITY — night, sky in frame.
+{
+  const p = await probe('stars', 0.9, 22,
+    (v) => setEnv({ celestial: { starDensity: v } }),
+    [['000', 0], ['100', 1], ['050', 0.5]])
+  console.log(`  stars vantage: animation floor mad ${p.floor.mad.toFixed(5)}`)
+  record('starDensity', '0 vs 100%', p, p.frames['000'], p.frames['100'])
+  // The default must sit BETWEEN the extremes and must reproduce what was
+  // hardcoded, or wiring up a dead control quietly restyles every scene that
+  // already exists.
+  record('  ^ 50% vs 0%', 'sanity', p, p.frames['000'], p.frames['050'])
+  record('  ^ 50% vs 100%', 'sanity', p, p.frames['050'], p.frames['100'])
+}
+
+// MOON PHASE — overhead at night, so point at it.
+//
+// STARS OFF FOR THIS ONE. The animation at this vantage is almost entirely
+// star twinkle, which is a feature added in the same session and has nothing
+// to do with the moon: with it on, the floor came out at 0.00026 against a
+// moon signal of 0.00064, so a control that visibly works — the new moon
+// vanishes completely and the full moon is a clean disc — sat just under the
+// bar. The answer is not a looser bar, which is tuning to the result I
+// wanted; it is to CHANGE ONE THING, which is the single-variable discipline
+// this repo insists on everywhere else and is just as binding on a tool.
+{
+  await setEnv({ celestial: { starDensity: 0 } })
+  const p = await probe('moon', 1.35, 22,
+    (v) => setEnv({ celestial: { moonPhase: v } }),
+    [['new', 0], ['quarter', 0.5], ['full', 1]],
+    // Where updateLighting parks the moon, and a radius generous enough to
+    // hold the whole disc plus its edge.
+    { world: [0, 180, 0], radius: 0.06 })
+  console.log(`  moon  vantage: animation floor mad ${p.floor.mad.toFixed(5)}`)
+  record('moonPhase', 'new vs full', p, p.frames['new'], p.frames['full'])
+  record('  ^ quarter vs full', 'sanity', p, p.frames['quarter'], p.frames['full'])
+  await setEnv({ celestial: { starDensity: 0.5 } })
+}
+
+// SUN ANGLE — the NEGATIVE CASE, and it is here on purpose.
+//
+// The pixel-art export reads it and the 3D walkaround derives its sun from
+// the hour alone, so this row is KNOWN dead in this path. A test with no
+// negative case has never been tested, and this one earned its keep
+// immediately: the first version of this tool reported it live.
+//
+// Not fixed in passing. Turning the 3D sun moves every shadow in the town,
+// which is a lighting change wanting its own A/B, not a footnote in a sky
+// commit.
+{
+  const p = await probe('sunangle', -0.1, 12,
+    (v) => setEnv({ celestial: { sunAngle: v } }),
+    [['000', 0], ['180', 180]])
+  console.log(`  sun   vantage: animation floor mad ${p.floor.mad.toFixed(5)}`)
+  record('sunAngle (3D) — known dead', '0 vs 180deg', p, p.frames['000'], p.frames['180'])
+}
+
+console.log(`\nseed ${seed} — CELESTIAL CONTROLS`)
+console.log('  control                        extremes        moved      mad      bar    verdict')
+// PRINT THE BAR BESIDE THE NUMBER. Without it a run where everything reads
+// DEAD is indistinguishable from a run where the floor spiked, and one such
+// run cost a round of guessing — the "make the tool explain itself, do not
+// just count" rule, applied to the tool's own verdict.
+for (const [name, what, st, bar, verdict] of rows) {
+  console.log(`  ${name.padEnd(30)} ${what.padEnd(14)} ${(st.frac * 100).toFixed(2).padStart(6)}%  ` +
+    `${st.mad.toFixed(5)}  ${bar.toFixed(5)}  ${verdict}`)
+}
+console.log(`\nVERDICT: ${dead} of 3 celestial controls do not reach the frame at all.`)
+console.log('  A control that lies is worse than absent content: nobody notices')
+console.log('  what is missing, and everybody believes a labelled slider.')
+console.log('  Graded on `mad` against three times the ANIMATION measured at the')
+console.log('  same vantage, over the subject`s own patch where it has one. The')
+console.log('  moon read DEAD at 2.5x a whole-frame floor and reads 1700x a')
+console.log('  masked one; nothing about the town changed between those two')
+console.log('  numbers, only where the tool was looking.')
+console.log('  A number here says the control REACHES the frame, not that it')
+console.log('  reaches the right part of it — frames are in .shots/celestial/')
+console.log('  and that half is settled by looking.')
+
+await app.close()

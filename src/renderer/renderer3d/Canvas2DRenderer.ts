@@ -9,7 +9,7 @@ import { stableHash } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { SpatialGrid } from './SpatialGrid'
 import { TERRAIN_COLORS } from '../core/terrain'
-import { roofColorFor, doorColorFor, starIntensityFor } from './Materials'
+import { roofColorFor, doorColorFor, starIntensityFor, starThresholdFor } from './Materials'
 
 // ── Spatial grids for fast object culling (built once per map, reused across frames) ──
 let _structureGrid: SpatialGrid | null = null
@@ -405,6 +405,11 @@ export function renderCanvas2D(
   // an export. Fades out toward the horizon, where the atmosphere is
   // thickest and the town is in the way.
   const starK = starIntensityFor(map.environment.timeOfDay)
+  // BOTH halves of the sky come from the shared module. The intensity was
+  // wired here on the first pass and the DENSITY was hardcoded in both
+  // renderers, which is the same split one value down — a shared definition
+  // that one caller only half-calls.
+  const starCut = starThresholdFor(map.environment.celestial.starDensity)
   if (starK > 0.001) {
     const CELLS_X = 190, CELLS_Y = 86
     const cw = W / CELLS_X, ch = horizonY / CELLS_Y
@@ -415,8 +420,8 @@ export function renderCanvas2D(
       if (haze <= 0) continue
       for (let cx = 0; cx < CELLS_X; cx++) {
         const r = hash2(cx, cy)
-        if (r < 0.958) continue
-        const mag = 0.45 + 0.55 * ((r - 0.958) / 0.042)
+        if (r < starCut) continue
+        const mag = 0.45 + 0.55 * ((r - starCut) / Math.max(1e-4, 1 - starCut))
         const a = Math.min(1, starK * haze * mag)
         if (a < 0.02) continue
         const px = (cx + hash2(cx + 11, cy + 3)) * cw

@@ -26,6 +26,8 @@ export function ThreeViewport() {
   const gridHeight = useAppStore((s) => s.map.gridHeight)
   const tileSize = useAppStore((s) => s.map.tileSize)
   const timeOfDay = useAppStore((s) => s.map.environment.timeOfDay)
+  const moonPhase = useAppStore((s) => s.map.environment.celestial.moonPhase)
+  const starDensity = useAppStore((s) => s.map.environment.celestial.starDensity)
   const mapName = useAppStore((s) => s.map.name)
   const objectDefs = useAppStore((s) => s.objectDefinitions)
   const buildingPalettes = useAppStore((s) => s.buildingPalettes)
@@ -59,6 +61,14 @@ export function ThreeViewport() {
   useEffect(() => {
     rendererRef.current?.updateLighting(timeOfDay)
   }, [timeOfDay])
+
+  // ...and the two Celestial sliders, which nothing had ever subscribed to.
+  // Separate effect from the hour on purpose: this one is dragged rarely and
+  // updateLighting is not free, so folding them together would re-run the
+  // whole lighting pass on every frame of a time-of-day scrub.
+  useEffect(() => {
+    rendererRef.current?.setCelestial(moonPhase, starDensity)
+  }, [moonPhase, starDensity])
 
   // FPS/draws telemetry: updates once per second. Writing to a ref'd DOM
   // node avoids a React state update → full component re-render every tick,

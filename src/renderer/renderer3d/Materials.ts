@@ -184,3 +184,56 @@ export function starIntensityFor(hour: number): number {
   if (h < 18.5) return 0.12 + 0.76 * (h - 18.0)      // to 0.5 at dusk
   return 0.5 + (0.5 * (h - 18.5)) / 1.5              // to the full field
 }
+
+/**
+ * HOW MANY STARS, from the `Star Density` slider that has existed in the
+ * Environment panel since the app did and has never been read by anything.
+ *
+ * `moonPhase` and `starDensity` are declared in `EnvironmentState`, defaulted
+ * in the store AND in the generator, and wired to two sliders that report a
+ * percentage — and NOTHING CONSUMED EITHER. That is the ghost failure with a
+ * user interface, which is worse than a plain ghost: the label is a promise,
+ * so a person drags the control, sees the number change and concludes the
+ * feature exists and is subtle. Nobody notices absent content; everybody
+ * mis-attributes a control that lies. Census the CONTROLS, not only the
+ * gates.
+ *
+ * Returns the hash threshold above which a sky cell carries a star, so it
+ * runs the opposite way to the slider. The default 0.5 returns exactly the
+ * 0.958 both renderers were hardcoding, which is deliberate: a fix to a dead
+ * control must not silently restyle every existing scene, and it keeps the
+ * board's night frames byte-identical so the change is provably free.
+ */
+export function starThresholdFor(density: number): number {
+  const d = Math.max(0, Math.min(1, density))
+  return 1 - d * 0.084
+}
+
+/**
+ * The direction the sun lies in FROM the moon, for a given phase — which is
+ * the whole of a moon phase, because a moon is a sphere and a phase is just
+ * which part of it is lit.
+ *
+ * 0 is new (the lit side faces away, so the disc is dark), 0.5 is a quarter
+ * (half lit, terminator straight down the middle) and 1 is full. That is the
+ * standard convention and it is what the slider's own label already claims.
+ *
+ * `toViewer` is the unit direction from the moon toward the observer and
+ * `side` any unit vector perpendicular to it — the terminator sweeps from one
+ * to the other, which puts the shadow across the visible face rather than
+ * around the back where nobody can see it.
+ */
+export function moonPhaseDir(
+  phase: number,
+  toViewer: readonly [number, number, number],
+  side: readonly [number, number, number],
+): [number, number, number] {
+  const p = Math.max(0, Math.min(1, phase))
+  const along = 2 * p - 1
+  const across = Math.sqrt(Math.max(0, 1 - along * along))
+  return [
+    toViewer[0] * along + side[0] * across,
+    toViewer[1] * along + side[1] * across,
+    toViewer[2] * along + side[2] * across,
+  ]
+}

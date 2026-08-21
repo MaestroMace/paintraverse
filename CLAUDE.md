@@ -1022,6 +1022,58 @@ the moths would have been unnamed. Same shape, same hour, two files apart. It
 reads `ps.type` off `particleSystems` now and prints `UNLABELLED-` loudly
 rather than guessing, because a missing label must not read as a pass.
 
+**A GHOST WITH A USER INTERFACE IS WORSE THAN A PLAIN ONE.** `moonPhase` and
+`starDensity` are declared in `EnvironmentState`, defaulted in the store AND
+in the generator, and wired to two Environment-panel sliders that report a
+percentage — and NOTHING READ EITHER OF THEM, for the whole life of the app.
+Nobody notices absent content, which is the ordinary ghost; a labelled control
+is a PROMISE, so a person drags it, watches the number move and concludes the
+feature exists and is subtle. `registry.mjs` audits definitions and
+`features.mjs` audits gated features, and a control is neither. **Census the
+CONTROLS, not only the gates** — `tools/celestial.mjs` sets each to both
+extremes and asks whether the frame changed.
+
+**AND THE TOOL BUILT TO CATCH THAT WAS WRONG THREE TIMES IN A ROW, EACH TIME
+FOR A DIFFERENT REASON, WHICH IS THE REAL ENTRY.**
+
+- **It compared PNG bytes and reported all three controls live** — including
+  `sunAngle`, which the 3D renderer demonstrably does not read. The scene
+  ANIMATES: moths, fireflies, smoke, window flicker and water shimmer all
+  move, so any two frames differ in some byte and a boolean "differs" can only
+  answer yes. It was measuring the passage of time. **A known-dead control is
+  the only reason it was caught, and that is the whole argument for keeping
+  `sunAngle` in the table rather than dropping it once explained: a test with
+  no negative case has never been tested.**
+- **Then a fraction-of-frame statistic read the moon as DEAD while the
+  photograph showed a new moon vanishing perfectly.** The moon is ~20px in a
+  935px frame, so at a 96-grid it lands on two samples in nine thousand. A
+  metric cannot grade a feature smaller than its sample resolves — the ivy
+  lesson, one instrument over.
+- **And then an invented absolute floor of 0.0006 failed it again**, because
+  the moon's own signal is a tenth of a number I made up. Three hand-written
+  targets in `propscale.mjs` were wrong on their first run and this was the
+  fourth. The bar is three times the MEASURED animation now and nothing else.
+
+The fix that actually worked was not a threshold at all: **measure where the
+subject IS.** Whole-frame energy at that vantage is window flicker, which is
+genuinely larger than a small disc, so no bar could separate them. Projecting
+the moon's own world position and comparing only that patch took it from
+"2.5x the floor, DEAD" to **1700x, live** — nothing about the town changed
+between those two numbers, only where the tool looked. `subjectPixels` solved
+the identical problem the identical way and its note was sitting in this file
+the whole time.
+
+**A CONFOUND IS NOT A THRESHOLD PROBLEM.** The moon vantage's noise was partly
+star twinkle — a feature added the same session, nothing to do with the moon.
+Turning the stars off for that probe is the single-variable discipline this
+file demands of every A/B, and it is just as binding on a tool as on a change.
+It was not enough on its own, which is how the flicker got named.
+
+**AND PRINT THE BAR BESIDE THE NUMBER.** One run came back with everything
+DEAD on unchanged signal values and there was no way to tell a real regression
+from a floor that had spiked. A verdict you cannot audit costs a round of
+guessing every time it surprises you.
+
 **A STILL PHOTOGRAPH SYSTEMATICALLY UNDER-REPORTS A MOTION FEATURE, SO GRADE
 THE THING IT CAN SEE.** The whole value of moths is the erratic movement, and
 no screenshot in this harness can show it. What a still CAN settle is whether
@@ -2838,6 +2890,18 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   fourth system arrived. Also censuses the three LANTERN FAMILIES, because the
   moths draw from all of them and a pass that reaches two of three reads as
   healthy while the survivors carry the count.
+- `xvfb-run -a node tools/celestial.mjs [seed]` — **do the Environment
+  panel's sliders do anything?** Sets each celestial control to both extremes
+  and measures how much of the frame changed, against a noise floor taken from
+  two frames with nothing changed — the animation is the control. No model of
+  what a slider ought to do, so it cannot be wrong about the intent; a control
+  whose extremes render identically is dead and that is the whole verdict.
+  Found `moonPhase` and `starDensity` read by NOTHING. **Read its three
+  self-inflicted failures before trusting a new probe you add to it** — PNG
+  bytes measuring animation, a fraction-of-frame statistic too coarse for a
+  20px moon, and an invented absolute floor — and note that `sunAngle` stays
+  in the table as the NEGATIVE CASE, because it is genuinely dead in the 3D
+  path and a test with no negative case has never been tested.
 - `xvfb-run -a node tools/mothshot.mjs [seed] [--time=]` — **stand at a
   lantern and look at it.** particles.mjs says the moth system exists, is
   inside the town and reaches every family; it cannot say whether a 7.5cm dot

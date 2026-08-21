@@ -46,7 +46,7 @@ import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, 
 import { tickWallEmissive } from './architecture/VolumeRenderer'
 import { buildLanternStrings, buildWallLanterns, setLanternEmissiveIntensity, tickLanternEmissive, lampAnchors, resetLampAnchors, type LampAnchor } from './LanternStrings'
 import { buildPropMeshes, setLampPoolOpacity, propSizes, propInstances, type PropBatchResult } from './PropFactory'
-import { starIntensityFor } from './Materials'
+import { starIntensityFor, starThresholdFor, moonPhaseDir } from './Materials'
 
 /**
  * Patch a material's fog to fade in more strongly near ground level, so
@@ -187,6 +187,7 @@ uniform float uCloud;
 uniform vec3 uMountainColor;
 uniform float uMountain;
 uniform float uStars;
+uniform float uStarCut;
 uniform float uTime;
 varying vec3 vLocalPos;
 float hash21(vec2 p) {
@@ -228,13 +229,17 @@ void main() {
     vec2 cell = vec2(az * 19.0, h * 34.0);
     vec2 id = floor(cell);
     float r = hash21(id);
-    // ~2.5% of cells carry a star, so the field reads as scattered rather
-    // than as a texture.
+    // How many cells carry a star. uStarCut comes from the Star Density
+    // slider through Materials.starThresholdFor — a control that existed for
+    // the whole life of the app and was read by nothing at all. Its default
+    // of 0.5 returns the 0.958 that was hardcoded here, so wiring it up
+    // changes no existing scene. (No backticks in here: this whole shader is
+    // a template literal and one would end it.)
     // Density and point size were tuned against a NIGHT SCREENSHOT, not by
     // taste on paper: RENDER_SCALE is 0.4, so a star narrower than about a
     // fifth of a cell never survives to a pixel. The first pass read as a
     // dozen specks.
-    float present = step(0.958, r);
+    float present = step(uStarCut, r);
     // Sub-cell position, so stars do not sit on a visible lattice.
     vec2 jitter = vec2(hash21(id + 11.0), hash21(id + 27.0));
     float d = length(fract(cell) - jitter);
@@ -247,7 +252,7 @@ void main() {
     float rate = 0.18 + hash21(id + 5.0) * 0.22;
     float twinkle = 0.72 + 0.28 * sin(uTime * rate * 6.2831 + phase);
     // Brighter stars are rarer: the top of the hash range gets the size.
-    float mag = 0.45 + 0.55 * smoothstep(0.958, 1.0, r);
+    float mag = 0.45 + 0.55 * smoothstep(uStarCut, 1.0, r);
     starField = present * point * twinkle * mag
               * smoothstep(0.06, 0.42, h);   // fade into the horizon haze
   }
@@ -349,12 +354,24 @@ export class ThreeRenderer {
     uMountain: { value: number };
     /** How much of the star field shows — 0 in daylight, 1 at night. */
     uStars: { value: number };
+    uStarCut: { value: number };
     /** Seconds, for the twinkle. Ticked in the render loop beside the
      *  window flicker, which is the other thing in this scene that moves
      *  slowly enough to read as alive rather than as a strobe. */
     uTime: { value: number };
   } | null = null
   private sunDisc: THREE.Mesh | null = null
+  private discUniforms: {
+    uLit: { value: THREE.Color };
+    uDark: { value: THREE.Color };
+    uPhaseDir: { value: THREE.Vector3 };
+    uSun: { value: number };
+  } | null = null
+  /** The two Celestial sliders. Both existed in the panel and in the store
+   *  from the beginning and NOTHING read either of them; see
+   *  Materials.starThresholdFor for the census. Defaults match the store's. */
+  private moonPhase = 0.5
+  private starDensity = 0.5
 
   // Particles
   private particleSystems: ParticleSystem[] = []
@@ -485,6 +502,7 @@ export class ThreeRenderer {
       uMountainColor: { value: new THREE.Color(0x707888) },
       uMountain: { value: 1.0 },
       uStars: { value: 0 },
+      uStarCut: { value: 0.958 },
       uTime: { value: 0 },
     }
     this.skyUniforms = uniforms
@@ -501,9 +519,48 @@ export class ThreeRenderer {
     this.skyMesh.renderOrder = -1
     this.scene.add(this.skyMesh)
 
-    // Sun/moon disc
-    const discGeo = new THREE.SphereGeometry(8, 8, 6)
-    const discMat = new THREE.MeshBasicMaterial({ color: 0xffee88, fog: false })
+    // Sun/moon disc.
+    //
+    // A MOON IS A SPHERE AND A PHASE IS JUST WHICH PART OF IT IS LIT, so the
+    // geometry was already right and only the material was wrong: a flat
+    // MeshBasicMaterial paints the whole ball one colour, which is a full
+    // moon every night of the year. One dot product against the direction
+    // the sun lies in gives the real thing, crescent through gibbous, with
+    // no texture and no second occluding disc.
+    //
+    // The unlit limb blends to the SKY rather than to black, because a new
+    // moon is invisible and not a dark ball with a bite out of it.
+    // `uSun` collapses the whole term for the daytime sun, which has no
+    // phase — one material, two bodies, no second mesh to keep in step.
+    const discGeo = new THREE.SphereGeometry(8, 16, 12)
+    this.discUniforms = {
+      uLit: { value: new THREE.Color(0xffee88) },
+      uDark: { value: new THREE.Color(0x39447e) },
+      uPhaseDir: { value: new THREE.Vector3(0, -1, 0) },
+      uSun: { value: 1 },
+    }
+    const discMat = new THREE.ShaderMaterial({
+      uniforms: this.discUniforms,
+      fog: false,
+      vertexShader: `
+varying vec3 vN;
+void main() {
+  vN = normalize(normal);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`,
+      fragmentShader: `
+uniform vec3 uLit;
+uniform vec3 uDark;
+uniform vec3 uPhaseDir;
+uniform float uSun;
+varying vec3 vN;
+void main() {
+  // A real terminator is sharp; the smoothstep is one segment wide so the
+  // 16x12 sphere's faceting does not read as a staircase down the edge.
+  float lit = smoothstep(-0.08, 0.08, dot(normalize(vN), normalize(uPhaseDir)));
+  gl_FragColor = vec4(mix(uDark, uLit, max(lit, uSun)), 1.0);
+}`,
+    })
     this.sunDisc = new THREE.Mesh(discGeo, discMat)
     this.sunDisc.position.copy(this.sunLight.position).normalize().multiplyScalar(200)
     this.scene.add(this.sunDisc)
@@ -1466,6 +1523,25 @@ export class ThreeRenderer {
     }
   }
 
+  /**
+   * The two Celestial sliders, which were read by NOTHING.
+   *
+   * `moonPhase` and `starDensity` are declared in EnvironmentState, defaulted
+   * in the store and in the generator, and wired to two sliders that report a
+   * percentage — and no consumer existed for either. A control that lies is
+   * worse than absent content: nobody notices what is missing, and everybody
+   * believes a labelled slider.
+   *
+   * Kept as fields and re-applied through updateLighting rather than acted on
+   * here, so there is one place that decides what the sky looks like. Both
+   * defaults reproduce the previously hardcoded behaviour exactly.
+   */
+  setCelestial(moonPhase: number, starDensity: number): void {
+    this.moonPhase = moonPhase
+    this.starDensity = starDensity
+    this.updateLighting(this.currentTimeOfDay)
+  }
+
   updateLighting(timeOfDay: number): void {
     this.currentTimeOfDay = timeOfDay
     const isNight = timeOfDay < 5 || timeOfDay >= 19
@@ -1548,7 +1624,7 @@ export class ThreeRenderer {
         this.skyUniforms.uMountain.value = 1.0
       }
       if (this.sunDisc) {
-        (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xccccdd)
+        this.discUniforms?.uLit.value.setHex(0xccccdd)
         this.sunDisc.position.set(0, 180, 0) // moon overhead
         this.sunDisc.scale.setScalar(0.3) // smaller moon
       }
@@ -1597,7 +1673,7 @@ export class ThreeRenderer {
         this.skyUniforms.uMountain.value = 1.0
       }
       if (this.sunDisc) {
-        (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xff8844)
+        this.discUniforms?.uLit.value.setHex(0xff8844)
         this._scratchSunDir2
           .set(sunX - this.townCenterX, Math.max(5, sunY), sunZ - this.townCenterZ)
           .normalize()
@@ -1642,7 +1718,7 @@ export class ThreeRenderer {
         this.skyUniforms.uMountain.value = 1.0
       }
       if (this.sunDisc) {
-        (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xffdd88)
+        this.discUniforms?.uLit.value.setHex(0xffdd88)
         this._scratchSunDir2
           .set(sunX - this.townCenterX, sunY, sunZ - this.townCenterZ)
           .normalize()
@@ -1686,7 +1762,7 @@ export class ThreeRenderer {
         this.skyUniforms.uMountain.value = 1.0
       }
       if (this.sunDisc) {
-        (this.sunDisc.material as THREE.MeshBasicMaterial).color.setHex(0xffee88)
+        this.discUniforms?.uLit.value.setHex(0xffee88)
         this._scratchSunDir2
           .set(sunX - this.townCenterX, sunY, sunZ - this.townCenterZ)
           .normalize()
@@ -1705,7 +1781,29 @@ export class ThreeRenderer {
     // snapping on at a boundary. `starIntensityFor` is in Materials.ts
     // because the pixel-art export paints its own sky and needs the same
     // answer.
-    if (this.skyUniforms) this.skyUniforms.uStars.value = starIntensityFor(timeOfDay)
+    if (this.skyUniforms) {
+      this.skyUniforms.uStars.value = starIntensityFor(timeOfDay)
+      this.skyUniforms.uStarCut.value = starThresholdFor(this.starDensity)
+    }
+
+    // THE MOON'S PHASE, ALSO ONCE AND ALSO AFTER THE SWITCH. Only the night
+    // arm draws a moon, so the temptation is to set this inside it — which is
+    // how the tone arc came to edit one branch of four. `uSun` collapses the
+    // phase for the three arms that draw a sun, and the whole thing is one
+    // assignment that no arm can forget.
+    //
+    // The moon hangs overhead at (0, 180, 0) and the player is on the ground,
+    // so the direction from the moon to the viewer is -Y and the terminator
+    // has to sweep from there toward the horizontal, or the shadow lands on
+    // the far side of the ball where nobody can see it. `uDark` takes the
+    // zenith the branch above just set, so the unlit limb blends into the sky
+    // instead of reading as a black bite.
+    if (this.discUniforms) {
+      this.discUniforms.uSun.value = isNight ? 0 : 1
+      const [px, py, pz] = moonPhaseDir(this.moonPhase, [0, -1, 0], [1, 0, 0])
+      this.discUniforms.uPhaseDir.value.set(px, py, pz)
+      if (this.skyUniforms) this.discUniforms.uDark.value.copy(this.skyUniforms.uZenith.value)
+    }
 
     // FEED THE WATER THE SKY IT IS REFLECTING.
     //
