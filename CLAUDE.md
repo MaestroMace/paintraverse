@@ -1117,6 +1117,50 @@ DRAWN count rather than the buffer size — precipitation allocates once at its
 maximum and scales by draw range, so a clear day was reporting 900 particles
 and calling the allocation weather.
 
+**SCALE MADE AN OLD BUG VISIBLE, AND THE OLD BUG WAS IN A MERGE.**
+`LanternStrings.mergeBufferGeos` concatenated the POSITION arrays of INDEXED
+geometries and threw the index away, which does not merge them — it draws
+whatever the vertex list happens to spell. A `BoxGeometry` is 24 positions and
+36 indices, so **every merged lantern, rope segment and garment in that file
+has been rendering as eight triangles where it needs twelve, since the
+function was written.** It survived because a lantern bulb is 12cm across and
+a garbled blob at 12cm still reads as a small glowing lump. What found it was
+an 8.5m plane: a `PlaneGeometry` is 4 positions and 6 indices, so a
+window-spill quad came out as ONE triangle, a hard-edged wedge lying on the
+cobbles where a soft pool should be. **When something large starts using a
+path only small things used, expect the path to have been wrong all along.**
+
+**AND THE SAME FUNCTION SILENTLY DROPPED UVs**, which is why the spill was a
+flat rectangle of colour on its second attempt too: the radial alpha map that
+makes a pool a pool had nowhere to attach. Exported from PropFactory rather
+than copied, because what a pool of light looks like is one decision — and
+the merge now refuses to emit a partial uv attribute, since mapping the
+geometries that lack one to a single texel is the same half-correct output in
+a new place.
+
+**"A LARGE FEATURELESS BLACK MASS" WAS THE GROUND TWO METRES AWAY.** It was
+filed as an open defect off a night photograph, survived a session, and was
+named by one raycast: 40 of 66 rays hit TERRAIN at 2m. `mothshot` picks a
+bearing by casting eye-to-LAMP, and a lantern is above head height — so a
+camera on a slope can have a perfect sightline to the bulb and a bank of earth
+filling the bottom half of the frame. **`flyTo` does not test occupancy is
+written up three times here and every instance was a camera INSIDE something;
+this is the variant one step out — a camera legally standing somewhere and
+pointed OVER an obstruction it never tested for.** A second, level ray fixes
+it, and the frame it produces is a different street entirely.
+
+**PILLAR 5 HAD THREE LAYERS OF LIGHT AND ALL THREE WERE SOURCES.** A ground
+pool under a lamppost, a chain overhead, a bracket at eye level — and nothing
+let a lit WINDOW affect anything outside itself, so a row of warm rectangles
+floated on a wall that received none of their light. The spill is a BAND, not
+a disc: a lamppost is a point source and pools in a circle, a lit elevation is
+a line of windows and throws a strip along the foot of its own wall. **And it
+has to stay a hint** — the first value lit the whole cobbled street to an even
+pale wash, which is the worst of both pillars at once, because pillar 1 wants
+a dark street and pillar 5 wants POOLS and a uniform floor is neither. Every
+building casts one and they overlap, so the per-building value is set by what
+the SUM looks like.
+
 **A STILL PHOTOGRAPH SYSTEMATICALLY UNDER-REPORTS A MOTION FEATURE, SO GRADE
 THE THING IT CAN SEE.** The whole value of moths is the erratic movement, and
 no screenshot in this harness can show it. What a still CAN settle is whether

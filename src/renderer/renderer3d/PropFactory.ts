@@ -38,7 +38,15 @@ const MAX_POINT_LIGHTS = 16
 // A small radial-gradient canvas texture — warm center fading to black
 // at the edge. Used as an alphaMap so the lamp-pool sprite has soft
 // edges instead of a hard silhouette.
-function buildLampPoolTexture(): THREE.CanvasTexture {
+/**
+ * The radial falloff every warm ground pool in this town uses.
+ *
+ * EXPORTED because a second warm patch on the cobbles — the light a lit
+ * window throws down onto the street — needs exactly this and a second copy
+ * would be the terrain table again in alpha. One gradient, one texture
+ * object, one place to change what a pool of light looks like.
+ */
+export function buildLampPoolTexture(): THREE.CanvasTexture {
   const size = 64
   const canvas = document.createElement('canvas')
   canvas.width = size; canvas.height = size

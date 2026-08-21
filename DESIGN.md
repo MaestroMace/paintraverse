@@ -100,8 +100,16 @@ visibility and the look is a judgement made in the running app.
 At dusk/night, warm ground pools under every lamppost (horizontal disc
 with radial-alpha, not vertical cone). Hanging lanterns overhead between
 close buildings. Wall-mounted lanterns on ~18% of houses at eye level.
-Three layers of warm light, all shared-material so dimming the sun dims
-them together.
+And the light those windows THROW: a warm band on the cobbles at the foot of
+every lit elevation, off the same term as the window emissive so it cannot
+outlive the light casting it. Four layers, all shared-material so dimming the
+sun dims them together.
+
+The spill is a band rather than a disc because a lamppost is a point source
+and a lit elevation is a line of windows. It is deliberately faint: every
+building casts one, they overlap, and a value that reads well alone lights the
+whole street to an even wash — which is the worst of both pillars at once,
+since pillar 1 wants a dark street and this one wants pools.
 
 **There are three lantern FAMILIES and a feature aimed at "the lanterns"
 must reach all three** — the lamppost bulb, the wall bracket and the rope

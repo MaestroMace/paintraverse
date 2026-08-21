@@ -44,7 +44,7 @@ const MOUSE_YAW_SENS = 0.0025
 const MOUSE_PITCH_SENS = 0.002
 import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, volumeBoxes, facadeParts, type BuildingBatchResult, type BuildingTop, FLOOR_HEIGHT } from './BuildingFactory'
 import { tickWallEmissive } from './architecture/VolumeRenderer'
-import { buildLanternStrings, buildWallLanterns, setLanternEmissiveIntensity, tickLanternEmissive, lampAnchors, resetLampAnchors, type LampAnchor } from './LanternStrings'
+import { buildLanternStrings, buildWallLanterns, buildWindowSpill, setLanternEmissiveIntensity, setWindowSpillOpacity, tickLanternEmissive, lampAnchors, resetLampAnchors, type LampAnchor } from './LanternStrings'
 import { buildPropMeshes, setLampPoolOpacity, propSizes, propInstances, type PropBatchResult } from './PropFactory'
 import { starIntensityFor, starThresholdFor, moonPhaseDir, weatherAir, OVERCAST_SKY } from './Materials'
 
@@ -1140,6 +1140,12 @@ void main() {
       // buildings, complements the overhead rope strings.
       const wall = buildWallLanterns(map, defMap, heightMap, this._buildingTops)
       if (wall) this.propGroup.add(wall)
+      // Pillar 5's fourth layer: the light those windows throw DOWN. Needs
+      // the building tops, so it cannot run before the buildings exist —
+      // which is the whole reason it lives here and not in BuildingFactory.
+      const spill = buildWindowSpill(this._buildingTops,
+        (x, z) => (heightMap ? groundYAtWorld(heightMap, x, z) : 0))
+      if (spill) this.propGroup.add(spill)
     }
 
     // Spawn particles
@@ -1949,6 +1955,20 @@ void main() {
     // the bloom threshold at night → warm halos over the street.
     const lanternIntensity = windowGlow * 1.4 + (windowGlow > 0 ? 0.2 : 0)
     setLanternEmissiveIntensity(lanternIntensity)
+    // OFF THE SAME TERM AS THE WINDOW EMISSIVE, so the spill cannot outlive
+    // the light casting it: a warm pool on the cobbles under dark windows at
+    // noon is worse than no pool. Held well under the lamppost pools, because
+    // a window is a weak source behind glass and this is a wash rather than a
+    // second lamp — the failure mode is a town whose every facade sits in its
+    // own spotlight, which reads as a stage set.
+    // AND IT HAS TO STAY A HINT. The first value lit the entire cobbled
+    // street to an even pale wash, which is the worst of both pillars at
+    // once — pillar 1 wants a dark street and pillar 5 wants POOLS, and a
+    // uniform floor gives neither. Every building in town casts one of
+    // these and they overlap, so the per-building value must be small
+    // enough that the sum is still a street with light in it rather than a
+    // lit street.
+    setWindowSpillOpacity(Math.min(0.11, windowGlow * 0.08))
     // Volumetric pool cones under lampposts: invisible at noon, subtle at
     // golden hour, prominent at dusk/night. Additive blending means pools
     // overlap constructively so dense lamp clusters brighten each other.

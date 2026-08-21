@@ -92,9 +92,31 @@ const shot = await win.evaluate(() => {
     ray.set(eye, dir.normalize())
     ray.far = len * 0.92
     const hits = ray.intersectObjects(solids, false)
-    const clear = hits.length === 0
+    // AND A LEVEL RAY, because a clear line to the LAMP says nothing about
+    // what is in front of your face. A lantern is above head height, so a
+    // camera on a slope can have a perfect sightline to the bulb and a bank
+    // of ground filling the bottom half of the frame — which is exactly what
+    // happened: a "large black featureless mass" that survived being filed as
+    // an open defect for a whole session, photographed repeatedly, and turned
+    // out to be TERRAIN two metres away, named in one raycast.
+    //
+    // `flyTo` does not test occupancy is written up three times in this repo
+    // and every instance so far was a camera INSIDE something. This is the
+    // variant one step out: a camera that is legally standing somewhere and
+    // pointed over an obstruction it never tested for.
+    const level = new THREE.Vector3(lamp.x - eye.x, 0, lamp.z - eye.z).normalize()
+    ray.set(new THREE.Vector3(eye.x, eye.y - 0.4, eye.z), level)
+    ray.far = 3.2
+    const faceBlocked = ray.intersectObjects(solids, false).length > 0
+    ray.set(eye, dir.normalize())
+    ray.far = len * 0.92
+    const clear = hits.length === 0 && !faceBlocked
     if (clear) { best = { eye, dir: [dx, dz] }; break }
-    if (!best) best = { eye, dir: [dx, dz], blocked: hits[0]?.object?.name || 'unnamed' }
+    if (!best) {
+      best = { eye, dir: [dx, dz],
+        blocked: faceBlocked ? 'something within 3m of the lens'
+                             : (hits[0]?.object?.name || 'unnamed') }
+    }
   }
   const eye = best.eye
   const yaw = Math.atan2(lamp.z - eye.z, lamp.x - eye.x)

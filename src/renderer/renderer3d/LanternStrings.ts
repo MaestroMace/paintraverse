@@ -15,6 +15,7 @@ import type { MapDocument, ObjectDefinition } from '../core/types'
 import { stableHash, DWELLING_TYPES } from '../core/types'
 import { getTerrainHeight } from './TerrainMesh'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
+import { buildLampPoolTexture } from './PropFactory'
 import type { BuildingTop } from './BuildingFactory'
 import { TILE } from './scale'
 
@@ -167,6 +168,94 @@ export const lampAnchors: LampAnchor[] = []
  *  producers run — at the top of the thing being rebuilt, not in the middle
  *  of it, which is the placeStats trap. */
 export function resetLampAnchors(): void { lampAnchors.length = 0 }
+
+/**
+ * LIGHT SPILLING OUT OF THE WINDOWS ONTO THE STREET — pillar 5's fourth
+ * layer, and the one that was missing.
+ *
+ * DESIGN.md names three layers of warm light and every one of them is a
+ * SOURCE: a ground pool under a lamppost, a chain of lanterns overhead, a
+ * bracket at eye level. What no layer did was let a lit window affect
+ * anything outside itself. A row of warm rectangles floating on a wall that
+ * receives none of their light is the tell, and it is why a near facade at
+ * night reads as a black slab two metres from a glowing window — measured
+ * while grading the moths and filed as "a large featureless black mass",
+ * which turned out not to be a prop or a bug but exactly this.
+ *
+ * A BAND, NOT A DISC. A lamppost is a point source and pools in a circle; a
+ * lit elevation is a LINE of windows and throws a strip along the foot of
+ * its own wall, wide as the frontage and shallow away from it. Same radial
+ * alpha, scaled unevenly — which is also why the texture is shared from
+ * PropFactory rather than copied, since what a pool of light looks like is
+ * one decision.
+ *
+ * Merged into ONE mesh over the whole town, like the lamp pools and for the
+ * same reason: a couple of hundred additive quads is a couple of hundred
+ * draw calls otherwise, and the phone is the machine that cares.
+ */
+const _spillTex = buildLampPoolTexture()
+const _spillMat = new THREE.MeshBasicMaterial({
+  color: 0xffc98a,
+  // BOTH `map` AND `alphaMap`, which is what makes it a pool rather than a
+  // painted rectangle. The first cut set the colour and forgot the texture
+  // entirely — the export was added for exactly this and then not used — and
+  // the photograph showed hard-edged pale quadrilaterals lying on the
+  // cobbles, which is a decal and not light. The lamp pools have carried the
+  // same pair since they stopped being teepees.
+  map: _spillTex,
+  alphaMap: _spillTex,
+  transparent: true,
+  opacity: 0,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+})
+
+/** Driven from updateLighting off the SAME term as the window emissive, so
+ *  the spill cannot outlive the light that casts it. A pool of warm light on
+ *  the cobbles under dark windows at noon is worse than no pool at all. */
+export function setWindowSpillOpacity(opacity: number): void {
+  _spillMat.opacity = opacity
+}
+
+export function buildWindowSpill(
+  tops: Map<string, BuildingTop>,
+  groundYAtWorld: (x: number, z: number) => number,
+): THREE.Mesh | null {
+  const geos: THREE.BufferGeometry[] = []
+  for (const t of tops.values()) {
+    // Only a painted elevation has windows to spill from. `texturedVolumes`
+    // is the same declaration `odd.mjs` reads for bare-wall area, so a
+    // boundary wall, a bridge and a plain masonry shaft are excluded by the
+    // fact rather than by a type list that would drift.
+    if (!t.texturedVolumes) continue
+    const sin = Math.sin(t.rotationY), cos = Math.cos(t.rotationY)
+    // The front wall's outward normal is the building's local +Z.
+    const out = t.halfD + 1.0
+    const cx = t.centerX + sin * out
+    const cz = t.centerZ + cos * out
+    // Wide along the frontage, shallow away from it. Capped, because a long
+    // warehouse elevation is not lit end to end and the alpha falls off
+    // anyway — past about eight metres the band stops reading as spill and
+    // starts reading as a painted stripe.
+    const wide = Math.min(7.0, t.halfW * 2 + 1.4)
+    const deep = 2.5
+    const g = new THREE.PlaneGeometry(wide, deep)
+    g.rotateX(-Math.PI / 2)
+    g.rotateY(t.rotationY)
+    // Hover clear of the paving by the same margin the lamp pools use, or it
+    // z-fights the cobbles it is supposed to be lying on.
+    g.translate(cx, groundYAtWorld(cx, cz) + 0.055, cz)
+    geos.push(g)
+  }
+  if (!geos.length) return null
+  const merged = mergeBufferGeos(geos)
+  for (const g of geos) g.dispose()
+  const mesh = new THREE.Mesh(merged, _spillMat)
+  mesh.name = 'windowSpill'
+  mesh.renderOrder = 2
+  return mesh
+}
 
 export interface LanternStringsResult {
   ropeMesh: THREE.Mesh | null
@@ -641,18 +730,55 @@ export function buildLanternStrings(
 
 /** Minimal position-only merge — we don't need UVs or normals going in,
  *  computeVertexNormals handles normals post-merge. */
+/**
+ * DE-INDEX FIRST, AND CARRY THE UVs.
+ *
+ * This concatenated the POSITION arrays of indexed geometries and threw the
+ * index away, which does not merge them — it draws whatever the vertex list
+ * happens to spell. A `BoxGeometry` is 24 positions and 36 indices, so every
+ * merged box in this file has been rendering as EIGHT triangles where it
+ * needs twelve, since the function was written. It survived because a lantern
+ * bulb is 12cm across and a garbled blob at 12cm still reads as a small
+ * glowing lump: the defect is real, longstanding, and below the resolution of
+ * anything that was looking.
+ *
+ * What found it was a 8.5m plane. `PlaneGeometry` is 4 positions and 6
+ * indices, so a window-spill quad came out as ONE triangle — a hard-edged
+ * wedge lying on the cobbles, which is what a screenshot of a supposedly
+ * soft pool of light showed. **Scale is what made an old bug visible, not a
+ * new bug**, and the same shape has caught this repo before: content authored
+ * small hid an error that the moment something large used the same path put
+ * on screen.
+ *
+ * UVs come along for the same reason: the spill needs the radial alpha map
+ * that makes it a pool rather than a decal, and a merge that silently drops
+ * them would have produced a second wrong picture with nothing erroring.
+ */
 function mergeBufferGeos(geos: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const flat = geos.map((g) => (g.index ? g.toNonIndexed() : g))
   let total = 0
-  for (const g of geos) total += g.getAttribute('position').count
+  for (const g of flat) total += g.getAttribute('position').count
   const positions = new Float32Array(total * 3)
-  let offset = 0
-  for (const g of geos) {
-    const p = g.getAttribute('position')
-    const arr = p.array as Float32Array
-    positions.set(arr, offset)
-    offset += arr.length
+  // Only emit UVs if EVERY input has them — a partial uv attribute silently
+  // maps the geometries that lack it to a single texel, which is the kind of
+  // half-correct output this function was already producing.
+  const withUv = flat.every((g) => !!g.getAttribute('uv'))
+  const uvs = withUv ? new Float32Array(total * 2) : null
+  let po = 0, uo = 0
+  for (const g of flat) {
+    const arr = g.getAttribute('position').array as Float32Array
+    positions.set(arr, po)
+    po += arr.length
+    if (uvs) {
+      const u = g.getAttribute('uv').array as Float32Array
+      uvs.set(u, uo)
+      uo += u.length
+    }
   }
   const merged = new THREE.BufferGeometry()
   merged.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  if (uvs) merged.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+  merged.computeVertexNormals()
+  for (let i = 0; i < flat.length; i++) if (flat[i] !== geos[i]) flat[i].dispose()
   return merged
 }
