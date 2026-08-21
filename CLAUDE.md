@@ -1161,6 +1161,43 @@ a dark street and pillar 5 wants POOLS and a uniform floor is neither. Every
 building casts one and they overlap, so the per-building value is set by what
 the SUM looks like.
 
+**PUDDLES: BUILT, MEASURED, REVERTED — AND THE REASON IS THE FINDING.** Rain
+fell onto a bone-dry street, so 150 draped, deterministic puddles went onto
+the flat circulation tiles sharing the RIVER's Fresnel shader, so they would
+mirror the sky and catch the glint by construction rather than by a second set
+of tuned constants. They work exactly as designed and they are invisible.
+**A horizontal puddle at eye height is foreshortened to a sliver, and a
+Fresnel surface at a grazing angle mirrors THE SKY — which at night is the
+darkest thing in the scene.** A mirror of black, on dark cobbles, is black.
+Wet ground reads because it reflects the LIGHTS, and that needs real
+reflections, not a sky term; do not re-attempt with a darker colour or a
+bigger radius, because the isolate frame shows dark slivers on a black field
+whatever it is tuned to.
+
+**THREE READINGS WERE ALL TRUE AND NONE OF THEM ANSWERED THE QUESTION.** A
+COUNT said 150 were built. The weather delta said rain was live. The composite
+photograph showed a convincingly rainy street. Only hiding the one mesh and
+re-measuring settled it — 1.4x the falling-rain noise floor on both
+statistics, where every live control in that tool clears 3x and most clear
+fifty. **`hideNamed` is what turns "I can sort of see a sheen" into a number,
+and squinting at a composite is not a reading.**
+
+**AND THE FLOOR HAS TO BE THE RIGHT NOISE.** That 1.4x is against FALLING
+RAIN, which moves a large fraction of the frame every frame — so `mad` alone
+could never have cleared it however real the puddles were, and the count of
+changed samples had to be read beside it. Both agreed, which is the only
+reason the verdict is trustworthy.
+
+**Two bugs were found on the way and both are on the record even though the
+feature is gone.** The flatness gate tested `terrainCornerY`, which carries
+±0.06 of deliberate per-corner jitter, so a 0.06 threshold rejected every tile
+in the town and built ZERO puddles while the weather still graded live —
+**testing a surface for flatness against a quantity with cosmetic noise baked
+into it.** And the water fragment ASSIGNS `gl_FragColor.a`, so the puddle
+material's opacity was thrown away entirely and `setPuddleWetness` did
+nothing: they were fully drawn on a clear day. That is the third instance of a
+setter accepted and discarded, after `BatchedMeshBuilder.toneFloor`.
+
 **A STILL PHOTOGRAPH SYSTEMATICALLY UNDER-REPORTS A MOTION FEATURE, SO GRADE
 THE THING IT CAN SEE.** The whole value of moths is the erratic movement, and
 no screenshot in this harness can show it. What a still CAN settle is whether

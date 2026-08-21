@@ -333,6 +333,31 @@ const record = (label, what, p, a, b) => {
   await setEnv({ weather: 'clear', weatherIntensity: 0 })
 }
 
+// PUDDLES WERE BUILT HERE AND REVERTED — read this before building them
+// again.
+//
+// Rain fell onto a bone-dry street, so 150 draped, deterministic puddles went
+// onto the flat circulation tiles, sharing the RIVER's Fresnel shader so they
+// would mirror the sky and catch the sun glint by construction rather than by
+// a second set of tuned constants. They work exactly as designed and they are
+// invisible, and the A/B run here said so: against the noise floor of FALLING
+// RAIN they moved the frame by 1.4x on BOTH statistics, where every live
+// control in the table above clears 3x and most clear fifty.
+//
+// The reason is worth more than the feature. A horizontal puddle seen from
+// eye height is foreshortened to a sliver, and a Fresnel surface at a grazing
+// angle mirrors THE SKY — which at night is the darkest thing in the scene. A
+// mirror of black, on dark cobbles, is black. Real wet ground reads because
+// it reflects the LIGHTS, and that needs actual reflections rather than a sky
+// term. Do not re-attempt with a darker colour or a bigger radius: the
+// isolate frame showed dark slivers on a black field, which is what the
+// mechanism produces however it is tuned.
+//
+// Three readings were all true and none of them answered the question: a
+// COUNT said 150 were built, the weather delta said rain was live, and the
+// composite showed a convincingly rainy street. Only hiding the one mesh and
+// re-measuring settled it.
+
 console.log(`\nseed ${seed} — CELESTIAL CONTROLS`)
 console.log('  control                        extremes        moved      mad      bar    verdict')
 // PRINT THE BAR BESIDE THE NUMBER. Without it a run where everything reads
