@@ -9,7 +9,7 @@ import { stableHash } from '../core/types'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { SpatialGrid } from './SpatialGrid'
 import { TERRAIN_COLORS } from '../core/terrain'
-import { roofColorFor, doorColorFor } from './Materials'
+import { roofColorFor, doorColorFor, starIntensityFor } from './Materials'
 
 // ── Spatial grids for fast object culling (built once per map, reused across frames) ──
 let _structureGrid: SpatialGrid | null = null
@@ -394,6 +394,39 @@ export function renderCanvas2D(
   }
   ctx.fillStyle = skyGrad
   ctx.fillRect(0, 0, W, horizonY)
+
+  // STARS. Same curve the walkaround reads, from Materials.ts, for the same
+  // reason the roof and door palettes live there: BOTH RENDERERS DRAW A SKY,
+  // and a second copy of the hour table would give one path stars at dusk
+  // and the other a bare gradient with nothing erroring.
+  //
+  // Seeded off the pixel cell, so re-exporting a scene gives back the same
+  // sky rather than a fresh scatter — an export you cannot reproduce is not
+  // an export. Fades out toward the horizon, where the atmosphere is
+  // thickest and the town is in the way.
+  const starK = starIntensityFor(map.environment.timeOfDay)
+  if (starK > 0.001) {
+    const CELLS_X = 190, CELLS_Y = 86
+    const cw = W / CELLS_X, ch = horizonY / CELLS_Y
+    for (let cy = 0; cy < CELLS_Y; cy++) {
+      // 0 at the horizon, 1 at the zenith.
+      const up = 1 - cy / CELLS_Y
+      const haze = Math.min(1, Math.max(0, (up - 0.06) / 0.36))
+      if (haze <= 0) continue
+      for (let cx = 0; cx < CELLS_X; cx++) {
+        const r = hash2(cx, cy)
+        if (r < 0.958) continue
+        const mag = 0.45 + 0.55 * ((r - 0.958) / 0.042)
+        const a = Math.min(1, starK * haze * mag)
+        if (a < 0.02) continue
+        const px = (cx + hash2(cx + 11, cy + 3)) * cw
+        const py = (cy + hash2(cx + 27, cy + 7)) * ch
+        ctx.fillStyle = `rgba(242,245,255,${a.toFixed(3)})`
+        ctx.fillRect(Math.round(px), Math.round(py), 1, 1)
+      }
+    }
+  }
+
   // Below horizon: slightly darker blend
   ctx.fillStyle = hexToCSS(darken(lighting.skyColor, 0.1))
   ctx.fillRect(0, horizonY, W, H - horizonY)
@@ -3947,6 +3980,14 @@ function lighten(color: number, amount: number): number {
 }
 
 const _cssCache = new Map<number, string>()
+/** Deterministic 0..1 from a pair of integers — the star field's dice. */
+function hash2(x: number, y: number): number {
+  let h = Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1)
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b)
+  h ^= h >>> 13
+  return ((h >>> 0) % 100000) / 100000
+}
+
 function hexToCSS(color: number): string {
   let s = _cssCache.get(color)
   if (s !== undefined) return s

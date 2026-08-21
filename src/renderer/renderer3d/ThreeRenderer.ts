@@ -46,6 +46,7 @@ import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, 
 import { tickWallEmissive } from './architecture/VolumeRenderer'
 import { buildLanternStrings, buildWallLanterns, setLanternEmissiveIntensity, tickLanternEmissive } from './LanternStrings'
 import { buildPropMeshes, setLampPoolOpacity, propSizes, propInstances, type PropBatchResult } from './PropFactory'
+import { starIntensityFor } from './Materials'
 
 /**
  * Patch a material's fog to fade in more strongly near ground level, so
@@ -185,7 +186,14 @@ uniform vec3 uCloudColor;
 uniform float uCloud;
 uniform vec3 uMountainColor;
 uniform float uMountain;
+uniform float uStars;
+uniform float uTime;
 varying vec3 vLocalPos;
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
 void main() {
   vec3 dir = normalize(vLocalPos);
   float h = dir.y;
@@ -202,6 +210,48 @@ void main() {
   float horizonWeight = 1.0 - smoothstep(-0.05, 0.45, h);
   float c = uCloud * cloudMask * horizonWeight;
   vec3 col = mix(base, uCloudColor, c);
+
+  // STARS. The sky had a gradient, three bands of cloud and a mountain
+  // silhouette, and nothing above them — so night read as a flat dark dome
+  // and dusk as an orange one. DESIGN.md's north star is "can the player
+  // stand in this town at dusk and feel like they're somewhere", and the
+  // first stars coming out over a warm-lit street is most of that sentence.
+  //
+  // A hashed point field on an (azimuth, height) grid. It clusters a little
+  // toward the zenith, which is what an equirectangular grid does and which
+  // nobody will read as wrong on a stylised dome at 40% render scale — and
+  // the alternative is a 3D hash costing more than the whole rest of this
+  // shader. Weighted OUT near the horizon, because that is where the
+  // atmosphere is thickest and where the town's own light pollution is.
+  float starField = 0.0;
+  if (uStars > 0.001) {
+    vec2 cell = vec2(az * 19.0, h * 34.0);
+    vec2 id = floor(cell);
+    float r = hash21(id);
+    // ~2.5% of cells carry a star, so the field reads as scattered rather
+    // than as a texture.
+    // Density and point size were tuned against a NIGHT SCREENSHOT, not by
+    // taste on paper: RENDER_SCALE is 0.4, so a star narrower than about a
+    // fifth of a cell never survives to a pixel. The first pass read as a
+    // dozen specks.
+    float present = step(0.958, r);
+    // Sub-cell position, so stars do not sit on a visible lattice.
+    vec2 jitter = vec2(hash21(id + 11.0), hash21(id + 27.0));
+    float d = length(fract(cell) - jitter);
+    float point = 1.0 - smoothstep(0.0, 0.21, d);
+    // A SLOW TWINKLE, not a strobe. CLAUDE.md records window flicker at
+    // 2.2-4.4 Hz reading as a strobe and being dropped to 0.25-0.7 Hz; a
+    // star is slower still, and each one has its own phase and rate so the
+    // sky does not pulse as one.
+    float phase = r * 43.0;
+    float rate = 0.18 + hash21(id + 5.0) * 0.22;
+    float twinkle = 0.72 + 0.28 * sin(uTime * rate * 6.2831 + phase);
+    // Brighter stars are rarer: the top of the hash range gets the size.
+    float mag = 0.45 + 0.55 * smoothstep(0.958, 1.0, r);
+    starField = present * point * twinkle * mag
+              * smoothstep(0.06, 0.42, h);   // fade into the horizon haze
+  }
+  col += vec3(0.95, 0.96, 1.0) * starField * uStars;
 
   // Distant mountain silhouette: low-frequency azimuthal noise raises a
   // "horizon line" between h ~= 0.01 and ~0.17 (~3x the previous range)
@@ -297,6 +347,12 @@ export class ThreeRenderer {
     uCloud: { value: number };
     uMountainColor: { value: THREE.Color };
     uMountain: { value: number };
+    /** How much of the star field shows — 0 in daylight, 1 at night. */
+    uStars: { value: number };
+    /** Seconds, for the twinkle. Ticked in the render loop beside the
+     *  window flicker, which is the other thing in this scene that moves
+     *  slowly enough to read as alive rather than as a strobe. */
+    uTime: { value: number };
   } | null = null
   private sunDisc: THREE.Mesh | null = null
 
@@ -428,6 +484,8 @@ export class ThreeRenderer {
       uCloud: { value: 0.05 },
       uMountainColor: { value: new THREE.Color(0x707888) },
       uMountain: { value: 1.0 },
+      uStars: { value: 0 },
+      uTime: { value: 0 },
     }
     this.skyUniforms = uniforms
 
@@ -1621,6 +1679,18 @@ export class ThreeRenderer {
       }
     }
 
+    // STARS COME FROM A CURVE, NOT FROM FOUR LITERALS IN FOUR BRANCHES.
+    //
+    // They went in the other way first, and that shape is precisely what
+    // `hours.mjs` exists to catch: the tone arc edited the noon branch of
+    // this switch and dusk kept the pre-arc numbers for a whole arc. One
+    // call with the hour cannot rot one arm at a time, and it interpolates,
+    // so the field comes up over the half hour after sunset rather than
+    // snapping on at a boundary. `starIntensityFor` is in Materials.ts
+    // because the pixel-art export paints its own sky and needs the same
+    // answer.
+    if (this.skyUniforms) this.skyUniforms.uStars.value = starIntensityFor(timeOfDay)
+
     // FEED THE WATER THE SKY IT IS REFLECTING.
     //
     // Every branch above sets the sky dome's uniforms and then the river,
@@ -1989,6 +2059,10 @@ export class ThreeRenderer {
       tickWallEmissive(t)
       tickLanternEmissive(t)
       tickWater(t)
+      // The stars twinkle beside the windows and the water, which is the
+      // company they should keep: pillar 4 is "motion breathes", and every
+      // one of these is slow enough to read as alive rather than as a pulse.
+      if (this.skyUniforms) this.skyUniforms.uTime.value = t
       if (this.skyMesh) this.skyMesh.position.copy(this.camera.position)
       // Shadow target follows the player so the tight ortho bounds
       // rasterize meshes near the camera, not the whole town. We

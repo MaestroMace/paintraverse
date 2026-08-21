@@ -146,3 +146,41 @@ export function doorColorFor(hex: number): number {
   const c = (v: number) => Math.min(255, Math.round(v * k))
   return (c(r) << 16) | (c(g) << 8) | c(b)
 }
+
+/**
+ * How strongly the star field reads, from 0 (invisible) to 1 (the full
+ * night sky), as a function of the hour.
+ *
+ * A NUMBER SET INSIDE A FOUR-WAY SWITCH ROTS ONE ARM AT A TIME, and this
+ * file already records the cost: the tone arc raised ambient and hemisphere,
+ * measured everything at NOON, and therefore edited the noon branch — dusk
+ * kept the pre-arc numbers for the whole subsequent arc. Stars went in the
+ * same way on the first pass, four literals in four branches of
+ * `updateLighting`. One curve, called once with the hour, cannot drift
+ * between arms, and it INTERPOLATES, which four literals cannot: the field
+ * comes up over the half hour after sunset rather than snapping on at a
+ * boundary.
+ *
+ * AND IT LIVES HERE FOR THE REASON `roofColorFor` AND `doorColorFor` DO:
+ * BOTH RENDERERS DRAW A SKY. The walkaround has a shader dome and the
+ * pixel-art export paints a gradient, so a copy of the curve would give one
+ * path stars at dusk and the other a bare sky with nothing erroring.
+ *
+ * Dusk is held at half. The hour DESIGN.md is written against wants the
+ * FIRST stars over a warm-lit street — an orange sky with stars in it, not
+ * night with an orange band.
+ */
+export function starIntensityFor(hour: number): number {
+  const h = ((hour % 24) + 24) % 24
+  // Full field through the small hours, out by sunrise, back after sunset.
+  if (h >= 20.0 || h < 4.0) return 1.0
+  if (h < 5.5) return 1.0 - (h - 4.0) / 1.5          // fading into dawn
+  if (h < 6.5) return 0.12 * (1 - (h - 5.5))         // last of them, low
+  if (h < 17.0) return 0                             // daylight
+  if (h < 18.0) return 0.12 * (h - 17.0)             // golden hour, barely
+  // 18.5 is the app's default hour and the one the board grades, so the
+  // curve is PINNED through the value the dusk photograph was tuned at
+  // rather than left to fall wherever a linear ramp puts it.
+  if (h < 18.5) return 0.12 + 0.76 * (h - 18.0)      // to 0.5 at dusk
+  return 0.5 + (0.5 * (h - 18.5)) / 1.5              // to the full field
+}
