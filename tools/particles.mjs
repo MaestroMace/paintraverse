@@ -46,7 +46,7 @@ await win.waitForTimeout(3000)
 await win.getByText('Landscape', { exact: false }).first().click()
 await win.waitForTimeout(1200)
 
-let offTown = 0, belowRoof = 0, systems = 0
+let offTown = 0, belowRoof = 0, systems = 0, familyGaps = 0
 for (const seed of seeds) {
   await win.evaluate((s) => {
     const inp = [...document.querySelectorAll('.left-panel input')]
@@ -63,12 +63,23 @@ for (const seed of seeds) {
   const r = await win.evaluate(() => {
     const pt = window.__pt, r3 = pt.renderer(), THREE = pt.THREE
     const town = new THREE.Box3().setFromObject(r3.buildingGroup)
-    // LABELLED BY ORDER OF ADDITION, which is how initParticles builds them:
-    // smoke, then fireflies, then birds. Without labels the verdict cannot
-    // distinguish "smoke starts at ground level", which is a bug, from
-    // "fireflies start at ground level", which is what a firefly is — the
-    // first version of this tool flagged all three and was wrong twice.
-    const NAMES = ['smoke', 'fireflies', 'birds']
+    // LABELLED BY WHAT THE SYSTEM SAYS IT IS, not by the order it was added.
+    //
+    // The verdict cannot distinguish "smoke starts at ground level", which is
+    // a bug, from "fireflies start at ground level", which is what a firefly
+    // is — the first version of this tool flagged all three and was wrong
+    // twice. So it labelled them positionally from a hand-written
+    // ['smoke','fireflies','birds'], which worked exactly as long as nobody
+    // added a fourth: MOTHS are spawned between the fireflies and the birds,
+    // so on the day they landed every bird in the verdict would have been a
+    // moth and the moths would have been unnamed. That is the hand-written
+    // list that cannot grow, the same shape as the roof-winding style table,
+    // and the fix is the same one — read it off the thing that owns it.
+    //
+    // `particleSystems` carries `type` per system and TS `private` is
+    // compile-time only, so it is reachable here. A mesh that matches no
+    // system is named LOUDLY rather than guessed at: a missing label must not
+    // read as a pass.
     const out = []
     r3.particleGroup.traverse((o) => {
       if (!o.isPoints) return
@@ -87,7 +98,8 @@ for (const seed of seeds) {
             z < town.min.z - 25 || z > town.max.z + 25) outside++
       }
       out.push({
-        kind: NAMES[out.length] ?? `system${out.length}`,
+        kind: (r3.particleSystems || []).find((ps) => ps.points === o)?.type
+              ?? (o.name || `UNLABELLED-system${out.length}`),
         n: p.count, outside,
         x: [+x0.toFixed(1), +x1.toFixed(1)], z: [+z0.toFixed(1), +z1.toFixed(1)],
         y: [+y0.toFixed(1), +y1.toFixed(1)],
@@ -97,11 +109,30 @@ for (const seed of seeds) {
         spread: +(((x1 - x0) / Math.max(1, town.max.x - town.min.x))).toFixed(2),
       })
     })
+    // THE LANTERN FAMILIES, tallied by what each anchor SAYS it is. The
+    // moths draw from all three and a feature that reaches two of three is
+    // the ghost this repo keeps paying for — and it would read healthy,
+    // because the surviving families still put moths on screen. Also
+    // reported: how many distinct lamps actually carry moths, because the
+    // budget is a farthest-point selection and a selection that collapses
+    // onto one lamp is invisible in a particle count.
+    const anchors = (pt.lampAnchors && pt.lampAnchors()) || []
+    const fam = {}
+    for (const a of anchors) fam[a.kind || 'UNSTATED'] = (fam[a.kind || 'UNSTATED'] || 0) + 1
+    const mothSys = (r3.particleSystems || []).find((ps) => ps.type === 'moth')
+    const lamps = new Set()
+    if (mothSys) {
+      for (let i = 0; i < mothSys.count; i++) {
+        lamps.add(`${mothSys.origins[i * 3].toFixed(2)},${mothSys.origins[i * 3 + 2].toFixed(2)}`)
+      }
+    }
     return {
       town: { x: [+town.min.x.toFixed(1), +town.max.x.toFixed(1)],
         z: [+town.min.z.toFixed(1), +town.max.z.toFixed(1)] },
       groundY: +town.min.y.toFixed(1),
       systems: out,
+      lanternFamilies: fam,
+      mothLamps: lamps.size,
     }
   })
 
@@ -118,10 +149,26 @@ for (const seed of seeds) {
     // firefly and a bird at 30m is a bird.
     if (s.kind === 'smoke' && s.y[0] < r.groundY + 3) belowRoof++
   }
+
+  // LANTERN FAMILIES — a zero here is the finding, not the total.
+  const fam = r.lanternFamilies || {}
+  const names = ['lamppost', 'wall', 'rope']
+  const missing = names.filter((k) => !fam[k])
+  const extra = Object.keys(fam).filter((k) => !names.includes(k))
+  console.log('  lanterns:  ' + names.map((k) => `${k} ${fam[k] || 0}`).join('  ') +
+    (extra.length ? `  [UNEXPECTED ${extra.join(',')}]` : '') +
+    `  ->  moths at ${r.mothLamps} distinct lamps`)
+  if (missing.length) {
+    familyGaps++
+    console.log(`             ^ NO ANCHORS from: ${missing.join(', ')} — a lantern`)
+    console.log('               family the moth pass cannot reach. The count above')
+    console.log('               still looks healthy because the others carry it.')
+  }
 }
 
 console.log(`\nVERDICT: ${offTown} particles outside the town box across ` +
-  `${systems} systems; smoke starts within 3m of the ground on ${belowRoof}.`)
+  `${systems} systems; smoke starts within 3m of the ground on ${belowRoof}; ` +
+  `${familyGaps} seeds miss a lantern family.`)
 console.log('  `spread` is each system\'s x-extent as a fraction of the town\'s.')
 console.log('  A system at a clean ~0.33 is the TILE bug: tile coordinates used')
 console.log('  as world coordinates, which is exactly how chimney smoke spent')

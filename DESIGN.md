@@ -77,8 +77,24 @@ rather than this paragraph; a number in prose goes stale, a distribution does no
 ### 4. Motion breathes
 Window flicker is slow (0.25–0.7 Hz) and gentle (±4%), reading as
 firelight rather than strobe. Smoke drifts on a shared wind vector.
-Birds circle spires at dusk. Water shimmers. Nothing is static, but
-nothing pulses.
+Birds circle spires at dusk. Moths work the lanterns after sunset.
+Water shimmers. Stars come out. Nothing is static, but nothing pulses —
+**and no two periodic things share a rate**, which is why the star
+twinkle sits at 0.18–0.40 Hz deliberately below the window flicker: two
+things breathing together read as one strobe, and that is the defect the
+flicker was dropped from 2.2–4.4 Hz to fix.
+
+Moths are the first moving thing that knows where the LIGHTS are. Smoke
+comes out of chimneys, birds circle spires, fireflies are scattered over
+the map at random; a lantern with nothing at it is a lamp, and a lantern
+with a few moths at it is a summer evening. They orbit erratically rather
+than cleanly, because a clean circle at this scale reads as a small bird.
+
+Grade motion with `tools/particles.mjs` (is it where the town is, and does
+it reach every family it draws from) and `tools/mothshot.mjs` (can you see
+it). **Neither can grade the movement itself — a still photograph
+systematically under-reports a motion feature**, so the pictures settle
+visibility and the look is a judgement made in the running app.
 
 ### 5. Depth through light pools
 At dusk/night, warm ground pools under every lamppost (horizontal disc
@@ -86,6 +102,14 @@ with radial-alpha, not vertical cone). Hanging lanterns overhead between
 close buildings. Wall-mounted lanterns on ~18% of houses at eye level.
 Three layers of warm light, all shared-material so dimming the sun dims
 them together.
+
+**There are three lantern FAMILIES and a feature aimed at "the lanterns"
+must reach all three** — the lamppost bulb, the wall bracket and the rope
+lantern, roughly 150–175 of them a town. Each records itself into
+`lampAnchors` (LanternStrings.ts) stating which family it is, so anything
+attaching to a light has one list to read and `particles.mjs` can report a
+family that contributed nothing. A pass that reaches two of three reads as
+perfectly healthy, because the survivors carry the count.
 
 ### 6. Perf is aesthetic
 If it doesn't run at 30+ FPS, none of the above matters. Shadow cam

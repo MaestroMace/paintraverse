@@ -984,6 +984,58 @@ other weights mean what they say, and the single exception silently became the
 dominant term. Forcing it once and halving the repeat took artisan from 3/12
 towns to 9/12.
 
+**A MEDIAN CANNOT SEE A STAR FIELD, AND THAT IS THE EXPECTED READING RATHER
+THAN A DISAPPOINTMENT.** `hours.mjs` grades the sky as a median over sky
+samples at all four hours, and a field where 4% of cells carry a point cannot
+move it — the stars ARE the tail. nightSky 65 -> 65, eyeball and holes
+byte-identical, and the silhouette gate can only ever be helped by a brighter
+sky. It is the canyon lesson inverted: there a healthy median hid a fat tail
+and the fix was to report the MAX; here the tail is the feature and there is
+nothing to report. **Decide before you measure whether the metric you are
+about to run could move at all** — otherwise a correct zero reads as a failed
+change and invites a second one.
+
+**AND A SKY SHADER CANNOT ALLOCATE A TEXTURE, WHICH IS PROOF AND NOT A
+GUESS.** `budget` read 92.4 -> 89 across the star commit and the temptation
+was to credit it. The arithmetic rules it out on its face, and a stash-and-
+rebuild confirmed 89 without the change, so it was re-baselined as the
+PREVIOUS commit's. This is the mechanism lesson run backwards and it is the
+half that IS sound: a mechanism that COULD produce a number is not evidence
+that it did, but a mechanism that could not is evidence that it did not.
+Proving it took one run and beat the paragraph I would otherwise have
+written.
+
+**A HAND-WRITTEN LIST OF DRAWABLE TYPES IS THE ROOF-STYLE LIST AGAIN.**
+`lib/vantage.isolate` — the function this file recommends whenever you cannot
+find the thing you built in a photograph — filtered on `o.isMesh`, so the four
+particle systems were the one part of the scene it could not isolate. Asking
+for the moths HID them along with everything else and returned `found: 0`,
+which reads exactly like "your geometry does not exist". Inside the tool built
+to catch invisible content. It walks Points, Line and Sprite now, and
+`hideNamed` is beside it so the A/B triple is one import.
+
+**AND `particles.mjs` LABELLED ITS SYSTEMS BY ORDER OF ADDITION.** A
+positional `['smoke','fireflies','birds']`, which worked for exactly as long
+as nobody added a fourth — moths spawn between the fireflies and the birds, so
+on the day they landed every bird in the verdict would have been a moth and
+the moths would have been unnamed. Same shape, same hour, two files apart. It
+reads `ps.type` off `particleSystems` now and prints `UNLABELLED-` loudly
+rather than guessing, because a missing label must not read as a pass.
+
+**A STILL PHOTOGRAPH SYSTEMATICALLY UNDER-REPORTS A MOTION FEATURE, SO GRADE
+THE THING IT CAN SEE.** The whole value of moths is the erratic movement, and
+no screenshot in this harness can show it. What a still CAN settle is whether
+the particle is on screen at all and whether it is distinguishable from what
+is behind it, and that is where the defect was: the isolate frame showed four
+crisp 5px moths and the composite showed ONE, because a 0.34-0.55m orbit keeps
+every moth inside the lantern's own screen footprint at any standoff a person
+would stand at — and the one surface in frame a pale speck cannot be seen
+against is the flame. **A radius chosen for physical plausibility was measured
+as invisible.** Widened to 0.58-1.05 and the count per lamp taken 3 -> 5,
+because a trio reads as three dots and a cloud reads as a cloud. Do not tune
+the motion against a still; tune the visibility, and say which of the two you
+measured.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
@@ -1341,8 +1393,37 @@ failures / 0 regressions. What moved:
 - Curtain walls have a plinth, a string course and buttresses; sheds no longer
   smoke.
 
+**THE MAGICAL PASS — two additions, and the instruments cost more than the
+content did.**
+
+- **Stars, in both skies, from one curve.** The dome was an empty gradient at
+  midnight. `starIntensityFor(hour)` is in Materials.ts because BOTH renderers
+  draw a sky, and it is a CURVE rather than four literals in four branches of
+  `updateLighting` — the shape `hours.mjs` exists to catch, and it corrected a
+  literal I had written wrong (golden hour at 16:00 had 0.12 of a star field).
+  The board did not move and could not have: a 4% point field cannot shift a
+  median.
+- **Moths at the lanterns** — the fourth particle system, and the first moving
+  thing in the town that knows where the LIGHTS are. Derived from time like
+  the birds, with the radius BREATHING so it does not read as one, at 14 lamps
+  chosen farthest-point over ~150-175 anchors.
+- `lampAnchors` is the handle that made it possible: three producers make a
+  lantern and none of them returned a position, so nothing could be attached
+  to one. Same shape as `PlacedObject.footprint` and `BuildingTop`.
+- **Two instruments were blind in the same hour, both to a hand-written list.**
+  `lib/vantage.isolate` filtered on `o.isMesh`, so the particle systems were
+  the one part of the scene it could not isolate; `particles.mjs` named its
+  systems positionally, so a fourth would have renamed the birds. Both read
+  the source of truth now.
+- And the A/B triple found the real defect: **four crisp moths in the isolate
+  frame and ONE in the composite**, because an orbit chosen for physical
+  plausibility kept every moth inside the lantern's own screen footprint.
+
 **Named and open**: `workshop:mainBody x stone_wall_v` overlapping 0.73m at
-(5,60) on seed 31337 — see the deepClash note above.
+(5,60) on seed 31337 — see the deepClash note above. And a large black
+featureless mass fills the lower-centre of `.shots/moth-4242-t20-composite.png`
+— seen while grading the moths, not yet identified; `holes.mjs` grades BLANKS
+at noon and this is a night frame.
 
 - Scale fixed (FLOOR_HEIGHT 1.8), lamp pools as ground discs, chimneys
   anchored to mainBody with 7 whimsical variants
@@ -2730,8 +2811,15 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   just built in a photograph — four rounds of camera-hunting for one 0.8m
   garment were settled by it in a single shot. Pair it with the hide-one-mesh
   A/B: hidden-vs-visible proves the subject is IN the frame, subject-alone
-  says where it is and what shape it really has. Requires the mesh to have a
-  NAME, which is the same reason the lantern ropes got one.
+  says where it is and what shape it really has. `hideNamed(win, meshName)` is
+  the other half and lives beside it, so the triple is one import. Requires
+  the mesh to have a NAME, which is the same reason the lantern ropes got one.
+  **Both walk Points, Line and Sprite, not only Mesh** — they filtered on
+  `o.isMesh` for their whole life, so the four particle systems were the one
+  part of the scene they could not isolate, and asking for them returned
+  `found: 0`, which reads exactly like "your geometry does not exist". A
+  hand-written list of drawable types, inside the tool built to catch content
+  that is invisible.
 - `node tools/particles.mjs [seeds...]` — **is the MOVING content where the
   town is?** DESIGN.md pillar 4 is "motion breathes" and sixteen instruments
   graded the static world while NOT ONE looked at a particle. That is how
@@ -2743,9 +2831,25 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   the height was always right, so the smoke sat at a plausible altitude over
   the wrong place, which looks like smoke rather than like a bug. Reports each
   system's extent as a FRACTION of the town's, so the signature shape (a clean
-  ~0.33) is recognisable rather than inferred. Labels the three systems by
-  order of addition, because the first cut flagged fireflies for starting near
-  the ground, which is what a firefly does.
+  ~0.33) is recognisable rather than inferred. Labels each system by what it
+  SAYS it is (`ps.type`), because the first cut flagged fireflies for starting
+  near the ground — which is what a firefly does — and the fix for that was a
+  positional `['smoke','fireflies','birds']` that worked exactly until a
+  fourth system arrived. Also censuses the three LANTERN FAMILIES, because the
+  moths draw from all of them and a pass that reaches two of three reads as
+  healthy while the survivors carry the count.
+- `xvfb-run -a node tools/mothshot.mjs [seed] [--time=]` — **stand at a
+  lantern and look at it.** particles.mjs says the moth system exists, is
+  inside the town and reaches every family; it cannot say whether a 7.5cm dot
+  at RENDER_SCALE 0.4 survives to a pixel, which is the only question that
+  matters for a particle this small. Takes the A/B TRIPLE in one run —
+  composite, moths hidden, moths alone — plus a centre crop of each, because
+  the lamp is at frame centre by construction and "I can just about see it if
+  I know where to look" is not a reading. That triple is what found the real
+  defect: four crisp moths in the isolate frame and ONE in the composite,
+  because the orbit was tight enough to keep them all inside the lantern's own
+  screen footprint. **It cannot grade the MOTION, and says so** — a still
+  photograph under-reports a motion feature by construction.
 - `node tools/growth.mjs [seeds...]` — **does the town get sparser as you walk
   out of it?** DESIGN.md names six marks of organic growth and five had a
   tool; "dense core, sparse edges — growth rings fade outward" had none, and

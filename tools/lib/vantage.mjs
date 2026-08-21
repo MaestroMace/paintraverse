@@ -451,13 +451,23 @@ export function cropTo(screen, frame = FRAME, pad = 0.4, min = 0.34) {
  * Requires the mesh to be NAMED. An unnamed mesh inside a merged batch is
  * anonymous by construction, which is the same reason the lantern ropes got
  * a name in the first place.
+ *
+ * AND IT COVERS `Points` AND `Line`, NOT ONLY `Mesh`. It filtered on
+ * `o.isMesh` for its whole life, so the four particle systems — the entire
+ * moving half of DESIGN.md pillar 4 — were the one part of the scene this
+ * function could not isolate: asking for the moths HID them along with
+ * everything else and returned `found: 0`, which reads exactly like "your
+ * geometry does not exist". A drawable-type list written by hand is the same
+ * shape as the roof-winding style list that could not see a new solid, in
+ * the tool built to catch that.
  */
 export async function isolate(win, meshName) {
   const found = await win.evaluate((name) => {
     const three = window.__pt.renderer()
+    const drawable = (o) => o.isMesh || o.isPoints || o.isLine || o.isLineSegments || o.isSprite
     let n = 0
     three.scene.traverse((o) => {
-      if (!o.isMesh) return
+      if (!drawable(o)) return
       o.userData.__wasVisible = o.visible
       o.visible = o.name === name
       if (o.visible) n++
@@ -467,10 +477,40 @@ export async function isolate(win, meshName) {
   return {
     found,
     restore: () => win.evaluate(() => {
+      const drawable = (o) => o.isMesh || o.isPoints || o.isLine || o.isLineSegments || o.isSprite
       window.__pt.renderer().scene.traverse((o) => {
-        if (!o.isMesh) return
+        if (!drawable(o)) return
         if ('__wasVisible' in o.userData) o.visible = o.userData.__wasVisible
         delete o.userData.__wasVisible
+      })
+    }),
+  }
+}
+
+/** Hide ONE named drawable and give back a restore — the other half of the
+ *  A/B. `isolate` proves where a thing is; this proves the frame changes
+ *  when it goes, which is what settled the lantern-rope hypothesis. */
+export async function hideNamed(win, meshName) {
+  const found = await win.evaluate((name) => {
+    const three = window.__pt.renderer()
+    const drawable = (o) => o.isMesh || o.isPoints || o.isLine || o.isLineSegments || o.isSprite
+    let n = 0
+    three.scene.traverse((o) => {
+      if (!drawable(o) || o.name !== name) return
+      o.userData.__wasHidden = o.visible
+      o.visible = false
+      n++
+    })
+    return n
+  }, meshName)
+  return {
+    found,
+    restore: () => win.evaluate(() => {
+      const drawable = (o) => o.isMesh || o.isPoints || o.isLine || o.isLineSegments || o.isSprite
+      window.__pt.renderer().scene.traverse((o) => {
+        if (!drawable(o)) return
+        if ('__wasHidden' in o.userData) o.visible = o.userData.__wasHidden
+        delete o.userData.__wasHidden
       })
     }),
   }

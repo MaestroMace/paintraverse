@@ -11,6 +11,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
 import { stableHash, footprintOf } from '../core/types'
 import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
+import { lampAnchors } from './LanternStrings'
 import { TILE } from './scale'
 
 // Heights tuned for FLOOR_HEIGHT=1.8. A 2-story building = 3.6m eaves,
@@ -571,6 +572,24 @@ export function buildPropMeshes(
         if (propRot !== 0) g.rotateY(propRot)
         g.translate(px, elev, pz)
         lampEmissiveGeos.push(g)
+        // RECORD THE ANCHOR HERE, not per variant. There are four lamppost
+        // silhouettes below and the double carries TWO bulbs; a census
+        // written against the variants would have to enumerate all five
+        // sites and would silently miss the sixth the day somebody adds it.
+        // This is the one funnel every bulb already goes through, which is
+        // the same argument as auditing roof winding off a compiler-checked
+        // Record rather than a hand-written style list.
+        const c = propRot === 0 ? 1 : Math.cos(propRot)
+        const s = propRot === 0 ? 0 : Math.sin(propRot)
+        lampAnchors.push({
+          x: px + lx * c + lz * s,
+          y: elev + ly,
+          z: pz - lx * s + lz * c,
+          // A post in the open street; see the radius note in
+          // LanternStrings for why this is not the 0.42 that looked right.
+          r: 0.9,
+          kind: 'lamppost',
+        })
       }
 
       const lampGroup = new THREE.Group()

@@ -128,6 +128,46 @@ export function tickLanternEmissive(time: number): void {
   _lanternMat.emissiveIntensity = _lanternBase * flicker
 }
 
+/**
+ * WHERE THE LANTERNS ARE, so something can be drawn to them.
+ *
+ * A flame at dusk gathers moths, and nothing could put one anywhere near a
+ * lantern because no caller knew where a lantern IS: both builders here
+ * merge their bulbs straight into one batched mesh and return the mesh,
+ * which is the right thing for drawing and useless for attaching. That is
+ * the anchor failure this repo keeps paying for — `PlacedObject.footprint`
+ * unblocked four failed plot attempts, `BuildingTop` unblocked the particle
+ * systems, `frontWallZ` unblocked every front-attached detail. When a whole
+ * category of work keeps not happening, look for the handle it would need.
+ *
+ * The three families are collected TOGETHER on purpose. There are three
+ * kinds of lantern in this town — a lamppost bulb at ~3.2m, a wall bracket
+ * at 2.4m and a rope lantern overhead — and a feature aimed at "the
+ * lanterns" that reaches one of them is the ghost with a type signature.
+ * PropFactory pushes the lamppost family in; these two push their own.
+ *
+ * `r` is how far the moths may wander from the flame, which differs by
+ * family: a rope lantern hangs in open air over a street and a wall
+ * bracket has a wall immediately behind it.
+ */
+export type LampFamily = 'lamppost' | 'wall' | 'rope'
+export interface LampAnchor {
+  x: number; y: number; z: number
+  r: number
+  /** WHICH OF THE THREE, stated rather than inferred. `particles.mjs`
+   *  censuses the families so a feature aimed at "the lanterns" that reaches
+   *  two of three cannot read as healthy, and bucketing them by their radius
+   *  would be a proxy that agrees with the families exactly until somebody
+   *  retunes a radius. Prefer the exact test. */
+  kind: LampFamily
+}
+export const lampAnchors: LampAnchor[] = []
+
+/** Clear before a rebuild. Called by ThreeRenderer BEFORE any of the three
+ *  producers run — at the top of the thing being rebuilt, not in the middle
+ *  of it, which is the placeStats trap. */
+export function resetLampAnchors(): void { lampAnchors.length = 0 }
+
 export interface LanternStringsResult {
   ropeMesh: THREE.Mesh | null
   lanternMesh: THREE.Mesh | null
@@ -276,6 +316,11 @@ export function buildWallLanterns(
     const bulb = new THREE.SphereGeometry(0.12, 6, 5)
     bulb.translate(px, mountY - 0.06, pz)
     lanternGeos.push(bulb)
+    // A wall bracket has a wall behind it, so this family gets the tightest
+    // orbit of the three — but not a tight one. See the radius note on the
+    // rope family below: sub-half-metre put every moth inside the lantern's
+    // own screen footprint, where a pale speck is invisible by construction.
+    lampAnchors.push({ x: px, y: mountY - 0.06, z: pz, r: 0.58, kind: 'wall' })
   }
   if (lanternGeos.length === 0) return null
   const merged = mergeBufferGeos(lanternGeos)
@@ -537,6 +582,20 @@ export function buildLanternStrings(
       const cap = new THREE.ConeGeometry(0.1, 0.06, 4)
       cap.translate(lx, ly - 0.04, lz)
       lanternGeos.push(cap)
+      // A rope lantern hangs in open air over the middle of a street, so
+      // this is the family with the most room to circle.
+      //
+      // THE RADII WERE SET BY WHAT LOOKS PHYSICALLY RIGHT AND MEASURED AS
+      // INVISIBLE. At 0.34-0.55m every moth stays inside the lantern's own
+      // screen footprint at any standoff a person would stand at, and the
+      // one surface in frame a pale speck cannot be seen against is the
+      // flame. `mothshot.mjs`'s A/B triple is what said so: the isolate
+      // frame showed four crisp 5px moths and the composite showed ONE,
+      // because the other three were over the bulb. Widened until the orbit
+      // carries them out into the dark air, which is also closer to what a
+      // moth cloud at a lamp actually occupies — half a metre is a moth
+      // sitting on the glass, not one circling it.
+      lampAnchors.push({ x: lx, y: ly - 0.15, z: lz, r: 1.05, kind: 'rope' })
     }
   }
 

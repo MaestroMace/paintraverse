@@ -44,7 +44,7 @@ const MOUSE_YAW_SENS = 0.0025
 const MOUSE_PITCH_SENS = 0.002
 import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, volumeBoxes, facadeParts, type BuildingBatchResult, type BuildingTop, FLOOR_HEIGHT } from './BuildingFactory'
 import { tickWallEmissive } from './architecture/VolumeRenderer'
-import { buildLanternStrings, buildWallLanterns, setLanternEmissiveIntensity, tickLanternEmissive } from './LanternStrings'
+import { buildLanternStrings, buildWallLanterns, setLanternEmissiveIntensity, tickLanternEmissive, lampAnchors, resetLampAnchors, type LampAnchor } from './LanternStrings'
 import { buildPropMeshes, setLampPoolOpacity, propSizes, propInstances, type PropBatchResult } from './PropFactory'
 import { starIntensityFor } from './Materials'
 
@@ -282,7 +282,7 @@ interface ParticleSystem {
   lifetimes: Float32Array
   origins: Float32Array
   count: number
-  type: 'smoke' | 'firefly' | 'bird'
+  type: 'smoke' | 'firefly' | 'bird' | 'moth'
 }
 
 export class ThreeRenderer {
@@ -758,6 +758,12 @@ export class ThreeRenderer {
     this.propGroup.clear()
     this.particleGroup.clear()
     this.particleSystems = []
+    // AT THE TOP OF THE THING BEING REBUILT. Three separate producers push
+    // into `lampAnchors` — the lamppost prop, the wall bracket and the rope
+    // lantern — and clearing it inside any one of them would wipe whatever
+    // the earlier two had recorded. That is the placeStats trap: a reset in
+    // the middle of a pipeline erases the first half of it.
+    resetLampAnchors()
 
     const palettes = buildingPalettes || DEFAULT_BUILDING_PALETTES
     const defMap = new Map(objectDefs.map(d => [d.id, d]))
@@ -1060,6 +1066,16 @@ export class ThreeRenderer {
 
     // Spawn particles
     this.initParticles(chimneyPositions, map.gridWidth * TILE, map.gridHeight * TILE)
+
+    // === MOTHS AT THE LANTERNS ===
+    // AFTER all three lantern producers, and that ordering is the whole
+    // reason `lampAnchors` is a module array rather than a return value:
+    // the lamppost family comes out of PropFactory and the other two out of
+    // LanternStrings, so there is no single call whose result holds them
+    // all. Running this before any of them would silently light no moths at
+    // that family, which is the ghost failure — and the census would look
+    // healthy, because the other families would still be there.
+    this.initMoths(lampAnchors)
 
     // === BIRDS AT SPIRES ===
     // Collect the top-centers of the tallest landmarks (cathedral, bell tower,
@@ -1752,7 +1768,8 @@ export class ThreeRenderer {
     // to be the primary overhead light source at dusk) but still ramp with
     // time of day. Multiplier picked so the lantern-bulb color clips into
     // the bloom threshold at night → warm halos over the street.
-    setLanternEmissiveIntensity(windowGlow * 1.4 + (windowGlow > 0 ? 0.2 : 0))
+    const lanternIntensity = windowGlow * 1.4 + (windowGlow > 0 ? 0.2 : 0)
+    setLanternEmissiveIntensity(lanternIntensity)
     // Volumetric pool cones under lampposts: invisible at noon, subtle at
     // golden hour, prominent at dusk/night. Additive blending means pools
     // overlap constructively so dense lamp clusters brighten each other.
@@ -1782,6 +1799,15 @@ export class ThreeRenderer {
         mat.size = isNight ? 0.12 : 0.04
       } else if (ps.type === 'bird') {
         mat.opacity = birdsRoosted ? 0.0 : birdOpacity
+      } else if (ps.type === 'moth') {
+        // KEYED TO THE LANTERNS, NOT TO A HOUR TABLE OF ITS OWN. A moth at
+        // an unlit lamp is an insect hovering over a pole, so this reads the
+        // same emissive level the lanterns were just given — the number is
+        // computed a few lines above and there is no second branch to rot.
+        // Strongest at night for the same reason the fireflies are: the
+        // contrast against a dark street is what makes a 4cm dot read at all.
+        mat.opacity = lanternIntensity <= 0 ? 0 : isNight ? 0.95 : isDusk || isDawn ? 0.6 : 0
+        mat.size = isNight ? 0.085 : 0.075
       }
     }
   }
@@ -1860,6 +1886,7 @@ export class ThreeRenderer {
         sizeAttenuation: true, depthWrite: false,
       })
       const points = new THREE.Points(geo, smokeMat)
+      points.name = 'smoke'
       this.particleGroup.add(points)
       this.particleSystems.push({ points, positions, velocities, lifetimes, origins, count, type: 'smoke' })
     }
@@ -1895,6 +1922,7 @@ export class ThreeRenderer {
       sizeAttenuation: true, depthWrite: false,
     })
     const ffPoints = new THREE.Points(ffGeo, ffMat)
+    ffPoints.name = 'fireflies'
     this.particleGroup.add(ffPoints)
     this.particleSystems.push({
       points: ffPoints, positions: ffPositions, velocities: ffVelocities,
@@ -1944,9 +1972,115 @@ export class ThreeRenderer {
       sizeAttenuation: true, depthWrite: false,
     })
     const points = new THREE.Points(geo, mat)
+    points.name = 'birds'
     this.particleGroup.add(points)
     this.particleSystems.push({
       points, positions, velocities, lifetimes, origins, count, type: 'bird',
+    })
+  }
+
+  /**
+   * MOTHS AT THE LANTERNS — the fourth particle system.
+   *
+   * DESIGN.md pillar 4 is that motion breathes and pillar 5 asks for three
+   * layers of warm light; this is the first thing that JOINS the two, because
+   * every other moving thing in the town ignores where the lights are. Smoke
+   * comes out of chimneys, birds circle spires, fireflies are scattered over
+   * the whole map by `Math.random()`. A lantern at dusk with nothing around it
+   * is a lamp; a lantern with three moths at it is a summer evening.
+   *
+   * A MOTH MUST NOT ORBIT CLEANLY OR IT IS A BIRD. The bird system two methods
+   * up is a circle with a vertical bob, and at 4cm it would read as one small
+   * bird rather than as an insect. What separates them is that a moth flies at
+   * a fixed angle to the light rather than around it, which spirals it in and
+   * out, and it changes direction faster than the eye tracks. So the radius
+   * BREATHES on a second frequency and a much faster low-amplitude term rides
+   * on top — no force integration, position derived from time exactly like the
+   * birds, so it costs the same and never drifts or needs respawning.
+   *
+   * SPREAD THE BUDGET, DO NOT TAKE THE FIRST N. Farthest-point selection over
+   * the anchors, the fix `particles.mjs` forced on chimney smoke: the anchor
+   * list is built in placement order, which is spatially clustered by
+   * construction, so a slice takes every moth in town from two quarters. That
+   * reads as a swarm rather than as a town.
+   */
+  private initMoths(anchors: LampAnchor[]): void {
+    if (anchors.length === 0) return
+    const LAMPS = Math.min(14, anchors.length)
+    // FIVE, NOT THREE. A trio reads as three dots; a moth cloud is the thing
+    // that reads. The A/B triple is what forced this — three moths on the
+    // widened orbit put one on the lantern, one on a dark wall behind it and
+    // one out of frame, so the composite showed a single speck while the
+    // isolate frame showed a perfectly healthy system. 70 particles, and
+    // they cost a sin and a cos each because position derives from time.
+    const PER_LAMP = 5
+
+    // Farthest-point over the whole anchor list. O(n x 14) and n is ~140.
+    const chosen: typeof anchors = [anchors[0]]
+    while (chosen.length < LAMPS) {
+      let best = -1, bestD = -1
+      for (let i = 0; i < anchors.length; i++) {
+        const a = anchors[i]
+        let d = Infinity
+        for (const c of chosen) {
+          const dx = a.x - c.x, dz = a.z - c.z
+          d = Math.min(d, dx * dx + dz * dz)
+        }
+        if (d > bestD) { bestD = d; best = i }
+      }
+      if (best < 0 || bestD <= 0) break
+      chosen.push(anchors[best])
+    }
+
+    const count = chosen.length * PER_LAMP
+    const positions = new Float32Array(count * 3)
+    const velocities = new Float32Array(count * 3)
+    const lifetimes = new Float32Array(count)
+    const origins = new Float32Array(count * 3)
+
+    for (let l = 0; l < chosen.length; l++) {
+      const lamp = chosen[l]
+      for (let k = 0; k < PER_LAMP; k++) {
+        const i = l * PER_LAMP + k
+        const i3 = i * 3
+        origins[i3] = lamp.x
+        origins[i3 + 1] = lamp.y
+        origins[i3 + 2] = lamp.z
+        // radius: most of the anchor's allowance, jittered so three moths at
+        // one lamp are on different tracks rather than in formation.
+        velocities[i3] = lamp.r * (0.55 + Math.random() * 0.45)
+        // Angular rate, SIGNED — half of them go the other way round, which
+        // is most of what stops three moths reading as one rotating clump.
+        velocities[i3 + 1] = (1.1 + Math.random() * 1.5) * (Math.random() < 0.5 ? -1 : 1)
+        velocities[i3 + 2] = Math.random() * Math.PI * 2
+        lifetimes[i] = Math.random()
+        positions[i3] = lamp.x + velocities[i3]
+        positions[i3 + 1] = lamp.y
+        positions[i3 + 2] = lamp.z
+      }
+    }
+
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    // NOT EMISSIVE. A moth is LIT BY the lantern; it is not a second light,
+    // and pillar 5 accounts for exactly three layers of warm light. Warm and
+    // pale rather than wing-scale grey, because grey is what a moth is in
+    // daylight and not what the eye sees at a flame — the first pass used
+    // 0xf2e2bd and the A/B crop read it as a dull olive fleck.
+    //
+    // Size is the one number here that is a RENDERING compromise rather than
+    // a physical one: a moth is 3-5cm and this is 7.5, because RENDER_SCALE
+    // is 0.4 and the frame is upscaled 2.5x. Stated plainly so nobody
+    // "corrects" it against propscale's real-size rule, which is about props.
+    const mat = new THREE.PointsMaterial({
+      color: 0xffeecc, size: 0.075, transparent: true, opacity: 0,
+      sizeAttenuation: true, depthWrite: false,
+    })
+    const points = new THREE.Points(geo, mat)
+    points.name = 'moths'
+    this.particleGroup.add(points)
+    this.particleSystems.push({
+      points, positions, velocities, lifetimes, origins, count, type: 'moth',
     })
   }
 
@@ -1981,6 +2115,32 @@ export class ThreeRenderer {
           pos[i3] = orig[i3] + Math.cos(a) * r
           pos[i3 + 2] = orig[i3 + 2] + Math.sin(a) * r
           pos[i3 + 1] = orig[i3 + 1] + Math.sin(a * 1.7 + phase) * 0.3
+        }
+        const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
+        attr.needsUpdate = true
+        continue
+      }
+
+      // Moths: same derive-from-time shape as the birds above, and skipped
+      // outright whenever the lanterns are not lit.
+      if (ps.type === 'moth') {
+        const mat = ps.points.material as THREE.PointsMaterial
+        if (mat.opacity <= 0) continue
+        for (let i = 0; i < ps.count; i++) {
+          const i3 = i * 3
+          const r = vel[i3], w = vel[i3 + 1], phase = vel[i3 + 2]
+          const seed = life[i]
+          const a = time * w + phase
+          // The radius BREATHES — a moth darts at the flame and falls back
+          // out rather than holding a circle. This is the term that stops it
+          // reading as a small bird.
+          const rr = r * (0.5 + 0.5 * Math.sin(a * 2.3 + seed * 6.283))
+          // And a much faster, much smaller term for the direction changes
+          // the eye cannot follow. Two incommensurate frequencies, so the
+          // path never visibly repeats.
+          pos[i3] = orig[i3] + Math.cos(a) * rr + Math.sin(a * 5.7 + seed * 11) * r * 0.18
+          pos[i3 + 2] = orig[i3 + 2] + Math.sin(a) * rr + Math.cos(a * 6.9 + seed * 7) * r * 0.18
+          pos[i3 + 1] = orig[i3 + 1] + Math.sin(a * 3.1 + seed * 5) * 0.14
         }
         const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
         attr.needsUpdate = true
