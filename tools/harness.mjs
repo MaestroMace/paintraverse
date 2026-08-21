@@ -688,8 +688,22 @@ const CHECKS = [
         const m = o.match(/smoke\s+\d+\s+\S+ - \S+\s+\S+ - \S+\s+\S+ - \S+\s+([\d.]+)/)
         return m ? Math.round(Number(m[1]) * 100) : null
       })(),
+      // PARTICLE TENANCY, and the only system with a claim about the ground
+      // under it. Fireflies were placed by Math.random() over the whole map
+      // and read a perfect 0.99 SPREAD while 44% of them hung over cobbles
+      // and rooftops — a metric a uniform scatter can max out, maxed out by
+      // one. Spread says they cover the town; this says the town under them
+      // explains them.
+      ffNature: num(o, /fireflies over soft ground or water (\d+)%/),
     }),
-    gates: { offTown: (v) => v === 0, smokeLow: (v) => v === 0 },
+    gates: {
+      offTown: (v) => v === 0, smokeLow: (v) => v === 0,
+      // Gated rather than tracked: this is placement, not taste, and the
+      // placer draws only from soft and water tiles, so anything under 90
+      // means the tile set or the lookup has broken rather than that the
+      // town drifted.
+      ffNature: (v) => v >= 90,
+    },
     dir: { smokeSpread100: 1 }, band: { smokeSpread100: 25 },
   },
   {

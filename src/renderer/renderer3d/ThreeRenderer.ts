@@ -11,6 +11,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import type { MapDocument, ObjectDefinition, PlacedObject } from '../core/types'
 import { footprintOf, stableHash } from '../core/types'
+import { isSoftGround } from '../core/terrain'
 import type { BuildingPalette } from '../inspiration/StyleMapper'
 import { buildTerrainMesh, getTerrainHeight, groundYAtWorld, tickWater, setWaterSky, TERRAIN_WORLD_SCALE } from './TerrainMesh'
 import { TILE, STOREY_HEIGHT } from './scale'
@@ -1149,7 +1150,9 @@ void main() {
     }
 
     // Spawn particles
-    this.initParticles(chimneyPositions, map.gridWidth * TILE, map.gridHeight * TILE)
+    this.initParticles(
+      chimneyPositions, map.gridWidth * TILE, map.gridHeight * TILE,
+      terrainLayer?.terrainTiles ?? null, heightMap)
 
     // Weather, which allocates once at its maximum and is then scaled by
     // draw range. Before initMoths so the moths keep their place in the
@@ -2012,7 +2015,10 @@ void main() {
   }
 
   /** Initialize particle systems for smoke and fireflies */
-  private initParticles(chimneyPositions: THREE.Vector3[], worldW: number, worldH: number): void {
+  private initParticles(
+    chimneyPositions: THREE.Vector3[], worldW: number, worldH: number,
+    tiles: number[][] | null, heightMap: number[][] | null,
+  ): void {
     // Chimney smoke: 2 particles per chimney × max 16 chimneys = 32.
     // Was 4 × 16 = 64 (originally 8 × 20 = 160). At dusk-walkaround
     // distance you can't distinguish 4 dots from 2 dots per chimney —
@@ -2101,11 +2107,50 @@ void main() {
     const ffLifetimes = new Float32Array(fireflyCount)
     const ffOrigins = new Float32Array(fireflyCount * 3)
 
+    // A FIREFLY IS OVER GRASS OR WATER, NOT OVER A ROOF.
+    //
+    // They were scattered by Math.random() across the whole map, so most of
+    // them hung over cobbles, plaza flagstone and rooftops — where a pale dot
+    // is a speck of dust and not an insect. The comment above still calls
+    // them "dust motes", which is an honest description of what a uniform
+    // scatter produces. This is the prop-tenancy lesson one layer over: a
+    // distance metric answers "is this spot empty" and only ownership
+    // answers "why is this here", and the same fix applies — ask the terrain
+    // table, which is where a tile's meaning lives.
+    //
+    // Water is in as well as soft ground, because a river at dusk is the
+    // place you would actually stand to watch them.
+    const soft: Array<[number, number]> = []
+    if (tiles) {
+      for (let ty = 0; ty < tiles.length; ty++) {
+        for (let tx = 0; tx < (tiles[ty]?.length ?? 0); tx++) {
+          const t = tiles[ty][tx]
+          if (isSoftGround(t) || t === 3) soft.push([tx, ty])
+        }
+      }
+    }
+
     for (let i = 0; i < fireflyCount; i++) {
       const i3 = i * 3
-      const ox = Math.random() * worldW
-      const oz = Math.random() * worldH
-      const oy = 1.5 + Math.random() * 3
+      let ox: number, oz: number, oy: number
+      if (soft.length) {
+        const [tx, ty] = soft[Math.floor(Math.random() * soft.length)]
+        ox = (tx + Math.random()) * TILE
+        oz = (ty + Math.random()) * TILE
+        // Low, and measured from the GROUND rather than from zero. Fireflies
+        // work the first metre or two of air above whatever they are over,
+        // and a fixed altitude puts them underground on any rise — the mixed
+        // tile/world units that sent every chimney's smoke over the wrong
+        // third of the map, in its vertical form.
+        const g = heightMap ? getTerrainHeight(heightMap, ox / TILE, oz / TILE) : 0
+        oy = g + 0.5 + Math.random() * 1.9
+      } else {
+        // No terrain to ask: the old uniform scatter, so a bare map still
+        // gets a field rather than nothing.
+        ox = Math.random() * worldW
+        oz = Math.random() * worldH
+        oy = 1.5 + Math.random() * 3
+      }
       ffOrigins[i3] = ox; ffOrigins[i3 + 1] = oy; ffOrigins[i3 + 2] = oz
       ffPositions[i3] = ox; ffPositions[i3 + 1] = oy; ffPositions[i3 + 2] = oz
       ffVelocities[i3] = (Math.random() - 0.5) * 0.3

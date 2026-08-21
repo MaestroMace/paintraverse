@@ -1161,6 +1161,23 @@ a dark street and pillar 5 wants POOLS and a uniform floor is neither. Every
 building casts one and they overlap, so the per-building value is set by what
 the SUM looks like.
 
+**A FIREFLY OVER COBBLES IS A DUST MOTE, AND THE SPREAD METRIC COULD NOT SEE
+IT.** They were scattered by `Math.random()` over the whole map, so
+`particles.mjs` read a perfect 0.99 x-extent while 44% of them hung over
+paving and rooftops — the `emptiness.mjs` failure exactly, one system over: a
+metric a uniform scatter can max out will be maxed out by one, and only
+ownership answers "why is this here". Placed on soft ground and water off
+`isSoftGround` in the shared terrain table, and measured by a clean
+stash-and-rebuild A/B: **44% -> 100%**, spread unchanged at 1.0 because green
+tiles are themselves spread across the map.
+
+**AND THE HEIGHT WAS ABSOLUTE WHERE IT SHOULD HAVE BEEN RELATIVE.** A fixed
+1.5-4.5m put them underground on any rise; it is ground + 0.5-2.4 now. Same
+mixed-units shape as the chimney smoke that spent the tile rescale venting
+over the wrong third of the map, in its vertical form. `particles.mjs` grades
+a `nature` column for every system and gates only the firefly, because smoke
+comes out of a roof and a bird is over whatever it circles.
+
 **PUDDLES: BUILT, MEASURED, REVERTED — AND THE REASON IS THE FINDING.** Rain
 fell onto a bone-dry street, so 150 draped, deterministic puddles went onto
 the flat circulation tiles sharing the RIVER's Fresnel shader, so they would

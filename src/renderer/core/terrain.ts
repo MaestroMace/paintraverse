@@ -100,3 +100,30 @@ export const TILE_ALLEY = 9
 export function isCirculation(tileId: number | undefined): boolean {
   return tileId === TILE_STREET || tileId === TILE_ALLEY
 }
+
+/**
+ * Is this tile SOFT, LIVING ground — the kind of surface things grow out of
+ * and insects hang over?
+ *
+ * Here for the same reason `isCirculation` is: this table is where a tile's
+ * MEANING lives, and the alternative is every consumer keeping its own idea
+ * of which ids are green. Three copies of this table have already drifted
+ * into disagreeing about what a tile IS.
+ *
+ * The immediate caller is the firefly field, which was scattered by
+ * `Math.random()` over the whole map — so most of them hung over cobbles and
+ * rooftops, where a pale dot reads as dust rather than as a firefly. Its own
+ * comment called them "dust motes", which is an accurate description of what
+ * scatter produces. This is the prop-tenancy lesson one layer over: a
+ * distance metric answers "is this spot empty", and only ownership answers
+ * "why is this here".
+ *
+ * Water is deliberately NOT included — it is not ground — and the firefly
+ * placer adds it separately, because a river at dusk is exactly where you
+ * would stand to watch them and a caller that wants banks should say so.
+ */
+export function isSoftGround(tileId: number | undefined): boolean {
+  return tileId === 0 || tileId === 5 || tileId === 6      // grass, dark, light
+    || tileId === 10 || tileId === 12                       // garden, wildflower
+    || tileId === 1 || tileId === 11                        // dirt, mud
+}

@@ -71,7 +71,8 @@
   "particles": {
     "offTown": 0,
     "smokeLow": 0,
-    "smokeSpread100": 94
+    "smokeSpread100": 94,
+    "ffNature": 97
   },
   "holes": {
     "holes": 6,

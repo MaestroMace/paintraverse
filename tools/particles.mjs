@@ -47,6 +47,7 @@ await win.getByText('Landscape', { exact: false }).first().click()
 await win.waitForTimeout(1200)
 
 let offTown = 0, belowRoof = 0, systems = 0, familyGaps = 0, adrift = 0
+let fireflyNature = null
 for (const seed of seeds) {
   await win.evaluate((s) => {
     const inp = [...document.querySelectorAll('.left-panel input')]
@@ -80,6 +81,36 @@ for (const seed of seeds) {
     // compile-time only, so it is reachable here. A mesh that matches no
     // system is named LOUDLY rather than guessed at: a missing label must not
     // read as a pass.
+    // WHAT EACH SYSTEM IS OVER — particle tenancy.
+    //
+    // Every other column here asks WHERE a system is; none asks whether the
+    // place explains it. Fireflies were scattered by Math.random() over the
+    // whole map and read a perfect 0.99 spread while most of them hung over
+    // cobbles and rooftops, which is exactly the shape `emptiness.mjs`
+    // failed at for props: a metric a uniform scatter can max out will be
+    // maxed out by one. Only ownership answers "why is this here".
+    //
+    // Reported for every system rather than gated, because the right answer
+    // differs: smoke comes out of roofs, a bird is over whatever it circles,
+    // and only the firefly has a claim about the ground under it.
+    const layer = pt.store.getState().map.layers.find((l) => l.type === 'terrain')
+    const tt = layer?.terrainTiles || null
+    const SOFT = new Set([0, 1, 5, 6, 10, 11, 12])
+    const groundUnder = (o, drawn) => {
+      if (!tt) return null
+      const p2 = o.geometry.getAttribute('position')
+      let soft = 0, water = 0, n = 0
+      for (let i = 0; i < drawn; i++) {
+        const tx = Math.floor(p2.getX(i) / pt.TILE), tz = Math.floor(p2.getZ(i) / pt.TILE)
+        const t = tt[tz]?.[tx]
+        if (t === undefined) continue
+        n++
+        if (t === 3) water++
+        else if (SOFT.has(t)) soft++
+      }
+      return n ? Math.round(((soft + water) / n) * 100) : null
+    }
+
     const out = []
     const cam = r3.camera.position
     r3.particleGroup.traverse((o) => {
@@ -130,6 +161,7 @@ for (const seed of seeds) {
           ? +Math.hypot((x0 + x1) / 2 - cam.x, (z0 + z1) / 2 - cam.z).toFixed(1)
           : null,
         n: drawn, outside: local ? 0 : outside,
+        overNature: local ? null : groundUnder(o, Math.max(1, drawn)),
         x: [+x0.toFixed(1), +x1.toFixed(1)], z: [+z0.toFixed(1), +z1.toFixed(1)],
         y: [+y0.toFixed(1), +y1.toFixed(1)],
         // The fraction of the town's own footprint this system covers. A
@@ -166,14 +198,15 @@ for (const seed of seeds) {
   })
 
   console.log(`\nseed ${seed} — town x ${r.town.x.join('-')}  z ${r.town.z.join('-')}`)
-  console.log('  system       n     x-range          z-range        y-range     spread  out')
+  console.log('  system       n     x-range          z-range        y-range     spread  out  nature')
   for (const s of r.systems) {
     systems++
     if (s.outside) offTown += s.outside
     console.log(
       `  ${s.kind.padEnd(10)} ${String(s.n).padStart(3)}  ${(s.x.join(' - ')).padEnd(15)}  ` +
       `${(s.z.join(' - ')).padEnd(15)}  ${(s.y.join(' - ')).padEnd(12)}` +
-      `  ${String(s.local ? 'cam' : s.spread).padStart(5)}  ${String(s.outside).padStart(4)}`)
+      `  ${String(s.local ? 'cam' : s.spread).padStart(5)}  ${String(s.outside).padStart(4)}` +
+      `  ${(s.overNature === null ? '   -' : `${s.overNature}%`).padStart(6)}`)
     // Only SMOKE has to start on a roof. A firefly at knee height is a
     // firefly and a bird at 30m is a bird.
     if (s.kind === 'smoke' && s.y[0] < r.groundY + 3) belowRoof++
@@ -184,6 +217,20 @@ for (const seed of seeds) {
       adrift++
       console.log(`             ^ ${s.kind} is camera-local and its box centre is ` +
         `${s.offCam}m from the camera — it should travel WITH the player.`)
+    }
+  }
+
+  // FIREFLY TENANCY is the one `nature` figure with a claim attached: a
+  // firefly over cobbles is a dust mote. The others are printed for
+  // comparison and graded at nothing, because smoke comes out of a roof and
+  // a bird is over whatever it circles.
+  const ff = r.systems.find((x) => x.kind === 'firefly')
+  if (ff && ff.overNature !== null) {
+    fireflyNature = ff.overNature
+    if (ff.overNature < 50) {
+      console.log(`             ^ only ${ff.overNature}% of fireflies are over soft ground`)
+      console.log('               or water. The rest are over cobbles and rooftops,')
+      console.log('               where a pale dot reads as dust.')
     }
   }
 
@@ -205,7 +252,8 @@ for (const seed of seeds) {
 
 console.log(`\nVERDICT: ${offTown} particles outside the town box across ` +
   `${systems} systems; smoke starts within 3m of the ground on ${belowRoof}; ` +
-  `${familyGaps} seeds miss a lantern family; ${adrift} camera-local boxes adrift.`)
+  `${familyGaps} seeds miss a lantern family; ${adrift} camera-local boxes adrift; ` +
+  `fireflies over soft ground or water ${fireflyNature === null ? 'n/a' : fireflyNature + '%'}.`)
 console.log('  `spread` is each system\'s x-extent as a fraction of the town\'s;')
 console.log('  `cam` means the system travels with the player and is graded on')
 console.log('  whether its box is centred there instead.')
