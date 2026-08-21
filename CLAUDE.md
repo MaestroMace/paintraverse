@@ -1494,15 +1494,95 @@ recorded in this file went unquestioned for the life of the feature — it was
 measured where they happened to coincide. Only 4242 has meadows near the
 channel, and there the combined figure over-reports by seven points.
 
-**AND ITS NOISE FLOOR IS 14 POINTS ON AN IDENTICAL SEED, WHICH IS NOT DRIFT.**
-Five runs read 69, 72, 81, 81, 83. Pooling four buffer reads across a second
-and a half — the obvious fix if the cause were the cloud moving — read 81, 91,
-95, the same spread, so it was **measured at zero and removed**. The variance
-is `Math.random()` at init: every run is a different cloud over the same
-channel, and **pinning the seed pins the LAYOUT and not the scatter**, which is
-this repo's oldest lesson wearing a particle costume. Tracked at `dir: 0` with
-the gate on a count two spreads below anything observed — a directional band
-under a spread of 14 is a regression detector switched off.
+**AND ITS NOISE FLOOR IS 25 POINTS ON AN IDENTICAL SEED, WHICH IS NOT DRIFT.**
+Observed at 69, 70, 72, 81, 81, 83, 94. Pooling four buffer reads across a
+second and a half — the obvious fix if the cause were the cloud moving — read
+81, 91, 95, the same spread, so it was **measured at zero and removed**. The
+variance is `Math.random()` at init: every run is a different cloud over the
+same channel, and **pinning the seed pins the LAYOUT and not the scatter**,
+which is this repo's oldest lesson wearing a particle costume. Tracked at
+`dir: 0` with the gate on a count well below anything observed — a directional
+band under a spread of 25 is a regression detector switched off. (The first
+write-up of this said 14, from the first five runs; two more readings widened
+it. **A noise floor measured from five samples is itself an estimate**, which
+is the argument for stating the sample count beside it.)
+
+**THE BOARD'S OWN SEED WAS THE ONE THAT STILL FAILED, AND THE BOARD COULD NOT
+SEE IT.** The washing fix above was verified on 2024/65535/4242/999999 and read
+0 seeds with no washing. `particles` runs on **8080** — and printed
+`NO WASHING LINES` while the harness reported `ok`, because `laundryGaps` was
+extracted by nothing. The census noticed and the dashboard had no row for it,
+which is `featureCounts` with no consumer one level up: **a census whose result
+nothing reads is a print statement.** Both it and `missingSystems` are gates
+now. Verify a fix on the seed the board grades, or add the seed you verified on.
+
+**AND A RESERVED SLOT SPENT ON A REJECTION IS NOT A RESERVE.** The counters
+named it with nothing left over — `noHeadroom 5` and `dice 3` against a share
+of exactly 8 — so all eight reserved pairs were consumed by rejections and the
+reserve had no depth to replace them with. The two rejections want opposite
+treatment, which is the whole finding:
+
+- `noHeadroom` is REAL: those pairs have no window height that clears head
+  room, and the answer is more candidates, not a relaxed clearance. A line you
+  walk into is worse than no line. `RESERVE_DEPTH = LAUNDRY_SHARE * 3`, still
+  chosen by farthest point so the spread survives the deepening.
+- `dice` is NOT. It exists to stop a residential quarter becoming a laundry
+  district, and rolling it on the reserve makes the guarantee the reserve
+  exists to provide probabilistic. **A guarantee with a 1-in-3 failure per slot
+  is not a guarantee.** Reserved pairs skip it, and only until the share is
+  met, so the deeper pool cannot become the monoculture the dice guards
+  against.
+
+`reserved` had been computed and never read — the ghost pattern, in the commit
+that added it an hour earlier, and it was exactly the hook the fix needed.
+
+    wash~ok            8080  0 -> 8     4242  3 -> 9     2024  1 -> 8
+    wash~notBothHomes        17 -> 1    (the reserve means most attempts
+                                         are home pairs now)
+
+**AND PILLAR 5'S FOURTH LAYER IS REAL BUT SITS AT THE EDGE OF 8-BIT.** The
+window spill had never been asked whether it does its job — existence,
+position and stillness are all properties the PUDDLES had too. Composite frame,
+`hideNamed`, re-measure:
+
+    seed 8080   +0.00059 on 2.5% of its own pixels   floor 0.00001 over 0%
+    seed 2024   +0.00055 on 2.2%                     floor 0.00001 over 0%
+    seed 4242   +0        on 0%                      mask only 1.4% of frame
+
+Fifty-nine times the floor on two seeds in three, and **exactly zero on the
+third** — because 0.00059 mean luma is 0.15 of a 255 step, so where the mask is
+small the whole contribution rounds away. Not the puddle verdict (that was 1.4x
+on both statistics and lost in noise); this is a real, correctly-signed,
+localised effect that is simply very faint. Open: whether to raise the opacity,
+bounded by the note that the first value lit the whole street to an even pale
+wash, which is the worst of both pillars at once.
+
+**THREE OF THAT PROBE'S OWN READINGS WERE WRONG BEFORE ONE WAS RIGHT, AND EACH
+IS A LESSON ALREADY IN THIS FILE.**
+
+- **It compared a COMPOSITE delta against an ISOLATED floor.** An isolate has
+  nothing in it but the subject, so nothing animates and its noise is near
+  zero; the composite has moths, fireflies, mist and window flicker. That is
+  the puddle finding's second half — *the floor has to be the right noise* —
+  reproduced inside the probe written to apply it.
+- **It measured during its own setup.** `iso.restore()` makes every mesh
+  visible again in one go, and the frames right after carry a shadow rebuild:
+  seed 4242 read a floor of **0.069 over 100% of the frame** between two frames
+  70ms apart, which is not animation, it is a scene still arriving.
+- **AND THE SIGN CONVICTED IT WITHOUT A PICTURE.** `_spillMat` is
+  `AdditiveBlending`, so hiding it can only ever remove light and the delta is
+  non-negative at every pixel BY CONSTRUCTION. It read **-0.03449**. A number
+  outside what the code can produce is a free bug report about the measurement
+  — the same tell as a rate over 100% or an overlap deeper than the clamp
+  allows — and it is now a permanent self-check in the tool rather than a thing
+  I happened to notice.
+- **Then the honest positive reading was still the MOON FAILURE**: +0.00022
+  against a floor of 0.0001, "dead", because the mean was taken over the WHOLE
+  FRAME while the spill reaches under 2% of it and the other 98% of that
+  denominator is zeros. Masked to the subject's own pixels — from the ISOLATE
+  frame, not from the delta, which would be circular — the same build reads 59x.
+  `subjectPixels` solved this identically and `celestial.mjs` went 2.5x to
+  1700x on nothing but where it looked.
 
 ## Critical files map
 

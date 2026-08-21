@@ -739,6 +739,15 @@ const CHECKS = [
       // printed and never failed on; `mistOffRiver` is the gate.
       mistWater: num(o, /mist over water (\d+)% worst seed/),
       mistOffRiver: num(o, /mist over water \d+% worst seed, (\d+) off the river/),
+      // AND THE BOARD'S OWN SEED WAS THE ONE THAT FAILED. The washing fix was
+      // verified on 2024/65535/4242/999999 and `laundryGaps` was left
+      // unextracted, so `particles` ran on 8080 — the seed this check
+      // actually uses — printed NO WASHING LINES, and reported ok. A census
+      // whose result nothing reads is the `featureCounts`-with-no-consumer
+      // failure, one level up: the tool noticed and the board could not.
+      // Verifying a fix on seeds that are not the graded one is how it hid.
+      laundryGaps: num(o, /(\d+) seeds with no washing lines/),
+      missingSystems: num(o, /(\d+) systems missing with/),
     }),
     gates: {
       offTown: (v) => v === 0, smokeLow: (v) => v === 0,
@@ -758,6 +767,11 @@ const CHECKS = [
       // it can only fire for a system that has come off the river altogether,
       // which is the failure that would make it fog rather than river mist.
       mistOffRiver: (v) => v === 0,
+      // Nobody notices absent content, which is the whole argument for the
+      // system census — so its result has to reach the board or the census
+      // is a print statement.
+      missingSystems: (v) => v === 0,
+      laundryGaps: (v) => v === 0,
     },
     dir: { smokeSpread100: 1, mistWater: 0 },
     band: { smokeSpread100: 25, mistWater: 30 },

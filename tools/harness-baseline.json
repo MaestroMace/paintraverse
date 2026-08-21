@@ -76,8 +76,10 @@
     "noReact": 0,
     "noSway": 0,
     "swayBlind": 0,
-    "mistWater": 70,
-    "mistOffRiver": 0
+    "mistWater": 87,
+    "mistOffRiver": 0,
+    "laundryGaps": 0,
+    "missingSystems": 0
   },
   "holes": {
     "holes": 6,

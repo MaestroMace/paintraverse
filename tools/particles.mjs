@@ -587,18 +587,42 @@ for (const seed of seeds) {
         // as close together as this renderer allows, and it is measured on
         // both statistics — a mean and a changed-sample share — because the
         // puddles cleared neither honestly and only the pair said so.
+        // SETTLE AFTER THE RESTORE, or the floor is a transient rather than
+        // the noise. `iso.restore()` above makes every mesh in the town
+        // visible again in one go, and the first frames after that carry a
+        // shadow-map rebuild and a fresh frustum cull: seed 4242 read a floor
+        // of 0.069 over 100% of the frame between two frames 70ms apart,
+        // which is not animation, it is a scene still arriving. A tool that
+        // measures during its own setup is measuring its own setup.
+        await new Promise((r) => setTimeout(r, 1500))
         const a1 = await shootGrid()
-        await new Promise((r) => setTimeout(r, 70))
+        await new Promise((r) => setTimeout(r, 200))
         const a2 = await shootGrid()
         const hid = await hideNamed(win, name)
-        await new Promise((r) => setTimeout(r, 500))
+        await new Promise((r) => setTimeout(r, 700))
         const b = await shootGrid()
         await hid.restore()
+        // MEASURE WHERE THE SUBJECT IS — the moon failure, and my own note on
+        // it is three tools away. A whole-frame mean read +0.00022 against a
+        // floor of 0.0001 and called a live feature dead, because the spill
+        // reaches under 2% of the frame and the other 98% of that denominator
+        // is zeros. `subjectPixels` solved the identical problem the identical
+        // way; celestial.mjs went 2.5x to 1700x on nothing but where it looked.
+        //
+        // THE MASK IS THE ISOLATE FRAME, not the delta, which is what keeps it
+        // honest: selecting the pixels by where the change is would be
+        // circular and would clear anything. `frames[0]` is this same mesh
+        // rendered alone at this same camera, so it says where the subject
+        // DRAWS, independently of whether it does anything in the composite.
         const THRESH = 0.004
-        let dm = 0, changed = 0, noise = 0, noiseChanged = 0
+        let dm = 0, changed = 0, noise = 0, noiseChanged = 0, mask = 0
+        let dmAll = 0
         for (let i = 0; i < a1.length; i++) {
           const lit = (a1[i] + a2[i]) / 2
           const d = lit - b[i]
+          dmAll += d
+          if (frames[0][i] <= 0.02) continue
+          mask++
           dm += d
           if (Math.abs(d) > THRESH) changed++
           const nd = a1[i] - a2[i]
@@ -607,14 +631,20 @@ for (const seed of seeds) {
         }
         spill = {
           // Signed: the spill ADDS light, so a negative mean would mean the
-          // mesh is darkening the ground it exists to brighten.
-          mean: +(dm / a1.length).toFixed(5),
-          changedPct: +((changed / a1.length) * 100).toFixed(1),
-          // The composite control, on both statistics. Printed rather than
-          // folded into a verdict, because a probe whose bar you cannot audit
-          // costs a round of guessing every time it surprises you.
-          floor: +(noise / a1.length).toFixed(5),
-          floorChangedPct: +((noiseChanged / a1.length) * 100).toFixed(1),
+          // mesh is darkening the ground it exists to brighten — which the
+          // material forbids, so it convicts the measurement.
+          mean: mask ? +(dm / mask).toFixed(5) : 0,
+          changedPct: mask ? +((changed / mask) * 100).toFixed(1) : 0,
+          // The composite control, over THE SAME pixels. A floor taken over a
+          // different population than the signal is the numerator/denominator
+          // failure this repo has now recorded four times.
+          floor: mask ? +(noise / mask).toFixed(5) : 0,
+          floorChangedPct: mask ? +((noiseChanged / mask) * 100).toFixed(1) : 0,
+          // Both denominators printed, because a rate with an unstated
+          // population is not a reading — and the whole-frame mean is what a
+          // naive version of this probe would have quoted.
+          maskPct: +((mask / a1.length) * 100).toFixed(1),
+          frameMean: +(dmAll / a1.length).toFixed(5),
         }
       }
     }
@@ -660,14 +690,31 @@ for (const seed of seeds) {
     // uniform wash is the failure this feature was tuned away from.
     if (spill) {
       spillMean = spillMean === null ? spill.mean : Math.min(spillMean, spill.mean)
-      console.log(`  spill:     +${spill.mean} mean luma over ${spill.changedPct}% of the frame  ` +
-        `·  composite floor ${spill.floor} over ${spill.floorChangedPct}%  —  hidden vs visible`)
+      console.log(`  spill:     +${spill.mean} mean luma on ${spill.changedPct}% of its own ` +
+        `pixels  ·  floor ${spill.floor} over ${spill.floorChangedPct}%  ·  mask ` +
+        `${spill.maskPct}% of frame (whole-frame mean ${spill.frameMean})`)
+      // A NEGATIVE MEAN CONVICTS THE MEASUREMENT, NOT THE SPILL, and it is a
+      // proof rather than a suspicion: `_spillMat` is AdditiveBlending, so
+      // hiding the mesh can only ever remove light and `with - without` is
+      // non-negative at every pixel by construction. A negative aggregate is
+      // therefore impossible from the subject and can only come from the
+      // frames not being comparable — which is exactly what it caught, a
+      // floor of 0.069 over 100% of the frame while the scene was still
+      // settling after the isolate was restored. Same tell as a rate over
+      // 100% or an overlap deeper than the clamp allows: a number outside
+      // what the code can produce is a free bug report about the tool.
+      if (spill.mean < 0) {
+        spillDead++
+        console.log('             ^ NEGATIVE DELTA — IMPOSSIBLE. The spill is additive,')
+        console.log('               so hiding it cannot brighten anything. The two')
+        console.log('               frames are not comparable; this is a tool failure')
+        console.log('               and the reading must not be quoted.')
       // BOTH STATISTICS HAVE TO CLEAR, because the puddles cleared the mean at
       // 1.4x against falling rain and that was not a reading. Three times the
       // measured composite noise is the same bar celestial.mjs settled on
       // after three invented ones, and the changed share must beat its own
       // control too — otherwise the "signal" is the animation.
-      if (spill.mean <= spill.floor * 3 || spill.changedPct <= spill.floorChangedPct) {
+      } else if (spill.mean <= spill.floor * 3 || spill.changedPct <= spill.floorChangedPct) {
         spillDead++
         console.log('             ^ THE WINDOW SPILL CONTRIBUTES NOTHING. Hiding it')
         console.log('               moves the frame by no more than the composite\'s own')

@@ -616,6 +616,31 @@ export function buildLanternStrings(
    * lost: a pair that cannot carry washing still carries lanterns.
    */
   const LAUNDRY_SHARE = 8
+  /**
+   * AND A RESERVED SLOT SPENT ON A REJECTION IS NOT A RESERVE.
+   *
+   * Seed 8080 — the seed the BOARD grades, which is how this survived a fix
+   * verified on four other seeds — read `noHeadroom 5` and `dice 3` against a
+   * share of exactly 8, and zero washing lines. The arithmetic names it with
+   * nothing left over: all eight reserved pairs were consumed by rejections,
+   * and the reserve had no depth to replace them with.
+   *
+   * Two halves, because the two rejections want opposite treatment:
+   *
+   *   - `noHeadroom` is REAL. Those pairs genuinely have no window height
+   *     that clears head room, and the answer is to have more candidates
+   *     rather than to relax the clearance — a line you walk into is worse
+   *     than no line. Hence a pool three times the share, still chosen by
+   *     farthest point so the spread survives the deepening.
+   *   - `dice` is NOT. It exists to stop a residential quarter becoming a
+   *     laundry district, and rolling it on the reserve makes the guarantee
+   *     the reserve exists to provide probabilistic. A guarantee with a 1-in-3
+   *     failure per slot is not a guarantee. Reserved pairs skip it, and only
+   *     until the share is met — after that every pair rolls, so the deeper
+   *     pool cannot turn into the monoculture the dice guards against.
+   */
+  const RESERVE_DEPTH = LAUNDRY_SHARE * 3
+  let laundryPlaced = 0
   const homePairs: Array<{ i: number; j: number; d: number }> = []
   for (let i = 0; i < centers.length; i++) {
     if (!centers[i].home) continue
@@ -631,7 +656,7 @@ export function buildLanternStrings(
   const spread: typeof homePairs = []
   if (homePairs.length) {
     spread.push(homePairs[0])
-    while (spread.length < Math.min(LAUNDRY_SHARE, homePairs.length)) {
+    while (spread.length < Math.min(RESERVE_DEPTH, homePairs.length)) {
       let best = -1, bestD = -1
       for (let k = 0; k < homePairs.length; k++) {
         const c = centers[homePairs[k].i]
@@ -720,7 +745,11 @@ export function buildLanternStrings(
         // — the wallpaper failure this guard exists to prevent. Roughly a
         // third lands on the 4-6 lines a town this feature was measured at
         // before the structural bias was found.
-        const dice = ((a.seed ^ b.seed) % 3) === 0
+        // A reserved pair skips the dice until the share is met; see
+        // RESERVE_DEPTH. `reserved` is keyed on the pair, not the building,
+        // because the pairing can reach the same `i` with a different `j`.
+        const isReserved = reserved.has(`${i}:${j}`) && laundryPlaced < LAUNDRY_SHARE
+        const dice = isReserved || ((a.seed ^ b.seed) % 3) === 0
         const wantsLaundry = bothHome && roomy && dice
         if (!bothHome) reject('wash~notBothHomes')
         else if (!roomy) reject('wash~noHeadroom')
@@ -746,6 +775,7 @@ export function buildLanternStrings(
           bx: b.cx - ux * inB, bz: b.cz - uz * inB,
           y, kind, seed: (a.seed ^ (b.seed * 31)) >>> 0,
         })
+        if (wantsLaundry) laundryPlaced++
         usage[i]++
         usage[j]++
         paired = true
