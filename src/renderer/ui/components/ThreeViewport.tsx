@@ -18,9 +18,14 @@ export function ThreeViewport() {
   // Subscribe to the NARROW slices we actually react to, not the whole `map`.
   // updateEnvironment() spreads a new map object on every slider tick, so a
   // whole-map subscription re-rendered this viewport ~24x/sec while dragging
-  // the weather/moon/star/ambient/sun sliders — even though only timeOfDay
-  // drives the 3D lighting. layers/grid drive structural rebuilds; name only
-  // feeds the screenshot filename.
+  // the weather/moon/star/ambient/sun sliders. layers/grid drive structural
+  // rebuilds; name only feeds the screenshot filename.
+  //
+  // This comment used to end "even though only timeOfDay drives the 3D
+  // lighting", which was an accurate description of a defect: the moon, star
+  // and weather controls were read by NOTHING, in either renderer, for the
+  // life of the app. They are subscribed below, in effects of their own, so
+  // dragging the hour does not re-run their work and vice versa.
   const layers = useAppStore((s) => s.map.layers)
   const gridWidth = useAppStore((s) => s.map.gridWidth)
   const gridHeight = useAppStore((s) => s.map.gridHeight)
@@ -28,6 +33,8 @@ export function ThreeViewport() {
   const timeOfDay = useAppStore((s) => s.map.environment.timeOfDay)
   const moonPhase = useAppStore((s) => s.map.environment.celestial.moonPhase)
   const starDensity = useAppStore((s) => s.map.environment.celestial.starDensity)
+  const weather = useAppStore((s) => s.map.environment.weather)
+  const weatherIntensity = useAppStore((s) => s.map.environment.weatherIntensity)
   const mapName = useAppStore((s) => s.map.name)
   const objectDefs = useAppStore((s) => s.objectDefinitions)
   const buildingPalettes = useAppStore((s) => s.buildingPalettes)
@@ -69,6 +76,14 @@ export function ThreeViewport() {
   useEffect(() => {
     rendererRef.current?.setCelestial(moonPhase, starDensity)
   }, [moonPhase, starDensity])
+
+  // ...and the weather buttons, which nothing had subscribed to either. The
+  // comment at the top of this component named "the weather/moon/star sliders"
+  // as things it deliberately did NOT subscribe to because only timeOfDay
+  // drove the lighting. That was an accurate description of a defect.
+  useEffect(() => {
+    rendererRef.current?.setWeather(weather, weatherIntensity)
+  }, [weather, weatherIntensity])
 
   // FPS/draws telemetry: updates once per second. Writing to a ref'd DOM
   // node avoids a React state update → full component re-render every tick,

@@ -237,3 +237,125 @@ export function moonPhaseDir(
     toViewer[2] * along + side[2] * across,
   ]
 }
+
+/**
+ * WHAT THE WEATHER DOES TO THE AIR — one table, read by both renderers.
+ *
+ * `weather` and `weatherIntensity` are in `EnvironmentState`, five buttons and
+ * a slider in the Environment panel, defaulted by the generator, and read by
+ * NOTHING. Same census as `moonPhase` and `starDensity` one section up, and
+ * six more controls: a person can press Rain and watch the intensity slider
+ * appear, which is a complete and specific promise that nothing anywhere
+ * keeps.
+ *
+ * The response is expressed as MULTIPLIERS on what the hour already decided,
+ * never as absolute values. Every branch of `updateLighting` has spent a
+ * session being tuned and dusk is the hour the whole design is graded at; a
+ * weather table that set fog density outright would silently overwrite that
+ * work, and 'clear' returning exact identity is what makes wiring these up
+ * provably free.
+ *
+ * Intensity 0 is identity for every weather, so the slider spans "nothing" to
+ * the values below rather than snapping the moment a button is pressed.
+ */
+export type WeatherKind = 'clear' | 'rain' | 'fog' | 'snow' | 'storm'
+
+export interface WeatherAir {
+  /** Multiplies the hour's fog density. */
+  fogScale: number
+  /** How far to pull the fog colour toward the sky's own, 0..1 — overcast
+   *  air takes its colour from the cloud deck rather than the horizon. */
+  fogToSky: number
+  /** Multiplies the sun's intensity. Cloud is the whole of weather's effect
+   *  on a shadow: less direct light, and what is left is softer. */
+  sunScale: number
+  /** Multiplies the hemisphere (skylight) term. Cloud REDISTRIBUTES light
+   *  rather than removing it — an overcast sky is a huge soft source — so
+   *  this goes UP as the sun goes down, which is why they are separate. */
+  skyScale: number
+  /** Multiplies the sky dome's cloud term. */
+  cloudScale: number
+  /** How far to pull the sky's own colours toward an overcast grey, 0..1. */
+  overcast: number
+  /** Multiplies the star field. Cloud is what hides stars, and a rain shower
+   *  under a clear starry sky is the single most obviously wrong thing a
+   *  weather system can draw. */
+  starScale: number
+  /** What falls, and how hard. `rate` is 0..1 and feeds the particle count. */
+  precip: 'rain' | 'snow' | null
+  rate: number
+}
+
+/**
+ * PRECIPITATION COMES OUT OF CLOUD, and forgetting that is the most obviously
+ * wrong thing a weather system can draw.
+ *
+ * The first cut wired fog, sun and skylight and left the SKY DOME alone, and
+ * the photograph settled it in one frame: rain falling through a clear orange
+ * dusk with stars visible in it. The sky is the largest surface in any street
+ * view here — pillar 1 is built on it — so a weather that does not reach it
+ * has changed the air and not the day. The machinery was already there:
+ * `uCloud` has been a uniform on that dome the whole time.
+ *
+ * `overcast` is deliberately partial even at full storm. Flattening the dusk
+ * palette to grey would take the warm horizon the whole design is written
+ * against, and a real overcast sunset keeps a band of colour under the deck.
+ */
+const WEATHER_AIR: Readonly<Record<WeatherKind, Omit<WeatherAir, 'rate'>>> = {
+  clear: {
+    fogScale: 1, fogToSky: 0, sunScale: 1, skyScale: 1,
+    cloudScale: 1, overcast: 0, starScale: 1, precip: null,
+  },
+  // Rain: a modest haze, the sun knocked well down, skylight up a little,
+  // most of the stars gone.
+  rain: {
+    fogScale: 2.2, fogToSky: 0.45, sunScale: 0.45, skyScale: 1.15,
+    cloudScale: 2.0, overcast: 0.55, starScale: 0.15, precip: 'rain',
+  },
+  // Fog is the one that is ALL air and no precipitation, so it is the only
+  // entry allowed a large fogScale — 6x a dusk 0.004 is a 40m visibility,
+  // which hides the far side of the town and not the street you stand in.
+  // Its sky is barely touched, because fog is BELOW the cloud deck and a
+  // foggy night with stars over it is a real and lovely thing.
+  fog: {
+    fogScale: 6.0, fogToSky: 0.8, sunScale: 0.5, skyScale: 1.2,
+    cloudScale: 1.2, overcast: 0.3, starScale: 0.6, precip: null,
+  },
+  // Snow brightens rather than darkens: the sky is overcast but the ground
+  // and the air are both throwing light back.
+  snow: {
+    fogScale: 2.6, fogToSky: 0.6, sunScale: 0.6, skyScale: 1.35,
+    cloudScale: 2.2, overcast: 0.6, starScale: 0.1, precip: 'snow',
+  },
+  storm: {
+    fogScale: 3.4, fogToSky: 0.55, sunScale: 0.22, skyScale: 0.95,
+    cloudScale: 3.0, overcast: 0.75, starScale: 0, precip: 'rain',
+  },
+}
+
+/** The grey a heavy cloud deck reads as. Not neutral — a real overcast at
+ *  dusk is faintly warm from the light coming under it, and a pure grey sky
+ *  over a warm-lit town looks like a missing texture. */
+export const OVERCAST_SKY = 0x6b6a72
+
+/** The air at this weather and intensity. `clear`, or intensity 0, is exact
+ *  identity — a fix to a dead control must not restyle every existing scene. */
+export function weatherAir(kind: string, intensity: number): WeatherAir {
+  const k = (WEATHER_AIR as Record<string, Omit<WeatherAir, 'rate'>>)[kind]
+  const t = Math.max(0, Math.min(1, intensity))
+  if (!k || t <= 0) return { ...WEATHER_AIR.clear, rate: 0 }
+  const lerp = (a: number, b: number) => a + (b - a) * t
+  return {
+    fogScale: lerp(1, k.fogScale),
+    fogToSky: lerp(0, k.fogToSky),
+    sunScale: lerp(1, k.sunScale),
+    skyScale: lerp(1, k.skyScale),
+    cloudScale: lerp(1, k.cloudScale),
+    overcast: lerp(0, k.overcast),
+    starScale: lerp(1, k.starScale),
+    precip: k.precip,
+    // Storm falls harder than rain at the same slider position, which is the
+    // only thing separating the two beyond the light.
+    rate: k.precip ? t * (kind === 'storm' ? 1 : 0.7) : 0,
+  }
+}

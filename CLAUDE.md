@@ -1074,6 +1074,49 @@ DEAD on unchanged signal values and there was no way to tell a real regression
 from a floor that had spiked. A verdict you cannot audit costs a round of
 guessing every time it surprises you.
 
+**AND THE SAME CENSUS FOUND SIX MORE: THE WEATHER DID NOTHING.** Five buttons
+— clear, rain, fog, snow, storm — plus an intensity slider that APPEARS the
+moment you choose a weather, which is a complete and specific promise, read by
+nothing in either renderer. `weatherAir` in Materials.ts is the response, and
+it is expressed as MULTIPLIERS on what the hour already decided rather than as
+absolute values: every arm of `updateLighting` has had a session spent on it,
+so a table setting fog density outright would overwrite that work in four
+places at once, and `clear` returning exact identity is what makes wiring up a
+dead control provably free. hours and eyeball are byte-identical.
+
+**AND CLOUD REDISTRIBUTES LIGHT RATHER THAN REMOVING IT** — the sun goes down
+and the SKYLIGHT GOES UP, because an overcast sky is a vast soft source.
+Scaling both the same way is what "weather" looks like when it is implemented
+as an opacity.
+
+**PRECIPITATION COMES OUT OF CLOUD, AND THE FIRST CUT FORGOT THE SKY.** Fog,
+sun and skylight were wired and the DOME was left alone, and the photograph
+settled it in one frame: rain falling through a clear orange dusk with stars
+in it. The sky is the largest surface in any street view here and pillar 1 is
+built on it, so a weather that does not reach it has changed the air and not
+the day. `uCloud` had been a uniform on that dome the whole time.
+
+**AND A LIVE METRIC WITH A BAD PICTURE IS STILL A BAD PICTURE.** `celestial`
+graded rain and snow as equally live because both plainly changed the frame;
+only the photograph said rain drawn as round dots reads as DUST. A raindrop's
+whole silhouette is the streak, and a Points sprite cannot be stretched — so
+rain is `LineSegments` and snow is `Points`, one simulation feeding two draw
+objects. WebGL locking line width to one pixel is exactly right for a rain
+streak and is why the reverse arrangement could never work.
+
+**A CAMERA-LOCAL SYSTEM IS GRADED ON A DIFFERENT QUESTION, AND IT HAS TO SAY
+SO ITSELF.** Rain is everywhere by definition, so it is a box that travels
+with the player and recycles — and `particles.mjs` grades every system on
+whether its extent covers the town, which is precisely the wrong question and
+would report a correct implementation as a defect. That is the false alarm
+this repo calls worse than no instrument at all. `ParticleSystem.cameraLocal`
+is declared in the source and the tool reads it, rather than the tool carrying
+a list of names; what it asks instead is whether the box is CENTRED on the
+camera, which is the one way that kind of system fails. It also reports the
+DRAWN count rather than the buffer size — precipitation allocates once at its
+maximum and scales by draw range, so a clear day was reporting 900 particles
+and calling the allocation weather.
+
 **A STILL PHOTOGRAPH SYSTEMATICALLY UNDER-REPORTS A MOTION FEATURE, SO GRADE
 THE THING IT CAN SEE.** The whole value of moths is the erratic movement, and
 no screenshot in this harness can show it. What a still CAN settle is whether
@@ -2891,7 +2934,7 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   moths draw from all of them and a pass that reaches two of three reads as
   healthy while the survivors carry the count.
 - `xvfb-run -a node tools/celestial.mjs [seed]` — **do the Environment
-  panel's sliders do anything?** Sets each celestial control to both extremes
+  panel's controls do anything?** Seven of them, and six were dead.** Sets each celestial control to both extremes
   and measures how much of the frame changed, against a noise floor taken from
   two frames with nothing changed — the animation is the control. No model of
   what a slider ought to do, so it cannot be wrong about the intent; a control

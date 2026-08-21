@@ -111,6 +111,21 @@ attaching to a light has one list to read and `particles.mjs` can report a
 family that contributed nothing. A pass that reaches two of three reads as
 perfectly healthy, because the survivors carry the count.
 
+### 5b. Weather is a multiplier, never a repaint
+Rain, fog, snow and storm scale what the HOUR already decided — fog density,
+sun, skylight, cloud, star field — and `clear` is exact identity. The four
+lighting arms have had a session each spent on them and dusk is the hour the
+board grades; a weather table that set values outright would silently
+overwrite all four. Cloud REDISTRIBUTES light rather than removing it, so the
+sun goes down and the skylight goes up. Precipitation comes out of cloud: a
+weather that does not reach the sky dome has changed the air and not the day.
+
+Grade with `tools/celestial.mjs`, which sets every Environment control to both
+extremes and asks whether the frame changed at all. It exists because
+`moonPhase`, `starDensity` and the whole weather set were read by NOTHING for
+the life of the app — a labelled control is a promise, and an unkept one is
+worse than absent content because the label makes people believe it.
+
 ### 6. Perf is aesthetic
 If it doesn't run at 30+ FPS, none of the above matters. Shadow cam
 follows the player (tight bounds, sharp texels). Bloom gated during

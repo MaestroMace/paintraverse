@@ -46,7 +46,7 @@ await win.waitForTimeout(3000)
 await win.getByText('Landscape', { exact: false }).first().click()
 await win.waitForTimeout(1200)
 
-let offTown = 0, belowRoof = 0, systems = 0, familyGaps = 0
+let offTown = 0, belowRoof = 0, systems = 0, familyGaps = 0, adrift = 0
 for (const seed of seeds) {
   await win.evaluate((s) => {
     const inp = [...document.querySelectorAll('.left-panel input')]
@@ -81,13 +81,21 @@ for (const seed of seeds) {
     // system is named LOUDLY rather than guessed at: a missing label must not
     // read as a pass.
     const out = []
+    const cam = r3.camera.position
     r3.particleGroup.traverse((o) => {
-      if (!o.isPoints) return
+      if (!o.isPoints && !o.isLineSegments) return
       const p = o.geometry.getAttribute('position')
       if (!p || !p.count) return
+      // THE DRAWN COUNT, NOT THE BUFFER SIZE. Precipitation allocates once at
+      // its maximum and is scaled by draw range, because the weather controls
+      // are sliders and rebuilding the buffer on every tick of a drag would
+      // allocate hundreds of kilobytes a frame. Reporting 900 for a clear day
+      // would be reporting the allocation and calling it weather.
+      const dr = o.geometry.drawRange
+      const drawn = Math.min(p.count, dr.count === Infinity ? p.count : dr.count)
       let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9, y0 = 1e9, y1 = -1e9
       let outside = 0
-      for (let i = 0; i < p.count; i++) {
+      for (let i = 0; i < Math.max(1, drawn); i++) {
         const x = p.getX(i), y = p.getY(i), z = p.getZ(i)
         x0 = Math.min(x0, x); x1 = Math.max(x1, x)
         z0 = Math.min(z0, z); z1 = Math.max(z1, z)
@@ -97,10 +105,31 @@ for (const seed of seeds) {
         if (x < town.min.x - 25 || x > town.max.x + 25 ||
             z < town.min.z - 25 || z > town.max.z + 25) outside++
       }
+      const sys = (r3.particleSystems || []).find((ps) => ps.points === o)
+      // A CAMERA-LOCAL SYSTEM IS GRADED ON A DIFFERENT QUESTION, and it says
+      // so itself rather than being special-cased by name here. Rain and snow
+      // are everywhere by definition, so they are drawn as a box that travels
+      // with the player and recycles; asking whether their extent covers the
+      // town is exactly the wrong question and would report a correct
+      // implementation as a defect — the false alarm this file's own header
+      // calls worse than no instrument at all. What IS worth asking is
+      // whether the box is centred on the camera, which is the failure mode:
+      // a box left at the origin is invisible everywhere else.
+      const local = sys?.cameraLocal === true ||
+        (o.name === 'rainfall' || o.name === 'snowfall')
       out.push({
-        kind: (r3.particleSystems || []).find((ps) => ps.points === o)?.type
+        // Camera-local systems prefer their MESH name, because precipitation
+        // is one simulation with two draw objects — a Points for snow and a
+        // LineSegments for rain, since a sprite cannot be stretched into a
+        // streak — and both would otherwise print as `precip` with one of
+        // them always empty. Everything else keeps the system's own type.
+        kind: (local ? o.name : sys?.type) ?? sys?.type
               ?? (o.name || `UNLABELLED-system${out.length}`),
-        n: p.count, outside,
+        local,
+        offCam: local
+          ? +Math.hypot((x0 + x1) / 2 - cam.x, (z0 + z1) / 2 - cam.z).toFixed(1)
+          : null,
+        n: drawn, outside: local ? 0 : outside,
         x: [+x0.toFixed(1), +x1.toFixed(1)], z: [+z0.toFixed(1), +z1.toFixed(1)],
         y: [+y0.toFixed(1), +y1.toFixed(1)],
         // The fraction of the town's own footprint this system covers. A
@@ -144,10 +173,18 @@ for (const seed of seeds) {
     console.log(
       `  ${s.kind.padEnd(10)} ${String(s.n).padStart(3)}  ${(s.x.join(' - ')).padEnd(15)}  ` +
       `${(s.z.join(' - ')).padEnd(15)}  ${(s.y.join(' - ')).padEnd(12)}` +
-      `  ${String(s.spread).padStart(5)}  ${String(s.outside).padStart(4)}`)
+      `  ${String(s.local ? 'cam' : s.spread).padStart(5)}  ${String(s.outside).padStart(4)}`)
     // Only SMOKE has to start on a roof. A firefly at knee height is a
     // firefly and a bird at 30m is a bird.
     if (s.kind === 'smoke' && s.y[0] < r.groundY + 3) belowRoof++
+    // A camera-local box that is not centred on the camera has come adrift,
+    // which is the one way this kind of system fails and is invisible in
+    // every other column.
+    if (s.local && s.n > 0 && s.offCam > 6) {
+      adrift++
+      console.log(`             ^ ${s.kind} is camera-local and its box centre is ` +
+        `${s.offCam}m from the camera — it should travel WITH the player.`)
+    }
   }
 
   // LANTERN FAMILIES — a zero here is the finding, not the total.
@@ -168,8 +205,10 @@ for (const seed of seeds) {
 
 console.log(`\nVERDICT: ${offTown} particles outside the town box across ` +
   `${systems} systems; smoke starts within 3m of the ground on ${belowRoof}; ` +
-  `${familyGaps} seeds miss a lantern family.`)
-console.log('  `spread` is each system\'s x-extent as a fraction of the town\'s.')
+  `${familyGaps} seeds miss a lantern family; ${adrift} camera-local boxes adrift.`)
+console.log('  `spread` is each system\'s x-extent as a fraction of the town\'s;')
+console.log('  `cam` means the system travels with the player and is graded on')
+console.log('  whether its box is centred there instead.')
 console.log('  A system at a clean ~0.33 is the TILE bug: tile coordinates used')
 console.log('  as world coordinates, which is exactly how chimney smoke spent')
 console.log('  the whole tile rescale venting over the wrong third of the map.')

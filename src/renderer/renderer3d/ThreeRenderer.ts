@@ -46,7 +46,7 @@ import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, 
 import { tickWallEmissive } from './architecture/VolumeRenderer'
 import { buildLanternStrings, buildWallLanterns, setLanternEmissiveIntensity, tickLanternEmissive, lampAnchors, resetLampAnchors, type LampAnchor } from './LanternStrings'
 import { buildPropMeshes, setLampPoolOpacity, propSizes, propInstances, type PropBatchResult } from './PropFactory'
-import { starIntensityFor, starThresholdFor, moonPhaseDir } from './Materials'
+import { starIntensityFor, starThresholdFor, moonPhaseDir, weatherAir, OVERCAST_SKY } from './Materials'
 
 /**
  * Patch a material's fog to fade in more strongly near ground level, so
@@ -280,6 +280,12 @@ void main() {
 //   [i3+1] = angular speed (rad/s)
 //   [i3+2] = phase offset (rad)
 // origins[i3..i3+2] stores the spire top xyz the bird circles around.
+/** How wide the precipitation box around the camera is, and how tall. Sized
+ *  against the fog: at rain's 2.2x a dusk 0.004 you cannot see 30m, so a
+ *  wider box would be allocating particles into grey. */
+const PRECIP_BOX = 34
+const PRECIP_TOP = 17
+
 interface ParticleSystem {
   points: THREE.Points
   positions: Float32Array
@@ -287,7 +293,17 @@ interface ParticleSystem {
   lifetimes: Float32Array
   origins: Float32Array
   count: number
-  type: 'smoke' | 'firefly' | 'bird' | 'moth'
+  type: 'smoke' | 'firefly' | 'bird' | 'moth' | 'precip'
+  /**
+   * TRUE when the system travels with the player rather than sitting over the
+   * town. Rain and snow are everywhere by definition, so they are drawn as a
+   * box around the camera that recycles — the standard technique, and the
+   * only affordable one. `particles.mjs` grades every system on whether its
+   * extent covers the town's, which is exactly the wrong question for this
+   * one and would report a correct implementation as a defect, so the flag is
+   * declared here and the tool reads it instead of being told a special case.
+   */
+  cameraLocal?: boolean
 }
 
 export class ThreeRenderer {
@@ -370,8 +386,13 @@ export class ThreeRenderer {
   /** The two Celestial sliders. Both existed in the panel and in the store
    *  from the beginning and NOTHING read either of them; see
    *  Materials.starThresholdFor for the census. Defaults match the store's. */
+  private _scratchOvercast = new THREE.Color()
   private moonPhase = 0.5
   private starDensity = 0.5
+  /** Five buttons and an intensity slider in the Environment panel, read by
+   *  nothing at all until now — see Materials.weatherAir. */
+  private weather = 'clear'
+  private weatherIntensity = 0
 
   // Particles
   private particleSystems: ParticleSystem[] = []
@@ -1124,6 +1145,12 @@ void main() {
     // Spawn particles
     this.initParticles(chimneyPositions, map.gridWidth * TILE, map.gridHeight * TILE)
 
+    // Weather, which allocates once at its maximum and is then scaled by
+    // draw range. Before initMoths so the moths keep their place in the
+    // system order for a reader; particles.mjs no longer cares.
+    this.initPrecipitation()
+    this.setWeather(this.weather, this.weatherIntensity)
+
     // === MOTHS AT THE LANTERNS ===
     // AFTER all three lantern producers, and that ordering is the whole
     // reason `lampAnchors` is a module array rather than a return value:
@@ -1542,6 +1569,23 @@ void main() {
     this.updateLighting(this.currentTimeOfDay)
   }
 
+  /**
+   * The weather buttons, which were read by nothing either — five of them
+   * plus an intensity slider, and pressing Rain made the slider APPEAR, which
+   * is a complete and specific promise that nothing kept.
+   *
+   * Routed through updateLighting for the same reason the celestial pair is:
+   * weather is a multiplier on what the hour already decided, so the hour has
+   * to be applied first and there must be exactly one place that composes
+   * them. Applying it here directly would give a renderer whose fog depends
+   * on the order the two controls were last touched.
+   */
+  setWeather(weather: string, intensity: number): void {
+    this.weather = weather
+    this.weatherIntensity = intensity
+    this.updateLighting(this.currentTimeOfDay)
+  }
+
   updateLighting(timeOfDay: number): void {
     this.currentTimeOfDay = timeOfDay
     const isNight = timeOfDay < 5 || timeOfDay >= 19
@@ -1804,6 +1848,43 @@ void main() {
       this.discUniforms.uPhaseDir.value.set(px, py, pz)
       if (this.skyUniforms) this.discUniforms.uDark.value.copy(this.skyUniforms.uZenith.value)
     }
+
+    // THE WEATHER, LAST, AS A MULTIPLIER ON WHAT THE HOUR DECIDED.
+    //
+    // After the switch and after the celestial pair, because it MODIFIES
+    // their result rather than replacing it: every branch above has had a
+    // session of tuning spent on it and dusk is the hour the whole board
+    // grades, so a weather table setting fog density outright would quietly
+    // overwrite that work in four places at once. 'clear' — and any weather
+    // at intensity 0 — is exact identity, which is what makes wiring up a
+    // dead control provably free rather than a restyle of every scene.
+    //
+    // Cloud REDISTRIBUTES light rather than removing it: the sun goes down
+    // and the skylight goes UP, because an overcast sky is a vast soft
+    // source. Scaling both the same way would just dim the town, which is
+    // what "weather" looks like when it is implemented as an opacity.
+    const air = weatherAir(this.weather, this.weatherIntensity)
+    if (this.skyUniforms && air.overcast > 0) {
+      // THE SKY FIRST, because the fog then takes its colour FROM it and an
+      // overcast fog tinted from a clear horizon is two weathers at once.
+      this._scratchOvercast.setHex(OVERCAST_SKY)
+      this.skyUniforms.uZenith.value.lerp(this._scratchOvercast, air.overcast)
+      this.skyUniforms.uHorizon.value.lerp(this._scratchOvercast, air.overcast * 0.75)
+      this.skyUniforms.uCloudColor.value.lerp(this._scratchOvercast, air.overcast * 0.5)
+    }
+    if (this.skyUniforms) {
+      this.skyUniforms.uCloud.value = Math.min(1, this.skyUniforms.uCloud.value * air.cloudScale)
+      this.skyUniforms.uStars.value *= air.starScale
+    }
+    if (air.fogScale !== 1 || air.fogToSky > 0) {
+      this._fog.density *= air.fogScale
+      if (air.fogToSky > 0 && this.skyUniforms) {
+        this._fog.color.lerp(this.skyUniforms.uHorizon.value, air.fogToSky)
+      }
+    }
+    this.sunLight.intensity *= air.sunScale
+    this.hemiLight.intensity *= air.skyScale
+    this.setPrecipitation(air.precip, air.rate)
 
     // FEED THE WATER THE SKY IT IS REFLECTING.
     //
@@ -2182,6 +2263,110 @@ void main() {
     })
   }
 
+  /**
+   * RAIN AND SNOW — the fifth particle system, and the first that MOVES WITH
+   * THE PLAYER.
+   *
+   * Weather is everywhere by definition, and a town-sized volume of rain at
+   * any density a person would call rain is tens of thousands of particles.
+   * So this is a box around the camera that recycles: a particle that falls
+   * out of the bottom, or that the player walks away from, reappears at the
+   * top of the box in a new place. That is the standard technique and it is
+   * indistinguishable from the real thing at any distance the fog allows you
+   * to see.
+   *
+   * ALLOCATED ONCE AT THE MAXIMUM AND SCALED BY `count`, never rebuilt. The
+   * weather controls are sliders, so a rebuild would allocate a few hundred
+   * kilobytes per tick while somebody drags one — and the draw is one Points,
+   * whose cost is the vertices actually in the buffer.
+   *
+   * Rain and snow differ in far more than speed, and getting that wrong is
+   * what makes weather read as "the same particles, tinted". Rain is fast,
+   * nearly vertical, and STREAKED, so the material is drawn small and the
+   * length comes from the fall itself at 60Hz; snow is slow enough that the
+   * eye tracks an individual flake, so it gets a wide lateral wander and a
+   * much larger, softer point.
+   */
+  private precipMax = 900
+  private precipKind: 'rain' | 'snow' | null = null
+  private _rainLines: THREE.LineSegments | null = null
+  private _rainSegments: Float32Array | null = null
+
+  private initPrecipitation(): void {
+    const n = this.precipMax
+    const positions = new Float32Array(n * 3)
+    const velocities = new Float32Array(n * 3)
+    const lifetimes = new Float32Array(n)
+    const origins = new Float32Array(n * 3)
+    for (let i = 0; i < n; i++) {
+      const i3 = i * 3
+      positions[i3] = (Math.random() - 0.5) * PRECIP_BOX
+      positions[i3 + 1] = Math.random() * PRECIP_TOP
+      positions[i3 + 2] = (Math.random() - 0.5) * PRECIP_BOX
+      // Per-particle fall speed and a lateral phase, so nothing falls in
+      // lockstep and no two flakes trace the same path.
+      velocities[i3] = 0.6 + Math.random() * 0.8
+      velocities[i3 + 1] = Math.random() * Math.PI * 2
+      velocities[i3 + 2] = 0.5 + Math.random() * 1.0
+      lifetimes[i] = Math.random()
+    }
+    // TWO DRAW OBJECTS, ONE SIMULATION — and this is the difference between
+    // weather that reads and weather that is a live metric with a bad
+    // picture. `celestial.mjs` graded rain and snow as equally live because
+    // both plainly changed the frame; only the photograph said that rain
+    // drawn as round dots reads as dust. A raindrop's whole silhouette is the
+    // STREAK, and a Points sprite cannot be stretched, so rain is
+    // LineSegments and snow is Points. One position buffer feeds both.
+    //
+    // LineBasicMaterial's width is locked to one pixel in WebGL, which is
+    // exactly right here — a rain streak IS a hairline — and is why the
+    // reverse arrangement would not work: snow as lines would be invisible.
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geo.setDrawRange(0, 0)
+    const mat = new THREE.PointsMaterial({
+      color: 0xf2f6ff, size: 0.13, transparent: true, opacity: 0,
+      sizeAttenuation: true, depthWrite: false,
+    })
+    const points = new THREE.Points(geo, mat)
+    points.name = 'snowfall'
+    points.frustumCulled = false // the box follows the camera; it is always in view
+    this.particleGroup.add(points)
+
+    this._rainSegments = new Float32Array(n * 6)
+    const rainGeo = new THREE.BufferGeometry()
+    rainGeo.setAttribute('position', new THREE.BufferAttribute(this._rainSegments, 3))
+    rainGeo.setDrawRange(0, 0)
+    this._rainLines = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({
+      color: 0xaebfd2, transparent: true, opacity: 0, depthWrite: false,
+    }))
+    this._rainLines.name = 'rainfall'
+    this._rainLines.frustumCulled = false
+    this.particleGroup.add(this._rainLines)
+    this.particleSystems.push({
+      points, positions, velocities, lifetimes, origins,
+      count: 0, type: 'precip', cameraLocal: true,
+    })
+  }
+
+  /** Point the one precipitation system at a kind and a rate. */
+  private setPrecipitation(kind: 'rain' | 'snow' | null, rate: number): void {
+    const ps = this.particleSystems.find((p) => p.type === 'precip')
+    if (!ps) return
+    this.precipKind = kind
+    const n = kind ? Math.round(this.precipMax * Math.max(0, Math.min(1, rate))) : 0
+    ps.count = n
+    const snowMat = ps.points.material as THREE.PointsMaterial
+    const rainMat = this._rainLines?.material as THREE.LineBasicMaterial | undefined
+    // Exactly one of the two draws. The simulation runs either way and the
+    // other object is left at zero opacity AND zero draw range, so a weather
+    // switch cannot leave the previous one's last frame hanging in the air.
+    snowMat.opacity = kind === 'snow' && n > 0 ? 0.85 : 0
+    if (rainMat) rainMat.opacity = kind === 'rain' && n > 0 ? 0.62 : 0
+    ps.points.geometry.setDrawRange(0, kind === 'snow' ? n : 0)
+    this._rainLines?.geometry.setDrawRange(0, kind === 'rain' ? n * 2 : 0)
+  }
+
   /** Animate all particle systems */
   private updateParticles(dt: number, time = 0): void {
     // Global low-frequency wind vector — same for all smoke particles this
@@ -2216,6 +2401,72 @@ void main() {
         }
         const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
         attr.needsUpdate = true
+        continue
+      }
+
+      // Precipitation: the one system that INTEGRATES and the one that moves
+      // with the player. Both are forced by what weather is — it falls, so it
+      // cannot derive from a closed form the way an orbit can, and it is
+      // everywhere, so it cannot sit over the town.
+      if (ps.type === 'precip') {
+        if (ps.count === 0) continue
+        const cam = this.camera.position
+        const snow = this.precipKind === 'snow'
+        // Snow drifts and rain does not. A rain streak that wanders reads as
+        // ash; a flake that falls straight reads as a dropped pixel.
+        const fall = snow ? 1.1 : 13.0
+        const drift = snow ? 0.55 : 0.05
+        const half = PRECIP_BOX / 2
+        for (let i = 0; i < ps.count; i++) {
+          const i3 = i * 3
+          pos[i3 + 1] -= dt * fall * vel[i3]
+          if (snow) {
+            // Two frequencies, phase per flake, so no two paths coincide.
+            const ph = vel[i3 + 1]
+            pos[i3] += dt * drift * (Math.sin(time * 0.7 + ph) + 0.4 * Math.sin(time * 1.9 + ph * 2))
+            pos[i3 + 2] += dt * drift * (Math.cos(time * 0.6 + ph) + 0.4 * Math.cos(time * 2.1 + ph))
+          } else {
+            pos[i3] += dt * drift * windX
+            pos[i3 + 2] += dt * drift * windZ
+          }
+          // RECYCLE AGAINST THE CAMERA, not against a fixed origin. Wrapping
+          // on the relative offset is what makes the box travel: a particle
+          // the player has walked past reappears on the side they are walking
+          // toward, so the volume is always centred on them and no particle
+          // is ever wasted behind them.
+          let rx = pos[i3] - cam.x, rz = pos[i3 + 2] - cam.z
+          if (rx > half) rx -= PRECIP_BOX; else if (rx < -half) rx += PRECIP_BOX
+          if (rz > half) rz -= PRECIP_BOX; else if (rz < -half) rz += PRECIP_BOX
+          pos[i3] = cam.x + rx
+          pos[i3 + 2] = cam.z + rz
+          if (pos[i3 + 1] < cam.y - PRECIP_TOP * 0.45) {
+            pos[i3 + 1] = cam.y + PRECIP_TOP * 0.55
+            // A recycled particle gets a NEW x/z too. Reusing the column it
+            // fell down would make every drop trace one line forever, which
+            // reads as a static texture the moment you stand still.
+            pos[i3] = cam.x + (Math.random() - 0.5) * PRECIP_BOX
+            pos[i3 + 2] = cam.z + (Math.random() - 0.5) * PRECIP_BOX
+          }
+        }
+        if (snow) {
+          const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
+          attr.needsUpdate = true
+        } else if (this._rainSegments && this._rainLines) {
+          // Build the streaks from the same positions. Length is the distance
+          // the drop covers in ~4 frames, so it lengthens with the fall speed
+          // rather than being a constant that looks right at one wind only.
+          const seg = this._rainSegments
+          for (let i = 0; i < ps.count; i++) {
+            const i3 = i * 3, s6 = i * 6
+            const len = 0.065 * fall * vel[i3]
+            seg[s6] = pos[i3]; seg[s6 + 1] = pos[i3 + 1]; seg[s6 + 2] = pos[i3 + 2]
+            seg[s6 + 3] = pos[i3] - windX * drift * 0.4
+            seg[s6 + 4] = pos[i3 + 1] + len
+            seg[s6 + 5] = pos[i3 + 2] - windZ * drift * 0.4
+          }
+          const rattr = this._rainLines.geometry.getAttribute('position') as THREE.BufferAttribute
+          rattr.needsUpdate = true
+        }
         continue
       }
 

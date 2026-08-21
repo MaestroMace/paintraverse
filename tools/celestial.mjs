@@ -163,6 +163,7 @@ const maskAround = async (world, radiusFrac) =>
 
 const rows = []
 let dead = 0
+let graded = 0
 
 /**
  * One control, measured against a noise floor taken AT ITS OWN VANTAGE.
@@ -173,15 +174,37 @@ let dead = 0
  * too slack for the second, which is the numerator/denominator lesson wearing
  * a camera.
  */
-const probe = async (label, pitch, hour, apply, cases, focus) => {
+const probe = async (label, pitch, hour, apply, cases, focus, floorSetup) => {
   await setEnv({ timeOfDay: hour })
   await aim(pitch)
   const mask = focus ? await maskAround(focus.world, focus.radius) : null
   if (focus && !mask) console.log(`  ${label}: SUBJECT OFF SCREEN — cannot grade. Not a pass.`)
-  const n0 = await shoot(`${label}-noise-a`)
-  await win.waitForTimeout(900)
-  const n1 = await shoot(`${label}-noise-b`)
-  const floor = stats(n0, n1, mask)
+  // MEASURE THE FLOOR WITH THE FEATURE'S OWN ANIMATION REMOVED, where it has
+  // one. The star probe's noise IS the star twinkle: the same pixels changing
+  // by a similar amount as the density signal, so the ratio is intrinsically
+  // about 1.5 and no choice of statistic separates them — two consecutive
+  // runs on an unchanged build flipped the verdict, twice, before this.
+  // Turning the stars off makes the floor "everything ELSE in this frame",
+  // which is the honest baseline for "does adding stars change it".
+  if (floorSetup) await floorSetup()
+  // THE FLOOR, THREE TIMES, AND TAKE THE LARGEST.
+  //
+  // Measured once it jitters, and two consecutive runs of this tool on an
+  // unchanged build returned different verdicts — starDensity live in one and
+  // dead in the next, purely because the bar moved under it. A tool that
+  // disagrees with itself grades nothing, which is why `anomaly.mjs` prints
+  // how often it contradicts itself and why this repo's rule is to state the
+  // noise floor rather than assume it. Largest of three, so the bar errs
+  // toward calling a marginal control dead — a false DEAD sends someone to
+  // look at working code, a false LIVE leaves a lying slider shipped.
+  let floor = null
+  for (let k = 0; k < 3; k++) {
+    const a0 = await shoot(`${label}-noise-${k}`)
+    await win.waitForTimeout(700)
+    const a1 = await shoot(`${label}-noise-${k}b`)
+    const f = stats(a0, a1, mask)
+    if (!floor || f.mad > floor.mad) floor = f
+  }
   // THREE TIMES THE MEASURED NOISE, and NOTHING ELSE.
   //
   // There was an absolute minimum of 0.0006 here, invented by me, and it
@@ -214,17 +237,24 @@ const probe = async (label, pitch, hour, apply, cases, focus) => {
 const record = (label, what, p, a, b) => {
   const bar = p.bar
   const st = stats(a, b, p.mask)
-  const graded = !label.startsWith('  ')
-  const live = st.mad > bar
-  if (graded && !live) dead++
-  rows.push([label, what, st, bar, graded ? (live ? 'live' : 'NO — DEAD') : 'ref'])
+  const isGraded = !label.startsWith('  ')
+  // EITHER STATISTIC. They fail in opposite directions and the pair covers
+  // both: `mad` is blind to nothing but weights a few big changes over many
+  // small ones, and `frac` counts a sky filling with faint stars that barely
+  // move the mean. Requiring both would make the tool as blind as its weaker
+  // half on every subject.
+  const live = st.mad > bar || st.frac > p.floor.frac * 3 + 0.002
+  if (isGraded) { graded++; if (!live) dead++ }
+  rows.push([label, what, st, bar, isGraded ? (live ? 'live' : 'NO — DEAD') : 'ref'])
 }
 
 // STAR DENSITY — night, sky in frame.
 {
   const p = await probe('stars', 0.9, 22,
     (v) => setEnv({ celestial: { starDensity: v } }),
-    [['000', 0], ['100', 1], ['050', 0.5]])
+    [['000', 0], ['100', 1], ['050', 0.5]],
+    null,
+    () => setEnv({ celestial: { starDensity: 0 } }))
   console.log(`  stars vantage: animation floor mad ${p.floor.mad.toFixed(5)}`)
   record('starDensity', '0 vs 100%', p, p.frames['000'], p.frames['100'])
   // The default must sit BETWEEN the extremes and must reproduce what was
@@ -276,6 +306,33 @@ const record = (label, what, p, a, b) => {
   record('sunAngle (3D) — known dead', '0 vs 180deg', p, p.frames['000'], p.frames['180'])
 }
 
+// WEATHER — five buttons and an intensity slider, and the whole set was read
+// by nothing. A weather that does not reach the frame is the same ghost as a
+// moon phase that does not, and there are six of them.
+//
+// Graded at DUSK on a level street view, because that is the hour the board
+// grades and the view a player has. Each is compared against CLEAR at the
+// same vantage rather than against its own opposite: "does pressing this
+// button change anything" is the actual question, and it needs no model of
+// what rain ought to look like.
+{
+  await setEnv({ celestial: { starDensity: 0.5 } })
+  const p = await probe('weather', -0.05, 18.5,
+    (v) => setEnv({ weather: v[0], weatherIntensity: v[1] }),
+    [['clear', ['clear', 0]], ['rain', ['rain', 1]], ['fog', ['fog', 1]],
+     ['snow', ['snow', 1]], ['storm', ['storm', 1]],
+     ['rain-half', ['rain', 0.5]]])
+  console.log(`  weather vantage: animation floor mad ${p.floor.mad.toFixed(5)}`)
+  for (const w of ['rain', 'fog', 'snow', 'storm']) {
+    record(`weather: ${w}`, 'vs clear', p, p.frames.clear, p.frames[w])
+  }
+  // Intensity must be a DIAL and not a switch, or the slider is half a lie:
+  // it appears the moment a weather is chosen and would do nothing.
+  record('  ^ rain 50% vs 100%', 'sanity', p, p.frames['rain-half'], p.frames.rain)
+  record('  ^ rain 50% vs clear', 'sanity', p, p.frames.clear, p.frames['rain-half'])
+  await setEnv({ weather: 'clear', weatherIntensity: 0 })
+}
+
 console.log(`\nseed ${seed} — CELESTIAL CONTROLS`)
 console.log('  control                        extremes        moved      mad      bar    verdict')
 // PRINT THE BAR BESIDE THE NUMBER. Without it a run where everything reads
@@ -286,7 +343,7 @@ for (const [name, what, st, bar, verdict] of rows) {
   console.log(`  ${name.padEnd(30)} ${what.padEnd(14)} ${(st.frac * 100).toFixed(2).padStart(6)}%  ` +
     `${st.mad.toFixed(5)}  ${bar.toFixed(5)}  ${verdict}`)
 }
-console.log(`\nVERDICT: ${dead} of 3 celestial controls do not reach the frame at all.`)
+console.log(`\nVERDICT: ${dead} of ${graded} environment controls do not reach the frame at all.`)
 console.log('  A control that lies is worse than absent content: nobody notices')
 console.log('  what is missing, and everybody believes a labelled slider.')
 console.log('  Graded on `mad` against three times the ANIMATION measured at the')
