@@ -51,6 +51,8 @@ let offTown = 0, belowRoof = 0, systems = 0, familyGaps = 0, adrift = 0
 let fireflyNature = null
 let reactFails = 0
 let swayFails = 0
+let missingSystems = 0
+let laundryGaps = 0
 for (const seed of seeds) {
   await win.evaluate((s) => {
     const inp = [...document.querySelectorAll('.left-panel input')]
@@ -424,6 +426,86 @@ for (const seed of seeds) {
     }
   }
 
+  // WHICH SYSTEMS EXIST AT ALL — and WHY one does not.
+  //
+  // Three of the seven bail out when their prerequisite is missing: mist
+  // needs water, the flock needs open paving, the washing needs a pair of
+  // dwellings close enough. A town without them produces a SHORTER TABLE and
+  // nothing else — the verdict would still read "0 particles outside the town
+  // box across N systems" with N quietly one lower, which is the ghost
+  // failure in the one tool that grades moving content.
+  //
+  // AN ABSENCE NEEDS A CAUSE, NOT A FLAG. `no mist` on a town with a river is
+  // a defect and on a dry one is correct, and a count cannot tell them apart
+  // — the classify-by-cause discipline that turned "233 tiles the wall placer
+  // did not build" into an answer in one run. So the tool asks the MAP what
+  // the town has before deciding whether an absence is a finding.
+  const census = await win.evaluate(() => {
+    const pt = window.__pt, r3 = pt.renderer()
+    const layer = pt.store.getState().map.layers.find((l) => l.type === 'terrain')
+    const tt = layer?.terrainTiles || []
+    let water = 0, paving = 0
+    for (const row of tt) for (const t of row) {
+      if (t === 3) water++
+      else if (t === 14 || t === 8) paving++
+    }
+    const seen = new Set()
+    r3.particleGroup.traverse((o) => {
+      if (o.isPoints || o.isLineSegments) seen.add(o.name || '(unnamed)')
+    })
+    let laundry = false, ropes = false
+    r3.scene.traverse((o) => {
+      if (o.name === 'laundryLines') laundry = true
+      if (o.name === 'lanternRopes') ropes = true
+    })
+    return { water, paving, seen: [...seen], laundry, ropes }
+  })
+  {
+    // name -> the prerequisite that excuses its absence, and how much is
+    // needed. `null` means it should exist in every town, always.
+    const EXPECT = [
+      ['smoke', null], ['fireflies', null], ['birds', null], ['moths', null],
+      ['rainfall', null], ['snowfall', null],
+      ['rivermist', ['water', 12]], ['pigeons', ['paving', 8]],
+    ]
+    const gone = []
+    for (const [name, req] of EXPECT) {
+      if (census.seen.includes(name)) continue
+      if (req && census[req[0]] < req[1]) {
+        console.log(`  ${name}: absent, and correctly — the town has ` +
+          `${census[req[0]]} ${req[0]} tiles against ${req[1]} needed.`)
+      } else {
+        gone.push(name)
+      }
+    }
+    console.log(`  systems:   ${census.seen.length} drawn ` +
+      `(town has ${census.water} water, ${census.paving} paving tiles)` +
+      (census.laundry ? '' : '  ·  NO WASHING LINES'))
+    if (gone.length) {
+      missingSystems += gone.length
+      console.log(`             ^ MISSING with its prerequisite present: ${gone.join(', ')}`)
+    }
+    const ls0 = await win.evaluate(() => (window.__pt.lanternStats
+      ? window.__pt.lanternStats() : null))
+    if (ls0) {
+      console.log('  washing:   ' + Object.entries(ls0)
+        .sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join('  '))
+    }
+    if (!census.laundry) {
+      laundryGaps++
+      // WHY, not just that. The four ways a pair can fail to carry washing
+      // are indistinguishable in a zero, and the counters are already in the
+      // source — reading them is what turns this line from a report into an
+      // answer.
+      const ls = await win.evaluate(() => (window.__pt.lanternStats
+        ? window.__pt.lanternStats() : null))
+      if (ls) {
+        console.log('             ^ why: ' + Object.entries(ls)
+          .sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join('  '))
+      }
+    }
+  }
+
   // LANTERN FAMILIES — a zero here is the finding, not the total.
   const fam = r.lanternFamilies || {}
   const names = ['lamppost', 'wall', 'rope']
@@ -445,7 +527,8 @@ console.log(`\nVERDICT: ${offTown} particles outside the town box across ` +
   `${familyGaps} seeds miss a lantern family; ${adrift} camera-local boxes adrift; ` +
   `fireflies over soft ground or water ${fireflyNature === null ? 'n/a' : fireflyNature + '%'}; ` +
   `${reactFails} seeds where nothing reacts to the player; ` +
-  `${swayFails} hanging-sway failures.`)
+  `${swayFails} hanging-sway failures; ${missingSystems} systems missing with ` +
+  `their prerequisite present; ${laundryGaps} seeds with no washing lines.`)
 console.log('  `spread` is each system\'s x-extent as a fraction of the town\'s;')
 console.log('  `cam` means the system travels with the player and is graded on')
 console.log('  whether its box is centred there instead.')

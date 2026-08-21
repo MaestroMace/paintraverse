@@ -22,7 +22,7 @@ import { setFragmentAudit, getFragmentAudit, setSliverAudit, getSliverAudit } fr
 import { overhangClamps, resetOverhangClamps, massingTrace, setMassingTrace, MAX_TOWER_ASPECT } from '../renderer3d/architecture/Massing'
 import { auditRoofWinding, MAX_ROOF_SPAN_RATIO } from '../renderer3d/architecture/Roofs'
 import { placeStats } from '../generation/TownGenerator'
-import { lampAnchors } from '../renderer3d/LanternStrings'
+import { lampAnchors, lanternStats } from '../renderer3d/LanternStrings'
 import * as THREE from 'three'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
 import { getActiveEditorViewport } from '../editor/EditorViewport'
@@ -176,6 +176,9 @@ export function installDebugBridge(): void {
      * anchor states its own `kind`; particles.mjs tallies them.
      */
     lampAnchors: () => lampAnchors.map(a => ({ ...a })),
+
+    /** Why each building pair did or did not get washing. See lanternStats. */
+    lanternStats: () => ({ ...lanternStats }),
 
     /**
      * EVERY structure and prop as a feature vector — the input to

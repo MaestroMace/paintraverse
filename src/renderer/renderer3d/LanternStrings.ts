@@ -220,6 +220,21 @@ function applySway(mesh: THREE.Mesh, amp: number): void {
  * family: a rope lantern hangs in open air over a street and a wall
  * bracket has a wall immediately behind it.
  */
+/**
+ * WHY A PAIR DID NOT GET WASHING — a reject tally, because a count buys
+ * guesses and an explaining metric buys the answer.
+ *
+ * `particles.mjs` found no washing lines at all on two seeds in three,
+ * against the 4-5 a town this repo has on record from a single seed. There
+ * are four ways a pair can fail and a bare zero cannot tell them apart: the
+ * shared 25-string budget spent on lanterns before any dwelling pair came up,
+ * neither building being a home, no window height that clears head room, or
+ * the 3-in-4 dice. Same shape as the reject counters that closed the rear
+ * outshot in one run after a count had bought nothing.
+ */
+export const lanternStats: Record<string, number> = {}
+function reject(k: string): void { lanternStats[k] = (lanternStats[k] ?? 0) + 1 }
+
 export type LampFamily = 'lamppost' | 'wall' | 'rope'
 export interface LampAnchor {
   x: number; y: number; z: number
@@ -570,63 +585,172 @@ export function buildLanternStrings(
     kind: 'lantern' | 'laundry'; seed: number
   }
   const strings: StringSpec[] = []
+  // AT THE TOP OF THE THING BEING COUNTED. A diagnostic reset partway through
+  // its own pipeline records only the second half — the placeStats trap.
+  for (const k of Object.keys(lanternStats)) delete lanternStats[k]
+  // BOTH HALVES OF THE RATE. `notBothHomes 24 of 25` is a numerator with no
+  // denominator: it reads as a selection failure and would read identically
+  // if the pool simply contained no homes. Any rate above 100% is a free bug
+  // report and any rate with an unknown population is not a reading at all.
+  lanternStats['pool~total'] = centers.length
+  lanternStats['pool~homes'] = centers.filter((c) => c.home).length
   const usage = new Uint8Array(centers.length)
+  /**
+   * RESERVE A SHARE OF THE BUDGET FOR WASHING, AND SPREAD IT.
+   *
+   * The 25 strings were taken from the first successful `i` values in INDEX
+   * order, and index order is placement order, which is spatially clustered
+   * because the placer works outward from the road network. So the whole
+   * budget went to whichever quarter the placer started in, and whether that
+   * quarter was residential was luck — two seeds in three had no washing at
+   * all while the reject tally read `notBothHomes` on 24 of 25.
+   *
+   * THAT IS THE CHIMNEY-SMOKE TRUNCATION, one file over. The budget was
+   * truncated rather than sampled, and the fix there was the same two halves:
+   * reserve a share for the thing that would otherwise never be reached, and
+   * choose its members by FARTHEST POINT so a reserved share does not simply
+   * relocate the clustering. Homes cluster in residential quarters, so a
+   * reserve without the spread would put every washing line in one street.
+   *
+   * The general pass then fills the rest exactly as before, so nothing is
+   * lost: a pair that cannot carry washing still carries lanterns.
+   */
+  const LAUNDRY_SHARE = 8
+  const homePairs: Array<{ i: number; j: number; d: number }> = []
   for (let i = 0; i < centers.length; i++) {
-    if (usage[i] >= 2) continue
+    if (!centers[i].home) continue
     for (let j = i + 1; j < centers.length; j++) {
-      if (usage[j] >= 2) continue
-      if (strings.length >= MAX_STRINGS) break
-      const a = centers[i], b = centers[j]
-      const dx = a.cx - b.cx, dz = a.cz - b.cz
-      const d = Math.hypot(dx, dz)
+      if (!centers[j].home) continue
+      const d = Math.hypot(centers[i].cx - centers[j].cx, centers[i].cz - centers[j].cz)
       if (d < MIN_DIST || d > MAX_DIST) continue
-      // WHICH KIND OF STRING IS THIS.
-      //
-      // Washing goes between two HOMES and nowhere else — a line of shirts
-      // across a market square or a churchyard is the wallpaper failure this
-      // repo keeps catching, content that fires at the same rate everywhere
-      // and so differentiates nothing. Two households facing each other over
-      // a back lane is the whole picture.
-      //
-      // It hangs BELOW the lower eave rather than above the higher one, and
-      // then only if there is genuinely room: it must clear head height over
-      // the HIGHER of the two grounds, because the street between buildings
-      // on a slope is only as generous as its high end. A pair with no such
-      // window simply carries lanterns instead, which is why this is a choice
-      // inside one loop and not a second pass with its own budget.
-      const bothHome = a.home && b.home
-      const groundMax = Math.max(a.groundY, b.groundY)
-      const ceilY = Math.min(a.eaveY, b.eaveY) - LAUNDRY_EAVE_GAP
-      const laundryY = Math.min(groundMax + LAUNDRY_HEIGHT, ceilY)
-      const floorY = groundMax + LAUNDRY_MIN_CLEAR
-      // Alternate rather than always preferring washing, so a terrace of
-      // identical houses does not become a laundry district. The seed is
-      // positional, so the choice is stable across runs.
-      const wantsLaundry = bothHome && laundryY >= floorY &&
-        ((a.seed ^ b.seed) & 3) !== 0
-      const kind: 'lantern' | 'laundry' = wantsLaundry ? 'laundry' : 'lantern'
-      // Hang above the HIGHER of the two eaves so the rope spans the gap
-      // overhead. Averaging ground heights (the old behaviour) ignored how
-      // tall the buildings actually were.
-      const y = wantsLaundry ? laundryY : Math.max(a.eaveY, b.eaveY) + EAVE_CLEARANCE
-      // Tie the rope off at each building's WALL, not its centre. Spanning
-      // centre to centre buried most of the rope inside the two buildings it
-      // connected and left it poking out of their far sides — invisible when
-      // buildings were a metre wide, obvious once they are ten.
-      const ux = -dx / d, uz = -dz / d          // unit vector a -> b
-      const inA = supportRadius(a, ux, uz)
-      const inB = supportRadius(b, -ux, -uz)
-      // Nothing left to span once both buildings are pulled in: skip rather
-      // than emit a backwards rope.
-      if (inA + inB >= d - 0.5) continue
-      strings.push({
-        ax: a.cx + ux * inA, az: a.cz + uz * inA,
-        bx: b.cx - ux * inB, bz: b.cz - uz * inB,
-        y, kind, seed: (a.seed ^ (b.seed * 31)) >>> 0,
-      })
-      usage[i]++
-      usage[j]++
+      homePairs.push({ i, j, d })
       break
+    }
+  }
+  lanternStats['pool~homePairs'] = homePairs.length
+  const spread: typeof homePairs = []
+  if (homePairs.length) {
+    spread.push(homePairs[0])
+    while (spread.length < Math.min(LAUNDRY_SHARE, homePairs.length)) {
+      let best = -1, bestD = -1
+      for (let k = 0; k < homePairs.length; k++) {
+        const c = centers[homePairs[k].i]
+        let d = Infinity
+        for (const t of spread) {
+          const tc = centers[t.i]
+          d = Math.min(d, (c.cx - tc.cx) ** 2 + (c.cz - tc.cz) ** 2)
+        }
+        if (d > bestD) { bestD = d; best = k }
+      }
+      if (best < 0 || bestD <= 0) break
+      spread.push(homePairs[best])
+    }
+  }
+  const reserved = new Set(spread.map((p) => `${p.i}:${p.j}`))
+
+  /**
+   * LOOK FOR A HOME PARTNER FIRST, when this building is one.
+   *
+   * The loop took the first valid `j` in INDEX order and index order is
+   * placement order, which is spatially clustered by district — so a house in
+   * a market quarter paired with whatever shop was beside it, and the reject
+   * tally read `notBothHomes` on 24 of 25 pairs. That is why two seeds in
+   * three had no washing at all against the 4-5 lines a town on record.
+   *
+   * A SELECTION CRITERION MUST MEASURE THE SAME POPULATION AS THE CONSTRAINT
+   * IT SERVES — the rule that fixed the vignette anchors after counting
+   * neighbours in one pool while the placer drew from two. The constraint is
+   * "both ends are homes"; the selection was "nearest by index". One pass for
+   * a home partner, then the original pass for anyone, so a pair that cannot
+   * carry washing still carries lanterns and no string is lost.
+   */
+  const passes = (i: number): Array<(j: number) => boolean> =>
+    centers[i].home
+      ? [(j) => centers[j].home, () => true]
+      : [() => true]
+
+  // The reserved pairs go in FIRST, so the general walk cannot spend the
+  // budget before they are reached.
+  const order: number[] = [
+    ...spread.map((p) => p.i),
+    ...centers.map((_, i) => i).filter((i) => !spread.some((p) => p.i === i)),
+  ]
+  for (const i of order) {
+    if (usage[i] >= 2) continue
+    let paired = false
+    for (const want of passes(i)) {
+      if (paired) break
+      for (let j = i + 1; j < centers.length; j++) {
+        if (usage[j] >= 2) continue
+        if (!want(j)) continue
+        if (strings.length >= MAX_STRINGS) { reject('wash~budgetSpent'); break }
+        const a = centers[i], b = centers[j]
+        const dx = a.cx - b.cx, dz = a.cz - b.cz
+        const d = Math.hypot(dx, dz)
+        if (d < MIN_DIST || d > MAX_DIST) continue
+        // WHICH KIND OF STRING IS THIS.
+        //
+        // Washing goes between two HOMES and nowhere else — a line of shirts
+        // across a market square or a churchyard is the wallpaper failure
+        // this repo keeps catching, content that fires at the same rate
+        // everywhere and so differentiates nothing. Two households facing
+        // each other over a back lane is the whole picture.
+        //
+        // It hangs BELOW the lower eave rather than above the higher one, and
+        // then only if there is genuinely room: it must clear head height
+        // over the HIGHER of the two grounds, because the street between
+        // buildings on a slope is only as generous as its high end. A pair
+        // with no such window simply carries lanterns instead, which is why
+        // this is a choice inside one loop and not a second pass with its own
+        // budget.
+        const bothHome = a.home && b.home
+        const groundMax = Math.max(a.groundY, b.groundY)
+        const ceilY = Math.min(a.eaveY, b.eaveY) - LAUNDRY_EAVE_GAP
+        const laundryY = Math.min(groundMax + LAUNDRY_HEIGHT, ceilY)
+        const floorY = groundMax + LAUNDRY_MIN_CLEAR
+        const roomy = laundryY >= floorY
+        // Alternate rather than always preferring washing, so a terrace of
+        // identical houses does not become a laundry district. The seed is
+        // positional, so the choice is stable across runs.
+        //
+        // AND THE DICE HAS TO DO REAL WORK NOW. It allowed washing on 3 pairs
+        // in 4, which was invisible while only one pair in twenty-five was
+        // eligible at all. With the selection fixed most pairs are eligible,
+        // and 3-in-4 would turn a residential quarter into a laundry district
+        // — the wallpaper failure this guard exists to prevent. Roughly a
+        // third lands on the 4-6 lines a town this feature was measured at
+        // before the structural bias was found.
+        const dice = ((a.seed ^ b.seed) % 3) === 0
+        const wantsLaundry = bothHome && roomy && dice
+        if (!bothHome) reject('wash~notBothHomes')
+        else if (!roomy) reject('wash~noHeadroom')
+        else if (!dice) reject('wash~dice')
+        else reject('wash~ok')
+        const kind: 'lantern' | 'laundry' = wantsLaundry ? 'laundry' : 'lantern'
+        // Hang above the HIGHER of the two eaves so the rope spans the gap
+        // overhead. Averaging ground heights (the old behaviour) ignored how
+        // tall the buildings actually were.
+        const y = wantsLaundry ? laundryY : Math.max(a.eaveY, b.eaveY) + EAVE_CLEARANCE
+        // Tie the rope off at each building's WALL, not its centre. Spanning
+        // centre to centre buried most of the rope inside the two buildings
+        // it connected and left it poking out of their far sides — invisible
+        // when buildings were a metre wide, obvious once they are ten.
+        const ux = -dx / d, uz = -dz / d          // unit vector a -> b
+        const inA = supportRadius(a, ux, uz)
+        const inB = supportRadius(b, -ux, -uz)
+        // Nothing left to span once both buildings are pulled in: skip rather
+        // than emit a backwards rope.
+        if (inA + inB >= d - 0.5) continue
+        strings.push({
+          ax: a.cx + ux * inA, az: a.cz + uz * inA,
+          bx: b.cx - ux * inB, bz: b.cz - uz * inB,
+          y, kind, seed: (a.seed ^ (b.seed * 31)) >>> 0,
+        })
+        usage[i]++
+        usage[j]++
+        paired = true
+        break
+      }
     }
     if (strings.length >= MAX_STRINGS) break
   }

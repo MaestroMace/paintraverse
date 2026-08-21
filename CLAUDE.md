@@ -1389,6 +1389,49 @@ because a trio reads as three dots and a cloud reads as a cloud. Do not tune
 the motion against a still; tune the visibility, and say which of the two you
 measured.
 
+**A CENSUS OF WHAT IS DRAWN IS THE ONLY THING THAT NOTICES AN ABSENCE, AND
+EVERY SYSTEM HERE HAD BEEN GRADED ONLY WHERE IT EXISTED.** `particles.mjs`
+reported extent, spread, tenancy and reactivity per system — all of them
+properties of a system that IS there — so a town with no washing at all read
+as a clean board with one fewer row on it. Nobody notices absent content, and
+the fix is the shape `registry.mjs` and `features.mjs` already use: enumerate
+what the town SHOULD contain, and excuse an absence only against the
+prerequisite (`rivermist` needs water tiles, `pigeons` need paving). First run:
+**8 systems drawn, and NO WASHING LINES on two seeds in three**, against the
+4-5 a town this file records — measured on one seed, a year ago.
+
+**AND THE TALLY, THE DENOMINATOR AND THE ORDER WERE THREE SEPARATE STEPS.**
+Each one eliminated a class of hypothesis and none of them needed a picture:
+
+- **The reject tally said `wash~notBothHomes` on 24 of 25 pairs.** That reads
+  as a selection failure — the pairing takes the first valid `j` in index
+  order and index order is placement order, so a house in a market quarter
+  pairs with whatever shop is beside it. A home-partner preference pass was
+  written, and **it barely moved the number**, which is the useful kind of
+  negative result: a real mechanism that is not the cause.
+- **Then both halves of the rate.** `pool~homes` read 77 of 220 and 74 of 216
+  on the failing seeds against 166 of 262 on the working one — so the pool was
+  not empty and homes were not rare, and a selection story could not explain a
+  ZERO. `pool~homePairs` (home pairs actually within the distance filter) read
+  52 and 58, which is far more than the 25-string budget.
+- **So the budget was TRUNCATED, not sampled**, and that is the chimney-smoke
+  finding one file over: the 25 strings go to the first successful `i` values
+  in placement order, placement order is spatially clustered because the placer
+  works outward from the road network, and whether the quarter it started in
+  was residential is luck. The fix is the same two halves — reserve a share
+  (`LAUNDRY_SHARE = 8`) and choose its members by FARTHEST POINT, because homes
+  cluster in residential quarters so a reserve alone just relocates the
+  clustering. **0 seeds with no washing lines**, on all four tested.
+
+**AND FIXING THE SELECTION MADE AN INVISIBLE CONSTANT VISIBLE.** The
+laundry-versus-lantern dice was `((a.seed ^ b.seed) & 3) !== 0` — 3 pairs in 4
+— which was harmless for as long as one pair in twenty-five was eligible at
+all. With the bias gone most pairs are eligible and 3-in-4 turns a residential
+quarter into a laundry district, which is the wallpaper failure the dice exists
+to prevent. **A guard tuned against a broken population is tuned against
+nothing**; it is one in three now and lands on the 4-6 lines a town the feature
+was measured at before the bias was found.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
@@ -1488,11 +1531,18 @@ Verified against the code; if you change one, change it here too.
   two kinds. A pair carries laundry only when BOTH buildings are in
   `DWELLING_TYPES` and there is room; anything else falls through to lanterns.
   Hung at `ground + 5.0m` (a storey plus a sill plus a window) clamped to
-  `min(eave) - 0.6`, never below `ground + 4.2`. 4-5 lines and ~30 garments a
-  town, garment 0.57m x 1.0m median. **Do not re-derive the height from the
-  eave** — a drop-from-eave rule plus a head-clearance rule composes into a
-  filter that only tall buildings pass, and the washing migrates to the
+  `min(eave) - 0.6`, never below `ground + 4.2`. 1-3 lines a town on every
+  seed tested, garment 0.57m x 1.0m median. **Do not re-derive the height from
+  the eave** — a drop-from-eave rule plus a head-clearance rule composes into
+  a filter that only tall buildings pass, and the washing migrates to the
   tallest pairs in town.
+  **`LAUNDRY_SHARE = 8` of the budget is RESERVED for home-home pairs and
+  spread by farthest point**, because the budget was otherwise spent on the
+  first successful pairs in PLACEMENT order, which is spatially clustered — so
+  whether a town got any washing at all was a matter of which quarter the
+  placer started in, and two seeds in three got none. A reserve without the
+  spread only relocates the clustering, since homes cluster in residential
+  quarters. Same fix as the chimney-smoke budget, one file over.
 - Birds: max 15, dusk-only. Smoke: 2 × 16 chimneys = 32. Fireflies: 36.
 - Lampposts: ~28 per 48×48 town, spaced along every road; all their ground
   light pools are merged into ONE mesh sharing `_lampPoolMat`
@@ -2166,7 +2216,7 @@ Run these before believing anything about where the project is.
 | open-topped volumes | roofcheck.mjs | **0 over 5 seeds, was 22** | **fixed** |
 | all four lighting arms | hours.mjs | sky>wall on every branch, 0 blacked out, 0 unmeasured | **new — clean** |
 | holes in a wall | holes.mjs | 6 at noon; BLANKS 5 patches, 7.7% of a street view (was 21.5%) | improving |
-| moving content | particles.mjs | 0 off-town, 0 smoke at head height, spread 0.94, 4 systems, 3 lantern families | clean |
+| moving content | particles.mjs | 0 off-town, 0 smoke at head height, spread 0.94-0.95, **8 systems, 0 missing with their prerequisite present, 0 seeds with no washing**, fireflies 97-100% over soft ground, 0 unreactive, 0 sway failures | clean |
 | **do the controls DO anything** | **celestial.mjs** | **1 of 7 dead, and it is the declared negative case** | **new — clean** |
 | human scale | humanscale.mjs | door 2.05m, window 1.35m, storey 2.90m, 0% sub-human | clean |
 | street emptiness | emptiness.mjs | median 3m, 0% over 12m | satisfiable by scatter — see below |
@@ -3203,6 +3253,15 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   fourth system arrived. Also censuses the three LANTERN FAMILIES, because the
   moths draw from all of them and a pass that reaches two of three reads as
   healthy while the survivors carry the count.
+  **And it CENSUSES the systems themselves**, because every other row it prints
+  is a property of a system that IS there — extent, spread, tenancy,
+  reactivity — so a town missing one entirely read as a clean board with one
+  fewer line on it. An absence is excused only against its prerequisite
+  (`rivermist` needs water tiles, `pigeons` need paving), and the washing
+  lines get their own reject tally printed beside the counts: that is what
+  found `wash~notBothHomes` on 24 of 25 pairs and, once the denominators
+  `pool~homes` and `pool~homePairs` were added, distinguished a selection
+  failure from an empty pool. Nobody notices absent content.
 - `node tools/hours.mjs [seed] [--views=N] [--weather]` — **all four arms of
   `updateLighting`, and with `--weather` all twenty hour-weather
   combinations.** The cross is why weather's three sky bugs were found at all:
