@@ -1451,9 +1451,13 @@ already working. **A VERTEX IS BY DEFINITION ON A REAL INSTANCE**: take one
 near the middle of the buffer, gather everything within a room's width, frame
 that. No clustering step, no centroid, nothing to drift.
 
-    laundryLines   TOO FEW PIXELS  ->  0.00508-0.00799 against its own bar
+    laundryLines   TOO FEW PIXELS  ->  0.00508-0.00644 against its own bar
     ropeLanterns   0.0001          ->  0.00086-0.00725
     unseeable at their own box                          0 on four seeds
+
+(All four figures are the 2024/65535/4242/999999 sweep. A single-seed run
+of 4242 read laundryLines at 0.00799, which is inside the same spread and
+is quoted in the commit message — the four-seed range is the one to use.)
 
 **AND THE NEGATIVE CASE WAS MERELY ABSENT, WHICH PROVES NOTHING.**
 `windowSpill` is the declared must-not-move row and it read `TOO FEW PIXELS`
