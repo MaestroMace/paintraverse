@@ -34,7 +34,7 @@
  */
 import { _electron as electron } from 'playwright-core'
 import { waitForScene } from './lib/scene.mjs'
-import { isolate } from './lib/vantage.mjs'
+import { isolate, hideNamed } from './lib/vantage.mjs'
 
 const seeds = process.argv.slice(2).map(Number).filter(Boolean)
 if (!seeds.length) seeds.push(4242, 31337, 8080)
@@ -52,6 +52,7 @@ let fireflyNature = null
 let mistWater = null, mistOffRiver = 0
 let reactFails = 0
 let swayFails = 0, swayBlind = 0
+let spillMean = null, spillDead = 0
 let missingSystems = 0
 let laundryGaps = 0
 for (const seed of seeds) {
@@ -385,6 +386,7 @@ for (const seed of seeds) {
   // is still, so any difference between two frames IS the sway — a static
   // mesh reads exactly 0. `windowSpill` is the negative case: named, in the
   // same part of the scene, and deliberately not swaying.
+  let spill = null
   const sway = await (async () => {
     const grid = 256
     const shootGrid = () => win.evaluate((n) => {
@@ -546,6 +548,75 @@ for (const seed of seeds) {
       out.push([name, +sig.toFixed(5), lit < 12 ? 'TOO FEW PIXELS' : null,
         +bar.toFixed(5), sig > bar, { verts: box.verts, total: box.total, lit }])
       await iso.restore()
+
+      /**
+       * AND DOES THE SPILL DO ITS JOB — the one question nothing asked.
+       *
+       * Every other reading here is about a mesh EXISTING, being in the right
+       * place, or moving. The window spill's purpose is different: it is
+       * pillar 5's fourth layer, and its job is to put light on the ground at
+       * the foot of a lit elevation, because the other three layers are all
+       * SOURCES and nothing let a lit window affect anything outside itself.
+       * Whether it succeeds is a question about the COMPOSITE frame, and the
+       * isolate frame above cannot answer it — a mesh alone always looks like
+       * something.
+       *
+       * THE PUDDLES ARE THE PRECEDENT AND THE WARNING. 150 of them were built,
+       * counted, and photographed into a convincingly rainy street, and only
+       * hiding the one mesh and re-measuring showed they contributed 1.4x the
+       * noise floor. A count said they existed; a photograph said they looked
+       * right; neither was a reading. `hideNamed` is what turned that into a
+       * number, and this is the same triple on the same kind of claim.
+       *
+       * BOTH STATISTICS, because they can disagree and only their agreement is
+       * trustworthy: the mean shift says how much light arrived, and the count
+       * of changed samples says whether it arrived somewhere or everywhere. A
+       * large mean over three samples is a bug; a tiny mean over thousands is
+       * a wash rather than a pool, and pillar 1 wants a dark street.
+       */
+      if (name === 'windowSpill') {
+        // AND THE FLOOR HAS TO BE THE RIGHT NOISE — the half of the puddle
+        // finding that is easiest to get wrong, and I got it wrong first.
+        // `floor` above is the noise of an ISOLATED frame, where nothing but
+        // the subject is drawn and nothing animates, so it is near zero. This
+        // A/B runs on the COMPOSITE, where moths, fireflies, smoke, mist and
+        // the window flicker all move every frame. Grading a composite delta
+        // against an isolated floor would clear almost anything.
+        //
+        // So the control is two composite frames with NOTHING changed, taken
+        // as close together as this renderer allows, and it is measured on
+        // both statistics — a mean and a changed-sample share — because the
+        // puddles cleared neither honestly and only the pair said so.
+        const a1 = await shootGrid()
+        await new Promise((r) => setTimeout(r, 70))
+        const a2 = await shootGrid()
+        const hid = await hideNamed(win, name)
+        await new Promise((r) => setTimeout(r, 500))
+        const b = await shootGrid()
+        await hid.restore()
+        const THRESH = 0.004
+        let dm = 0, changed = 0, noise = 0, noiseChanged = 0
+        for (let i = 0; i < a1.length; i++) {
+          const lit = (a1[i] + a2[i]) / 2
+          const d = lit - b[i]
+          dm += d
+          if (Math.abs(d) > THRESH) changed++
+          const nd = a1[i] - a2[i]
+          noise += Math.abs(nd)
+          if (Math.abs(nd) > THRESH) noiseChanged++
+        }
+        spill = {
+          // Signed: the spill ADDS light, so a negative mean would mean the
+          // mesh is darkening the ground it exists to brighten.
+          mean: +(dm / a1.length).toFixed(5),
+          changedPct: +((changed / a1.length) * 100).toFixed(1),
+          // The composite control, on both statistics. Printed rather than
+          // folded into a verdict, because a probe whose bar you cannot audit
+          // costs a round of guessing every time it surprises you.
+          floor: +(noise / a1.length).toFixed(5),
+          floorChangedPct: +((noiseChanged / a1.length) * 100).toFixed(1),
+        }
+      }
     }
     return out
   })()
@@ -580,6 +651,33 @@ for (const seed of seeds) {
       console.log('             ^ windowSpill MOVED. It is the negative case — a ground')
       console.log('               quad that must not sway — so either the displacement')
       console.log('               is reaching a mesh it should not, or the floor is bad.')
+    }
+    // DOES THE SPILL PUT LIGHT ON THE GROUND — its whole job, and the one
+    // claim here that a composite frame has to settle. Both statistics are
+    // printed because they can disagree and only their agreement is worth
+    // anything: the mean says how much light arrived, the changed share says
+    // whether it arrived in a POOL or as a wash over the whole street, and a
+    // uniform wash is the failure this feature was tuned away from.
+    if (spill) {
+      spillMean = spillMean === null ? spill.mean : Math.min(spillMean, spill.mean)
+      console.log(`  spill:     +${spill.mean} mean luma over ${spill.changedPct}% of the frame  ` +
+        `·  composite floor ${spill.floor} over ${spill.floorChangedPct}%  —  hidden vs visible`)
+      // BOTH STATISTICS HAVE TO CLEAR, because the puddles cleared the mean at
+      // 1.4x against falling rain and that was not a reading. Three times the
+      // measured composite noise is the same bar celestial.mjs settled on
+      // after three invented ones, and the changed share must beat its own
+      // control too — otherwise the "signal" is the animation.
+      if (spill.mean <= spill.floor * 3 || spill.changedPct <= spill.floorChangedPct) {
+        spillDead++
+        console.log('             ^ THE WINDOW SPILL CONTRIBUTES NOTHING. Hiding it')
+        console.log('               moves the frame by no more than the composite\'s own')
+        console.log('               noise — the puddle reading, on pillar 5 layer 4.')
+      } else if (spill.changedPct > 60) {
+        spillDead++
+        console.log('             ^ THE SPILL IS A WASH, NOT A POOL. It reaches most of')
+        console.log('               the frame, and a uniformly lit street is the worst')
+        console.log('               of both pillars — 1 wants dark, 5 wants pools.')
+      }
     }
     if (!movers.length) {
       swayFails++
@@ -706,6 +804,7 @@ console.log(`\nVERDICT: ${offTown} particles outside the town box across ` +
   `${mistOffRiver} off the river; ` +
   `${reactFails} seeds where nothing reacts to the player; ` +
   `${swayFails} hanging-sway failures, ${swayBlind} hanging meshes unseeable at their own box; ` +
+  `window spill +${spillMean === null ? 'n/a' : spillMean} mean luma worst seed, ${spillDead} contributing nothing; ` +
   `${missingSystems} systems missing with ` +
   `their prerequisite present; ${laundryGaps} seeds with no washing lines.`)
 console.log('  `spread` is each system\'s x-extent as a fraction of the town\'s;')
