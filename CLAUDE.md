@@ -1569,31 +1569,42 @@ failures / 0 regressions. What moved:
 - Curtain walls have a plinth, a string course and buttresses; sheds no longer
   smoke.
 
-**THE MAGICAL PASS — two additions, and the instruments cost more than the
-content did.**
+**THE MAGICAL PASS.** Six commits, and in every one the instrument cost more
+than the content did.
 
-- **Stars, in both skies, from one curve.** The dome was an empty gradient at
-  midnight. `starIntensityFor(hour)` is in Materials.ts because BOTH renderers
-  draw a sky, and it is a CURVE rather than four literals in four branches of
-  `updateLighting` — the shape `hours.mjs` exists to catch, and it corrected a
-  literal I had written wrong (golden hour at 16:00 had 0.12 of a star field).
-  The board did not move and could not have: a 4% point field cannot shift a
-  median.
-- **Moths at the lanterns** — the fourth particle system, and the first moving
-  thing in the town that knows where the LIGHTS are. Derived from time like
-  the birds, with the radius BREATHING so it does not read as one, at 14 lamps
-  chosen farthest-point over ~150-175 anchors.
-- `lampAnchors` is the handle that made it possible: three producers make a
-  lantern and none of them returned a position, so nothing could be attached
-  to one. Same shape as `PlacedObject.footprint` and `BuildingTop`.
-- **Two instruments were blind in the same hour, both to a hand-written list.**
-  `lib/vantage.isolate` filtered on `o.isMesh`, so the particle systems were
-  the one part of the scene it could not isolate; `particles.mjs` named its
-  systems positionally, so a fourth would have renamed the birds. Both read
-  the source of truth now.
-- And the A/B triple found the real defect: **four crisp moths in the isolate
-  frame and ONE in the composite**, because an orbit chosen for physical
-  plausibility kept every moth inside the lantern's own screen footprint.
+- **Stars, in both skies, from one CURVE** rather than four literals in four
+  branches — the shape `hours.mjs` exists to catch, and it corrected a literal
+  that gave golden hour at 16:00 a star field. `starIntensityFor` is in
+  Materials.ts because both renderers draw a sky.
+- **Moths at the lanterns** — the fourth particle system and the first moving
+  thing that knows where the LIGHTS are. `lampAnchors` is the handle that made
+  it possible: three producers make a lantern and none returned a position.
+- **Six controls that did nothing.** `moonPhase`, `starDensity` and the whole
+  weather set — five buttons and an intensity slider — were declared,
+  defaulted, wired to the panel and read by NOTHING. A moon is a sphere so a
+  phase is one dot product; weather is MULTIPLIERS on what the hour decided,
+  with `clear` as exact identity so wiring a dead control is provably free.
+- **Rain is `LineSegments` and snow is `Points`**, one simulation and two draw
+  objects, because a raindrop's whole silhouette is the streak and a sprite
+  cannot be stretched. `celestial` graded both as equally live; only the
+  photograph said dots read as dust.
+- **Window spill** — pillar 5's fourth layer. Its three layers were all
+  SOURCES and nothing let a lit window affect anything outside itself.
+- **`mergeBufferGeos` was never merging.** It concatenated the positions of
+  INDEXED geometries and dropped the index, so every lantern, rope and garment
+  has rendered as eight triangles where it needs twelve since it was written.
+  An 8.5m plane found it; 12cm bulbs had hidden it for the life of the file.
+- **Puddles built, measured at the noise floor, reverted** — a Fresnel mirror
+  of a night sky is black on black, and only `hideNamed` plus a re-measure
+  distinguished that from the convincingly rainy composite.
+
+**And three instruments were blind in the same arc, each to a hand-written
+list or an unmeasured floor.** `lib/vantage.isolate` filtered on `o.isMesh`,
+so the particle systems were the one thing it could not isolate;
+`particles.mjs` named its systems positionally, so a fourth would have renamed
+the birds; and `celestial.mjs` was wrong three times before it was right —
+PNG bytes measuring animation, a grid too coarse for a 20px moon, and an
+invented absolute floor.
 
 **Named and open**: `workshop:mainBody x stone_wall_v` overlapping 0.73m at
 (5,60) on seed 31337 — see the deepClash note above. And a large black
@@ -1978,7 +1989,8 @@ Run these before believing anything about where the project is.
 | open-topped volumes | roofcheck.mjs | **0 over 5 seeds, was 22** | **fixed** |
 | all four lighting arms | hours.mjs | sky>wall on every branch, 0 blacked out, 0 unmeasured | **new — clean** |
 | holes in a wall | holes.mjs | 6 at noon; BLANKS 5 patches, 7.7% of a street view (was 21.5%) | improving |
-| moving content | particles.mjs | 0 off-town, 0 smoke at head height, spread 0.94 | clean |
+| moving content | particles.mjs | 0 off-town, 0 smoke at head height, spread 0.94, 4 systems, 3 lantern families | clean |
+| **do the controls DO anything** | **celestial.mjs** | **1 of 7 dead, and it is the declared negative case** | **new — clean** |
 | human scale | humanscale.mjs | door 2.05m, window 1.35m, storey 2.90m, 0% sub-human | clean |
 | street emptiness | emptiness.mjs | median 3m, 0% over 12m | satisfiable by scatter — see below |
 | enclosure (to a WALL) | streets.mjs | median 3m, 0% over 15m | clean |
@@ -3216,7 +3228,16 @@ failure, a regression outside the metric's noise band, or an extractor that
 could not parse its tool. `--save` records the current readings; `--quick`
 skips everything needing Electron; `--only=audit,odd` narrows it.
 
-**TWENTY-EIGHT CHECKS NOW, AND THE EIGHT MOST RECENT WERE SITTING UNRUN.**
+**TWENTY-NINE NOW: `celestial` joined, and it is the first check on the board
+that grades a CONTROL rather than the world.** Six of its seven were read by
+nothing at all for the life of the app, and no static check could have seen
+it — `registry.mjs` audits definitions and `features.mjs` audits gated
+features, and a slider is neither. Its gate is `dead === 1`, not zero: the
+3D sun angle is genuinely dead and stays in the table as the negative case,
+so both a regression (two dead) and somebody quietly wiring the sun (zero)
+show up as a red board rather than slipping through.
+
+**TWENTY-EIGHT CHECKS, AND THE EIGHT MOST RECENT WERE SITTING UNRUN.**
 Nineteen instruments were on the board and twenty-nine were not. Most of the
 twenty-nine are PHOTOGRAPHERS — asset, bisect, walkshots, rivershot,
 bridgeshot, inspect, pixelart, webshot — and belong off it; they answer "what

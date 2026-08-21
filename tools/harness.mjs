@@ -692,6 +692,31 @@ const CHECKS = [
     gates: { offTown: (v) => v === 0, smokeLow: (v) => v === 0 },
     dir: { smokeSpread100: 1 }, band: { smokeSpread100: 25 },
   },
+  {
+    name: 'celestial',
+    why: 'does every Environment control still reach the frame — a dead one is silent',
+    electron: true,
+    // On the board because a control that lies is worse than absent content:
+    // nobody notices what is missing, and everybody believes a labelled
+    // slider. Six of the seven here were read by NOTHING for the life of the
+    // app — the moon phase, the star density and the whole weather set —
+    // and no static check could see it, because a control is not a definition
+    // and not a gate. This is also the only check that can catch the reverse:
+    // a control that WAS wired quietly losing its consumer.
+    cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/celestial.mjs', '4242']],
+    extract: (o) => ({
+      dead: num(o, /VERDICT: (\d+) of \d+ environment controls/),
+      graded: num(o, /VERDICT: \d+ of (\d+) environment controls/),
+    }),
+    // ONE is the pass, not zero: `sunAngle` is genuinely dead in the 3D path
+    // — the pixel-art export reads it and the walkaround derives its sun from
+    // the hour — and it stays in the table as the NEGATIVE CASE, because the
+    // first version of that tool reported it live and a test with no negative
+    // case has never been tested. Two would mean something regressed; zero
+    // would mean somebody wired the sun angle, which is a real change wanting
+    // its own A/B and should not slip past as a green board.
+    gates: { dead: (v) => v === 1, graded: (v) => v === 7 },
+  },
 ]
 
 /** A 0..1 ratio as a percentage, so the board and its bands stay whole. */
