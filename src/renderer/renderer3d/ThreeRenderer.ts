@@ -47,7 +47,7 @@ import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, 
 import { tickWallEmissive } from './architecture/VolumeRenderer'
 import { buildLanternStrings, buildWallLanterns, buildWindowSpill, setLanternEmissiveIntensity, setWindowSpillOpacity, tickLanternEmissive, tickHangingSway, lampAnchors, resetLampAnchors, type LampAnchor } from './LanternStrings'
 import { buildPropMeshes, setLampPoolOpacity, LAMP_POOL_TEX, propSizes, propInstances, type PropBatchResult } from './PropFactory'
-import { starIntensityFor, starThresholdFor, moonPhaseDir, weatherAir, OVERCAST_SKY } from './Materials'
+import { starIntensityFor, starThresholdFor, moonPhaseDir, weatherAir } from './Materials'
 
 /**
  * Patch a material's fog to fade in more strongly near ground level, so
@@ -1905,13 +1905,26 @@ void main() {
     // source. Scaling both the same way would just dim the town, which is
     // what "weather" looks like when it is implemented as an opacity.
     const air = weatherAir(this.weather, this.weatherIntensity)
-    if (this.skyUniforms && air.overcast > 0) {
+    if (this.skyUniforms && (air.desat > 0 || air.skyDim !== 1)) {
       // THE SKY FIRST, because the fog then takes its colour FROM it and an
       // overcast fog tinted from a clear horizon is two weathers at once.
-      this._scratchOvercast.setHex(OVERCAST_SKY)
-      this.skyUniforms.uZenith.value.lerp(this._scratchOvercast, air.overcast)
-      this.skyUniforms.uHorizon.value.lerp(this._scratchOvercast, air.overcast * 0.75)
-      this.skyUniforms.uCloudColor.value.lerp(this._scratchOvercast, air.overcast * 0.5)
+      //
+      // DESATURATE TOWARD THE SKY'S OWN LUMINANCE, never toward a fixed grey.
+      // Cloud takes the COLOUR out of a sky; it does not impose one. An
+      // absolute target is darker than a clear noon sky and brighter than a
+      // night one, so it dimmed the day and lifted the night — and combined
+      // with `skyScale` raising the walls it inverted the silhouette on seven
+      // of twenty hour-weather combinations. Found by crossing the four arms
+      // with the five weathers in `hours.mjs`, which is the whole reason that
+      // tool exists one level down.
+      const grey = (c: THREE.Color): void => {
+        const l = c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722
+        this._scratchOvercast.setRGB(l, l, l)
+        c.lerp(this._scratchOvercast, air.desat).multiplyScalar(air.skyDim)
+      }
+      grey(this.skyUniforms.uZenith.value)
+      grey(this.skyUniforms.uHorizon.value)
+      grey(this.skyUniforms.uCloudColor.value)
     }
     if (this.skyUniforms) {
       this.skyUniforms.uCloud.value = Math.min(1, this.skyUniforms.uCloud.value * air.cloudScale)
@@ -1920,11 +1933,41 @@ void main() {
     if (air.fogScale !== 1 || air.fogToSky > 0) {
       this._fog.density *= air.fogScale
       if (air.fogToSky > 0 && this.skyUniforms) {
+        // TAKE THE SKY'S HUE, NOT ITS BRIGHTNESS.
+        //
+        // `uHorizon` is what the dome is TOLD; it is not what the dome
+        // RENDERS. At night the uniform is luma 0.417 and the sky pixel
+        // measures 0.065, because the shader mixes it and the tone mapper
+        // compresses it — so lerping the fog toward the raw value made the
+        // fog SIX TIMES BRIGHTER than the sky it was supposed to be matching,
+        // and every distant wall washed toward it. That is what left all four
+        // night weathers with walls above the sky after the other two causes
+        // were fixed.
+        //
+        // The correction is the one already applied to the sky itself:
+        // relative, not absolute. Take the hue and put the hour's own fog
+        // brightness back, so weather re-tints the air without lighting it.
+        const before = this._fog.color.r * 0.2126 + this._fog.color.g * 0.7152
+          + this._fog.color.b * 0.0722
         this._fog.color.lerp(this.skyUniforms.uHorizon.value, air.fogToSky)
+        const after = this._fog.color.r * 0.2126 + this._fog.color.g * 0.7152
+          + this._fog.color.b * 0.0722
+        if (after > 1e-4) this._fog.color.multiplyScalar(before / after)
       }
     }
     this.sunLight.intensity *= air.sunScale
-    this.hemiLight.intensity *= air.skyScale
+    // CLOUD REDISTRIBUTES SUNLIGHT, AND AT NIGHT THERE IS NONE TO
+    // REDISTRIBUTE. `skyScale` above 1 is the daytime phenomenon — an
+    // overcast sky is a vast soft source — and applying it to the night arm
+    // raised the walls while nothing raised the sky, inverting the silhouette
+    // on all four night weathers. That was invisible until the overcast
+    // colour stopped being an absolute grey: the old fixed grey was BRIGHTER
+    // than a night sky, so it lifted the sky and accidentally compensated for
+    // a wall lift that should never have been applied.
+    //
+    // At night the sky IS the light source, so the skylight follows whatever
+    // happened to the sky — one term, not a second table column.
+    this.hemiLight.intensity *= isNight ? air.skyDim : air.skyScale
     this.setPrecipitation(air.precip, air.rate)
 
     // FEED THE WATER THE SKY IT IS REFLECTING.

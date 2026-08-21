@@ -69,6 +69,33 @@ const aim = async (pitch) => {
   await win.waitForTimeout(500)
 }
 
+/**
+ * POINT AT THE SUBJECT, FROM A PLACE THAT DOES NOT DEPEND ON THE SEED.
+ *
+ * `aim` keeps the camera wherever `waitForScene` left it — the player SPAWN —
+ * and only changes the pitch, which for a sky subject is a lottery. Run
+ * across four seeds, moonPhase read DEAD on three of them, twice at EXACTLY
+ * 0.00000: the projected mask was landing on empty sky beside a moon that
+ * was out of frame, and an exactly-zero signal on a masked patch is the tell
+ * that the mask is not on the subject rather than that the subject is dead.
+ *
+ * The moon's world position is known exactly, so there is nothing to infer.
+ * Fly to the town centre well above the roofline and look at it — one vantage,
+ * every seed, and the lit windows that dominated the star probe's noise floor
+ * drop out of frame as a side effect.
+ */
+const aimAtWorld = async (world) =>
+  win.evaluate(({ w }) => {
+    const pt = window.__pt, r3 = pt.renderer(), THREE = pt.THREE
+    const box = new THREE.Box3().setFromObject(r3.buildingGroup)
+    const c = box.getCenter(new THREE.Vector3())
+    const eye = new THREE.Vector3(c.x, box.max.y + 12, c.z)
+    const dx = w[0] - eye.x, dy = w[1] - eye.y, dz = w[2] - eye.z
+    pt.flyToWorld(eye.x, eye.y, eye.z,
+      Math.atan2(dz, dx), Math.atan2(dy, Math.hypot(dx, dz)))
+    return true
+  }, { w: world })
+
 const shoot = async (name) => {
   await win.locator('canvas').last().screenshot({ path: `.shots/celestial/${seed}-${name}.png` })
   // A LUMA GRID, NOT THE PNG BYTES.
@@ -147,7 +174,11 @@ const maskAround = async (world, radiusFrac) =>
   win.evaluate(({ w, rf, n }) => {
     const pt = window.__pt, r3 = pt.renderer(), THREE = pt.THREE
     const v = new THREE.Vector3(w[0], w[1], w[2]).project(r3.camera)
-    if (v.z > 1 || Math.abs(v.x) > 1.2 || Math.abs(v.y) > 1.2) return null
+    // 0.85, NOT 1.2. A subject just past the frame edge still projects to an
+    // NDC inside 1.2, so the circle drawn around it lands on empty sky and
+    // the control reads DEAD on a signal of exactly zero. Require it to be
+    // comfortably IN frame, and say so when it is not.
+    if (v.z > 1 || Math.abs(v.x) > 0.85 || Math.abs(v.y) > 0.85) return null
     const cx = (v.x * 0.5 + 0.5) * n
     const cy = (1 - (v.y * 0.5 + 0.5)) * n
     const r = rf * n
@@ -176,9 +207,15 @@ let graded = 0
  */
 const probe = async (label, pitch, hour, apply, cases, focus, floorSetup) => {
   await setEnv({ timeOfDay: hour })
-  await aim(pitch)
-  const mask = focus ? await maskAround(focus.world, focus.radius) : null
-  if (focus && !mask) console.log(`  ${label}: SUBJECT OFF SCREEN — cannot grade. Not a pass.`)
+  // A SKY SUBJECT GETS AIMED AT; a street subject keeps the player's own
+  // vantage, because weather is about the street and the moon is not.
+  if (focus) await aimAtWorld(focus.world)
+  else await aim(pitch)
+  await win.waitForTimeout(400)
+  const mask = focus && focus.radius ? await maskAround(focus.world, focus.radius) : null
+  if (focus && focus.radius && !mask) {
+    console.log(`  ${label}: SUBJECT OFF SCREEN — cannot grade. Not a pass.`)
+  }
   // MEASURE THE FLOOR WITH THE FEATURE'S OWN ANIMATION REMOVED, where it has
   // one. The star probe's noise IS the star twinkle: the same pixels changing
   // by a similar amount as the density signal, so the ratio is intrinsically
@@ -250,10 +287,17 @@ const record = (label, what, p, a, b) => {
 
 // STAR DENSITY — night, sky in frame.
 {
+  // AIMED AT A PATCH OF SKY, from the same seed-independent vantage as the
+  // moon, and deliberately AWAY from the moon so the two subjects do not
+  // share a frame. Run across four seeds on the spawn vantage, this control's
+  // verdict flipped between live and dead purely with how many lit windows
+  // the spawn happened to face — the floor was the town, not the stars.
   const p = await probe('stars', 0.9, 22,
     (v) => setEnv({ celestial: { starDensity: v } }),
     [['000', 0], ['100', 1], ['050', 0.5]],
-    null,
+    // No mask: the star field is the whole sky, not one point. The `focus`
+    // world position is used only to aim.
+    { world: [400, 220, 400], radius: null },
     () => setEnv({ celestial: { starDensity: 0 } }))
   console.log(`  stars vantage: animation floor mad ${p.floor.mad.toFixed(5)}`)
   record('starDensity', '0 vs 100%', p, p.frames['000'], p.frames['100'])

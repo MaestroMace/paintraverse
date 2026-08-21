@@ -1022,6 +1022,19 @@ the moths would have been unnamed. Same shape, same hour, two files apart. It
 reads `ps.type` off `particleSystems` now and prints `UNLABELLED-` loudly
 rather than guessing, because a missing label must not read as a pass.
 
+**A PROBE THAT NEVER CHOOSES ITS VANTAGE IS RUNNING A LOTTERY.**
+`celestial.mjs` kept the camera wherever `waitForScene` left it — the player
+SPAWN — and only changed the pitch. On one seed that happened to put the moon
+in frame; run across four, `moonPhase` read DEAD on three, twice at EXACTLY
+0.00000. **An exactly-zero signal on a MASKED patch is the tell that the mask
+is not on the subject**, not that the subject is dead: the projection guard
+allowed an NDC of 1.2, so a moon just past the frame edge still produced a
+circle of empty sky to measure. The moon's world position is known exactly,
+so there was nothing to infer — fly to the town centre above the roofline and
+point AT it. Moon signal 0.0004 -> 0.013, and three seeds now agree to within
+a fifth. The star probe moved to the same vantage for the same reason: its
+noise floor was the lit windows the spawn happened to face.
+
 **A GHOST WITH A USER INTERFACE IS WORSE THAN A PLAIN ONE.** `moonPhase` and
 `starDensity` are declared in `EnvironmentState`, defaulted in the store AND
 in the generator, and wired to two Environment-panel sliders that report a
@@ -1160,6 +1173,59 @@ pale wash, which is the worst of both pillars at once, because pillar 1 wants
 a dark street and pillar 5 wants POOLS and a uniform floor is neither. Every
 building casts one and they overlap, so the per-building value is set by what
 the SUM looks like.
+
+**TWENTY COMBINATIONS, ONE OF THEM GRADED.** `hours.mjs` exists because
+`updateLighting` is a switch whose four arms could each rot while somebody
+measured at that arm's own hour. Weather then became a fifth multiplier on
+ALL FOUR of them — fog, sun, skylight, cloud, stars — and was graded at
+exactly one combination out of twenty: clear. Same shape, one level up.
+`--weather` crosses them, and the clear rows reproduce the board's
+`inverted=0` exactly, so every inversion it finds is ATTRIBUTABLE rather than
+a sampling artefact. **Seven of twenty inverted the silhouette**, which is
+the one thing pillar 1 cannot survive.
+
+**AND THE FIRST FIX MADE IT WORSE, WHICH IS HOW THE SECOND ONE WAS FOUND.**
+The obvious cause was real: `overcast` lerped the sky toward a fixed grey at
+0.419 luma, which is DARKER than a clear noon sky (0.665) and BRIGHTER than a
+night one — so it dimmed the day, lifted the night, and combined with
+`skyScale` raising the walls it crossed them. Every other term in that table
+is a multiplier on what the hour decided; this one was an absolute, and it
+was the only one that broke. Made relative — desaturate toward the sky's OWN
+luminance, because cloud takes colour OUT of a sky rather than imposing one —
+and the count went **7 -> 10**.
+
+The extra three are all at NIGHT, and they were there the whole time: the
+fixed grey was brighter than a night sky, so it had been LIFTING the sky and
+accidentally compensating for a wall lift that should never have existed.
+**`skyScale` above 1 is cloud redistributing SUNLIGHT, and at night there is
+none to redistribute** — the daytime arm's physics applied unconditionally to
+all four, which is the same failure this tool was built to catch, in a term
+rather than in a branch. At night the sky IS the light source, so the
+skylight follows the sky.
+
+**AND THEN THE FOG WAS MATCHING A UNIFORM INSTEAD OF A PIXEL.** With the
+other two fixed, all four NIGHT weathers still had walls above the sky.
+`uHorizon` at night is luma 0.417 as a colour and the dome RENDERS it at
+0.065, because the shader mixes it and the tone mapper compresses it — so
+`fogToSky` lerped the fog toward the raw value and made the fog **six times
+brighter than the sky it was supposed to be matching**, washing every distant
+wall up with it. The same "the number and the picture were measuring
+different surfaces" failure the river carve produced, in the fog. Take the
+sky's HUE and put the hour's own fog brightness back: **7 -> 4.**
+
+**AND AN INVERSION HAS A MARGIN.** The four that remain are storm at three
+hours and fog at night, all with sky and wall within 6-25% of each other —
+that is the silhouette GONE, not the world inside out, and a storm sky darker
+than a lit wall is what a storm looks like. `hours` prints the ratio and
+labels a converged pair `flat` rather than `INVERTED`, and **still counts it**:
+the moment a category is excused it stops being looked at.
+
+**AND "WEATHER DARKENS THE SKY" IS AN INSTINCT, NOT A FACT.** An overcast sky
+is a vast bright source, brighter near the horizon than clear blue; only a
+thunderhead is genuinely dark. Dimming it while `skyScale` raised the walls
+pushed the two together from both sides and crossed them at GOLDEN, which has
+the least headroom of the four arms — sky/wall 1.27 clear, against 2.43 at
+dusk. `skyDim` is ~1 for everything but storm now.
 
 **A CONSTANT `customProgramCacheKey` DISCARDS EVERY OTHER SHADER INJECTION,
 SILENTLY.** `patchHeightFog` ended with `material.customProgramCacheKey = () =>
@@ -3137,6 +3203,16 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   fourth system arrived. Also censuses the three LANTERN FAMILIES, because the
   moths draw from all of them and a pass that reaches two of three reads as
   healthy while the survivors carry the count.
+- `node tools/hours.mjs [seed] [--views=N] [--weather]` — **all four arms of
+  `updateLighting`, and with `--weather` all twenty hour-weather
+  combinations.** The cross is why weather's three sky bugs were found at all:
+  the tool exists because a four-arm switch rots one arm at a time, and
+  weather became a fifth multiplier on all four while being graded at one
+  combination in twenty. The clear rows reproduce the board's `inverted=0`
+  exactly, which is what makes an inversion in a weather row ATTRIBUTABLE
+  rather than a sampling artefact — run it at the DEFAULT view count or the
+  clear baseline moves under you and you will blame the weather for your own
+  sample.
 - `xvfb-run -a node tools/celestial.mjs [seed]` — **do the Environment
   panel's controls do anything?** Seven of them, and six were dead.** Sets each celestial control to both extremes
   and measures how much of the frame changed, against a noise floor taken from

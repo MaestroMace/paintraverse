@@ -76,6 +76,33 @@ const HOURS = [
   { h: 16, name: 'golden' },
   { h: 12, name: 'day' },
 ]
+
+/**
+ * --weather: CROSS THE FOUR ARMS WITH THE FIVE WEATHERS.
+ *
+ * This tool exists because `updateLighting` is a switch whose arms could each
+ * rot while somebody measured at that arm's own hour. Weather is now a fifth
+ * multiplier applied to ALL FOUR of them — fog density, sun, skylight, cloud
+ * and the star field — and it is graded at exactly one combination out of
+ * twenty: clear. That is the same shape one level up, and the same argument
+ * applies: a storm knocks the sun to 0.22 and pulls the sky 75% toward an
+ * overcast grey, so it can plausibly INVERT the silhouette the whole design
+ * rests on, and nothing would say so.
+ *
+ * Off by default because it is 5x the frames and this is meant to be a
+ * tripwire. Run it after touching `weatherAir` or any arm of updateLighting.
+ */
+const WEATHERS = [
+  { w: 'clear', wi: 0 },
+  { w: 'rain', wi: 1 },
+  { w: 'fog', wi: 1 },
+  { w: 'snow', wi: 1 },
+  { w: 'storm', wi: 1 },
+]
+const withWeather = process.argv.includes('--weather')
+const ARMS = withWeather
+  ? HOURS.flatMap((hr) => WEATHERS.map((wx) => ({ ...hr, ...wx })))
+  : HOURS.map((hr) => ({ ...hr, w: 'clear', wi: 0 }))
 /** eyeball.mjs's line, reused rather than reinvented. */
 const BLACK = 0.06
 
@@ -112,8 +139,9 @@ console.log('Every arm of updateLighting, side by side. Each one has been edited
 console.log('while somebody measured at its own hour, and only at its own hour.\n')
 
 const rows = []
-for (const { h, name } of HOURS) {
-  await win.evaluate((t) => window.__pt.store.getState().updateEnvironment({ timeOfDay: t }), h)
+for (const { h, name, w, wi } of ARMS) {
+  await win.evaluate(({ t, wk, wv }) => window.__pt.store.getState()
+    .updateEnvironment({ timeOfDay: t, weather: wk, weatherIntensity: wv }), { t: h, wk: w, wv: wi })
   await win.waitForTimeout(700)
   const acc = { sky: [], wall: [], roof: [], ground: [], prop: [] }
   const propIds = new Map()
@@ -217,7 +245,7 @@ for (const { h, name } of HOURS) {
   const med = (a) => a.length ? a.slice().sort((x, y) => x - y)[a.length >> 1] : 0
   const blk = (a) => a.length ? Math.round(100 * a.filter((v) => v < BLACK).length / a.length) : 0
   rows.push({
-    name, h,
+    name: w === 'clear' ? name : `${name}/${w}`, h,
     sky: med(acc.sky), wall: med(acc.wall), roof: med(acc.roof), ground: med(acc.ground),
     prop: med(acc.prop),
     wallBlack: blk(acc.wall), propBlack: blk(acc.prop),
@@ -225,10 +253,12 @@ for (const { h, name } of HOURS) {
     propIds: [...propIds].sort((a, b) => b[1] - a[1]).slice(0, 6),
   })
 }
+await win.evaluate(() => window.__pt.store.getState()
+  .updateEnvironment({ weather: 'clear', weatherIntensity: 0 }))
 await app.close()
 
-console.log('  branch    hour     sky    wall    roof  ground    prop   wall black   silhouette')
-console.log('  ------------------------------------------------------------------------------------')
+console.log('  branch         hour     sky    wall    roof  ground    prop   wall black   silhouette')
+console.log('  -----------------------------------------------------------------------------------------')
 let inverted = 0
 let blackout = 0
 let unmeasured = 0
@@ -240,11 +270,25 @@ for (const r of rows) {
   // NO SKY IS A FAILURE OF THIS TOOL, NOT A CLEAN BRANCH. The first run
   // printed it on all four rows and counted zero failures, which is a green
   // board that has never looked at anything.
-  const ok = r.skyN < MIN_SKY ? `NO SKY (${r.skyN})` : (r.sky > r.wall ? 'ok' : 'INVERTED')
-  if (ok === 'INVERTED') inverted++
+  //
+  // AND AN INVERSION HAS A MARGIN. A sky at 0.156 against a wall at 0.175 is
+  // not the world inside out, it is the silhouette GONE — and a storm sky
+  // darker than a lit wall is what a storm looks like, as fog erasing
+  // silhouettes is what fog is. A sky well BELOW its walls is a different
+  // finding from a sky level with them, and reporting one number for both is
+  // how the weather matrix's first run read as seven defects when three of
+  // them were weather doing its job. Printed, not exempted: the count still
+  // includes them, because the moment a category is excused it stops being
+  // looked at.
+  const ratio = r.wall > 1e-4 ? r.sky / r.wall : 99
+  const ok = r.skyN < MIN_SKY ? `NO SKY (${r.skyN})`
+    : r.sky > r.wall ? 'ok'
+    : ratio > 0.75 ? `flat ${ratio.toFixed(2)}x`
+    : `INVERTED ${ratio.toFixed(2)}x`
+  if (ok.startsWith('INVERTED') || ok.startsWith('flat')) inverted++
   if (ok.startsWith('NO SKY')) unmeasured++
   if (r.wallBlack >= 80) blackout++
-  console.log(`  ${r.name.padEnd(8)} ${String(r.h).padStart(5)}   ` +
+  console.log(`  ${r.name.padEnd(13)} ${String(r.h).padStart(5)}   ` +
     `${r.sky.toFixed(3)}  ${r.wall.toFixed(3)}  ${r.roof.toFixed(3)}  ${r.ground.toFixed(3)}  ${r.prop.toFixed(3)}` +
     `       ${String(r.wallBlack).padStart(3)}%   ${ok}`)
 }

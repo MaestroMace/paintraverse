@@ -275,8 +275,33 @@ export interface WeatherAir {
   skyScale: number
   /** Multiplies the sky dome's cloud term. */
   cloudScale: number
-  /** How far to pull the sky's own colours toward an overcast grey, 0..1. */
-  overcast: number
+  /**
+   * How far to DESATURATE the sky toward its own luminance, 0..1 — cloud
+   * takes the colour out of a sky, it does not impose one.
+   *
+   * This was a lerp toward a fixed grey and that was a real defect, found by
+   * crossing the four lighting arms with the five weathers in `hours.mjs`.
+   * An absolute target is DARKER than a clear noon sky (0.419 against 0.665)
+   * and BRIGHTER than a night one, so it dimmed the day and lifted the night
+   * — and combined with `skyScale` raising the walls it INVERTED the
+   * silhouette on seven of twenty combinations, which is the one thing
+   * pillar 1 cannot survive. Every other term in this table is a multiplier
+   * on what the hour already decided; this one was not, and it is the only
+   * one that broke.
+   */
+  desat: number
+  /**
+   * Multiplies the sky's brightness — and it is NEAR 1 for everything except
+   * a storm, which is the correction the hour-weather matrix forced.
+   *
+   * The instinct is that weather darkens the sky. It does not: an overcast
+   * sky is a vast bright source, brighter near the horizon than a clear blue
+   * one, and only a thunderhead is genuinely dark. Dimming it while
+   * `skyScale` raised the walls pushed the two toward each other from both
+   * sides and crossed them at golden hour, which has the least headroom of
+   * the four arms (sky/wall 1.27 clear, against 2.43 at dusk).
+   */
+  skyDim: number
   /** Multiplies the star field. Cloud is what hides stars, and a rain shower
    *  under a clear starry sky is the single most obviously wrong thing a
    *  weather system can draw. */
@@ -304,13 +329,13 @@ export interface WeatherAir {
 const WEATHER_AIR: Readonly<Record<WeatherKind, Omit<WeatherAir, 'rate'>>> = {
   clear: {
     fogScale: 1, fogToSky: 0, sunScale: 1, skyScale: 1,
-    cloudScale: 1, overcast: 0, starScale: 1, precip: null,
+    cloudScale: 1, desat: 0, skyDim: 1, starScale: 1, precip: null,
   },
   // Rain: a modest haze, the sun knocked well down, skylight up a little,
   // most of the stars gone.
   rain: {
     fogScale: 2.2, fogToSky: 0.45, sunScale: 0.45, skyScale: 1.15,
-    cloudScale: 2.0, overcast: 0.55, starScale: 0.15, precip: 'rain',
+    cloudScale: 2.0, desat: 0.6, skyDim: 0.95, starScale: 0.15, precip: 'rain',
   },
   // Fog is the one that is ALL air and no precipitation, so it is the only
   // entry allowed a large fogScale — 6x a dusk 0.004 is a 40m visibility,
@@ -318,25 +343,26 @@ const WEATHER_AIR: Readonly<Record<WeatherKind, Omit<WeatherAir, 'rate'>>> = {
   // Its sky is barely touched, because fog is BELOW the cloud deck and a
   // foggy night with stars over it is a real and lovely thing.
   fog: {
-    fogScale: 6.0, fogToSky: 0.8, sunScale: 0.5, skyScale: 1.2,
-    cloudScale: 1.2, overcast: 0.3, starScale: 0.6, precip: null,
+    // Fog SCATTERS the light that is there rather than adding any, so its
+    // skylight lift is the smallest of the four — 1.2 was a daytime-cloud
+    // number on a ground-level phenomenon.
+    fogScale: 6.0, fogToSky: 0.8, sunScale: 0.5, skyScale: 1.05,
+    cloudScale: 1.2, desat: 0.3, skyDim: 1.0, starScale: 0.6, precip: null,
   },
-  // Snow brightens rather than darkens: the sky is overcast but the ground
-  // and the air are both throwing light back.
+  // Snow BRIGHTENS. The sky is overcast but the air and the ground are both
+  // throwing light back, so this is the one weather whose sky barely dims.
   snow: {
-    fogScale: 2.6, fogToSky: 0.6, sunScale: 0.6, skyScale: 1.35,
-    cloudScale: 2.2, overcast: 0.6, starScale: 0.1, precip: 'snow',
+    fogScale: 2.6, fogToSky: 0.6, sunScale: 0.6, skyScale: 1.2,
+    cloudScale: 2.2, desat: 0.7, skyDim: 1.02, starScale: 0.1, precip: 'snow',
   },
+  // The only weather whose sky is genuinely DARK. Everything else is
+  // overcast, and an overcast sky is a huge bright source — see skyDim.
   storm: {
     fogScale: 3.4, fogToSky: 0.55, sunScale: 0.22, skyScale: 0.95,
-    cloudScale: 3.0, overcast: 0.75, starScale: 0, precip: 'rain',
+    cloudScale: 3.0, desat: 0.85, skyDim: 0.68, starScale: 0, precip: 'rain',
   },
 }
 
-/** The grey a heavy cloud deck reads as. Not neutral — a real overcast at
- *  dusk is faintly warm from the light coming under it, and a pure grey sky
- *  over a warm-lit town looks like a missing texture. */
-export const OVERCAST_SKY = 0x6b6a72
 
 /** The air at this weather and intensity. `clear`, or intensity 0, is exact
  *  identity — a fix to a dead control must not restyle every existing scene. */
@@ -351,7 +377,8 @@ export function weatherAir(kind: string, intensity: number): WeatherAir {
     sunScale: lerp(1, k.sunScale),
     skyScale: lerp(1, k.skyScale),
     cloudScale: lerp(1, k.cloudScale),
-    overcast: lerp(0, k.overcast),
+    desat: lerp(0, k.desat),
+    skyDim: lerp(1, k.skyDim),
     starScale: lerp(1, k.starScale),
     precip: k.precip,
     // Storm falls harder than rain at the same slider position, which is the
