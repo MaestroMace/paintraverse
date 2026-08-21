@@ -702,6 +702,16 @@ const CHECKS = [
       // the camera is, and the probe carries its own negative case: the
       // flocks the player did NOT walk into must not move.
       noReact: num(o, /(\d+) seeds where nothing reacts to the player/),
+      // DOES THE HANGING CONTENT MOVE? A vertex-shader displacement never
+      // touches a CPU-side position, so no amount of reading buffers can see
+      // it — this is measured in pixels with one mesh isolated, where the
+      // camera is still and nothing else in the scene animates.
+      //
+      // It is a GATE on the mechanism rather than on each mesh, because the
+      // failure it caught was global: a constant `customProgramCacheKey` in
+      // patchHeightFog collapsed otherwise-identical materials onto one
+      // compiled program and threw away every shader injection on them.
+      noSway: num(o, /(\d+) hanging-sway failures/),
     }),
     gates: {
       offTown: (v) => v === 0, smokeLow: (v) => v === 0,
@@ -711,6 +721,7 @@ const CHECKS = [
       // town drifted.
       ffNature: (v) => v >= 90,
       noReact: (v) => v === 0,
+      noSway: (v) => v === 0,
     },
     dir: { smokeSpread100: 1 }, band: { smokeSpread100: 25 },
   },

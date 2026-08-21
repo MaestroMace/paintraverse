@@ -130,6 +130,75 @@ export function tickLanternEmissive(time: number): void {
 }
 
 /**
+ * EVERYTHING THAT HANGS, SWAYING — pillar 4, applied to the content that was
+ * most obviously not moving.
+ *
+ * The town has seven particle systems and the things a breeze would actually
+ * catch — a chain of lanterns over a street, a line of washing between two
+ * upper windows — are welded rigid. That reads as a diorama, and it is the
+ * cheapest remaining gap between "a model of a town" and "a town".
+ *
+ * NO PER-VERTEX ATTRIBUTE, because everything in these three meshes is
+ * already hanging: there is no anchor geometry among the lanterns or the
+ * garments to hold still. So the displacement is a function of WORLD POSITION
+ * and time, which gives every lantern along a street its own phase for free —
+ * a whole town swinging in lockstep is a metronome, not a wind.
+ *
+ * The rope's ENDPOINTS move too, by the same few centimetres, so a string
+ * technically detaches from its eave by the sway amplitude. At 7cm on a mesh
+ * you see from ten metres that is invisible, and the alternative is a
+ * per-vertex weight threaded through two different merge paths for a defect
+ * nobody can see.
+ *
+ * FREQUENCY IS THE PART WITH A RULE. This repo already dropped the window
+ * flicker from 2.2-4.4 Hz to 0.25-0.7 because two periodic things at similar
+ * rates read as one strobe, and the star twinkle was deliberately put at
+ * 0.18-0.40 BELOW that. A lantern on a cord swings slower than either: these
+ * are ~0.09 and ~0.13 Hz, two incommensurate terms so the motion never
+ * visibly repeats.
+ */
+const _swayUniforms = { uSwayTime: { value: 0 } }
+
+export function tickHangingSway(time: number): void {
+  _swayUniforms.uSwayTime.value = time
+}
+
+/** Give one hanging mesh its own material with the sway compiled in. The
+ *  material is CLONED, because these meshes come out of the shared batch
+ *  builder and swaying every batched prop in the town is not the ask. */
+function applySway(mesh: THREE.Mesh, amp: number): void {
+  const base = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
+  const mat = (base as THREE.Material).clone()
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uSwayTime = _swayUniforms.uSwayTime
+    shader.uniforms.uSwayAmp = { value: amp }
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+        uniform float uSwayTime;
+        uniform float uSwayAmp;`)
+      // AFTER <begin_vertex>, so `transformed` exists and everything
+      // downstream — the shadow pass, the fog varying — sees the moved
+      // vertex rather than the original.
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        {
+          vec3 wp = (modelMatrix * vec4(transformed, 1.0)).xyz;
+          float ph = wp.x * 0.31 + wp.z * 0.23;
+          float sw = sin(uSwayTime * 0.58 + ph) * 0.65
+                   + sin(uSwayTime * 0.83 + ph * 1.7) * 0.35;
+          transformed.x += sw * uSwayAmp;
+          transformed.z += cos(uSwayTime * 0.51 + ph * 0.8) * uSwayAmp * 0.55;
+        }`)
+  }
+  mat.needsUpdate = true
+  mesh.material = mat
+  // A swaying mesh cannot cache its matrix... it can, actually: the movement
+  // is in the shader and the object transform never changes. Left explicit
+  // because the obvious assumption is the opposite one.
+  mesh.matrixAutoUpdate = false
+  mesh.updateMatrix()
+}
+
+/**
  * WHERE THE LANTERNS ARE, so something can be drawn to them.
  *
  * A flame at dusk gathers moths, and nothing could put one anywhere near a
@@ -698,6 +767,7 @@ export function buildLanternStrings(
     ropeMesh.name = 'lanternRopes'
     ropeMesh.castShadow = false
     ropeMesh.receiveShadow = false
+    applySway(ropeMesh, 0.07)
   }
 
   let lanternMesh: THREE.Mesh | null = null
@@ -707,10 +777,12 @@ export function buildLanternStrings(
     const merged = mergeBufferGeos(lanternGeos)
     merged.computeVertexNormals()
     lanternMesh = new THREE.Mesh(merged, _lanternMat)
+    lanternMesh.name = 'ropeLanterns'
     lanternMesh.castShadow = false
     lanternMesh.receiveShadow = false
-    lanternMesh.matrixAutoUpdate = false
-    lanternMesh.updateMatrix()
+    // A lantern on a cord swings FURTHER than the rope it hangs from, which
+    // is the whole reason the two amplitudes differ.
+    applySway(lanternMesh, 0.11)
   }
 
   const laundryMesh = laundryBatch.build()
@@ -723,6 +795,8 @@ export function buildLanternStrings(
     // wall behind it.
     laundryMesh.castShadow = false
     laundryMesh.receiveShadow = true
+    // Cloth catches more air than anything else here.
+    applySway(laundryMesh, 0.14)
   }
 
   return { ropeMesh, lanternMesh, wallLanternMesh: null, laundryMesh }

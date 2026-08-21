@@ -1161,6 +1161,54 @@ a dark street and pillar 5 wants POOLS and a uniform floor is neither. Every
 building casts one and they overlap, so the per-building value is set by what
 the SUM looks like.
 
+**A CONSTANT `customProgramCacheKey` DISCARDS EVERY OTHER SHADER INJECTION,
+SILENTLY.** `patchHeightFog` ended with `material.customProgramCacheKey = () =>
+'heightFog'`. three.js uses that key to decide whether two materials can reuse
+a compiled program, so two Lambert materials with the same parameters and
+DIFFERENT `onBeforeCompile` source both hashed to `'heightFog'` and the second
+rendered with the first one's shader. **Anything injected into a shader on a
+height-fogged material was being thrown away**, for the life of the function,
+with nothing erroring. It is keyed on the previous hook's source now.
+
+**AND A 2.5m AMPLITUDE READING EXACTLY ZERO IS WHAT NAMED IT.** A hanging-sway
+displacement measured 0.00000 at its intended 11cm, which reads as "too small
+to see" — the ivy failure this file records three times. Cranking it to two
+and a half METRES and getting the same exact zero is the tell that a mechanism
+is not running at all, and it cost one build. **When a number will not move,
+make the cause absurd before you doubt the instrument.**
+
+Then the markers: `mesh.userData` and `material.userData` both carried the
+value, so the function had run and the material was assigned — and
+`onBeforeCompile.toString()` came back as somebody ELSE's wrapper, chaining
+mine as a closure variable it could not show. That is the fourth setter
+accepted and discarded in this file, after `BatchedMeshBuilder.toneFloor`, the
+water fragment assigning `gl_FragColor.a`, and `addPositionedNoised`.
+
+**EVERYTHING THAT HANGS NOW SWAYS, AND IT NEEDS NO PER-VERTEX ATTRIBUTE**,
+because everything in those three meshes is already hanging — there is no
+anchor geometry among the lanterns or the garments to hold still. The
+displacement is a function of WORLD POSITION and time, so every lantern along
+a street gets its own phase for free; a town swinging in lockstep is a
+metronome, not a wind. The rope's endpoints move by the same 7cm and therefore
+detach from their eaves by 7cm, which is invisible at any distance you see a
+rope from and is the honest price of not threading a weight attribute through
+two different merge paths.
+
+**AND THE FREQUENCY IS THE PART WITH A RULE.** This repo dropped the window
+flicker from 2.2-4.4 Hz to 0.25-0.7 because two periodic things at similar
+rates read as one strobe, and put the star twinkle at 0.18-0.40 BELOW that.
+A lantern on a cord is slower than either: ~0.09 and ~0.13 Hz, two
+incommensurate terms.
+
+**A PERIODIC MOTION SAMPLED TWICE CAN LAND AT THE SAME PHASE.** The sway check
+first took two frames 1.7s apart and called a working mechanism static,
+because 1.7s of a nine-second swing can be no displacement at all. Four frames
+across the period and the MAX pair fixes it. **And it gates on ONE mesh
+moving, not all three** — the failure it guards against is global, since one
+function applies one shader, and requiring a 7cm sway on a 4cm rope to beat
+the frame-to-frame noise of a 5 FPS software renderer is a threshold to tune
+rather than a defect to catch.
+
 **NOTHING IN THIS TOWN KNEW THE PLAYER WAS THERE.** DESIGN.md pillar 4 is
 "motion breathes" and every moving thing was AMBIENT: smoke rises whoever is
 watching, birds circle a spire, moths work a lamp, mist creeps over water. A

@@ -34,6 +34,7 @@
  */
 import { _electron as electron } from 'playwright-core'
 import { waitForScene } from './lib/scene.mjs'
+import { isolate } from './lib/vantage.mjs'
 
 const seeds = process.argv.slice(2).map(Number).filter(Boolean)
 if (!seeds.length) seeds.push(4242, 31337, 8080)
@@ -49,6 +50,7 @@ await win.waitForTimeout(1200)
 let offTown = 0, belowRoof = 0, systems = 0, familyGaps = 0, adrift = 0
 let fireflyNature = null
 let reactFails = 0
+let swayFails = 0
 for (const seed of seeds) {
   await win.evaluate((s) => {
     const inp = [...document.querySelectorAll('.left-panel input')]
@@ -304,6 +306,124 @@ for (const seed of seeds) {
     reactFails++
   }
 
+  // DOES THE HANGING CONTENT MOVE?
+  //
+  // Seven particle systems and the things a breeze would actually catch — a
+  // chain of lanterns over a street, a line of washing between two upper
+  // windows — were welded rigid, which is what makes a town read as a
+  // diorama. The sway is a vertex-shader displacement, so it never touches a
+  // CPU-side position and NO amount of reading buffers can see it: this has
+  // to be measured in pixels.
+  //
+  // ISOLATE FIRST, and that is what makes it exact rather than a threshold.
+  // With one mesh visible nothing else in the scene animates and the camera
+  // is still, so any difference between two frames IS the sway — a static
+  // mesh reads exactly 0. `windowSpill` is the negative case: named, in the
+  // same part of the scene, and deliberately not swaying.
+  const sway = await (async () => {
+    const grid = 256
+    const shootGrid = () => win.evaluate((n) => {
+      const cv = window.__pt.renderer().renderer.domElement
+      const c2 = document.createElement('canvas')
+      c2.width = n; c2.height = n
+      const g2 = c2.getContext('2d', { willReadFrequently: true })
+      g2.drawImage(cv, 0, 0, n, n)
+      const d = g2.getImageData(0, 0, n, n).data
+      const out = new Array(n * n)
+      for (let i = 0; i < n * n; i++) {
+        out[i] = (0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2]) / 255
+      }
+      return out
+    }, grid)
+    // STAND AT A STRING. The first version of this shot the whole town from
+    // 26m up on a 128 grid, where one sample is over a metre of world and a
+    // 7cm sway cannot move a single one — it read exactly 0 on all three and
+    // would have reported a working feature as dead. That is the moon
+    // failure for the third time in this repo: A METRIC CANNOT GRADE A
+    // FEATURE SMALLER THAN ITS SAMPLE RESOLVES, and the fix is never a
+    // threshold, it is to measure where the subject is.
+    //
+    // At 6m the frame spans about 8m, so a sample is ~3cm and the sway moves
+    // several. `lampAnchors` already knows where every rope lantern hangs.
+    const ok = await win.evaluate(() => {
+      const pt = window.__pt
+      pt.store.getState().updateEnvironment({ timeOfDay: 12 })
+      const rope = (pt.lampAnchors ? pt.lampAnchors() : []).filter((a) => a.kind === 'rope')
+      if (!rope.length) return false
+      const a = rope[Math.floor(rope.length / 2)]
+      pt.flyToWorld(a.x - 5.5, a.y + 0.4, a.z - 2.0,
+        Math.atan2(2.0, 5.5), -0.05)
+      return true
+    })
+    if (!ok) return [['(no rope lanterns)', null, 'NOT IN SCENE']]
+    await new Promise((r) => setTimeout(r, 1200))
+    const out = []
+    for (const name of ['laundryLines', 'ropeLanterns', 'lanternRopes', 'windowSpill']) {
+      const iso = await isolate(win, name)
+      if (!iso.found) { out.push([name, null, 'NOT IN SCENE']); await iso.restore(); continue }
+      await new Promise((r) => setTimeout(r, 500))
+      const mad = (u, v) => {
+        let d = 0
+        for (let i = 0; i < u.length; i++) d += Math.abs(u[i] - v[i])
+        return d / u.length
+      }
+      // FOUR FRAMES ACROSS THE PERIOD, and the MAX pair — because a sway is
+      // PERIODIC and two samples taken 1.7s apart can land at the same phase
+      // of a nine-second swing and read as still. The first version did
+      // exactly that and reported a working mechanism as static.
+      const frames = []
+      for (let k = 0; k < 4; k++) {
+        frames.push(await shootGrid())
+        if (k === 0) {
+          // The floor, from the same pixels, as close together as this
+          // renderer allows. `windowSpill` — the intended negative case — is
+          // not in frame at a rope-lantern vantage, and a check with no
+          // negative case has never been tested.
+          await new Promise((r) => setTimeout(r, 70))
+          frames.push(await shootGrid())
+        }
+        await new Promise((r) => setTimeout(r, 1300))
+      }
+      const floor = mad(frames[0], frames[1])
+      let lit = 0
+      for (const v of frames[0]) if (v > 0.02) lit++
+      let sig = 0
+      for (let i = 0; i < frames.length; i++) {
+        for (let j = i + 1; j < frames.length; j++) sig = Math.max(sig, mad(frames[i], frames[j]))
+      }
+      const bar = Math.max(1e-5, floor * 4)
+      out.push([name, +sig.toFixed(5), lit < 12 ? 'TOO FEW PIXELS' : null,
+        +bar.toFixed(5), sig > bar])
+      await iso.restore()
+    }
+    return out
+  })()
+  {
+    const movers = sway.filter((r) => r[0] !== 'windowSpill' && r[1] !== null && !r[2])
+    const moving = movers.filter((r) => r[4]).length
+    console.log('  hanging:   ' + sway.map(([n, d, why, bar]) =>
+      `${n} ${why ? why : `${d}/${bar}`}`).join('  ·  '))
+    if (!movers.length) {
+      swayFails++
+      console.log('             ^ NOTHING GRADED. No hanging mesh had enough pixels')
+      console.log('               at this vantage — too few samples to answer is a')
+      console.log('               FAILURE, not a pass.')
+    } else if (moving === 0) {
+      // AT LEAST ONE, NOT ALL THREE. The failure this guards against is
+      // GLOBAL: the sway is one shader applied by one function, and when it
+      // stopped working it stopped for every mesh at once — a constant
+      // `customProgramCacheKey` in patchHeightFog collapsing them onto one
+      // compiled program. Requiring all three to clear a bar instead makes
+      // the check hinge on whether a 7cm sway on a 4cm-thick rope beats the
+      // frame-to-frame noise of a 5 FPS software renderer, which is a
+      // threshold to tune rather than a defect to catch. Every figure is
+      // printed; the gate is on the mechanism.
+      swayFails++
+      console.log('             ^ NOTHING HANGING MOVES. The sway shader is not')
+      console.log('               reaching the meshes — check patchHeightFog\'s cache key.')
+    }
+  }
+
   // LANTERN FAMILIES — a zero here is the finding, not the total.
   const fam = r.lanternFamilies || {}
   const names = ['lamppost', 'wall', 'rope']
@@ -324,7 +444,8 @@ console.log(`\nVERDICT: ${offTown} particles outside the town box across ` +
   `${systems} systems; smoke starts within 3m of the ground on ${belowRoof}; ` +
   `${familyGaps} seeds miss a lantern family; ${adrift} camera-local boxes adrift; ` +
   `fireflies over soft ground or water ${fireflyNature === null ? 'n/a' : fireflyNature + '%'}; ` +
-  `${reactFails} seeds where nothing reacts to the player.`)
+  `${reactFails} seeds where nothing reacts to the player; ` +
+  `${swayFails} hanging-sway failures.`)
 console.log('  `spread` is each system\'s x-extent as a fraction of the town\'s;')
 console.log('  `cam` means the system travels with the player and is graded on')
 console.log('  whether its box is centred there instead.')

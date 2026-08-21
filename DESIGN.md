@@ -78,7 +78,7 @@ rather than this paragraph; a number in prose goes stale, a distribution does no
 Window flicker is slow (0.25–0.7 Hz) and gentle (±4%), reading as
 firelight rather than strobe. Smoke drifts on a shared wind vector.
 Birds circle spires at dusk. Moths work the lanterns after sunset.
-Water shimmers. Stars come out. Nothing is static, but nothing pulses —
+Water shimmers. Stars come out. The lantern chains and the washing sway. Nothing is static, but nothing pulses —
 **and no two periodic things share a rate**, which is why the star
 twinkle sits at 0.18–0.40 Hz deliberately below the window flicker: two
 things breathing together read as one strobe, and that is the defect the

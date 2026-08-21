@@ -45,7 +45,7 @@ const MOUSE_YAW_SENS = 0.0025
 const MOUSE_PITCH_SENS = 0.002
 import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, volumeBoxes, facadeParts, type BuildingBatchResult, type BuildingTop, FLOOR_HEIGHT } from './BuildingFactory'
 import { tickWallEmissive } from './architecture/VolumeRenderer'
-import { buildLanternStrings, buildWallLanterns, buildWindowSpill, setLanternEmissiveIntensity, setWindowSpillOpacity, tickLanternEmissive, lampAnchors, resetLampAnchors, type LampAnchor } from './LanternStrings'
+import { buildLanternStrings, buildWallLanterns, buildWindowSpill, setLanternEmissiveIntensity, setWindowSpillOpacity, tickLanternEmissive, tickHangingSway, lampAnchors, resetLampAnchors, type LampAnchor } from './LanternStrings'
 import { buildPropMeshes, setLampPoolOpacity, LAMP_POOL_TEX, propSizes, propInstances, type PropBatchResult } from './PropFactory'
 import { starIntensityFor, starThresholdFor, moonPhaseDir, weatherAir, OVERCAST_SKY } from './Materials'
 
@@ -58,6 +58,9 @@ function patchHeightFog(material: THREE.Material): void {
   const m = material as THREE.Material & { __heightFogPatched?: boolean }
   if (m.__heightFogPatched) return
   m.__heightFogPatched = true
+  // CAPTURE THE PREVIOUS HOOK'S IDENTITY BEFORE REPLACING IT — see the cache
+  // key at the bottom of this function for why that matters.
+  const prevSrc = material.onBeforeCompile ? String(material.onBeforeCompile) : ''
   const prev = material.onBeforeCompile?.bind(material)
   material.onBeforeCompile = (shader, renderer) => {
     if (prev) prev(shader, renderer)
@@ -90,7 +93,35 @@ function patchHeightFog(material: THREE.Material): void {
         #endif`
       )
   }
-  material.customProgramCacheKey = () => 'heightFog'
+  /**
+   * A CONSTANT CACHE KEY COLLAPSES EVERY MATERIAL THAT SHARES IT ONTO ONE
+   * COMPILED PROGRAM, AND SILENTLY DISCARDS EVERY OTHER SHADER INJECTION.
+   *
+   * This returned the literal `'heightFog'`. three.js uses the key to decide
+   * whether two materials can reuse a program, so two Lambert materials with
+   * the same parameters and DIFFERENT `onBeforeCompile` source both hashed to
+   * `'heightFog'` and the second one rendered with the first one's shader.
+   *
+   * Found by adding a sway displacement to the hanging meshes and measuring
+   * exactly ZERO movement — at a 2.5m amplitude, which is the tell that a
+   * mechanism is not running rather than that it is too small to see. The
+   * markers said the hook had been assigned and the wrapper had chained it;
+   * the program had simply been compiled already, from `_lanternMat`'s
+   * unswayed twin on the wall lanterns.
+   *
+   * That is the ghost failure with a type signature, one level down from the
+   * three this repo already records — `BatchedMeshBuilder.toneFloor`, the
+   * water fragment assigning `gl_FragColor.a`, and `addPositionedNoised`
+   * ignoring its own field. **Anything injected into a shader on a
+   * height-fogged material was being thrown away**, and nothing would have
+   * errored; the next person to reach for `onBeforeCompile` here would have
+   * lost the same hour.
+   *
+   * Keyed on the injection that was already there, so materials whose
+   * generated source is identical still share a program and ones that differ
+   * do not.
+   */
+  material.customProgramCacheKey = () => `heightFog|${prevSrc}`
   material.needsUpdate = true
 }
 
@@ -2901,6 +2932,9 @@ void main() {
       this.updateParticles(dt, t)
       tickWallEmissive(t)
       tickLanternEmissive(t)
+      // The hanging content sways on the SAME clock as everything else that
+      // breathes, so the wind cannot drift out of step with the smoke.
+      tickHangingSway(t)
       tickWater(t)
       // The stars twinkle beside the windows and the water, which is the
       // company they should keep: pillar 4 is "motion breathes", and every
