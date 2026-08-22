@@ -3013,16 +3013,78 @@ The whole device problem list is fixed. What is left:
    disk and are sorted by distance from the map centre, so the LAST-assigned
    centres get the biggest peripheral cells, and the pool is drawn from
    uniformly at every index — a cemetery is exactly as likely as anything
-   else to be handed the largest cell on the map. The fix is to assign types
-   to centres in order of CELL SIZE, giving the big ones to the types that can
-   carry them (residential, artisan, market) and the small ones to the
-   specialised quarters, which is also just how a town is arranged. That
-   needs cell sizes at assignment time and they are not computed until after,
-   so it is a real change and not a tuning pass.
+   else to be handed the largest cell on the map.
 
    **Do not fix it by lowering slum's pool weight.** That changes how OFTEN a
    slum appears, which is a different question from how BIG it is, and the
    measurement above cannot tell the two apart.
+
+### AND THAT IS FIXED — RANK-MATCH THE CELL TO THE TYPE, WITH NO NEW TABLE
+
+Cell size is a fact about the Voronoi layout, so it was computable in
+`generateDistricts` all along and simply never computed. Count the NON-WATER
+tiles nearest each centre (a cell that is half river carries half a quarter),
+then pair the biggest cells with the heaviest types.
+
+**The weights already exist and already mean this.** `DISTRICT_POOL` says
+residential 10, artisan 6, noble and temple 4, slum/garden/cemetery 3,
+fortress 2 — which is precisely "how much of a town is this kind of place",
+the same quantity as "how big should this quarter be". So the assignment is a
+rank sort with nothing invented, and a hand-written size table here would have
+been the fourth invented target in this repo to be wrong on its first run.
+
+Two pins, both because a pin is physically required rather than preferred:
+**market** to the most central centre, because the market square IS the town
+centre and that is a position and not a size; and **any water quarter** to the
+centre that earned it, because a harbour re-paired to a bigger inland cell is
+a harbour with no water.
+
+**WHICH types a town gets does not change — only which centre each lands on**
+— so the artisan 3/12 -> 9/12 and cemetery 4/12 -> 7/12 reach wins from the
+pool fix carry through untouched.
+
+Measured by stash-and-rebuild on the same eight seeds and the same tool:
+
+| | before | after |
+|---|---|---|
+| slum, seed 8080 | **57 of 182 = 31%**, tied largest | 19 of 161 = **12%** |
+| slum, seed 999999 | **42 of 175 = 24%**, the largest | 9 of 164 = **5%** |
+| slum, seed 4242 | 52 of 241 = 22% | 28 of 219 = 13% |
+| the largest quarter is a slum | 2 of 8 seeds | **0 of 8** |
+| temple, 8080 / 999999 | **4 / 4 buildings** | **13 / 14** |
+| noble, 8080 | 11 | 26 |
+| total buildings over 8 seeds | 1513 | 1499 (-0.9%) |
+
+**THE TAIL CAME UP AS WELL AS THE HEAD COMING DOWN, and that half was not
+predicted.** A four-building temple quarter cannot read as a temple quarter —
+it is a ghost wearing a district label, and it was invisible to every metric
+because `districts.mjs` grades whether a quarter's types are DISTINCTIVE and
+four chapels are perfectly distinctive. Flattening the distribution fixed the
+starved end and the swollen end with one change, because they are the same
+fact seen from opposite directions.
+
+Board after, all against baseline: **audit 0, districts character 75, street
+width 12m, coverage 47, party 91, frontage 74, vistas 18, overWide 5.**
+Street width did NOT move, which is the one to check — CLAUDE.md records the
+identical 12 -> 15 regression twice already on district work, and both times
+it was a bigger footprint bought to replace lost coverage.
+
+**AND TWO THINGS WENT WRONG ON THE WAY, BOTH ALREADY ON THE RECORD.**
+
+- **Moving three `rng()` calls perturbed the whole draw.** The first cut
+  hoisted the radius and density rolls out of the type loop, which changed the
+  CONSUMPTION ORDER of the stream — so seed 4242 came out with four quarters
+  instead of six and 166 of 223 buildings in one type, and I nearly credited
+  the pairing with a change it did not make. *Restructuring* a pass is subject
+  to the same rule as *disabling* one: it is only an isolation if it changes
+  nothing else. The rolls are drawn where they always were and stored.
+- **A repeated type is a diminishing claim, and a plain weight sort forgot
+  that.** `residential` is the one type allowed to repeat, so sorting by weight
+  put every instance at the top and handed it every large cell at once — the
+  defect being fixed, wearing the other hat. The draw already halves a repeat's
+  weight on the argument that the fourth residential quarter should not be as
+  likely as the first; the same argument applies to SIZE, so the same 0.4
+  applies rather than a second constant.
 
 3. **Row placement predates the narrowing.** Streets are much tighter than
    when the row-streak logic was tuned; worth revisiting whether rows should

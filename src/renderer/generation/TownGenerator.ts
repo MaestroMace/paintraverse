@@ -1670,10 +1670,60 @@ export class TownGenerator implements IMapGenerator {
       return da - db
     })
 
-    for (let i = 0; i < Math.min(numDistricts, candidates.length); i++) {
+    const slotCount = Math.min(numDistricts, candidates.length)
+    /**
+     * HOW BIG IS EACH QUARTER GOING TO BE — asked BEFORE the types are handed
+     * out, which is the whole change.
+     *
+     * `quarters.mjs` reports the largest cell running 2.8-4.3x the mean, and
+     * for `residential` that is correct because a town IS mostly houses. For
+     * `slum` it is not: a slum is a CORNER of a town, and one that is 47% of
+     * it reads as a slum with a market in it. Measured on seed 8080, slum 57
+     * of 182 buildings, tied with residential for the largest quarter.
+     *
+     * The cause is structural rather than a weight. Centres come from a
+     * Poisson disk and are sorted by distance from the map centre, so the
+     * last-assigned centres own the biggest peripheral cells, and the pool was
+     * drawn from uniformly at every index — a cemetery was exactly as likely
+     * as anywhere-to-live to be handed the largest cell on the map. Lowering
+     * slum's pool weight cannot fix this, because that changes how OFTEN a
+     * slum appears and not how BIG it is, and no metric here can tell those
+     * two apart.
+     *
+     * Cell size is a fact about the Voronoi layout, so it is computable here
+     * and was simply never computed. NON-WATER tiles only: a cell that is half
+     * river carries half a quarter, and the question is how much TOWN this
+     * centre can hold.
+     */
+    const cellArea = new Array<number>(slotCount).fill(0)
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (waterMap[y]?.[x]) continue
+        let best = 0, bestD = Infinity
+        for (let i = 0; i < slotCount; i++) {
+          const d = (candidates[i].x - x) ** 2 + (candidates[i].y - y) ** 2
+          if (d < bestD) { bestD = d; best = i }
+        }
+        cellArea[best]++
+      }
+    }
+
+    // Phase 1 — decide WHICH types this town gets, exactly as before, so the
+    // reach wins already measured for artisan and cemetery are untouched. Only
+    // the pairing of type to centre changes below.
+    const chosen: DistrictType[] = []
+    const shape: { radius: number; bMul: number; pMul: number }[] = []
+    const pinned = new Set<number>()
+    for (let i = 0; i < slotCount; i++) {
       let type: DistrictType
       if (i === 0) {
         type = 'market'
+        // The market square IS the town centre; that is a position, not a
+        // size, so it does not enter the pairing. CLAUDE.md's own statement of
+        // this fix lists market among the types that CAN carry a big cell,
+        // alongside residential and artisan — a large central market quarter
+        // is a market town, where a large peripheral cemetery is a mistake.
+        pinned.add(i)
       } else if (i === 1) {
         // A TOWN HAS HOUSES. Forced, exactly like the market, and for the
         // same reason: the ordinary fabric is not a thing to leave to a dice
@@ -1712,8 +1762,13 @@ export class TownGenerator implements IMapGenerator {
         const hasWaterQuarter = usedTypes.has('waterfront') || usedTypes.has('harbor')
         if (wet >= 34 && !hasWaterQuarter) {
           type = 'harbor'
+          // EARNED BY THIS CENTRE, so it cannot be re-paired. A harbour that
+          // gets moved to a bigger cell inland is a harbour with no water,
+          // which is a worse defect than the one being fixed.
+          pinned.add(i)
         } else if (wet >= 8 && !hasWaterQuarter) {
           type = 'waterfront'
+          pinned.add(i)
         } else {
           // A SECOND RESIDENTIAL QUARTER IS LIKELY; A THIRD SHOULD NOT BE AS
           // LIKELY AS THE FIRST.
@@ -1746,15 +1801,79 @@ export class TownGenerator implements IMapGenerator {
       }
 
       usedTypes.add(type)
-      const baseDensity = DISTRICT_DENSITY[type]
+      chosen.push(type)
+      // DRAWN HERE, WHERE THEY WERE ALWAYS DRAWN. Moving these three rng()
+      // calls into the later loop changed the CONSUMPTION ORDER of the stream
+      // and therefore which types the town got at all — seed 4242 came out
+      // with four quarters instead of six, and the pairing was then credited
+      // with a change it did not make. "Disabling a feature is only an
+      // isolation if disabling it changes nothing else" applies just as hard
+      // to restructuring one, and this repo has been caught by it before.
+      shape.push({
+        radius: Math.floor(6 + rng() * 4 + complexity * 3),
+        bMul: 0.8 + rng() * 0.4,
+        pMul: 0.7 + rng() * 0.6,
+      })
+    }
 
+    /**
+     * Phase 2 — PAIR THE BIGGEST CELLS WITH THE TYPES THAT CAN CARRY THEM.
+     *
+     * Rank-matching, and it needs no new table: `DISTRICT_POOL`'s weights
+     * already say how much of a town each kind of place is — residential 10,
+     * artisan 6, noble and temple 4, slum, garden and cemetery 3, fortress 2.
+     * That is the same quantity as "how big should this quarter be", so
+     * sorting cells by area and types by weight and zipping them is the
+     * assignment, with nothing invented. A value I made up here would be the
+     * fourth hand-written target in this repo to be wrong on its first run.
+     *
+     * WHICH TYPES A TOWN GETS DOES NOT CHANGE — only which centre each lands
+     * on — so the artisan 3/12 -> 9/12 and cemetery 4/12 -> 7/12 reach wins
+     * from the pool fix are carried through exactly.
+     */
+    const free = [...Array(slotCount).keys()].filter((i) => !pinned.has(i))
+    const freeTypes = free.map((i) => chosen[i])
+    const weightOf = (t: DistrictType): number =>
+      DISTRICT_POOL.find((p) => p.type === t)?.weight ?? 5
+    // Ties broken by the ORIGINAL order on both sides, so the pairing is a
+    // pure function of the layout and the draw rather than of sort stability.
+    const bySize = [...free].sort((a, b) => cellArea[b] - cellArea[a] || a - b)
+    // A REPEATED TYPE IS A DIMINISHING CLAIM, and the pool already says so.
+    //
+    // `residential` is the one type allowed to repeat, so a plain weight sort
+    // puts every instance of it at the top and hands it every large cell at
+    // once: seed 4242 came out 166 of 223 buildings in one type, which is the
+    // defect being fixed wearing the other hat. The draw already halves a
+    // repeat's weight rather than removing it, on the argument that several
+    // residential quarters are correct and the fourth should not be as likely
+    // as the first — the same argument applies to SIZE, so the same 0.4
+    // applies here rather than a second constant.
+    const seen = new Map<DistrictType, number>()
+    const rankWeight = (t: DistrictType): number => {
+      const k = seen.get(t) ?? 0
+      seen.set(t, k + 1)
+      return weightOf(t) * 0.4 ** k
+    }
+    const byWeight = freeTypes
+      .map((t) => ({ t, w: 0 }))
+      .sort((a, b) => weightOf(b.t) - weightOf(a.t) || 0)
+      .map((e) => ({ t: e.t, w: rankWeight(e.t) }))
+      .sort((a, b) => b.w - a.w)
+      .map((e) => e.t)
+    const typeAt = new Map<number, DistrictType>()
+    for (const i of pinned) typeAt.set(i, chosen[i])
+    bySize.forEach((slot, k) => typeAt.set(slot, byWeight[k]))
+
+    for (let i = 0; i < slotCount; i++) {
+      const type = typeAt.get(i) as DistrictType
+      const baseDensity = DISTRICT_DENSITY[type]
       districts.push({
         id: i,
         type,
         center: candidates[i],
-        radius: Math.floor(6 + rng() * 4 + complexity * 3),
-        buildingDensity: baseDensity * (0.8 + rng() * 0.4),
-        propDensity: baseDensity * (0.7 + rng() * 0.6),
+        radius: shape[i].radius,
+        buildingDensity: baseDensity * shape[i].bMul,
+        propDensity: baseDensity * shape[i].pMul,
       })
     }
 
