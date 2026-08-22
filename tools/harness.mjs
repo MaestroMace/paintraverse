@@ -150,11 +150,21 @@ const CHECKS = [
   },
   {
     name: 'spawn',
-    why: 'the first frame — can the player stand, and is there anything to see',
+    why: 'the first frame — can the player stand, see, and get anywhere',
     electron: true,
     cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/spawn.mjs']],
-    extract: (o) => ({ facingWall: num(o, /(\d+) of \d+ spawn FACING A WALL/) }),
-    gates: { facingWall: (v) => v === 0 },
+    extract: (o) => ({
+      facingWall: num(o, /(\d+) of \d+ spawn FACING A WALL/),
+      // THE THIRD SPAWN QUESTION. Standing and seeing both passed clean on a
+      // seed where the player was in a four-tile courtyard with 962 tiles of
+      // town behind a wall — each earlier check was written by asking the
+      // previous question more carefully rather than a new one, and the
+      // spawn picker had never tested connectivity at all. Gated, because
+      // there is no threshold to argue about: broken reads 0-9% and healthy
+      // reads 75-98%.
+      inPocket: num(o, /(\d+) of \d+ spawn IN A POCKET/),
+    }),
+    gates: { facingWall: (v) => v === 0, inPocket: (v) => v === 0 },
   },
   {
     name: 'provenance',

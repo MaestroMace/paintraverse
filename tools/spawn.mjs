@@ -136,6 +136,43 @@ for (const seed of seeds) {
       if (blocked(tx + Math.cos(yaw) * s, tz + Math.sin(yaw) * s)) break
       viewTiles = s
     }
+    // CAN YOU GET ANYWHERE — the third spawn question, and the one that was
+    // still missing after the other two were fixed.
+    //
+    // STUCK asks whether the player can stand. FACING A WALL asks what they
+    // can see. Both passed clean on a seed where the player stood on legal
+    // ground, with a clear twenty-metre view, in a FOUR-TILE COURTYARD with
+    // 962 tiles of town behind a wall. Each check here was written by asking
+    // the previous question more carefully; none of them asked a new one.
+    //
+    // A flood fill is exact and has no threshold in it. The share of standable
+    // ground reachable from the spawn is the honest number, and it is the same
+    // quantity `traverse.mjs` reports — but traverse is a separate check on a
+    // separate seed list, and a spawn defect belongs to the spawn tool.
+    const gw = pt.store.getState().map.gridWidth
+    const gh = pt.store.getState().map.gridHeight
+    const free = (ix, iz) => !blocked(ix + 0.5, iz + 0.5)
+    let total = 0
+    for (let iz = 0; iz < gh; iz++) for (let ix = 0; ix < gw; ix++) if (free(ix, iz)) total++
+    const seen = new Uint8Array(gw * gh)
+    const sx = Math.floor(tx), sz = Math.floor(tz)
+    let reached = 0
+    if (sx >= 0 && sz >= 0 && sx < gw && sz < gh && free(sx, sz)) {
+      const stack = [sz * gw + sx]
+      seen[sz * gw + sx] = 1
+      while (stack.length) {
+        const cur = stack.pop()
+        reached++
+        const x = cur % gw, y = (cur / gw) | 0
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, ny = y + dy
+          if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue
+          if (seen[ny * gw + nx] || !free(nx, ny)) continue
+          seen[ny * gw + nx] = 1
+          stack.push(ny * gw + nx)
+        }
+      }
+    }
     const ground = pt.heightAt(tx, tz) ?? 0
     return {
       tx: +tx.toFixed(2), tz: +tz.toFixed(2),
@@ -144,6 +181,7 @@ for (const seed of seeds) {
       buried: cam.position.y < ground - 0.1,
       selfBlocked: blocked(tx, tz),
       camY: +cam.position.y.toFixed(2), ground: +ground.toFixed(2),
+      reachPct: total ? Math.round((reached / total) * 100) : 0,
     }
   })
   if (!r) { console.log(`seed ${seed}: no camera`); continue }
@@ -156,8 +194,19 @@ const bad = rows.filter((r) => r.selfBlocked || r.insideBuilding || r.inWater ||
 /** A wall within 4m fills the frame. That is the app's first impression. */
 const WALL_M = 4
 const facingWall = rows.filter((r) => r.viewM < WALL_M)
+/**
+ * Half the standable ground. Deliberately generous rather than tuned: a town
+ * legitimately has pockets — a walled garden, a courtyard, the far bank before
+ * a bridge — and `traverse.mjs` is the tool that grades how connected the TOWN
+ * is. What this catches is the spawn landing in one of them, which is a
+ * different defect and is never acceptable at any threshold. Observed 0% and
+ * 9% when it was broken, and 75-96% when it was not, so there is nothing near
+ * this line to argue about.
+ */
+const POCKET_PCT = 50
+const inPocket = rows.filter((r) => r.reachPct < POCKET_PCT)
 console.log('\n=== SPAWN — where does the player actually start? ===')
-console.log('seed        tile        in bldg  water  buried  open dirs   view  verdict')
+console.log('seed        tile        in bldg  water  buried  open dirs   view  reach  verdict')
 console.log('-'.repeat(80))
 for (const r of rows) {
   const stuck = r.selfBlocked || r.insideBuilding || r.inWater || r.buried || r.openDirs === 0
@@ -166,13 +215,18 @@ for (const r of rows) {
     `${String(r.inWater ? 'YES' : '-').padStart(7)}` +
     `${String(r.buried ? 'YES' : '-').padStart(8)}` +
     `${String(r.openDirs).padStart(11)}` +
-    `${String(`${r.viewM}m`).padStart(7)}   ` +
-    `${stuck ? 'STUCK' : r.viewM < WALL_M ? 'FACING A WALL' : 'ok'}`)
+    `${String(`${r.viewM}m`).padStart(7)}` +
+    `${String(`${r.reachPct}%`).padStart(7)}   ` +
+    `${stuck ? 'STUCK' : r.reachPct < POCKET_PCT ? 'IN A POCKET'
+      : r.viewM < WALL_M ? 'FACING A WALL' : 'ok'}`)
 }
 console.log('-'.repeat(80))
 console.log(`\n${bad.length} of ${rows.length} seeds spawn the player somewhere they cannot stand.`)
 console.log('This is the first thing that happens in the app and there is no')
 console.log('recovering from it: you cannot walk out of a wall.')
+console.log(`\n${inPocket.length} of ${rows.length} spawn IN A POCKET (under ${POCKET_PCT}% of`)
+console.log('standable ground reachable). The player can stand, can see, and')
+console.log('cannot get to the town — the two checks above both pass on it.')
 console.log(`\n${facingWall.length} of ${rows.length} spawn FACING A WALL (under ${WALL_M}m of view).`)
 console.log('A separate question from the one above, and this tool asked only the')
 console.log('first for a year: you can stand on perfectly legal ground with your')

@@ -1272,11 +1272,75 @@ void main() {
     const freeAt = (tileX: number, tileZ: number): boolean =>
       !this.isBlocked(tileX * TILE, tileZ * TILE)
 
+    /**
+     * A SPAWN YOU CANNOT LEAVE IS NOT A SPAWN — and nothing had ever asked.
+     *
+     * The spiral below takes the FIRST free tile it finds, and a free tile
+     * inside an enclosed courtyard is perfectly free. `spawn.mjs` grades
+     * whether the player can STAND and what they can SEE; both passed clean
+     * while the player stood in a FOUR-TILE POCKET with 962 tiles of town on
+     * the other side of a wall, because "can I stand here" and "can I get
+     * anywhere from here" are different questions and only a flood fill
+     * answers the second.
+     *
+     * This is the spawn lesson for the third time. The first was standing
+     * inside a wall, the second was facing one from a metre away, and this is
+     * the variant one step further out: legally standing, with a clear view,
+     * in a room. Each was invisible to the check written for the one before,
+     * because each new check asked the previous question more carefully
+     * instead of asking a new one.
+     *
+     * A district change moved which buildings stand where and put two seeds in
+     * four into a pocket — but the picker has never tested connectivity, so
+     * ANY placement change could have done this at any time, and several
+     * probably did. The property that matters is exact and has no threshold in
+     * it: the spawn must be on the LARGEST connected region of standable
+     * ground. 4-connected, which is what `traverse.mjs` measures against, and
+     * conservative — a diagonal gap a player can squeeze is not a route the
+     * town should depend on.
+     */
+    const gw = map.gridWidth, gh = map.gridHeight
+    const comp = new Int32Array(gw * gh).fill(-1)
+    let bestComp = -1
+    if (this.collisionMask) {
+      let bestSize = 0, nComp = 0
+      const stack: number[] = []
+      for (let iz = 0; iz < gh; iz++) {
+        for (let ix = 0; ix < gw; ix++) {
+          if (comp[iz * gw + ix] !== -1 || !freeAt(ix + 0.5, iz + 0.5)) continue
+          let size = 0
+          comp[iz * gw + ix] = nComp
+          stack.push(iz * gw + ix)
+          while (stack.length) {
+            const cur = stack.pop() as number
+            size++
+            const x = cur % gw, y = (cur / gw) | 0
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+              const nx = x + dx, ny = y + dy
+              if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue
+              if (comp[ny * gw + nx] !== -1 || !freeAt(nx + 0.5, ny + 0.5)) continue
+              comp[ny * gw + nx] = nComp
+              stack.push(ny * gw + nx)
+            }
+          }
+          if (size > bestSize) { bestSize = size; bestComp = nComp }
+          nComp++
+        }
+      }
+    }
+    /** Free AND on the main component — the test every spawn candidate takes. */
+    const openTile = (tx: number, tz: number): boolean => {
+      if (!this.collisionMask) return true
+      const ix = Math.floor(tx), iz = Math.floor(tz)
+      if (ix < 0 || iz < 0 || ix >= gw || iz >= gh) return false
+      return comp[iz * gw + ix] === bestComp
+    }
+
     // Test the position we will actually STAND on — the tile centre. The old
     // code tested the corner and then spawned at the centre, which with a
     // 0.35m collision disc covers a different set of tiles.
     let spawnX = cx - 10 + 0.5, spawnZ = cz - 10 + 0.5
-    if (this.collisionMask && !freeAt(spawnX, spawnZ)) {
+    if (this.collisionMask && !openTile(spawnX, spawnZ)) {
       let found = false
       spiral:
       for (let r = 1; r <= 24; r++) {
@@ -1284,7 +1348,7 @@ void main() {
           for (let dx = -r; dx <= r; dx++) {
             if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue // ring only
             const sx = spawnX + dx, sz = spawnZ + dy
-            if (freeAt(sx, sz)) {
+            if (openTile(sx, sz)) {
               spawnX = sx; spawnZ = sz
               found = true
               break spiral
@@ -1301,7 +1365,7 @@ void main() {
         for (let iz = 0; iz < map.gridHeight; iz++) {
           for (let ix = 0; ix < map.gridWidth; ix++) {
             const tx2 = ix + 0.5, tz2 = iz + 0.5
-            if (!freeAt(tx2, tz2)) continue
+            if (!openTile(tx2, tz2)) continue
             const d = (tx2 - cx) ** 2 + (tz2 - cz) ** 2
             if (d < best) { best = d; spawnX = tx2; spawnZ = tz2 }
           }
