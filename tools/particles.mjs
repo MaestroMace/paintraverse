@@ -387,6 +387,7 @@ for (const seed of seeds) {
   // mesh reads exactly 0. `windowSpill` is the negative case: named, in the
   // same part of the scene, and deliberately not swaying.
   let spill = null
+  const spillByHour = []
   const sway = await (async () => {
     const grid = 256
     const shootGrid = () => win.evaluate((n) => {
@@ -574,7 +575,17 @@ for (const seed of seeds) {
        * large mean over three samples is a bug; a tiny mean over thousands is
        * a wash rather than a pool, and pillar 1 wants a dark street.
        */
-      if (name === 'windowSpill') {
+      // AND GRADE IT AT MORE THAN ONE HOUR. The spill is driven by
+      // `windowGlow`, so it is a time-of-day feature, and this repo already
+      // pays for a four-arm lighting switch measured at one arm — `hours.mjs`
+      // exists because the tone arc edited noon and dusk kept the pre-arc
+      // numbers for a whole session. The compression that crushes an additive
+      // term depends on where the surface under it already sits on the ACES
+      // curve, and a dusk street is far brighter than a night one, so the same
+      // mesh can be invisible at 18.5 and read perfectly at 22.
+      for (const hour of (name === 'windowSpill' ? [18.5, 22] : [])) {
+        await win.evaluate((h) => window.__pt.store.getState()
+          .updateEnvironment({ timeOfDay: h }), hour)
         // AND THE FLOOR HAS TO BE THE RIGHT NOISE — the half of the puddle
         // finding that is easiest to get wrong, and I got it wrong first.
         // `floor` above is the noise of an ISOLATED frame, where nothing but
@@ -614,9 +625,20 @@ for (const seed of seeds) {
         // circular and would clear anything. `frames[0]` is this same mesh
         // rendered alone at this same camera, so it says where the subject
         // DRAWS, independently of whether it does anything in the composite.
+        // AND THE MASK IS STILL THE WRONG DENOMINATOR FOR THE CORE. The pool
+        // is a RADIAL falloff, so most of the pixels it touches are at nearly
+        // zero alpha on purpose — averaging over all of them under-reports the
+        // middle, which is the part a person actually sees. Same shape as the
+        // whole-frame mean one step earlier, and the reason to print both:
+        // the mask says how far the light reaches, the CORE says whether the
+        // brightest part of it survives to a single 8-bit level. One step is
+        // 1/255 = 0.0039, which is the only non-invented bar available here.
         const THRESH = 0.004
+        let peak = 0
+        for (const v of frames[0]) if (v > peak) peak = v
+        const CORE = Math.max(0.05, peak * 0.5)
         let dm = 0, changed = 0, noise = 0, noiseChanged = 0, mask = 0
-        let dmAll = 0
+        let dmAll = 0, dmCore = 0, core = 0
         for (let i = 0; i < a1.length; i++) {
           const lit = (a1[i] + a2[i]) / 2
           const d = lit - b[i]
@@ -628,6 +650,7 @@ for (const seed of seeds) {
           const nd = a1[i] - a2[i]
           noise += Math.abs(nd)
           if (Math.abs(nd) > THRESH) noiseChanged++
+          if (frames[0][i] >= CORE) { core++; dmCore += d }
         }
         spill = {
           // Signed: the spill ADDS light, so a negative mean would mean the
@@ -645,7 +668,19 @@ for (const seed of seeds) {
           // naive version of this probe would have quoted.
           maskPct: +((mask / a1.length) * 100).toFixed(1),
           frameMean: +(dmAll / a1.length).toFixed(5),
+          // THE CORE, and the one bar in this probe that is not a ratio to a
+          // measured floor: 1/255 is what an 8-bit display can represent, so a
+          // contribution below it is not faint, it is absent on most pixels.
+          coreMean: core ? +(dmCore / core).toFixed(6) : 0,
+          coreSteps: core ? +((dmCore / core) * 255).toFixed(2) : 0,
+          // THE COUNT, because `core 0` and `core bright but unchanged` print
+          // the same zero and want opposite investigations — the explaining
+          // metric rather than the counting one.
+          coreN: core,
+          corePeak: +peak.toFixed(3),
+          hour,
         }
+        spillByHour.push(spill)
       }
     }
     return out
@@ -688,11 +723,18 @@ for (const seed of seeds) {
     // anything: the mean says how much light arrived, the changed share says
     // whether it arrived in a POOL or as a wash over the whole street, and a
     // uniform wash is the failure this feature was tuned away from.
+    for (const sp of spillByHour) {
+      console.log(`  spill ${String(sp.hour).padEnd(4)}: +${sp.mean} mean on ${sp.changedPct}% of ` +
+        `its own px  ·  floor ${sp.floor}/${sp.floorChangedPct}%  ·  core ${sp.coreSteps} of a ` +
+        `255 step over ${sp.coreN} px (isolate peak ${sp.corePeak})`)
+    }
     if (spill) {
+      // GRADED ON THE BEST HOUR IT GETS, because the question is whether the
+      // layer is ever visible, not whether it is visible at every hour — a
+      // pool of light under a lit window is a NIGHT thing and being absent at
+      // noon is correct.
+      spill = spillByHour.reduce((a, b) => (b.coreSteps > a.coreSteps ? b : a), spillByHour[0])
       spillMean = spillMean === null ? spill.mean : Math.min(spillMean, spill.mean)
-      console.log(`  spill:     +${spill.mean} mean luma on ${spill.changedPct}% of its own ` +
-        `pixels  ·  floor ${spill.floor} over ${spill.floorChangedPct}%  ·  mask ` +
-        `${spill.maskPct}% of frame (whole-frame mean ${spill.frameMean})`)
       // A NEGATIVE MEAN CONVICTS THE MEASUREMENT, NOT THE SPILL, and it is a
       // proof rather than a suspicion: `_spillMat` is AdditiveBlending, so
       // hiding the mesh can only ever remove light and `with - without` is
@@ -719,6 +761,21 @@ for (const seed of seeds) {
         console.log('             ^ THE WINDOW SPILL CONTRIBUTES NOTHING. Hiding it')
         console.log('               moves the frame by no more than the composite\'s own')
         console.log('               noise — the puddle reading, on pillar 5 layer 4.')
+      } else if (spill.coreSteps < 1) {
+        // MEASURABLE IS NOT VISIBLE, and conflating them is how a green board
+        // ends up certifying something nobody can see. The mask mean clears
+        // its floor by 13x, so the mesh is genuinely there and correctly
+        // signed; the CORE — the brightest part of the pool — moves the
+        // composite by under one 8-bit step, so on most pixels it rounds away.
+        // Reported and not gated, because this is a KNOWN and accepted state
+        // with the arithmetic written up in CLAUDE.md: raising it enough to
+        // clear a step needs ~9x, which is past the lamp pool and into the
+        // uniform wash. The row exists so that if the tone curve, the exposure
+        // or the opacity ever change, this moves and somebody sees it.
+        console.log(`             ^ present but BELOW A DISPLAY STEP: core ${spill.coreSteps}` +
+          ' of 255. Measurable, correctly signed, and not visible. See CLAUDE.md')
+        console.log('               before spending a session raising it — 3x was')
+        console.log('               photographed and is indistinguishable.')
       } else if (spill.changedPct > 60) {
         spillDead++
         console.log('             ^ THE SPILL IS A WASH, NOT A POOL. It reaches most of')

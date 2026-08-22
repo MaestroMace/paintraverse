@@ -1553,9 +1553,48 @@ Fifty-nine times the floor on two seeds in three, and **exactly zero on the
 third** — because 0.00059 mean luma is 0.15 of a 255 step, so where the mask is
 small the whole contribution rounds away. Not the puddle verdict (that was 1.4x
 on both statistics and lost in noise); this is a real, correctly-signed,
-localised effect that is simply very faint. Open: whether to raise the opacity,
-bounded by the note that the first value lit the whole street to an even pale
-wash, which is the worst of both pillars at once.
+localised effect that is simply very faint.
+
+**AND THE MASK IS STILL THE WRONG DENOMINATOR — THE POOL IS A RADIAL FALLOFF.**
+Most of the pixels it touches are near-zero alpha on purpose, so averaging over
+all of them under-reports the middle, which is the part a person sees. That is
+the whole-frame mistake one step further in, and the CORE is what settles it:
+pixels at half the isolate peak or brighter. **Core 0.00 of a 255 step at dusk
+and -0.02 at night**, over 213px, against an isolate peak of 0.059.
+
+**A 3x A/B THEN MOVED EVERY NUMBER AND CHANGED NO PICTURE**, which is the
+answer:
+
+    opacity            0.08        0.24
+    isolate peak       0.059       0.174   (2.95x — linear, so the path works)
+    core, in 255 steps -0.02       +0.34
+    mask, % of frame   4.4%        8.9%
+    dusk street photo          INDISTINGUISHABLE
+
+**ACES COMPRESSES AN ADDITIVE TERM BY ~130x AT THE DUSK STREET'S OPERATING
+POINT.** An isolate peak of 0.174 becomes a composite core delta of 0.0013,
+because the ground under it already sits high on the curve where the slope is
+low. Reaching one display step needs ~9x, which is past the LAMP POOL's 0.55
+and squarely into the uniform pale wash the code comment records — and the 3x
+photograph already shows no gain, so the wash arrives before the visibility
+does. **Night does not rescue it either** (core -0.02), which was the good
+hypothesis: a dark ground sits lower on the curve. It was tested and refuted.
+
+So the value stays at 0.08, and this is the note that should stop the next
+session re-attempting it. **You cannot buy visible window spill with opacity on
+an additive quad under this tone curve.** The mesh is kept because it is
+correct, costs one merged draw, and is measurably present — and because if the
+exposure or the tone curve ever change, `particles` prints the core step count
+and somebody will see it move. Its row is REPORTED and not gated, since a
+permanent red is a row people learn to ignore.
+
+**AND "MEASURABLE" IS NOT "VISIBLE" — CONFLATING THEM WOULD HAVE PASSED IT.**
+The mask mean clears its own floor by 13-59x, so every ratio test in the probe
+says the spill is live, and the gate written on those ratios reported `0
+contributing nothing` while the thing cannot be seen. Only the ABSOLUTE bar —
+one 8-bit step, the one number here that is not invented — separated the two.
+A ratio to a noise floor answers "is it there"; it cannot answer "can it be
+seen", and pillar 5 asked the second question.
 
 **THREE OF THAT PROBE'S OWN READINGS WERE WRONG BEFORE ONE WAS RIGHT, AND EACH
 IS A LESSON ALREADY IN THIS FILE.**
