@@ -1623,6 +1623,42 @@ IS A LESSON ALREADY IN THIS FILE.**
   `subjectPixels` solved this identically and `celestial.mjs` went 2.5x to
   1700x on nothing but where it looked.
 
+**A STREET VANTAGE NEEDS A STREET WALL, AND A BRIDGE HAS THE CORRIDOR WITHOUT
+ONE.** `streetVantages` was fixed once for facing the wall BESIDE the street,
+and the fix required a road CORRIDOR to look along. Necessary, not sufficient:
+the one road in a river town with a guaranteed long clear run and no buildings
+beside it is the BRIDGE, and a district change that shifted the layout walked
+the camera straight onto them.
+
+    bridge share of eyeball's street views    12.7%  ->  76.4%
+    wall samples                               4534  ->  3710
+    roof samples                               1081  ->  2798
+    wall median                               0.131  ->  0.088
+
+Three of six frames filled by a 0.9m parapet the tool itself annotates
+"100% bare wall", and every one of those numbers was read off the board as
+the town getting darker. **Two clauses fix it** — some structure within four
+tiles perpendicular to the view, which is the Sitte enclosure argument the
+urban-form work already runs on; and the vantage tile must not itself be
+inside a structure, because the enclosure test alone only moved it 76% -> 60%
+(a town bridge HAS buildings within four tiles, since the banks are quayed,
+so it passes honestly and the camera was still standing on the deck).
+
+**AND THE TOOL FIX IS A NO-OP ON THE TOWN WITHOUT THE DEFECT, WHICH IS THE
+WHOLE PROOF.** Run against the old build it reads byte-identical to the old
+tool — 4534 wall samples, 0.131, 25% black, to the digit. A tool change that
+only moves the number where the defect exists is a correction; one that moves
+it everywhere is a thumb on the scale, and there is no way to tell them apart
+without running the new tool against the old build.
+
+    wall median      OLD TOOL   NEW TOOL
+      old town         0.131      0.131     <- identical, so not a fudge
+      new town         0.088      0.101
+
+So roughly a third of the apparent 44-point tone regression was the camera and
+two thirds is the town — and 0.101 at 23% black is still better than the
+0.088 at 41% the whole tone arc was fought to achieve.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)

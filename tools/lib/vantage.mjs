@@ -580,9 +580,79 @@ export async function streetVantages(win, n, reach = 14) {
       }
       scored.push({ x: x + 0.5, y: y + 0.5, yaw: bestYaw, run: best, i })
     }
-    // Keep the ones with a real corridor, then re-spread them over the map so
-    // the views are not all in whichever quarter has the longest streets.
-    const good = scored.filter((c) => c.run >= 3)
+    /**
+     * AND A CORRIDOR IS ONLY HALF A STREET — THE OTHER HALF IS THE WALL.
+     *
+     * This picker was fixed once for facing the wall BESIDE the street, and
+     * the fix required a road CORRIDOR to look along. That is necessary and it
+     * is not sufficient: a street is a corridor with buildings either side of
+     * it, and the one road in a river town with a guaranteed long clear run
+     * and NO buildings beside it is the BRIDGE.
+     *
+     * Measured. A district change shifted the layout and the bridge's share of
+     * eyeball's street views went 12.7% to 76.4% — three of six frames filled
+     * by a 0.9m parapet that the tool itself annotates "100% bare wall". Wall
+     * samples fell 4534 -> 3710 while roof samples nearly TRIPLED, and the
+     * wall median dropped 0.131 -> 0.088. Every one of those numbers was read
+     * as the town getting darker. None of it was the town.
+     *
+     * So require ENCLOSURE, which is what makes a street a street and is the
+     * same Sitte argument the urban-form work is built on: some structure
+     * within a few tiles, perpendicular to the way you are facing. A bridge
+     * deck, a quay and a field track all fail it correctly, and they should —
+     * a metric named "what FILLS a street view" must be looking at a street.
+     */
+    const st2 = pt.store.getState()
+    // THE RESERVED RECTANGLE FIRST, THE DEFINITION SECOND, AND NEVER 1x1.
+    // `o.footprint || { w: 1, h: 1 }` is the exact idiom CLAUDE.md records
+    // costing a 5.52m fence on a one-tile reservation — a lookup with a
+    // default has no ABSENT state, so a six-tile bridge silently became one
+    // tile and five of its deck tiles stayed eligible as street vantages.
+    // This is `footprintOf(obj, def)` written out, which is the one way to
+    // ask a PlacedObject its rectangle.
+    const defs2 = new Map((st2.objectDefinitions || []).map((d) => [d.id, d]))
+    const built = new Uint8Array(W * H)
+    for (const layer of st2.map.layers) {
+      if (layer.type !== 'structure') continue
+      for (const o of layer.objects || []) {
+        const fp = o.footprint || defs2.get(o.definitionId)?.footprint || { w: 1, h: 1 }
+        for (let dy = 0; dy < (fp.h || 1); dy++) {
+          for (let dx = 0; dx < (fp.w || 1); dx++) {
+            const bx = Math.floor(o.x) + dx, by = Math.floor(o.y) + dy
+            if (bx >= 0 && by >= 0 && bx < W && by < H) built[by * W + bx] = 1
+          }
+        }
+      }
+    }
+    /** Is there a wall beside this vantage, across the direction of view? */
+    const enclosed = (x, y, yaw) => {
+      // Perpendicular to the yaw: yaw 0 looks +X, so the sides are +/-Z.
+      const px = Math.abs(Math.cos(yaw)) > 0.5 ? 0 : 1
+      const py = px === 0 ? 1 : 0
+      for (const s of [1, -1]) {
+        for (let k = 1; k <= 4; k++) {
+          const nx = x + px * k * s, ny = y + py * k * s
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) break
+          if (built[ny * W + nx]) return true
+        }
+      }
+      return false
+    }
+
+    // Keep the ones with a real corridor AND a wall beside them, then re-spread
+    // them over the map so the views are not all in whichever quarter has the
+    // longest streets.
+    // AND NOT STANDING ON A STRUCTURE. The enclosure test alone moved the
+    // bridge's share only 76% -> 60%, because a town bridge HAS buildings
+    // within four tiles — the banks are quayed and built up, so it passes
+    // honestly. The defect is one step nearer than that: the camera is ON the
+    // deck and the parapet at its feet fills the frame. A bridge is a
+    // legitimate place for a PLAYER to stand and it is not a street, and this
+    // metric grades the street wall.
+    const good = scored.filter((c) => {
+      const cx = Math.floor(c.x), cy = Math.floor(c.y)
+      return c.run >= 3 && !built[cy * W + cx] && enclosed(cx, cy, c.yaw)
+    })
     const pool = good.length >= n ? good : scored.sort((a, b) => b.run - a.run)
     pool.sort((a, b) => a.i - b.i)
     const out = []
