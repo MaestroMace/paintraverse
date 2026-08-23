@@ -2464,13 +2464,15 @@ Run these before believing anything about where the project is.
 | washing lines | (see buildLanternStrings) | 28-35 garments a town, 10 of 12 lines over walkable ground | new |
 | interpenetration | clash.mjs | **25 pairs over 0.5m, was 124** — see THE OVERHANG BUDGET | fixed; the residual is named |
 | bridges you can walk onto | bridgeshot.mjs | **0.34-0.58m step up, was 2.2-2.4m over head** | fixed |
-| **can a person get there** | **traverse.mjs** | **78-91% reachable, 0 impassable crossings, 32 clamber pairs** | **the terrain relax is derived from the 0.6m step now** |
+| **can a person get there** | **traverse.mjs** | **75-96% reachable, 0 impassable crossings, 32 clamber pairs** | **and the SPAWN is on the largest connected region now — see below** |
 | **the river** | **river.mjs** | **bank relief 0.67m med / 1.28m max (was 0.03m), drop +3.6m** | **fixed** |
 | river severance | site.mjs | 0 of 5 seeds have an unreachable district, was 2 | clean |
 | waterfront dressing | (see dressWaterfront) | 10 maritime/natural types at the bank, was 2 | improving |
-| **360-degree read** | **allsides.mjs** | **flank/front 0.64, back/front 0.71 at n=30 — ON THE BOARD now** | **improving** |
+| **360-degree read** | **allsides.mjs** | **flank/front 0.60, back/front 0.40 at backN=11 — read the sample-size note** | **improving** |
 | **the district seam** | **seam.mjs** | **90% of quarter crossings marked, 3 unmarked in 8 towns** | **closed — was believed unbuilt** |
 | which quarters exist | quarters.mjs | 5.8 a town; residential and market 12/12, artisan 9/12, cemetery 7, noble 4 | improving |
+| **how BIG each quarter is** | **quarters.mjs** | **largest is a slum on 0 of 8 seeds, was 2; slum 31% -> 12%; temple 4 -> 13 buildings** | **fixed — rank-matched to cell area** |
+| **can the player LEAVE the spawn** | **spawn.mjs** | **0 of 16 in a pocket, 86-98% of standable ground reachable** | **new — gated** |
 
 **Every metric here is now in or near range, and the last outlier was mostly
 the denominator.** That standing instruction — measure what the unoccupied
@@ -5902,6 +5904,61 @@ be honest, stable and clean while the defect sits one question away from what
 it asks. "Can the player stand here" and "is there anything to look at" are
 different questions about the same first frame, and only one of them was ever
 asked.
+
+## A SPAWN YOU CANNOT LEAVE — the third variant, and each check missed it
+
+Three spawn defects now, and the shape is the same every time: **each new
+check asked the PREVIOUS question more carefully instead of asking a new
+one.**
+
+    1.  standing inside a wall          `selfBlocked` / `insideBuilding`
+    2.  facing one from a metre away    `viewM`, the longest clear ray
+    3.  standing legally, clear view,   `reachPct` — a flood fill, and
+        IN A ROOM                        nothing had ever run one
+
+The picker takes the first free tile in an outward spiral, and a free tile
+inside an enclosed courtyard is perfectly free. On two seeds in four the
+player stood on legal ground with a clear twenty-metre view in a **four-tile
+pocket**, 962 tiles of town behind a wall, and `spawn.mjs` reported `ok`.
+
+**It was exposed by a district change and caused by none.** The picker has
+never tested connectivity, so any placement change could have done this at any
+time and several probably did — the defect is as old as the spiral. The fix is
+the property that actually matters and has no threshold in it: the spawn must
+be on the **largest connected region** of standable ground, 4-connected,
+which is what `traverse.mjs` measures against.
+
+    seed 4242    0%  ->  75%          seed  777   96%  ->  96%  (untouched)
+    seed 8080    9%  ->  90%          seed 31337   94%  ->  94%  (untouched)
+    spawn.mjs, 16 seeds:  0 in a pocket, 86-98% reachable
+
+The two healthy seeds not moving is what a correct local fix looks like.
+
+**AND THE BOARD HAD TO GAIN THE ROW, or the next placement change repeats
+it.** `inPocket` is gated at under half the standable ground — deliberately
+generous rather than tuned, because a town legitimately has pockets (a walled
+garden, the far bank before a bridge) and `traverse.mjs` is the tool that
+grades how connected the TOWN is. Broken read 0% and 9%; healthy reads 75-98%.
+There is nothing near that line to argue about.
+
+## AND I RAN A SUBSET INSTEAD OF THE BATTERY
+
+The district change was checked against six tools I picked myself as
+"district-sensitive". All six passed. The full board then failed a gate and
+flagged seven regressions — **every one of them in a check I had left out**,
+including the spawn collapse above. This file already says to run the battery
+for the system you are NOT working on; the failure mode it did not spell out
+is substituting your own judgement for the battery, which is the same mistake
+wearing a lab coat. The subset is for iterating. The board is for believing.
+
+**And the first A/B I ran to attribute it was invalid.** `git stash` on an
+already-committed tree stashes nothing, so I built and measured the SAME
+source twice, got byte-identical numbers, and nearly filed a live regression
+as pre-existing. The tells were both in the output and both ignorable if you
+are not looking: `No stash entries found`, and a "build" that finished in
+81ms. **`git checkout <commit> -- src/` is the only form of this that cannot
+silently no-op**, which is why this file already prescribes it, and I reached
+for the convenient one instead.
 
 ## Android / mobile build
 
