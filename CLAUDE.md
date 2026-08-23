@@ -5905,6 +5905,57 @@ it asks. "Can the player stand here" and "is there anything to look at" are
 different questions about the same first frame, and only one of them was ever
 asked.
 
+## THE BUTTRESS IS A GHOST, AND ITS ELIGIBILITY CLAUSE IS WHAT KILLS IT
+
+`features.mjs` reads **one buttress across three towns** — a pier and a
+weathered cap, finished geometry, essentially never drawn. A rate cannot say
+which of six clauses starved it, so the gate got the counters `rearOutshot`
+already had, and they closed it in one run:
+
+    buttress~wrongKind    708  85%     buttress~tooShallow    0
+    buttress~tooShort      56   7%     buttress~lostTheDice   0
+    buttress~noRoomBeside  52   6%     built                  1
+    buttress~circular      19   2%
+
+As a funnel: 836 structures, 727 fail circular-or-district, 56 too short —
+leaving 53, of which **`noRoomBeside` kills 52. The dice below it was never
+rolled once.**
+
+**AND THE THRESHOLD WAS NOT THE ANSWER, WHICH ONLY A HISTOGRAM COULD SAY.**
+The sibling forty lines below already carried the whole argument in its own
+comment — MIN_HABITABLE_W forces a volume to 2.6m inside a 1-tile footprint,
+so an ordinary building has exactly 0.20m beside it, and the chimney breast
+was moved to 0.14 for precisely that reason while the buttress kept 0.34. A
+bug in a gate is a bug in a PATTERN and this is the sibling that went
+unswept. So 0.34 -> 0.22, and the count moved by **ZERO** — byte-identical,
+which is a red flag and not a null result.
+
+Bucketing the room it was rejecting says why, with nothing left over:
+
+    buttress~roomNone     51      side room under 1cm
+    buttress~roomUnder10   1
+
+**The room is not tight, there is NONE.** And the reason is that the clause
+making a building ELIGIBLE is the clause that removes its precondition: a
+buttress is for temple, noble, fortress, landmark or `wealth > 0.72`, and a
+wealthy building is scaled up by `wealthScale` until `clipToFootprint` clamps
+it flush at its own plot edge — so `sideRoom` is 0 BY CONSTRUCTION on exactly
+the buildings the feature is aimed at. **Two rules that each sound sensible
+composing into a filter that admits nobody** — the washing-line lesson in a
+new pair, where a drop-from-eave rule plus a head-clearance rule selected only
+the tallest buildings in town.
+
+**The fix is not a number and is not attempted here.** `sideRoom` measures the
+gap to the building's OWN footprint, and a buttress is precisely the masonry
+that may project to the plot line and no further — which is what the per-side
+overhang clip already computes for every side, zero where a neighbour has
+reserved the tiles and full where they are free. That machinery took
+`deepClash` 124 -> 15 and is the right thing to derive this from; plumbing it
+into this call site is a real change and wants its own measured commit. The
+0.22 and the counters stay, because the threshold is correct for any building
+that does have room and the counters mean the next session starts with the
+answer rather than the question.
+
 ## A SPAWN YOU CANNOT LEAVE — the third variant, and each check missed it
 
 Three spawn defects now, and the shape is the same every time: **each new

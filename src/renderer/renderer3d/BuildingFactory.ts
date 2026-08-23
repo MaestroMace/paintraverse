@@ -2126,13 +2126,68 @@ export function buildBuildingMeshes(
     // the cheapest thing that turns a blank side elevation into a rhythm of
     // light and shadow — which is what a flank actually lacks. Stone and
     // temple/noble buildings only; a timber row house would not have them.
+    // 0.22, NOT 0.34 — AND THE SIBLING ALREADY KNEW.
+    //
+    // The chimney breast forty lines below carries the whole argument in its
+    // own comment: MIN_HABITABLE_W forces a volume to 2.6m inside a 1-tile
+    // (3.0m) footprint, so an ordinary building has exactly 0.20m beside it.
+    // A threshold of 0.34 is therefore ABOVE what a standard plot physically
+    // leaves, and the counters say so with nothing left over — `noRoomBeside`
+    // killed 52 of the 53 buildings that reached it, 98%, and the dice below
+    // was never rolled once across three towns.
+    //
+    // The breast was moved to 0.14 for exactly this reason and the buttress,
+    // in the same file, was not. A bug in a gate is a bug in a PATTERN and
+    // this is the sibling that did not get swept.
+    //
+    // NOT dropped to 0.14 as well, because the two are deliberately different
+    // populations — the breast exists "for the buildings the buttress pass
+    // skips, so the two together cover most tall flanks rather than doubling
+    // up on the same wealthy few". 0.22 keeps that division and clears the
+    // 0.20m cliff: it yields at least a 0.16m projection, which is well above
+    // the ~5cm that RENDER_SCALE 0.4 makes invisible at street distance.
+    //
+    // Safe by construction rather than by measurement: `sideRoom` is the gap
+    // to the building's OWN footprint edge, so anything inside it cannot
+    // reach a neighbour, which is the invariant audit.mjs enforces.
     const buttressSides: number[] = []
-    for (const s of [-1, 1]) if (sideRoom(s) >= 0.34) buttressSides.push(s)
+    for (const s of [-1, 1]) if (sideRoom(s) >= 0.22) buttressSides.push(s)
     const wantsButtress = !mainVol.circular && buttressSides.length > 0 &&
       mainWallH > 5.2 && mainVol.depth >= 2.6 &&
       (district === 'temple' || district === 'noble' || district === 'fortress' ||
        isLandmark || styleVector.wealth > 0.72) &&
       rand01(hash, 1411) < 0.66
+    // WHY A BUTTRESS DID NOT HAPPEN — six clauses and no way to tell which.
+    //
+    // The census reads ONE buttress across three towns, which is a ghost: a
+    // pier and a weathered cap are finished geometry that essentially never
+    // appears. A rate cannot say whether that is the district list, the
+    // height, the depth, the side clearance or the dice, and the last two
+    // times this repo guessed at a starved gate it spent two changes before
+    // asking. `rearOutshot` gained exactly these counters and they closed it
+    // in one run — noRoomBehind on 55% of eligible buildings.
+    //
+    // Ordered from the outside in, so each counter names the FIRST thing that
+    // failed rather than every thing that did.
+    if (mainVol.circular) tallyIn('buttress~circular', district)
+    else if (!(district === 'temple' || district === 'noble' || district === 'fortress' ||
+      isLandmark || styleVector.wealth > 0.72)) tallyIn('buttress~wrongKind', district)
+    else if (mainWallH <= 5.2) tallyIn('buttress~tooShort', district)
+    else if (mainVol.depth < 2.6) tallyIn('buttress~tooShallow', district)
+    else if (buttressSides.length === 0) {
+      tallyIn('buttress~noRoomBeside', district)
+      // LEAVE THE HISTOGRAM IN — the threshold is the only number in this
+      // gate that cannot be derived, so the distribution it cuts has to stay
+      // visible or the next person tunes it blind. Lowering the gate 0.34 ->
+      // 0.22 moved the count by ZERO, which says the room is not merely tight,
+      // and a count cannot tell "just under the line" from "there is none".
+      const room = Math.max(sideRoom(-1), sideRoom(1))
+      tallyIn(room < 0.01 ? 'buttress~roomNone'
+        : room < 0.10 ? 'buttress~roomUnder10'
+        : room < 0.20 ? 'buttress~roomUnder20'
+        : 'buttress~roomUnder22', district)
+    }
+    else if (!wantsButtress) tallyIn('buttress~lostTheDice', district)
     if (wantsButtress) {
       tallyIn('buttress', district)
       const bColor = shiftColor(palette.wall, -0.08, -0.07, -0.06)
@@ -2170,7 +2225,7 @@ export function buildBuildingMeshes(
     // skips, so the two together cover most tall flanks rather than
     // doubling up on the same wealthy few.
     // Computed from sideRoom directly, NOT filtered out of buttressSides —
-    // that list has already applied the buttress's STRICTER 0.34 test, so
+    // that list has already applied the buttress's STRICTER 0.22 test, so
     // filtering it at 0.22 could only ever narrow the set further and the
     // looser threshold this feature is supposed to have could never take
     // effect. A gate derived from another gate inherits its constraints
