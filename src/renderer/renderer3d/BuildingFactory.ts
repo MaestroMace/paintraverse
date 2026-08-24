@@ -1242,6 +1242,11 @@ export function buildBuildingMeshes(
     }
 
     const ornamentSeen = new Set<string>()
+    /** The building's apex, hoisted so the ornament-site callback below can
+     *  read it — see the note on tallyOrnament. Assigned once the massing is
+     *  final; zero here just aims a site at the building's base, which is
+     *  still a usable camera target and never throws. */
+    let apexForSite = 0
     const emitCtx = {
       // Roof ornaments are owned by VolumeRenderer and were never tallied, so
       // dormers, finials, spire crosses, weather vanes and the new copper cap
@@ -1257,10 +1262,25 @@ export function buildBuildingMeshes(
       // one has appeared (doorstep read 182% for the same reason). The wall
       // features are per-building, so these have to be as well or the two
       // halves of one census answer different questions.
+      // Declared BEFORE the callback that reads it. `apexLocalY` is computed
+      // a hundred lines below this object literal, so referencing it from
+      // inside the closure is a temporal-dead-zone throw at call time — and
+      // because `tallyIn` runs FIRST in that callback, the count still
+      // incremented while everything after the throw silently stopped. dormer
+      // read 102 with zero recorded sites and the buttress vanished entirely.
+      // A counter that rises while the work it labels is aborted is the worst
+      // shape of all: it reads as proof the code ran.
       tallyOrnament: (kind: string) => {
         if (ornamentSeen.has(kind)) return
         ornamentSeen.add(kind)
         tallyIn(kind, district)
+        // AND WHERE IT IS. VolumeRenderer draws in the volume's local frame
+        // and does not know its world position, but this callback runs while
+        // BuildingFactory is processing one specific building — so the
+        // closure already has it and no signature has to change. Aimed at the
+        // apex, because every ornament this callback reports (dormer, finial,
+        // copperCap, spireCross, weatherVane) is on the roof.
+        siteOf(kind, wx, wy + apexForSite * 0.85, wz)
       },
       centerX: wx,
       centerZ: wz,
@@ -1341,6 +1361,7 @@ export function buildBuildingMeshes(
 
     // Record where this building really ends up so particle systems can hang
     // off it without re-deriving its height (see BuildingTop).
+    apexForSite = 0
     let apexLocalY = 0
     for (const v of massing.volumes) {
       const t = v.bottomY + v.height + v.roofHeight
@@ -2861,8 +2882,47 @@ export function buildBuildingMeshes(
       (mainVol.roofStyle === 'gabled' || mainVol.roofStyle === 'steep') &&
       mainVol.roofHeight > 0.4 &&
       Math.min(mainVol.width, mainVol.depth) >= 1.6 &&
-      styleVector.weather > 0.55 &&
+      // 0.50, NOT 0.55 — AND THE HISTOGRAM IS WHY.
+      //
+      // `styleVector.weather` clusters hard just under the old line: of the
+      // 243 buildings this clause rejected, 154 sat in 0.45-0.55 and only 12%
+      // of everything reaching it was above 0.55 at all. So "weathered" meant
+      // the top EIGHTH rather than the worn half, and moss — a stated patina
+      // feature — reached 1% of buildings. Same shape as the chimney breast,
+      // whose own note records 74% of eligible buildings sitting just below
+      // its threshold.
+      //
+      // Moving the line to the middle of the distribution it is cutting is
+      // the principle; the exact value is the distribution's, not mine.
+      // Cumulatively the buckets read 12 / 32 / 89 / 211 of the 275 buildings
+      // that reach this clause, so the MEDIAN weather among moss-eligible
+      // roofs is ~0.47 and that is where the line goes. It also buys tonal
+      // variety on the largest dark surface class in the town, which is the
+      // one thing roofs are short of.
+      styleVector.weather > 0.47 &&
       rand01(hash, 1801) < 0.55
+    // WHY A ROOF HAS NO MOSS — six clauses, same treatment as the buttress.
+    // Patina is a stated pillar and this reads 1% of buildings, which is
+    // either a correct rarity or a gate starving it; a count cannot tell.
+    // Ordered outside-in so each counter names the FIRST thing that failed.
+    if (isLandmark) tallyIn('roofMoss~landmark', district)
+    else if (mainVol.circular) tallyIn('roofMoss~circular', district)
+    else if (!(mainVol.roofStyle === 'gabled' || mainVol.roofStyle === 'steep')) {
+      tallyIn('roofMoss~wrongRoof', district)
+    } else if (mainVol.roofHeight <= 0.4) tallyIn('roofMoss~roofTooFlat', district)
+    else if (Math.min(mainVol.width, mainVol.depth) < 1.6) tallyIn('roofMoss~tooNarrow', district)
+    else if (styleVector.weather <= 0.47) {
+      tallyIn('roofMoss~tooPristine', district)
+      // LEAVE THE HISTOGRAM IN — 0.55 is the only number in this gate that
+      // cannot be derived, so the distribution it cuts has to stay visible or
+      // the next person tunes it blind. The buttress taught this the hard way:
+      // a threshold change there moved the count by zero because the quantity
+      // being cut was not near the line at all, and only a histogram said so.
+      const wv = styleVector.weather
+      tallyIn(wv < 0.2 ? 'roofMoss~wx0-20' : wv < 0.35 ? 'roofMoss~wx20-35'
+        : wv < 0.45 ? 'roofMoss~wx35-45' : 'roofMoss~wx45-50', district)
+    }
+    else if (!wantsRoofMoss) tallyIn('roofMoss~lostTheDice', district)
     if (wantsRoofMoss) {
       tallyIn('roofMoss', district)
       siteOf('roofMoss', wx, wy + mainWallH, wz)

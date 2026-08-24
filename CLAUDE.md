@@ -6007,6 +6007,46 @@ into this call site is a real change and wants its own measured commit. The
 that does have room and the counters mean the next session starts with the
 answer rather than the question.
 
+### AND THE MOSS WAS THE SAME SHAPE, ONE GATE OVER
+
+`roofMoss` read 1% of buildings while patina is a stated pillar. Same
+treatment, same result in one run:
+
+    roofMoss~wrongRoof   527  63%    the geometry needs a gable; fair
+    roofMoss~tooPristine 243  29%    <- the binding clause
+    roofMoss~landmark     30   4%
+    roofMoss~lostTheDice  23   3%
+
+And the histogram is what made it actionable rather than a guess — of the 243
+rejected, **154 sat in 0.45-0.55, immediately under the line**, and only 12%
+of everything reaching the clause was above 0.55 at all. So "weathered" meant
+the top EIGHTH rather than the worn half. Cumulatively the buckets read
+12 / 32 / 89 / 211 of 275, which puts the MEDIAN weather among moss-eligible
+roofs at ~0.47 — so that is where the line goes, and the value is the
+distribution's rather than mine. **roofMoss 1% -> 7%**, beside thatch at 8%,
+which gives roofs a second differentiator on the largest dark surface class in
+the town.
+
+### A COUNTER THAT RISES WHILE ITS OWN WORK IS ABORTED
+
+`featureSites` was wired into `tallyOrnament` — the callback BuildingFactory
+already hands to VolumeRenderer, so the closure knows the world position and
+no signature had to change. It read `apexLocalY`, which is declared a hundred
+lines BELOW that object literal, so every call was a temporal-dead-zone throw.
+
+**And `tallyIn` runs first in that callback, so the count kept rising.**
+`dormer` reported 102 with ZERO recorded sites, and `buttress` and
+`colonnade` — both emitted further down the same function — vanished
+completely, because the throw aborted each building partway through. Typecheck
+passed, the build passed, no page error surfaced, and the census looked
+healthy.
+
+**A counter that increments before the work it labels is not evidence the work
+happened** — it is the most convincing possible evidence that it did. The tell
+was the pair: a feature with a high count and no position at all. Hoisting the
+apex into a `let` above the callback fixed it, and nine features report sites
+now including the `spireCross` that motivated the tool.
+
 ## A SPAWN YOU CANNOT LEAVE — the third variant, and each check missed it
 
 Three spawn defects now, and the shape is the same every time: **each new
