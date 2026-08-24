@@ -441,6 +441,22 @@ export interface BuildingDiagnostics {
   flatTopBy: Record<string, number>
   /** Street-dressing features that are gated behind district/type rules. */
   featureCounts: Record<string, number>
+  /**
+   * WHERE a named feature actually IS, so a camera can be pointed at one.
+   *
+   * `featureCounts` says a feature fired twelve times and cannot say where,
+   * which is the hole `slivers.mjs` filled for batched geometry: a batch hides
+   * its authors, so make it name them. It cost a whole camera hunt on the
+   * buttress — 12 instances in ~840 structures is 1.4%, so photographing any
+   * given building has almost no chance of containing one, and the magenta
+   * probe came back empty in a way that reads exactly like "your geometry does
+   * not exist". Every rare feature has that problem and always will.
+   *
+   * Capped per key, because this is a debug aid and not a spatial index: a
+   * handful of sites is all a camera needs, and an uncapped array on a feature
+   * that fires on every building would be thousands of Vector3s a generate.
+   */
+  featureSites: Record<string, { x: number; y: number; z: number }[]>
   /** Per-building human-scale samples — see BuildingScale. */
   scaleSamples: BuildingScale[]
 }
@@ -521,6 +537,7 @@ let _lastDiagnostics: BuildingDiagnostics = {
   flatToppedTallVolumes: 0,
   flatTopBy: {},
   featureCounts: {},
+  featureSites: {},
   scaleSamples: [],
 }
 
@@ -542,6 +559,13 @@ export function buildBuildingMeshes(
   const roofStyles: Record<string, number> = {}
   const scaleSamples: BuildingScale[] = []
   const featureCounts: Record<string, number> = {}
+  const featureSites: Record<string, { x: number; y: number; z: number }[]> = {}
+  /** Record WHERE one instance of a feature is. Capped — see featureSites. */
+  const SITES_PER_FEATURE = 12
+  const siteOf = (k: string, x: number, y: number, z: number): void => {
+    const a = featureSites[k] ?? (featureSites[k] = [])
+    if (a.length < SITES_PER_FEATURE) a.push({ x, y, z })
+  }
   const tally = (k: string) => { featureCounts[k] = (featureCounts[k] ?? 0) + 1 }
   /** Tally a gated feature BY DISTRICT as well as in total.
    *
@@ -2219,6 +2243,7 @@ export function buildBuildingMeshes(
     else if (!wantsButtress) tallyIn('buttress~lostTheDice', district)
     if (wantsButtress) {
       tallyIn('buttress', district)
+      siteOf('buttress', wx, wy + mainWallH * 0.5, wz)
       const bColor = shiftColor(palette.wall, -0.08, -0.07, -0.06)
       for (const s of buttressSides) {
         // 0.06 of headroom, because the sloped cap below reaches further out
@@ -2840,6 +2865,7 @@ export function buildBuildingMeshes(
       rand01(hash, 1801) < 0.55
     if (wantsRoofMoss) {
       tallyIn('roofMoss', district)
+      siteOf('roofMoss', wx, wy + mainWallH, wz)
       const patchCount = 2 + (hash % 3)               // 2..4
       // Shared gable math — keeps moss patch positions aligned with
       // bargeboards / attic windows / ridge cap on the same volume.
@@ -3087,6 +3113,7 @@ export function buildBuildingMeshes(
       // Sign at ground-floor top, ~2.3m above base — eye level for a
       // 1.6m-tall player so it reads as "shop sign" not "high banner".
       tallyIn('shopSign', district)
+      siteOf('shopSign', wx, wy + 2.3, wz)
       const signY = Math.min(2.3, FLOOR_HEIGHT * 1.05)
       const signW = 0.5 + rand01(hash, 813) * 0.25      // 0.5..0.75
       const signH = 0.32 + rand01(hash, 815) * 0.16     // 0.32..0.48
@@ -3225,6 +3252,7 @@ export function buildBuildingMeshes(
     // out of lean) but yaw applied so columns land on the rotated +Z face.
     if ((obj.definitionId === 'temple' || obj.definitionId === 'cathedral' || obj.definitionId === 'guild_hall') && fpT.w >= 4) {
       tallyIn('colonnade', district)
+      siteOf('colonnade', wx, wy + 2.0, wz)
       const colH = wallH * 0.85
       // Clamped to a portico's worth. Spacing off the real wall width means a
       // 15m temple facade would otherwise take twelve columns at 1.2m centres,
@@ -3386,6 +3414,7 @@ export function buildBuildingMeshes(
     flatTopBy,
     scaleSamples,
     featureCounts,
+    featureSites,
   }
   if (failed > 0) {
     console.error(`[BuildingFactory] ${failed} of ${attempted} buildings failed to emit (succeeded=${succeeded}). See getBuildingDiagnostics() for details.`)

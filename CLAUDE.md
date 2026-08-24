@@ -5974,11 +5974,25 @@ on a clergy house that has no buttress) and not evidence the geometry is
 missing. The shape itself is unchanged from what was authored and reviewed;
 only where it is ALLOWED has changed.
 
-**The gap it exposes is real: `features.mjs` COUNTS a feature and cannot POINT
-A CAMERA AT ONE.** That is the same hole `slivers.mjs` filled for batched
-geometry — a batch hides its authors, so make it name them. A census that
-emitted world positions for a named feature would have settled this in one
-shot, and every future rare-feature change has the same problem.
+**The gap it exposed was real and is now closed: `features.mjs` COUNTS a
+feature and could not POINT A CAMERA AT ONE.** That is the same hole
+`slivers.mjs` filled for batched geometry — a batch hides its authors, so make
+it name them. `featureSites` records the world position of up to a dozen
+instances of each named feature AT THE POINT IT IS EMITTED, which is the only
+place that knows, and `tools/featureshot.mjs` flies to one and photographs it.
+
+**And the first run of it settled the buttress in one frame**: a stone-coursed
+pier standing proud of the wall with a stepped weathered cap, casting its own
+shadow under the string course. That is the relief the feature was written to
+provide, and it reads.
+
+**WHY THIS IS NOT `asset.mjs`, and the distinction is the whole point.** That
+tool photographs a definitionId — a whole building TYPE — and every instance
+carries the type by construction. A GATED FEATURE is a property of an
+INSTANCE: most clergy houses have no buttress, so asking for a clergy house
+and hoping is precisely the sampling failure that produced an empty magenta
+frame and read like "your geometry does not exist". **When a thing is rarer
+than one in fifty, you cannot photograph it by photographing its host.**
 
 **The original diagnosis is kept below because the route to it is the value.**
 
