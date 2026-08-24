@@ -6047,6 +6047,28 @@ was the pair: a feature with a high count and no position at all. Hoisting the
 apex into a `let` above the callback fixed it, and nine features report sites
 now including the `spireCross` that motivated the tool.
 
+### AND `roofBlackPct` AT 60 IS SETTLED BY THE PHOTOGRAPH, NOT A SIXTH NUMBER
+
+This row was re-baselined 46 -> 60 on the district trade and flagged as the
+one to photograph before trusting either it or `hours duskRoof`, which moved
+the OTHER way over the same change (65 -> 45). The dusk skyline settles it:
+**orange sky with stars, silhouetted hills, and roofs reading as deep red
+terracotta with warm windows dominating.** The roofs are not black. The 60% is
+counting the SHADOWED faces, which is what this file's standing note says the
+row conflates — dark by design against too dark — and pillar 1 asks for
+exactly the silhouette the frame shows.
+
+Closed with no change. Same shape as the prop-tone finding: the fix was to
+look, and then to change nothing.
+
+### AND THE NEW INSTRUMENT VALIDATED THE NEW CONTENT ON ITS FIRST USE
+
+`featureshot roofMoss` frames a lichen patch on a terracotta slope — dark
+green, on the roof surface, with a second sliver near the ridge. Both of this
+session's content unlocks were confirmed by the tool built because the
+buttress could not be found: **a gated feature is a property of an INSTANCE,
+so photograph the feature and never its host.**
+
 ## A SPAWN YOU CANNOT LEAVE — the third variant, and each check missed it
 
 Three spawn defects now, and the shape is the same every time: **each new
