@@ -1080,6 +1080,11 @@ export function buildBuildingMeshes(
     // the reserved rectangle's axes — so rounding to the nearest quarter turn
     // is exact for the base and off by only the wobble (+-3 deg where a road
     // aligns the building, which is 55% of them).
+    // Kept for the FLANK FEATURES further down. A buttress is precisely the
+    // masonry that may stand proud of the footprint and no further, and this
+    // is the only place that knows how far that is on each side — full where
+    // the adjacent tiles are free, zero where a neighbour has reserved them.
+    let allowNX = 0, allowPX = 0
     {
       const q = ((Math.round(rotationY / (Math.PI / 2)) % 4) + 4) % 4
       // World sides, in the order local -X, +X, -Z, +Z after q quarter-turns.
@@ -1098,6 +1103,8 @@ export function buildBuildingMeshes(
         nz: worldFree[order[2]] ? A : 0,
         pz: worldFree[order[3]] ? A : 0,
       })
+      allowNX = worldFree[order[0]] ? A : 0
+      allowPX = worldFree[order[1]] ? A : 0
     }
     // And re-cap the roofs, because the clip may have narrowed a volume and a
     // roof sized for the original span is the floating-finial bug this repo
@@ -2150,8 +2157,30 @@ export function buildBuildingMeshes(
     // Safe by construction rather than by measurement: `sideRoom` is the gap
     // to the building's OWN footprint edge, so anything inside it cannot
     // reach a neighbour, which is the invariant audit.mjs enforces.
+    /**
+     * A BUTTRESS MAY STAND PROUD OF THE FOOTPRINT — that is what a buttress is.
+     *
+     * `sideRoom` is the gap to the building's OWN plot edge, and the census
+     * said it is under 1cm on 51 of the 52 buildings that reach this gate.
+     * Not tight — NONE. The clause that makes a building eligible is what
+     * removes the room: a buttress is for temple, noble, fortress, landmark or
+     * wealth > 0.72, and a wealthy building is scaled up until
+     * `clipToFootprint` clamps it flush at its own edge. Two rules that each
+     * sound sensible composing into a filter that admits nobody.
+     *
+     * So no threshold above zero could ever have helped, and lowering it
+     * 0.34 -> 0.22 moved the count by exactly zero, which is what said so.
+     *
+     * The right quantity is the one the per-side overhang clip already
+     * computes for every side: full MAX_OVERHANG where the adjacent tiles are
+     * free, ZERO where a neighbour has reserved them. That machinery took
+     * `deepClash` 124 -> 15, so projecting into it is safe by the same
+     * construction rather than by a new guard — and a pier that stops at the
+     * plot line is exactly the real-world rule.
+     */
+    const sideOut = (s: number): number => sideRoom(s) + (s < 0 ? allowNX : allowPX)
     const buttressSides: number[] = []
-    for (const s of [-1, 1]) if (sideRoom(s) >= 0.22) buttressSides.push(s)
+    for (const s of [-1, 1]) if (sideOut(s) >= 0.22) buttressSides.push(s)
     const wantsButtress = !mainVol.circular && buttressSides.length > 0 &&
       mainWallH > 5.2 && mainVol.depth >= 2.6 &&
       (district === 'temple' || district === 'noble' || district === 'fortress' ||
@@ -2181,7 +2210,7 @@ export function buildBuildingMeshes(
       // visible or the next person tunes it blind. Lowering the gate 0.34 ->
       // 0.22 moved the count by ZERO, which says the room is not merely tight,
       // and a count cannot tell "just under the line" from "there is none".
-      const room = Math.max(sideRoom(-1), sideRoom(1))
+      const room = Math.max(sideOut(-1), sideOut(1))
       tallyIn(room < 0.01 ? 'buttress~roomNone'
         : room < 0.10 ? 'buttress~roomUnder10'
         : room < 0.20 ? 'buttress~roomUnder20'
@@ -2194,7 +2223,7 @@ export function buildBuildingMeshes(
       for (const s of buttressSides) {
         // 0.06 of headroom, because the sloped cap below reaches further out
         // in X than the pier does once it is tilted.
-        const proj = Math.min(0.38, sideRoom(s) - 0.06)
+        const proj = Math.min(0.38, sideOut(s) - 0.06)
         // Two along the depth, set in from the corners so they read as
         // structure rather than as the wall being thicker.
         const count = mainVol.depth >= 5.5 ? 3 : 2

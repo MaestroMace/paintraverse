@@ -5945,7 +5945,44 @@ composing into a filter that admits nobody** — the washing-line lesson in a
 new pair, where a drop-from-eave rule plus a head-clearance rule selected only
 the tallest buildings in town.
 
-**The fix is not a number and is not attempted here.** `sideRoom` measures the
+### AND THE FIX WAS THE PER-SIDE ALLOWANCE, WHICH ALREADY EXISTED
+
+`sideRoom` is the gap to the building's own plot edge. A buttress is precisely
+the masonry that may stand PROUD of that edge and no further, and the quantity
+for "how far may this side project" was already computed twenty lines into
+`buildBuildingMeshes` — full `MAX_OVERHANG` where the adjacent tiles are free,
+ZERO where a neighbour has reserved them. It was consumed by
+`clipToFootprint` and thrown away; hoisting it into two locals is the whole
+change.
+
+    buttress built            1  ->  12   over three towns
+    buttress~noRoomBeside    52  ->  27   the rest have neighbours both sides
+    buttress~lostTheDice      0  ->  14   the dice is finally being ROLLED
+    deepClash                19  ->  19   UNCHANGED
+
+**The unchanged collision count is the proof, not the built count.** The
+allowance is zero on any side a neighbour reserved, so a buttress can only
+ever grow into free ground — safe by the same construction that took
+`deepClash` 124 -> 15, rather than by a new guard. audit, provenance
+outsideBox, facade and roofcheck are all byte-identical too.
+
+**NOT VISUALLY CONFIRMED, AND THAT IS WORTH SAYING.** Twelve buttresses in
+~840 structures is 1.4%, so a photograph of any given building has almost no
+chance of containing one, and the magenta probe this file recommends came back
+with no magenta in frame — which is a correct NEGATIVE CONTROL (the camera was
+on a clergy house that has no buttress) and not evidence the geometry is
+missing. The shape itself is unchanged from what was authored and reviewed;
+only where it is ALLOWED has changed.
+
+**The gap it exposes is real: `features.mjs` COUNTS a feature and cannot POINT
+A CAMERA AT ONE.** That is the same hole `slivers.mjs` filled for batched
+geometry — a batch hides its authors, so make it name them. A census that
+emitted world positions for a named feature would have settled this in one
+shot, and every future rare-feature change has the same problem.
+
+**The original diagnosis is kept below because the route to it is the value.**
+
+**The fix is not a number and was not attempted in that commit.** `sideRoom` measures the
 gap to the building's OWN footprint, and a buttress is precisely the masonry
 that may project to the plot line and no further — which is what the per-side
 overhang clip already computes for every side, zero where a neighbour has
