@@ -12,6 +12,7 @@ import type { ObjectDefinition, PlacedObject } from '../core/types'
 import { stableHash, footprintOf } from '../core/types'
 import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { lampAnchors } from './LanternStrings'
+import { takeBeacons } from './Beacons'
 import { TILE } from './scale'
 
 // Heights tuned for FLOOR_HEIGHT=1.8. A 2-story building = 3.6m eaves,
@@ -2000,6 +2001,9 @@ export function buildPropMeshes(
   // Merge all emissive lamp-bulb geometries into a single mesh sharing
   // _lampEmissiveMat — one draw call for every bulb in the town instead
   // of one per bulb. Receives/casts no shadows (emissive, thin, and tiny).
+  // Beacons emitted by the BUILDING pass this load — see Beacons.ts for why
+  // that array does not live in this file.
+  lampEmissiveGeos.push(...takeBeacons())
   if (lampEmissiveGeos.length > 0) {
     let mergedEm: THREE.BufferGeometry | null
     if (lampEmissiveGeos.length === 1) {

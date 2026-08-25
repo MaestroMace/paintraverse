@@ -6069,6 +6069,54 @@ session's content unlocks were confirmed by the tool built because the
 buttress could not be found: **a gated feature is a property of an INSTANCE,
 so photograph the feature and never its host.**
 
+## THE WEENIE WAS DARK — a lit top on the things you navigate by
+
+`vistas.mjs` reads 29% of long views terminating on a landmark, and every one
+of those landmarks was **dark above the window line** at dusk. `emitGlow`
+lives in PropFactory and had exactly one producer for most of this app's life;
+**the BUILDING path emitted no light at all**, so every tower, gate and spire
+in the town was unlit masonry at the hour DESIGN.md is written against. The
+Imagineering weenie is a visual magnet that pulls you down a street, and a
+magnet you cannot see from the far end of it is not one.
+
+**KEYED BY REASON, NOT BY HEIGHT.** "Tall things glow" is a fairground and it
+is the WALLPAPER failure this file keeps recording — a rate identical
+everywhere reads as healthy and tells the player nothing. A lighthouse is a
+lantern room, a clock face is lit so it can be read, a belfry is lit for the
+ringers, and a town gate is lit because that is where you are challenged. A
+generic tower has no such reason and stays dark. Same argument as
+`LANTERN_BY_TYPE`, one scale up. 8 a town on the graded seed.
+
+**AN IMPORT IS NOT A FREE ACTION — IT RE-ORDERS MODULE INITIALISATION.** The
+obvious home for the shared array was PropFactory, beside `emitGlow` and the
+emissive mesh it feeds, and putting it there broke the app on boot with
+`Cannot access 'LAMP_POOL_TEX' before initialization`. PropFactory and
+LanternStrings already import VALUES from each other — `lampAnchors` one way,
+`LAMP_POOL_TEX` the other — which is a runtime cycle that worked purely
+because of the order the entry point happened to pull them in. Adding
+`BuildingFactory -> PropFactory` changed which module initialises first and it
+came apart at once. **A pre-existing cycle that works by luck will break the
+day a new edge changes the entry order**, and the failure is a blank app
+rather than a compile error. `Beacons.ts` imports three and nothing else, so
+it cannot participate in a cycle — the `core/types.ts` argument, except here
+the neutrality is load-bearing rather than tidy.
+
+**AND THE FIRST CUT WAS BURIED IN ITS OWN GEOMETRY.** One bulb at 80% of
+`apexLocalY` — which for a tower with a spire is INSIDE the cone. Eight
+beacons emitted, merged, lit, and invisible, and the dusk skyline came back
+byte-identical, which is a red flag and not a null result. A belfry is an OPEN
+ARCADE at the top of the SHAFT, so it is four bulbs set proud of the wall at
+`towerTopY`, which cannot be occluded by the roof above them and read from any
+bearing. **The apex is the tip of the spire and is a different question from
+the top of the shaft**; the massing loop computes both now.
+
+**AND THE RECORDED SITE WAS THE ONE PLACE NO BULB IS.** `featureshot` framed
+the shaft centre from four metres and photographed the inside of a roof,
+because `siteOf` was handed `wx, wy + lampY, wz` while the bulbs are offset to
+the four faces. That is the merged-mesh centroid failure a third time, and the
+fix is the same: record a transformed bulb's OWN bounding box, because the
+geometry is the only thing that knows where it ended up.
+
 ## A SPAWN YOU CANNOT LEAVE — the third variant, and each check missed it
 
 Three spawn defects now, and the shape is the same every time: **each new

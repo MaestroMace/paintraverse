@@ -17,6 +17,7 @@ import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
 import { pickMassing, volumeFloors, traceStage, clipToFootprint, MAX_OVERHANG as MAX_OVERHANG_M } from './architecture/Massing'
+import { addBeacon } from './Beacons'
 import { facadeOpenings, quantizeWallM } from './FacadeTexture'
 import { gableMath, clampRoofHeight, clampRoofToWall } from './architecture/Roofs'
 import { emitVolume, localToWorld, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
@@ -1363,9 +1364,15 @@ export function buildBuildingMeshes(
     // off it without re-deriving its height (see BuildingTop).
     apexForSite = 0
     let apexLocalY = 0
+    // AND THE TOP OF THE TALLEST SHAFT, which is a different question from the
+    // apex and is the one a belfry light needs: the apex is the tip of the
+    // SPIRE, and a lamp placed there is inside a solid cone. See the beacon.
+    let towerTopY = 0, towerVol: (typeof massing.volumes)[number] | null = null
     for (const v of massing.volumes) {
       const t = v.bottomY + v.height + v.roofHeight
       if (t > apexLocalY) apexLocalY = t
+      const wallTop = v.bottomY + v.height
+      if (wallTop > towerTopY) { towerTopY = wallTop; towerVol = v }
     }
     // And the WHOLE structure's horizontal extent, over every volume. The main
     // body is the right anchor for a chimney and the wrong one for a camera:
@@ -2171,6 +2178,80 @@ export function buildBuildingMeshes(
           leanX, leanZ, rotationY, wx, wy, wz)
         ornamentBatch.addPositioned(oWin, 0x3c4450)
       }
+    }
+
+    /**
+     * === THE BEACON — a lit top on the things you navigate by ===
+     *
+     * The Imagineering WEENIE is a visual magnet that terminates a vista and
+     * pulls you toward it, and `vistas.mjs` says 29% of long views end on a
+     * landmark — but every one of those landmarks is DARK ABOVE THE WINDOW
+     * LINE at dusk, which is the hour DESIGN.md is written against. A magnet
+     * you cannot see from the far end of the street is not a magnet.
+     *
+     * KEYED BY REASON, NOT BY HEIGHT. "Tall things glow" is a fairground, and
+     * it is the WALLPAPER failure this repo keeps catching — a rate identical
+     * everywhere reads as healthy and tells the player nothing. Each of these
+     * carries a light because of what it IS: a lighthouse is a lantern room, a
+     * clock face is lit so it can be read, a belfry is lit for the ringers,
+     * and a town gate is lit because that is where you are challenged. A
+     * generic tower has no such reason and stays dark.
+     *
+     * Same argument as `LANTERN_BY_TYPE`, one scale up.
+     */
+    const BEACON_BY_TYPE: Record<string, number> = {
+      lighthouse: 1.30, clock_tower: 0.95, bell_tower_tall: 0.85,
+      bell_tower: 0.85, town_gate: 0.70, gatehouse: 0.70,
+    }
+    const beaconSize = BEACON_BY_TYPE[obj.definitionId]
+    if (beaconSize !== undefined && towerVol && towerTopY > 3) {
+      /**
+       * ON THE OUTSIDE OF THE SHAFT, NOT INSIDE THE SPIRE.
+       *
+       * The first cut put one bulb at 80% of `apexLocalY` and the dusk
+       * skyline came back byte-identical: for a tower with a spire, 80% of
+       * the apex is INSIDE the cone, so eight beacons were emitted, merged,
+       * lit — and buried in solid geometry. Content with no way out, which
+       * photographs exactly like content that was never built.
+       *
+       * A belfry is an OPEN ARCADE at the top of the shaft, so the light
+       * comes out of all four faces. Four small bulbs set just proud of the
+       * wall at the shaft's top do that, cannot be occluded by the roof
+       * above them, and read from any bearing — which is the whole point of
+       * a weenie you are supposed to navigate by.
+       */
+      let beaconLogged = false
+      const lampY = towerTopY - Math.max(0.8, beaconSize)
+      const hw = towerVol.width / 2 + beaconSize * 0.35
+      const hd = towerVol.depth / 2 + beaconSize * 0.35
+      for (const [ox, oz] of [[hw, 0], [-hw, 0], [0, hd], [0, -hd]] as const) {
+        const bulb = new THREE.BoxGeometry(
+          beaconSize * (ox === 0 ? 1 : 0.5),
+          beaconSize * 0.9,
+          beaconSize * (oz === 0 ? 1 : 0.5),
+        )
+        const lx = (towerVol.offsetX ?? 0) + ox
+        const lz = (towerVol.offsetZ ?? 0) + oz
+        localToWorld(bulb, lx, lampY, lz, leanX, leanZ, rotationY, wx, wy, wz)
+        addBeacon(bulb)
+        // RECORD WHERE A BULB IS, NOT WHERE THE BUILDING IS. The first cut
+        // recorded the shaft centre at the lamp height, and `featureshot`
+        // dutifully framed it — from four metres, looking at the inside of a
+        // roof. The bulbs are offset to the four faces, so the centre is the
+        // one place none of them is. Same failure as framing a merged mesh by
+        // its bounding box: the aim point must be on a real instance, and the
+        // transformed geometry is the only thing that knows where that is.
+        if (!beaconLogged) {
+          bulb.computeBoundingBox()
+          const c = bulb.boundingBox
+          if (c) {
+            siteOf('beacon', (c.min.x + c.max.x) / 2,
+              (c.min.y + c.max.y) / 2, (c.min.z + c.max.z) / 2)
+            beaconLogged = true
+          }
+        }
+      }
+      tallyIn('beacon', district)
     }
 
     // --- FLANK BUTTRESSES → batched ---
