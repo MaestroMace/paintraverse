@@ -687,7 +687,32 @@ for (const seed of seeds) {
   })()
   {
     const movers = sway.filter((r) => r[0] !== 'windowSpill' && r[1] !== null && !r[2])
-    const moving = movers.filter((r) => r[4]).length
+    /**
+     * GATED ON AN ABSOLUTE FLOOR, NOT ON THE PER-MESH BAR — because the bar is
+     * not repeatable and this is a GATE.
+     *
+     * `--repeat=3` on identical seeds read noSway 0, 0, 1. The per-mesh bar is
+     * `floor * 4`, and that floor comes from two frames 200ms apart: under
+     * SwiftShader at 3-5 FPS the pair sometimes straddles a frame boundary,
+     * the floor spikes, and a working mechanism fails its own bar. A gate that
+     * cries wolf one run in three is a gate people learn to ignore, which is
+     * worse than not having one.
+     *
+     * The failure it exists to catch is GLOBAL and was not marginal: when
+     * `patchHeightFog`'s constant cache key threw the sway shader away, every
+     * mesh read EXACTLY 0.00000, and it stayed exactly zero when the amplitude
+     * was cranked to two and a half metres. `windowSpill` is the standing
+     * proof that a static mesh in an isolated frame reads exact zero, so any
+     * clearly-nonzero reading IS the mechanism running. 1e-4 is two orders
+     * below the 0.001-0.008 these meshes actually produce and two orders above
+     * the zero a dead shader gives — there is nothing near it to argue about.
+     *
+     * The per-mesh bar is still PRINTED, because it says whether an individual
+     * mesh is moving enough to see, which is a different and useful question
+     * from whether the shader is reaching it.
+     */
+    const SWAY_ALIVE = 1e-4
+    const moving = movers.filter((r) => r[1] > SWAY_ALIVE).length
     console.log('  hanging:   ' + sway.map(([n, d, why, bar]) =>
       `${n} ${why ? why : `${d}/${bar}`}`).join('  ·  '))
     // AN UNGRADED MESH IS NOT A CLEAN ONE. Each subject now gets a camera
@@ -799,8 +824,9 @@ for (const seed of seeds) {
       // threshold to tune rather than a defect to catch. Every figure is
       // printed; the gate is on the mechanism.
       swayFails++
-      console.log('             ^ NOTHING HANGING MOVES. The sway shader is not')
-      console.log('               reaching the meshes — check patchHeightFog\'s cache key.')
+      console.log('             ^ NOTHING HANGING MOVES. Every hanging mesh read under')
+      console.log(`               ${SWAY_ALIVE} — the sway shader is not reaching them at`)
+      console.log('               all; check patchHeightFog\'s cache key.')
     }
   }
 

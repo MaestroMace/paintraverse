@@ -6117,6 +6117,33 @@ the four faces. That is the merged-mesh centroid failure a third time, and the
 fix is the same: record a transformed bulb's OWN bounding box, because the
 geometry is the only thing that knows where it ended up.
 
+### AND THE SWAY GATE WAS FLAKY, WHICH IS WORSE THAN ABSENT
+
+The beacon commit's board came back with `noSway=1` and 0 regressions, so the
+obvious read was that the new emissive geometry had broken something. It had
+not. `--repeat=3` on identical seeds read **0, 0, 1 — spread 1**, and this row
+is a GATE.
+
+The bar was `floor * 4`, where that floor is two frames 200ms apart in an
+isolated scene. Under SwiftShader at 3-5 FPS the pair sometimes straddles a
+frame boundary, the floor spikes, and a working mechanism fails its own bar.
+**A gate that cries wolf one run in three is one people learn to ignore**,
+which is worse than not having it — and it would have cost the next session an
+hour chasing a change that was innocent.
+
+The failure it exists to catch was never marginal. When `patchHeightFog`'s
+constant cache key threw the sway shader away, every mesh read EXACTLY
+0.00000, and it stayed exactly zero with the amplitude cranked to two and a
+half metres. `windowSpill` is the standing proof that a static mesh in an
+isolated frame reads exact zero, so the honest gate is an ABSOLUTE floor:
+1e-4, two orders below the 0.001-0.008 these meshes produce and two orders
+above the zero a dead shader gives. Nothing near it to argue about, and
+`--repeat=3` now reads **0, 0, 0**.
+
+The per-mesh bar is still printed, because "is this mesh moving enough to SEE"
+is a real and different question from "is the shader reaching it" — the same
+split the window spill needed between measurable and visible.
+
 ## A SPAWN YOU CANNOT LEAVE — the third variant, and each check missed it
 
 Three spawn defects now, and the shape is the same every time: **each new
