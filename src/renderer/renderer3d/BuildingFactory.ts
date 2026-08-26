@@ -2206,47 +2206,127 @@ export function buildBuildingMeshes(
     const beaconSize = BEACON_BY_TYPE[obj.definitionId]
     if (beaconSize !== undefined && towerVol && towerTopY > 3) {
       /**
-       * ON THE OUTSIDE OF THE SHAFT, NOT INSIDE THE SPIRE.
+       * A LANTERN CROWN, NOT A LAMP STUCK ON A BOX.
        *
-       * The first cut put one bulb at 80% of `apexLocalY` and the dusk
-       * skyline came back byte-identical: for a tower with a spire, 80% of
-       * the apex is INSIDE the cone, so eight beacons were emitted, merged,
-       * lit — and buried in solid geometry. Content with no way out, which
-       * photographs exactly like content that was never built.
+       * The first cut put a glowing cube on each face of the shaft and it was
+       * correctly called out: a light pasted onto a rectangular prism is a
+       * lamp, and a weenie is an ATTRACTION. What makes one work is not
+       * brightness, it is SILHOUETTE — Cinderella Castle and a Gion belfry are
+       * both recognisable as a black shape against a sky, before any light is
+       * involved. A cube on a wall does not change the tower's outline at all,
+       * so from the far end of a street there is nothing new to see.
        *
-       * A belfry is an OPEN ARCADE at the top of the shaft, so the light
-       * comes out of all four faces. Four small bulbs set just proud of the
-       * wall at the shaft's top do that, cannot be occluded by the roof
-       * above them, and read from any bearing — which is the whole point of
-       * a weenie you are supposed to navigate by.
+       * What a belfry actually IS, and every part here earns its place:
+       *
+       *   GALLERY    a corbelled ring projecting past the shaft, which breaks
+       *              the vertical line — this is the part that changes the
+       *              silhouette and it is why the shape reads at 100ft.
+       *   PIERS      four corner posts with OPEN AIR between them. The arcade
+       *              is the point: masonry framing a void.
+       *   CORE       the glow, INSIDE, seen between the piers. Contained light
+       *              reads as a lantern room; the same light unhoused reads as
+       *              a bright rectangle, which is what it was.
+       *   CAP        a small pyramid closing the top, so the crown is a
+       *              finished object rather than an open box against the sky —
+       *              the open-topped-volume defect this repo already fixed 22
+       *              of.
+       *
+       * All masonry, all untextured, no new drawing code — the same argument
+       * that gave the curtain wall its plinth and string course. Relief is
+       * what makes a big plain surface read, and it casts its own shadow.
        */
+      const shaftW = towerVol.width, shaftD = towerVol.depth
+      const ox0 = towerVol.offsetX ?? 0, oz0 = towerVol.offsetZ ?? 0
+      const stone = shiftColor(palette.wall, -0.05, -0.04, -0.03)
+      const push = (g: THREE.BufferGeometry, lx: number, ly: number,
+        lz: number, col: number): void => {
+        localToWorld(g, lx, ly, lz, leanX, leanZ, rotationY, wx, wy, wz)
+        ornamentBatch.addPositioned(g, col)
+      }
+      /**
+       * A LIT GALLERY — and the shape has to do the work, not the light.
+       *
+       * Two cuts before this one failed for the same reason in opposite ways.
+       * The first stuck a glowing cube on the shaft face: a lamp on a
+       * rectangular prism, which does not change the tower's OUTLINE, so from
+       * the far end of a street there is nothing new to see. The second built
+       * an arcade of piers with the glow inside — and a belfry's arcade is a
+       * VOID, while this shaft is a solid massing volume, so the piers sat on
+       * a wall that was still there and the light was buried in masonry.
+       * Photographed, the tower looked untouched both times.
+       *
+       * What works against a solid shaft is a BALCONY. Every part earns its
+       * place and two of them are silhouette rather than light:
+       *
+       *   GALLERY     projects 0.55m on a 0.30m slab — far enough to cast a
+       *               shadow across the shaft and to break the vertical line.
+       *               This is the part you recognise at 100ft.
+       *   BALUSTRADE  posts around the gallery edge with gaps between them,
+       *               which is an OPEN parapet read against the sky. A solid
+       *               ring would just be a thicker tower.
+       *   LAMPS       standing ON the gallery, outside the wall, so they are
+       *               visible from any bearing — and now FRAMED by the posts
+       *               and the slab instead of pasted on a flat face.
+       *   CORBELS     under the slab, because a balcony that projects 0.55m
+       *               with nothing holding it up reads as a floating shelf.
+       *
+       * All masonry, all untextured, one extra emissive volume per face. Same
+       * argument that gave the curtain wall its plinth: relief is what makes a
+       * big plain surface read, because it casts its own shadow.
+       */
+      const galY = towerTopY - Math.max(1.5, beaconSize * 1.9)
+      // BIG ENOUGH TO BE A SILHOUETTE. The first gallery projected 0.5m on a
+      // 4m shaft — 12%, which photographed as a dark line and nothing more.
+      // A belfry gallery on a tower this size projects a metre or more, and
+      // the whole argument for building one is that you recognise it from
+      // the far end of a street.
+      const galOut = Math.max(0.95, beaconSize * 1.05)
+      const galT = 0.38
+      push(new THREE.BoxGeometry(shaftW + galOut * 2, galT, shaftD + galOut * 2),
+        ox0, galY + galT / 2, oz0, stone)
+      // CORBELS — under the slab, one per face plus the corners.
+      const corbT = 0.22
+      for (const [cx, cz] of [
+        [shaftW / 2 + galOut * 0.5, 0], [-(shaftW / 2 + galOut * 0.5), 0],
+        [0, shaftD / 2 + galOut * 0.5], [0, -(shaftD / 2 + galOut * 0.5)],
+      ] as const) {
+        push(new THREE.BoxGeometry(cx === 0 ? corbT * 3 : galOut, 0.34,
+          cz === 0 ? corbT * 3 : galOut),
+        ox0 + cx, galY - 0.17, oz0 + cz, stone)
+      }
+      // BALUSTRADE — posts with GAPS, so the parapet reads as open sky.
+      const postH = Math.max(0.78, beaconSize * 0.85), postT = 0.24
+      const bx = shaftW / 2 + galOut - postT / 2, bz = shaftD / 2 + galOut - postT / 2
+      for (let i = -2; i <= 2; i++) {
+        const fx = (i / 2) * bx, fz = (i / 2) * bz
+        for (const s2 of [-1, 1]) {
+          push(new THREE.BoxGeometry(postT, postH, postT),
+            ox0 + fx, galY + galT + postH / 2, oz0 + s2 * bz, stone)
+          push(new THREE.BoxGeometry(postT, postH, postT),
+            ox0 + s2 * bx, galY + galT + postH / 2, oz0 + fz, stone)
+        }
+      }
+      // LAMPS — on the gallery, clear of the shaft wall, one per face.
       let beaconLogged = false
-      const lampY = towerTopY - Math.max(0.8, beaconSize)
-      const hw = towerVol.width / 2 + beaconSize * 0.35
-      const hd = towerVol.depth / 2 + beaconSize * 0.35
-      for (const [ox, oz] of [[hw, 0], [-hw, 0], [0, hd], [0, -hd]] as const) {
-        const bulb = new THREE.BoxGeometry(
-          beaconSize * (ox === 0 ? 1 : 0.5),
-          beaconSize * 0.9,
-          beaconSize * (oz === 0 ? 1 : 0.5),
-        )
-        const lx = (towerVol.offsetX ?? 0) + ox
-        const lz = (towerVol.offsetZ ?? 0) + oz
-        localToWorld(bulb, lx, lampY, lz, leanX, leanZ, rotationY, wx, wy, wz)
-        addBeacon(bulb)
-        // RECORD WHERE A BULB IS, NOT WHERE THE BUILDING IS. The first cut
-        // recorded the shaft centre at the lamp height, and `featureshot`
-        // dutifully framed it — from four metres, looking at the inside of a
-        // roof. The bulbs are offset to the four faces, so the centre is the
-        // one place none of them is. Same failure as framing a merged mesh by
-        // its bounding box: the aim point must be on a real instance, and the
-        // transformed geometry is the only thing that knows where that is.
+      const lampH = Math.max(0.72, beaconSize * 0.85)
+      const lampY = galY + galT + lampH / 2
+      const lx0 = shaftW / 2 + galOut * 0.52, lz0 = shaftD / 2 + galOut * 0.52
+      for (const [mx, mz] of [[lx0, 0], [-lx0, 0], [0, lz0], [0, -lz0]] as const) {
+        const lamp = new THREE.BoxGeometry(
+          mx === 0 ? lampH * 1.15 : lampH * 0.6, lampH,
+          mz === 0 ? lampH * 1.15 : lampH * 0.6)
+        localToWorld(lamp, ox0 + mx, lampY, oz0 + mz,
+          leanX, leanZ, rotationY, wx, wy, wz)
+        addBeacon(lamp)
         if (!beaconLogged) {
-          bulb.computeBoundingBox()
-          const c = bulb.boundingBox
-          if (c) {
-            siteOf('beacon', (c.min.x + c.max.x) / 2,
-              (c.min.y + c.max.y) / 2, (c.min.z + c.max.z) / 2)
+          lamp.computeBoundingBox()
+          const cb = lamp.boundingBox
+          if (cb) {
+            // A lamp's own transformed box — on the OUTSIDE of the gallery, so
+            // a camera can actually reach it. Aiming at the shaft centre had
+            // featureshot photographing the inside of a roof.
+            siteOf('beacon', (cb.min.x + cb.max.x) / 2,
+              (cb.min.y + cb.max.y) / 2, (cb.min.z + cb.max.z) / 2)
             beaconLogged = true
           }
         }

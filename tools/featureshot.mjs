@@ -94,9 +94,18 @@ for (const p of spots.slice(0, n)) {
     min: [p.x - half, p.y - half, p.z - half],
     max: [p.x + half, p.y + half, p.z + half],
   }
+  // YOU LOOK UP AT A BELFRY. `heights` are relative to the SUBJECT, and the
+  // first cut offered only [1.6, 3, 6] — all above it — so every candidate for
+  // a lantern crown eighteen metres up was a camera hovering over the cap,
+  // looking down through it, and the tool reported "no clear view" on all
+  // eight. That is the vantage lesson this repo has now paid for three times
+  // (anomaly.mjs looks up, walkshots carries `gable-up`, hours pitches up 9
+  // degrees): a camera pointed where the defect is not will report there is
+  // none. Level first, then progressively BELOW, which is where a person
+  // stands relative to anything on a tower.
   const v = await lookAt(win, box, {
-    dists: [4, 6, 9, 13, 18],
-    heights: [1.6, 3, 6],
+    dists: [5, 8, 12, 18, 26],
+    heights: [0, -4, -9, -15, 2],
     order: 'height',
     pick: 'largest',
     minFill: 0.05,
