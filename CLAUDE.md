@@ -1736,6 +1736,112 @@ provenance, clash, facade, roofcheck, eyeball, hours, holes and variety all
 unmoved. That is what a correct ornament-only change looks like: it claims no
 tile, moves no building, and every number stays where it was.
 
+## THE ROSE WINDOW DIED ON ARITHMETIC BEFORE A LINE WAS WRITTEN
+
+`odd.mjs` has had the cathedral on the record for a long time — 0.26x the
+detail density of an ordinary building, a plain grey box forty metres tall —
+and the obvious magical answer is a great rose window on the west front. It
+does not fit, and thirty seconds of arithmetic said so before any geometry
+existed, which is the cheap half of this repo's method.
+
+`facadeOpenings` lays storeys from the GROUND UP at their true height, so on a
+twelve-metre nave wall the top row's head sits at about eleven metres and the
+clear band above it is under a metre. There is nowhere on that wall to put a
+three-metre disc that is not ON TOP of painted windows — **which is the
+two-authors-of-one-wall defect the facade arc spent itself removing, in a new
+hat.** A disc is not a stud, but a stone rim across four windows is the same
+failure and `facade.mjs` would have been right to fail it.
+
+**So the light goes THROUGH the openings rather than over them.** That is
+exact by construction — the pane IS the cell — and it needs no threshold, no
+clearance test and nothing to tune, which is the same reason the timber studs
+were rewritten to take the wall minus its openings. It is also the truer
+picture: a cathedral at dusk is a dark mass with coloured light coming out of
+it, not a wall with a badge on it.
+
+**ALL FOUR WALLS, because the anchors finally exist.** Every piece of dressing
+in BuildingFactory went on the front for years, for the reason written forty
+lines above `frontWallZ`: there was no anchor for the other three. `backWallZ`
+and `sideWallX(s)` are there now, and glass is the feature where the flanks
+matter most — the nave clerestory is where a cathedral's glass actually is,
+and `allsides` grades flank against front as a tracked metric. The face table
+mirrors VolumeRenderer's own exactly: same union, same `acrossZ` span, same
+quantised arguments, because two authors of one wall is the whole class of bug
+this avoids.
+
+**COLOURED LIGHT NEEDED A SECOND MATERIAL, NOT A VERTEX COLOUR.**
+`_lampEmissiveMat` is one Lambert with a fixed amber emissive and no
+`vertexColors`, and everything in the town's single emissive mesh merges into
+it. Tinting per vertex means giving EVERY existing beacon a colour attribute,
+because `mergeGeometries` refuses a set whose attributes disagree — the same
+partial-attribute failure `mergeBufferGeos` already had with UVs, and it would
+have touched every lamp, bulb and dial in the file. Bucketing by tint in
+`Beacons.ts` costs one extra draw per distinct colour town-wide and leaves the
+untinted path byte-identical.
+
+**AND ONE DOMINANT HUE PER BUILDING, NOT A TINT PER PANE.** Rolling a colour
+for every opening independently gives a chequerboard of red, blue, gold, green
+and purple windows, which reads as a circus and not as glass. Real glazing
+reads as one hue at a distance with jewels in it — and the differentiation
+wanted here is BETWEEN buildings, so it belongs on the building's own hash,
+the same argument that keeps `THATCH_ODDS` off 1.0.
+
+**THE FIRST CUT WAS POSTER PAINT, AND THE COMMENT WARNING AGAINST IT WAS
+ALREADY THERE.** The material copied `_lampEmissiveMat` exactly — the tint as
+BOTH `color` and `emissive` at 0.8 — so the hue is counted twice and the
+diffuse term keeps it fully saturated in every light. Photographed, flat
+magenta and flat emerald slabs on a wall: the "bare glowing rectangle" failure
+this file records for the first beacon, built anyway underneath a comment
+saying not to. **Glass lit from behind is GLOW-DOMINANT** — the surface is
+nearly black and what you see is what comes through it — so the base is
+0x120c10, the tints dropped about two stops, and the colour rides in the
+emissive.
+
+**AND WHAT TURNED A COLOURED RECTANGLE INTO A WINDOW WAS TRACERY, NOT TONE.**
+The pane sits at 78% of its aperture, and the first cut relied on the PAINTED
+reveal showing around it — which it does not, at any distance a person looks
+from. A stone surround, a mullion and a transom are five small boxes that cast
+their own shadow, and they are the difference between a slab and a window in
+one build. Same argument as the curtain wall's plinth: relief is what makes a
+big plain surface read. The mullion is gated on the pane being over 0.62m
+wide, because two lights 8cm apart is a smear at `RENDER_SCALE = 0.4`.
+
+**AND THE INTENSITY HAD TO BE SET AT STREET DISTANCE, WHICH IS THE WHOLE
+ARGUMENT FOR THE WIDE PASS.** At 0.55 the close-up was the best frame of the
+session — deep ruby divided into four lights — and the same panes were nearly
+BLACK from twenty metres, beside ordinary amber windows blazing on the same
+wall. Two honest photographs of one build, disagreeing, and only the second
+one is the question the feature exists to answer.
+
+**AND A WRONG HYPOTHESIS WAS KILLED BY A BYTE-IDENTICAL FRAME.** The panes
+appeared to float with trees behind them, and the obvious cause was `cy =
+c.vCenter * mainVol.height` ignoring `bottomY` — copied from the shutter block,
+which is correct only because a shutter's population always starts at zero.
+Adding `bottomY` changed the frame by NOTHING, which is this file's own red
+flag rather than a null result: `bottomY` is zero here too. The fix is kept
+because it is right in general and free; the floating is the camera standing
+inside the colonnade at five metres, and the wide pass shows the panes on a
+wall.
+
+**AND `featureshot --wide` DERIVES ITS CAMERA HEIGHT FROM THE GROUND NOW,
+BECAUSE A FIXED TABLE CANNOT SERVE A BELFRY AND A CHAPEL WINDOW.** `lookAt`'s
+heights are relative to the SUBJECT, so the -12 to -22 that puts a camera in
+the street under an eighteen-metre bell puts it twelve metres UNDERGROUND for
+a window five metres up — and that frame came back inverted, the whole town
+seen from below through the terrain. The offset meaning "stand in the street"
+is the subject's own height above the ground under it, which the bridge knows
+exactly. Third instance in this file of a hand-written vantage table being
+wrong for a population it was not written for.
+
+**HONEST VERDICT: THIS IS A DETAIL, NOT A WEENIE.** It fires on 100% of its
+eligible population (3 cathedrals over 3 seeds, and `typemix` says those seeds
+grow no temple or chapel at all), it is exact, it costs nothing measurable —
+and at street distance it is a coloured window on a wall rather than the thing
+that pulls you down the road. The hero element it was meant to be is the rose,
+and the arithmetic above says where it cannot go. **Do not re-attempt the rose
+on the nave wall.** If it is wanted, it needs the GABLE above the eaves, which
+is roof geometry and a different piece of work.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)

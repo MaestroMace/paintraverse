@@ -12,7 +12,7 @@ import type { ObjectDefinition, PlacedObject } from '../core/types'
 import { stableHash, footprintOf } from '../core/types'
 import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { lampAnchors } from './LanternStrings'
-import { takeBeacons } from './Beacons'
+import { takeBeacons, takeTintedBeacons } from './Beacons'
 import { TILE } from './scale'
 
 // Heights tuned for FLOOR_HEIGHT=1.8. A 2-story building = 3.6m eaves,
@@ -103,6 +103,9 @@ const _lampPoleMat = new THREE.MeshLambertMaterial({ color: 0x4a4642, flatShadin
 const _lampEmissiveMat = new THREE.MeshLambertMaterial({
   color: 0xffcc44, emissive: 0xffaa22, emissiveIntensity: 0.8,
 })
+// One per distinct stained-glass colour, cached across rebuilds so a reload
+// does not leak a material per generate.
+const _tintedEmissiveMats = new Map<number, THREE.MeshLambertMaterial>()
 // Disc geometry — radius 1.6 world units, lying in the XZ plane (rotateX
 // by -90° at instantiation). The radial alpha map makes the edges fade;
 // center is brightest right under the lamp.
@@ -2076,6 +2079,45 @@ export function buildPropMeshes(
       bulbs.receiveShadow = false
       batched.push(bulbs)
     }
+  }
+
+  // STAINED GLASS — one mesh per distinct tint, on the same terms as the
+  // amber one above. See Beacons.ts for why this is a bucket rather than a
+  // vertex colour: the merge refuses a set whose attributes disagree, so a
+  // per-vertex tint would have meant touching every bulb in the town.
+  for (const [tint, geos] of takeTintedBeacons()) {
+    if (!geos.length) continue
+    const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos, false)
+    if (geos.length > 1) for (const g of geos) g.dispose()
+    if (!merged) continue
+    merged.computeVertexNormals()
+    let mat = _tintedEmissiveMats.get(tint)
+    if (!mat) {
+      // GLOW-DOMINANT, NOT A COLOURED SURFACE. The first cut copied
+      // `_lampEmissiveMat` exactly — tint as BOTH colour and emissive at 0.8
+      // — and a pane came out as flat poster paint, because the hue is then
+      // counted twice and the diffuse term keeps it fully saturated in every
+      // light. Glass lit from behind is nearly black as a surface: what you
+      // see is what comes through it. Dark base, tint in the emissive.
+      //
+      // AND THE INTENSITY IS SET AT STREET DISTANCE, NOT IN THE CLOSE-UP.
+      // At 0.55 the tight shot read as beautiful deep glass and the same
+      // panes were nearly black from twenty metres, beside ordinary amber
+      // windows blazing on the same wall — the close-up and the street view
+      // disagreeing, which is exactly why `featureshot --wide` exists. The
+      // tints are dark enough that the glow can carry them without the flat
+      // saturation the first cut had.
+      mat = new THREE.MeshLambertMaterial({
+        color: 0x120c10, emissive: tint, emissiveIntensity: 1.15,
+      })
+      _tintedEmissiveMats.set(tint, mat)
+    }
+    const pane = new THREE.Mesh(merged, mat)
+    pane.matrixAutoUpdate = false
+    pane.updateMatrix()
+    pane.castShadow = false
+    pane.receiveShadow = false
+    batched.push(pane)
   }
 
   // All ground light pools as a single mesh sharing _lampPoolMat, so

@@ -23,12 +23,43 @@
 import * as THREE from 'three'
 
 const beaconGeos: THREE.BufferGeometry[] = []
+/**
+ * COLOURED LIGHT NEEDS A SECOND MATERIAL, and that is the whole reason this
+ * map exists rather than a `color` attribute.
+ *
+ * `_lampEmissiveMat` is one Lambert with a fixed amber emissive and no
+ * `vertexColors`, and everything in the town's single emissive mesh is merged
+ * into it. Tinting per vertex would mean giving EVERY existing beacon a colour
+ * attribute, because `mergeGeometries` refuses a set whose attributes disagree
+ * — which is the same partial-attribute failure `mergeBufferGeos` already had
+ * with UVs, and it would touch every lamp, bulb and dial in the file.
+ *
+ * Bucketing by tint instead costs one extra draw call per DISTINCT colour
+ * town-wide (stained glass uses three), needs no change to anything already
+ * emitting, and keeps the untinted path byte-identical.
+ */
+const tintedGeos = new Map<number, THREE.BufferGeometry[]>()
 
-/** Called by the building pass, which runs FIRST in loadMap. */
-export function addBeacon(g: THREE.BufferGeometry): void { beaconGeos.push(g) }
+/**
+ * Called by the building pass, which runs FIRST in loadMap.
+ *
+ * `tint` is an emissive colour for glass that is not lamp-amber. Omit it and
+ * the geometry joins the shared amber mesh exactly as before.
+ */
+export function addBeacon(g: THREE.BufferGeometry, tint?: number): void {
+  if (tint === undefined) { beaconGeos.push(g); return }
+  const a = tintedGeos.get(tint)
+  if (a) a.push(g)
+  else tintedGeos.set(tint, [g])
+}
 
 /** Called by the prop pass, which owns the one emissive mesh in the town. */
 export function takeBeacons(): THREE.BufferGeometry[] { return beaconGeos }
+
+/** The tinted buckets, as [colour, geometries] — one mesh each. */
+export function takeTintedBeacons(): [number, THREE.BufferGeometry[]][] {
+  return [...tintedGeos]
+}
 
 /**
  * Cleared at the top of loadMap, for the reason `resetLampAnchors` is: a stale
@@ -36,4 +67,7 @@ export function takeBeacons(): THREE.BufferGeometry[] { return beaconGeos }
  * props 71 metres long because a build envelope was never cleared, and
  * leftover state walks straight past a guard written for absent state.
  */
-export function resetBeacons(): void { beaconGeos.length = 0 }
+export function resetBeacons(): void {
+  beaconGeos.length = 0
+  tintedGeos.clear()
+}

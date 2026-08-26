@@ -139,13 +139,23 @@ for (const p of spots.slice(0, n)) {
   // degrees): a camera pointed where the defect is not will report there is
   // none. Level first, then progressively BELOW, which is where a person
   // stands relative to anything on a tower.
+  // A STREET IS BELOW A BELFRY AND LEVEL WITH A CHAPEL WINDOW, AND A FIXED
+  // TABLE CANNOT BE BOTH. `lookAt`'s heights are relative to the SUBJECT, so
+  // the first cut offered -12 to -22 — right for a bell eighteen metres up,
+  // and twelve metres UNDERGROUND for a window five metres up. That frame came
+  // back inverted, with the whole town seen from below through the terrain.
+  //
+  // The offset that means "stand in the street" is not a constant, it is the
+  // subject's own height above the GROUND under it, which the bridge knows
+  // exactly. Derived, so a quay, a belfry and a doorstep all get a person's
+  // eye level rather than three hand-written guesses.
+  const groundY = await win.evaluate(([x, z]) => window.__pt.heightAt(x / 3, z / 3),
+    [p.x, p.z])
+  const drop = Math.max(0, p.y - ((typeof groundY === 'number' ? groundY : 0) + 1.6))
   const v = await lookAt(win, box, wide
     ? {
       dists: [20, 28, 36, 46],
-      // A STREET IS BELOW A BELFRY. The heights are relative to the subject,
-      // so a feature eighteen metres up needs the camera far under it — the
-      // same vantage argument as the tight pass, further out.
-      heights: [-12, -17, -22, -8],
+      heights: [-drop, -drop * 0.62, -drop * 0.3, 0],
       order: 'height',
       pick: 'first',
       minFill: 0.001,

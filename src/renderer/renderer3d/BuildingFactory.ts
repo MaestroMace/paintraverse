@@ -129,6 +129,36 @@ const SHUTTER_COLORS = [
   0x4a5d6b, 0x5b6e4a, 0x7a4a42, 0x46566b, 0x6b5a3a, 0x3f5a52,
 ]
 /**
+ * STAINED GLASS — the sacred types, and only them.
+ *
+ * A cathedral is the one building in the town whose whole point at dusk is
+ * that it glows a different colour from everything around it, and `odd.mjs`
+ * has had this one on the record for a long time: 0.26x the detail density of
+ * an ordinary building, a plain grey box forty metres tall. The painted
+ * openings on it already light, in the same amber as every cottage — so the
+ * building with the most window area in town is also the one saying the least
+ * with it.
+ *
+ * Keyed by type rather than by district, for the reason `THATCH_ODDS` is: a
+ * district gate paints whole quarters uniformly, and a clergy house is not a
+ * cathedral. A chapel gets it because a chapel has glass; a bell tower does
+ * not, because a belfry is an opening with a bell in it.
+ */
+const STAINED_GLASS_TYPES = new Set(['cathedral', 'temple', 'chapel'])
+/**
+ * DARK ON PURPOSE, AND THE FIRST SET WAS NOT DARK ENOUGH BY A LONG WAY.
+ *
+ * These go on a Lambert whose `emissive` is the tint AND whose `color` is the
+ * tint, so the hue is counted twice and 0x9c2a3a came out as flat magenta —
+ * a traffic light, which is precisely what the first version of this comment
+ * said to avoid. Photographed, the panes read as poster paint on a wall.
+ *
+ * Glass lit from behind is GLOW-DOMINANT: the surface itself is nearly black
+ * and what you see is the light coming through it. So the base is dark, the
+ * emissive carries the colour, and the intensity is well under a lamp's.
+ */
+const GLASS_TINTS = [0x5e1622, 0x16305e, 0x6e4a12, 0x14472e, 0x3b1a4a]
+/**
  * Buildings that trade, wherever they stand — they carry a hanging sign on
  * their own account rather than because of the street they are on.
  *
@@ -3924,6 +3954,166 @@ export function buildBuildingMeshes(
     // Circular tower, bay window, and archway specialty blocks moved to
     // architecture/Massing.ts (tmplCircularTower / tmplGatehouse /
     // tmplStepBack-and-friends produce the projecting bays).
+
+    /**
+     * === STAINED GLASS — coloured light through the openings that exist ===
+     *
+     * THE PLACEMENT IS THE WHOLE DESIGN DECISION, and the first plan was a
+     * great rose window on the west front. The arithmetic killed it before a
+     * line was written: `facadeOpenings` lays storeys from the ground up at
+     * their true height, so on a twelve-metre nave wall the top row's head
+     * sits at about eleven metres and the clear band above it is under a
+     * metre. There is nowhere on that wall to put a three-metre disc that is
+     * not ON TOP of painted windows — which is the two-authors-of-one-wall
+     * defect this file spent a whole arc removing, in a new hat.
+     *
+     * So the light goes THROUGH the openings rather than over them. That is
+     * exact by construction — the pane IS the cell — and it needs no
+     * threshold, no clearance test and nothing to tune, which is the same
+     * reason the timber studs were rewritten to take the wall minus its
+     * openings. It is also the truer picture: a cathedral at dusk is a dark
+     * mass with coloured light coming out of it.
+     */
+    if (STAINED_GLASS_TYPES.has(obj.definitionId)) {
+      /**
+       * ALL FOUR WALLS, because a cathedral is walked AROUND.
+       *
+       * Every piece of dressing in this file went on the front for years, for
+       * the reason already written down forty lines above `frontWallZ`: there
+       * was no anchor for the other three. There is now, and the glass is the
+       * one feature where the flanks matter most — the nave clerestory is
+       * where a cathedral's glass actually is, and `allsides` grades the flank
+       * against the front as a tracked metric.
+       *
+       * The face table mirrors VolumeRenderer's own, exactly: the same union,
+       * the same `acrossZ` span, the same quantised arguments. Two authors of
+       * one wall is the defect this file has now paid for three times, and the
+       * only defence is asking the same function with the same numbers.
+       */
+      /**
+       * ONE DOMINANT HUE PER BUILDING, WITH AN ACCENT — not a tint per pane.
+       *
+       * Rolling a colour for every opening independently gives a chequerboard
+       * of red, blue, gold, green and purple windows, which reads as a circus
+       * and not as glass. Real glazing reads as one hue at a distance with
+       * jewels in it, and the town-scale argument is the same one that keeps
+       * `THATCH_ODDS` off 1.0: the differentiation wanted here is BETWEEN
+       * buildings, so it belongs on the building's own hash.
+       */
+      // Darker than the wall it is set into, so the tracery reads as a
+      // shadow line rather than as a lighter grid on top of it.
+      const glassStone = shiftColor(palette.wall, -0.30, -0.28, -0.24)
+      const domTint = GLASS_TINTS[hash % GLASS_TINTS.length]
+      const accTint = GLASS_TINTS[(hash + 2) % GLASS_TINTS.length]
+      let glassed = 0
+      for (const { face, nx, nz } of [
+        { face: 'front' as const, nx: 0, nz: 1 },
+        { face: 'back' as const, nx: 0, nz: -1 },
+        { face: 'side' as const, nx: 1, nz: 0 },
+        { face: 'side' as const, nx: -1, nz: 0 },
+      ]) {
+        const acrossZ = nz !== 0
+        const spanWorld = acrossZ ? mainVol.width : mainVol.depth
+        const cells = facadeOpenings(
+          volumeFloors(mainVol), quantizeWallM(spanWorld, face),
+          quantizeWallM(mainVol.height, face, 1.5), face, mainVol.wallColor)
+        let facePaned = false
+        for (const c of cells) {
+          // A bricked-up opening has no glass in it — that is what bricked up
+          // MEANS, and lighting one would undo the only cue a flank has that
+          // the building has a history. On a flank the whole ground storey is
+          // deliberately blind, so this clause carries most of the rejections
+          // and that is correct rather than a shortfall.
+          if (c.blocked) { tallyIn('stainedGlass~blocked', district); continue }
+          const cw = c.uW * spanWorld, ch = c.vH * mainVol.height
+          const along = (c.u - 0.5) * spanWorld
+          // FROM THE VOLUME'S OWN BASE, NOT FROM THE GROUND. `WinCell.vCenter`
+          // is a fraction UP THE WALL, so the world height is the wall's base
+          // plus that — and the shutter block one screen down writes it
+          // without `bottomY` and is correct, because a shutter only ever goes
+          // on an ordinary dwelling whose main body starts at zero. A
+          // cathedral's nave does not, and the first cut hung every pane that
+          // far below its own wall: photographed, deep-red windows floating in
+          // mid-air with trees visible behind them.
+          const cy = mainVol.bottomY + c.vCenter * mainVol.height
+          // ON THE WALL IT IS PAINTED ON. `uW` is a fraction with no ceiling
+          // and has already produced a window as wide as its whole wall; the
+          // containment test costs one line and has no tolerance in it.
+          if (Math.abs(along) + cw * 0.5 > spanWorld / 2) {
+            tallyIn('stainedGlass~offWall', district); continue
+          }
+          // CLEAR THE DOOR, which `facadeOpenings` knows nothing about —
+          // FacadeTexture centres it separately at x=0, 0.95 x 2.05m, and
+          // only on the front. The shutters found this at 44% coverage.
+          if (face === 'front' && Math.abs(along) < 0.475 + cw * 0.5 &&
+              cy - ch * 0.5 < 2.05) {
+            tallyIn('stainedGlass~atDoor', district); continue
+          }
+          const tint = (c.floor * 3 + c.col) % 4 === 0 ? accTint : domTint
+          const px = acrossZ ? mainVol.offsetX + along
+            : sideWallX(nx) + nx * 0.05
+          const pz = acrossZ ? mainVol.offsetZ + nz * (mainVol.depth / 2 + 0.05)
+            : mainVol.offsetZ + along
+          // Inset inside its own aperture, so the painted reveal, lintel and
+          // sill still frame it. A pane filling the opening edge to edge is a
+          // coloured rectangle; a pane inside a frame is a window.
+          const pw = cw * 0.78, ph = ch * 0.84
+          const pane = new THREE.BoxGeometry(
+            acrossZ ? pw : 0.05, ph, acrossZ ? 0.05 : pw)
+          localToWorld(pane, px, cy, pz, leanX, leanZ, rotationY, wx, wy, wz)
+          addBeacon(pane, tint)
+          /**
+           * TRACERY — a surround and a cross bar, and this is what turns a
+           * coloured rectangle into a WINDOW.
+           *
+           * The first cut relied on the painted reveal showing around the
+           * pane at 78% of its aperture, and the photograph came back with
+           * flat colour running edge to edge — a slab, which is the "bare
+           * glowing rectangle on a wall" failure already on the record for
+           * the first beacon. Real geometry casting a real shadow is the
+           * same fix the curtain wall needed: relief is what makes a big
+           * plain surface read.
+           *
+           * A mullion only where there is width for one. Two panes 20cm
+           * apart is a window; two panes 8cm apart is a smear at 40% render
+           * scale, which is this repo's standing rule about anything under
+           * ~5cm.
+           */
+          const fr = 0.075
+          const bars: [number, number, number, number][] = [
+            [0, ph / 2 + fr / 2, pw + fr * 2, fr],
+            [0, -ph / 2 - fr / 2, pw + fr * 2, fr],
+            [-pw / 2 - fr / 2, 0, fr, ph],
+            [pw / 2 + fr / 2, 0, fr, ph],
+            [0, 0, pw, fr],
+          ]
+          if (pw > 0.62) bars.push([0, 0, fr, ph])
+          for (const [bx2, by2, bw2, bh2] of bars) {
+            const bar = new THREE.BoxGeometry(
+              acrossZ ? bw2 : 0.09, bh2, acrossZ ? 0.09 : bw2)
+            localToWorld(bar,
+              px + (acrossZ ? bx2 : 0), cy + by2, pz + (acrossZ ? 0 : bx2),
+              leanX, leanZ, rotationY, wx, wy, wz)
+            ornamentBatch.addPositioned(bar, glassStone)
+          }
+          if (!facePaned) {
+            pane.computeBoundingBox()
+            const pb = pane.boundingBox
+            if (pb) {
+              siteOf('stainedGlass', (pb.min.x + pb.max.x) / 2,
+                (pb.min.y + pb.max.y) / 2, (pb.min.z + pb.max.z) / 2,
+                pb.max.x - pb.min.x, pb.max.y - pb.min.y, pb.max.z - pb.min.z)
+            }
+            facePaned = true
+          }
+          glassed++
+        }
+      }
+      // ONLY IF ONE WAS ACTUALLY BUILT — a census that counts the attempt is
+      // the counter-before-the-work failure already on the record here.
+      if (glassed) tallyIn('stainedGlass', district)
+      else tallyIn('stainedGlass~noOpenings', district)
+    }
 
     // === COLONNADE → batched ===
     // Pulled through localToWorld with leanX/Z=0 (landmark buildings opt
