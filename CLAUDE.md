@@ -1846,6 +1846,23 @@ instrument at all. **This is a declaration, not an oversight** — if a tracery
 bug ever needs catching, the check it wants is containment WITHIN its own
 cell, not collision with it.
 
+**AND THE TWO TONE ROWS I CREDITED TO IT WERE NOISE, WHICH ONLY A SECOND RUN
+OF THE SAME BUILD COULD SAY.** The glass board read `eyeball wallLuma` 79 ->
+80 and `hours nightWall` 47 -> 48, and both were written up as "one point, the
+coloured light on one building". Re-running the harness on the IDENTICAL
+commit an hour later read **wallLuma 79 and nightWall 50**. So wallLuma
+carries about ±1 and nightWall about ±3 between runs, the stained glass moved
+neither, and the attribution was to an instrument rather than to the town.
+
+**This file's claim that `eyeball` reads "spread 0 on all five metrics" has
+expired.** That was measured with `--repeat=3` before the tone arc, the
+weather cross and the `streetVantages` rewrite; the pixel rows have drifted
+into a small noise band since and nobody re-measured. **A noise floor is a
+property of the tool AS IT IS TODAY, not a fact you establish once** — and a
+one-point movement inside an unmeasured band is exactly the size of claim this
+repo keeps having to retract. Re-run `--repeat` on eyeball and hours before
+believing any single-point delta from either.
+
 **HONEST VERDICT: THIS IS A DETAIL, NOT A WEENIE.** It fires on 100% of its
 eligible population (3 cathedrals over 3 seeds, and `typemix` says those seeds
 grow no temple or chapel at all), it is exact, it costs nothing measurable —
