@@ -736,6 +736,59 @@ export function buildPropMeshes(
         batch.addPositioned(jet, water)
       }
 
+    } else if (id === 'great_lantern') {
+      /**
+       * THE GREAT LANTERN — a market cross carrying a lamp.
+       *
+       * This town's skyline is a field of small warm windows with nothing
+       * dominant in it, and DESIGN.md's references all work the other way: one
+       * object much brighter than everything around it, standing where the
+       * streets converge, that you navigate by without being told to. Nine main
+       * streets meet at the market square, so a light here terminates every one
+       * of them.
+       *
+       * A market cross is the real civic object this is — a stepped plinth, a
+       * shaft, and a lamp on top — which is why it can be tall without reading
+       * as a fairground pole. Height is what makes it a landmark rather than
+       * street furniture: at 6.4m it clears the crowd, the stalls and the
+       * ground-floor eaves, so it is visible down a street rather than only in
+       * the square.
+       *
+       * PHYSICAL, not a fraction of the footprint. A centrepiece has an
+       * intrinsic size; scaling it to its plot is the class of bug this repo
+       * records for boulders, rowboats and the 9m bench.
+       */
+      const stepR = 1.05, shaftH = 4.3, lampH = 1.35
+      // Stepped base — three courses, because a plinth is what stops a
+      // vertical object looking like it was pushed into the ground.
+      for (let k = 0; k < 3; k++) {
+        const r = stepR - k * 0.24
+        const step = new THREE.BoxGeometry(r * 2, 0.22, r * 2)
+        emitRot(step, 0, 0.11 + k * 0.22, 0, 0x8d8578)
+      }
+      // Shaft — tapered, so it reads as carved stone and not a post.
+      const shaft = new THREE.CylinderGeometry(0.17, 0.24, shaftH, 8)
+      emitRot(shaft, 0, 0.66 + shaftH / 2, 0, 0x9a9184)
+      // Corbelled head under the lamp: the same relief argument as the
+      // curtain wall, and it gives the lantern something to stand on.
+      const head = new THREE.BoxGeometry(0.62, 0.20, 0.62)
+      emitRot(head, 0, 0.66 + shaftH + 0.10, 0, 0x8d8578)
+      // The lantern housing — a dark frame with the GLOW inside it, so what
+      // you see is a bright core held in a dark cage. An unhoused bulb reads
+      // as a floating rectangle, which is what the tower beacon did first.
+      const lampY = 0.66 + shaftH + 0.20 + lampH / 2
+      for (const [cx, cz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+        const post = new THREE.BoxGeometry(0.09, lampH, 0.09)
+        emitRot(post, cx * 0.30, lampY, cz * 0.30, 0x33291f)
+      }
+      const capL = new THREE.ConeGeometry(0.62, 0.46, 4)
+      capL.rotateY(Math.PI / 4)
+      emitRot(capL, 0, lampY + lampH / 2 + 0.23, 0, 0x33291f)
+      const finial = new THREE.ConeGeometry(0.09, 0.30, 6)
+      emitRot(finial, 0, lampY + lampH / 2 + 0.46 + 0.15, 0, 0x33291f)
+      // The light itself, inside the cage, seen between the four posts.
+      const glass = new THREE.BoxGeometry(0.50, lampH * 0.86, 0.50)
+      emitGlow(glass, 0, lampY, 0)
     } else if (id === 'well' || id === 'well_grand') {
       const grand = id === 'well_grand'
       const scale = grand ? 1.25 : 1.0

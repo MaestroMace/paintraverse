@@ -4822,6 +4822,44 @@ export class TownGenerator implements IMapGenerator {
       if (!done) rejected(`centrepiece~noRoom:${piece}`)
     }
 
+    /**
+     * THE GREAT LANTERN, at the market square and nowhere else.
+     *
+     * ONE per town, deliberately. A focal point you can see two of is not a
+     * focal point — this is the wallpaper failure applied to landmarks, and
+     * the whole argument for it is that nine main streets converge on the
+     * market square, so a single light there terminates every one of them.
+     *
+     * Placed AFTER the centrepieces so it cannot take the market well's spot;
+     * the same outward spiral finds it the nearest free ground, because the
+     * exact centre of a square is never free — that is what `carvePlaza` and
+     * `placePlazaFeatures` both already record.
+     */
+    const sq = districts.find((d) => d.type === 'market')
+    if (sq) {
+      const fl = this.getFootprint('great_lantern')
+      let placed = false
+      spiralLantern:
+      for (let r = 0; r <= 9 && !placed; r++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (r > 0 && Math.abs(dx) !== r && Math.abs(dy) !== r) continue
+            const cx = sq.center.x - Math.floor(fl.w / 2) + dx
+            const cy = sq.center.y - Math.floor(fl.h / 2) + dy
+            if (!this.areaFree(occupied, cx, cy, fl.w, fl.h, w, h)) continue
+            props.push(this.createObj('great_lantern', cx, cy))
+            this.markArea(occupied, cx, cy, fl.w, fl.h, w, h)
+            rejected('greatLanternOk')
+            placed = true
+            break spiralLantern
+          }
+        }
+      }
+      if (!placed) rejected('greatLantern~noRoom')
+    } else {
+      rejected('greatLantern~noMarket')
+    }
+
     // District plaza features — richer per-district
     for (const d of districts) {
       switch (d.type) {
@@ -7300,6 +7338,7 @@ export class TownGenerator implements IMapGenerator {
       hedge: { w: 2, h: 1 }, haystack: { w: 2, h: 2 },
       tent: { w: 2, h: 2 }, pavilion: { w: 2, h: 2 },
       well_grand: { w: 2, h: 2 },
+      great_lantern: { w: 2, h: 2 },
       picket_fence: { w: 2, h: 1 }, market_tent: { w: 2, h: 2 },
       fountain_grand: { w: 3, h: 3 }, rowboat: { w: 2, h: 1 },
       skiff: { w: 2, h: 1 }, port_crane: { w: 2, h: 2 },

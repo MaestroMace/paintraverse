@@ -57,8 +57,27 @@ await waitForScene(win)
 await win.evaluate((h) => window.__pt.store.getState().updateEnvironment({ timeOfDay: h }), time)
 await hideChrome(win)
 
-const sites = await win.evaluate(() =>
-  window.__pt.debugInfo()?.buildingFactory?.featureSites ?? {})
+/**
+ * PROPS TOO, because a centrepiece is not a building.
+ *
+ * `asset.mjs` walks STRUCTURES and reported "no great_lantern in seed 31337"
+ * on a town that demonstrably has one — it is in the prop layer. Rather than
+ * hand-roll a third camera (the last one I wrote had an inverted pitch and
+ * produced an upside-down frame), prop instances are folded into the same
+ * site map: `propInstances` already carries a world centre and an extent,
+ * which is exactly what `lookAt` wants.
+ */
+const sites = await win.evaluate(() => {
+  const out = { ...(window.__pt.debugInfo()?.buildingFactory?.featureSites ?? {}) }
+  // `debugInfo()` carries propSIZES, which is an aggregate by type and cannot
+  // point at one instance; the per-instance boxes live on `debugSceneFeatures`,
+  // the census odd.mjs reads. Asking the wrong one returned zero sites on a
+  // town that demonstrably has the prop.
+  for (const p of window.__pt.renderer()?.debugSceneFeatures()?.props ?? []) {
+    (out[p.id] ??= []).push({ x: p.x, y: p.y, z: p.z, w: p.w, h: p.h, d: p.d })
+  }
+  return out
+})
 
 if (wantList) {
   console.log(`\n=== FEATURES WITH A RECORDED SITE — seed ${seed} ===`)
@@ -89,10 +108,14 @@ for (const p of spots.slice(0, n)) {
   // A feature is small and attached to a wall, so frame it TIGHT and insist on
   // eye level: `order: 'height'` exhausts every distance before going up,
   // because a shot from above cannot show you a flank.
-  const half = 1.6
+  // A prop knows its own extent; a feature site is a bare point, so it gets a
+  // room-sized box. Framing a 7m lantern column as a 3.2m cube would crop it.
+  const hx = p.w ? p.w / 2 + 0.4 : 1.6
+  const hy = p.h ? p.h / 2 + 0.4 : 1.6
+  const hz = p.d ? p.d / 2 + 0.4 : 1.6
   const box = {
-    min: [p.x - half, p.y - half, p.z - half],
-    max: [p.x + half, p.y + half, p.z + half],
+    min: [p.x - hx, p.y - hy, p.z - hz],
+    max: [p.x + hx, p.y + hy, p.z + hz],
   }
   // YOU LOOK UP AT A BELFRY. `heights` are relative to the SUBJECT, and the
   // first cut offered only [1.6, 3, 6] — all above it — so every candidate for

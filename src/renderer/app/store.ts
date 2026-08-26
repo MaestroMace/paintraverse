@@ -1049,6 +1049,12 @@ const defaultObjectDefs: ObjectDefinition[] = [
     color: '#A8A090', footprint: { w: 2, h: 2 }, styleSetSlots: [] },
   { id: 'well_grand', name: 'Grand Well', category: 'prop', tags: ['civic'],
     color: '#8A8478', footprint: { w: 2, h: 2 }, styleSetSlots: [] },
+  // THE GREAT LANTERN — the town's one focal point at ground level.
+  // A market cross carrying a lamp, which is a real civic object and is also
+  // the thing this skyline has none of: something much brighter than
+  // everything around it, standing where nine streets converge.
+  { id: 'great_lantern', name: 'Great Lantern', category: 'prop', tags: ['civic', 'light'],
+    color: '#C8A24A', footprint: { w: 2, h: 2 }, styleSetSlots: [] },
   {
     id: 'woodpile',
     name: 'Woodpile',

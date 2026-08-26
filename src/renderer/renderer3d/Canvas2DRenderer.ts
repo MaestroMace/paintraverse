@@ -60,6 +60,7 @@ const PROP_COLORS: Record<string, { body: number; accent?: number }> = {
   flower_bed: { body: 0x556b2f, accent: 0xff6688 },
   wagon: { body: 0x6b4a28, accent: 0x8a7a5a },
   well_grand: { body: 0x708090, accent: 0x4682b4 },
+  great_lantern: { body: 0x8A8478, accent: 0xFFD48A },
   fountain_grand: { body: 0x708090, accent: 0x4682b4 },
   double_lamp: { body: 0x2a2a2a, accent: 0xffdd44 },
   statue: { body: 0x8a8a88, accent: 0x6a6a68 },
