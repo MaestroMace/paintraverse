@@ -2332,6 +2332,107 @@ export function buildBuildingMeshes(
         }
       }
       tallyIn('beacon', district)
+
+      /**
+       * === THE GREAT CLOCK — a landmark, not a trim detail ===
+       *
+       * The gallery above is correct architecture and it barely changed the
+       * skyline, which was the fair criticism of the whole approach: a metre
+       * of moulding on a thirty-metre tower is a DETAIL, and a weenie is an
+       * ATTRACTION. Traverse Town, Diagon Alley and Main Street all work the
+       * same way — one object much bigger and much brighter than everything
+       * around it, that you navigate by without being told to.
+       *
+       * So this is deliberately out of scale: a dial at 0.84 of the shaft's
+       * width, which on a four-metre tower is a clock face over three metres
+       * across — as big as a room, lit from behind, readable from the far side
+       * of the town. That is the scale surprise the references are built on,
+       * and it is what a clock tower IS: the one civic object everybody looks
+       * at from a distance.
+       *
+       * Three parts, and only the dial is light. The RIM is what stops it
+       * reading as a glowing sticker — a dark ring gives the disc an edge and
+       * its own shadow, the same relief argument as the curtain wall. The
+       * HANDS are what make it a clock rather than a porthole, and they are
+       * set at a fixed hour per building from `stableHash` so a town's clocks
+       * differ without ever animating.
+       */
+      if (obj.definitionId === 'clock_tower') {
+        const face = Math.min(shaftW, shaftD)
+        const dialR = face * 0.42
+        const dialY = galY - dialR - 0.55
+        // PROUD OF THE WALL, NOT FLUSH WITH IT. The first cut mounted the disc
+        // at `shaftW/2 + rimT*0.5` and made it `rimT*0.9` thick — about 15cm
+        // out and 14cm deep, which is a disc embedded in its own wall. The
+        // triangle count proved 608 triangles of clock were being emitted and
+        // no camera could find them, because a flush disc on a shaded wall
+        // seen at any angle is the wall. The lamps on the gallery ARE visible
+        // and they stand off by half a metre; this matches them.
+        const rimT = Math.max(0.30, dialR * 0.22)
+        const standOff = rimT * 1.6
+        const dark = shiftColor(palette.wall, -0.32, -0.30, -0.26)
+        // Two faces, not four: a clock tower reads along the street it faces,
+        // and four dials on a 1x1 shaft is a lantern rather than a clock.
+        for (const [nx, nz] of [[1, 0], [0, 1]] as const) {
+          for (const sgn of [-1, 1]) {
+            const mx = nx * sgn * (shaftW / 2 + standOff)
+            const mz = nz * sgn * (shaftD / 2 + standOff)
+            // A disc facing outward: a cylinder's axis is Y, so lay it down
+            // about Z for an X-facing dial and about X for a Z-facing one.
+            const rim = new THREE.CylinderGeometry(dialR + rimT, dialR + rimT, rimT, 16)
+            const dial = new THREE.CylinderGeometry(dialR, dialR, rimT * 0.8, 16)
+            for (const g of [rim, dial]) {
+              if (nx) g.rotateZ(Math.PI / 2)
+              else g.rotateX(Math.PI / 2)
+            }
+            push(rim, ox0 + mx, dialY, oz0 + mz, dark)
+            const dialG = dial.clone()
+            dial.dispose()
+            localToWorld(dialG, ox0 + mx + nx * sgn * 0.06, dialY,
+              oz0 + mz + nz * sgn * 0.06,
+              leanX, leanZ, rotationY, wx, wy, wz)
+            addBeacon(dialG)
+            // HANDS — a fixed hour per building, so the clocks of a town
+            // disagree the way real ones do, with nothing to tick.
+            const hour = (hash % 12) / 12 * Math.PI * 2
+            const minute = ((hash >> 4) % 60) / 60 * Math.PI * 2
+            for (const [ang, len, thick] of [
+              [hour, dialR * 0.52, rimT * 0.5],
+              [minute, dialR * 0.82, rimT * 0.34],
+            ] as const) {
+              const hand = new THREE.BoxGeometry(thick, len, thick * 0.8)
+              // Pivot at the dial centre: shift the bar so it grows outward.
+              hand.translate(0, len / 2, 0)
+              hand.rotateZ(-ang)
+              if (nx) hand.rotateY(Math.PI / 2)
+              // CLEAR OF THE DIAL'S OWN FACE. The dial is centred 0.06 proud
+              // and is rimT*0.8 thick, so its outer surface is at 0.06 +
+              // rimT*0.4 — hands at a flat 0.14 were inside the glass on any
+              // dial bigger than a dinner plate, which is every one of them.
+              const handOut = 0.06 + rimT * 0.4 + 0.05
+              push(hand, ox0 + mx + nx * sgn * handOut, dialY,
+                oz0 + mz + nz * sgn * handOut, dark)
+            }
+          }
+        }
+        tallyIn('greatClock', district)
+        // THROUGH THE TRANSFORM, NOT BY ADDING LOCAL TO WORLD. The first cut
+        // wrote `wx + (ox0 + shaftW/2 + 1)`, which mixes a LOCAL offset into a
+        // world position and skips the rotation entirely — so the camera was
+        // aimed at a point the dial is not, and photographed a different
+        // building. Every other placement in this file goes through
+        // localToWorld for exactly this reason.
+        const cm = new THREE.BoxGeometry(0.1, 0.1, 0.1)
+        localToWorld(cm, ox0 + shaftW / 2 + 1.2, dialY, oz0,
+          leanX, leanZ, rotationY, wx, wy, wz)
+        cm.computeBoundingBox()
+        const cmb = cm.boundingBox
+        if (cmb) {
+          siteOf('greatClock', (cmb.min.x + cmb.max.x) / 2,
+            (cmb.min.y + cmb.max.y) / 2, (cmb.min.z + cmb.max.z) / 2)
+        }
+        cm.dispose()
+      }
     }
 
     // --- FLANK BUTTRESSES → batched ---
