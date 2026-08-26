@@ -457,7 +457,11 @@ export interface BuildingDiagnostics {
    * handful of sites is all a camera needs, and an uncapped array on a feature
    * that fires on every building would be thousands of Vector3s a generate.
    */
-  featureSites: Record<string, { x: number; y: number; z: number }[]>
+  featureSites: Record<string, {
+    x: number; y: number; z: number
+    /** Extent, when the emitter knows it — see siteOf. */
+    w?: number; h?: number; d?: number
+  }[]>
   /** Per-building human-scale samples — see BuildingScale. */
   scaleSamples: BuildingScale[]
 }
@@ -560,12 +564,24 @@ export function buildBuildingMeshes(
   const roofStyles: Record<string, number> = {}
   const scaleSamples: BuildingScale[] = []
   const featureCounts: Record<string, number> = {}
-  const featureSites: Record<string, { x: number; y: number; z: number }[]> = {}
+  const featureSites: Record<string, {
+    x: number; y: number; z: number; w?: number; h?: number; d?: number
+  }[]> = {}
   /** Record WHERE one instance of a feature is. Capped — see featureSites. */
   const SITES_PER_FEATURE = 12
-  const siteOf = (k: string, x: number, y: number, z: number): void => {
+  /**
+   * EXTENT IS OPTIONAL AND MATTERS FOR ANYTHING BIGGER THAN A ROOM. A bare
+   * point makes `featureshot` frame a fixed 3.2m box, and for the lighthouse's
+   * lantern room — a drum several metres across, ringed by its own astragals —
+   * every ray to the centre was blocked by the subject's own frame sitting
+   * outside that box. A buttress needs no extent; a landmark does.
+   */
+  const siteOf = (
+    k: string, x: number, y: number, z: number,
+    w?: number, h?: number, d?: number,
+  ): void => {
     const a = featureSites[k] ?? (featureSites[k] = [])
-    if (a.length < SITES_PER_FEATURE) a.push({ x, y, z })
+    if (a.length < SITES_PER_FEATURE) a.push({ x, y, z, w, h, d })
   }
   const tally = (k: string) => { featureCounts[k] = (featureCounts[k] ?? 0) + 1 }
   /** Tally a gated feature BY DISTRICT as well as in total.
@@ -2294,9 +2310,76 @@ export function buildBuildingMeshes(
           cz === 0 ? corbT * 3 : galOut),
         ox0 + cx, galY - 0.17, oz0 + cz, stone)
       }
+      /**
+       * A LIGHTHOUSE IS ITS LIGHT — so it gets a LANTERN ROOM, not a balcony.
+       *
+       * Every beacon type shared one crown, which meant the one building in
+       * the town whose entire identity is a light looked like a gate lodge
+       * with a lamp on it. A lighthouse's lantern room is a GLAZED DRUM: a
+       * ring of glass held by thin astragals, ringed top and bottom, with the
+       * source inside — you read a bright cylinder in a dark cage, at the top
+       * of a tower, from across the water. That silhouette is the whole
+       * building, and no amount of lamps on a parapet substitutes for it.
+       *
+       * It fills the crown storey the balustrade would otherwise occupy, so
+       * it sits under the shaft's existing roof rather than stacking a second
+       * one — the mistake the first crown made with its cone.
+       */
+      const isLantern = obj.definitionId === 'lighthouse'
+      if (isLantern) {
+        // WIDER THAN THE SHAFT, because that is what a lantern room IS — it
+        // stands ON the gallery, oversailing the tower below it, which is why
+        // a lighthouse has that top-heavy silhouette.
+        //
+        // The first cut used `min(shaftW, shaftD) * 0.46`, which is INSIDE the
+        // tower's own half-width, so the drum was buried in solid masonry and
+        // photographed as a dark octagon. That is the third time this session
+        // a light has been put inside the thing it was meant to sit on — the
+        // beacon cube, the arcade piers, and now this. THE TEST IS ALWAYS THE
+        // SAME: is the emitter outside every solid the building already has?
+        const drumR = Math.min(shaftW, shaftD) / 2 + galOut * 0.45
+        const drumH = Math.max(1.2, towerTopY - galY - galT - 0.25)
+        const drumY = galY + galT + drumH / 2
+        // The glass: an octagon, because a drum of four faces is a box and a
+        // drum of thirty-two is a sphere at this scale.
+        const glass = new THREE.CylinderGeometry(drumR, drumR, drumH, 8)
+        localToWorld(glass, ox0, drumY, oz0, leanX, leanZ, rotationY, wx, wy, wz)
+        // RECORD THE DRUM, WITH ITS EXTENT. The first cut recorded a point on
+        // the gallery's outer edge, so `featureshot` framed a 3.2m box at the
+        // parapet and the lantern room — the entire subject — was above the
+        // crop. A site is only useful if it is ON the thing and big enough to
+        // contain it, which is why prop sites carry w/h/d.
+        glass.computeBoundingBox()
+        const gbb = glass.boundingBox
+        if (gbb) {
+          siteOf('lanternRoom', (gbb.min.x + gbb.max.x) / 2,
+            (gbb.min.y + gbb.max.y) / 2, (gbb.min.z + gbb.max.z) / 2,
+            gbb.max.x - gbb.min.x, gbb.max.y - gbb.min.y, gbb.max.z - gbb.min.z)
+        }
+        addBeacon(glass)
+        // ASTRAGALS — the thin bars that make it read as GLAZED rather than
+        // as a glowing barrel. Eight, on the octagon's own corners.
+        for (let a = 0; a < 8; a++) {
+          const th = (a / 8) * Math.PI * 2
+          const bar = new THREE.BoxGeometry(0.10, drumH, 0.10)
+          push(bar, ox0 + Math.cos(th) * drumR, drumY, oz0 + Math.sin(th) * drumR, stone)
+        }
+        // Rings top and bottom, which is what holds glass in a frame.
+        for (const ry of [galY + galT + 0.06, galY + galT + drumH - 0.06]) {
+          const ring = new THREE.CylinderGeometry(drumR + 0.10, drumR + 0.10, 0.13, 8)
+          push(ring, ox0, ry, oz0, stone)
+        }
+      }
       // BALUSTRADE — posts with GAPS, so the parapet reads as open sky.
-      const postH = Math.max(0.78, beaconSize * 0.85), postT = 0.24
+      // A lighthouse has its lantern room here instead; a rail around the
+      // glass would only hide it.
+      const postH = isLantern ? 0.34 : Math.max(0.78, beaconSize * 0.85)
+      const postT = 0.24
       const bx = shaftW / 2 + galOut - postT / 2, bz = shaftD / 2 + galOut - postT / 2
+      // The lighthouse keeps a low rail — a gallery you can walk is what the
+      // keeper cleans the glass from — but not the tall posts that would
+      // stand in front of the light.
+      void 0
       for (let i = -2; i <= 2; i++) {
         const fx = (i / 2) * bx, fz = (i / 2) * bz
         for (const s2 of [-1, 1]) {
@@ -2306,12 +2389,19 @@ export function buildBuildingMeshes(
             ox0 + s2 * bx, galY + galT + postH / 2, oz0 + fz, stone)
         }
       }
-      // LAMPS — on the gallery, clear of the shaft wall, one per face.
-      let beaconLogged = false
+      // LAMPS — on the gallery, clear of the shaft wall, one per face. The
+      // lighthouse has its drum instead and does not want four more sources
+      // competing with it.
+      // ITS OWN SITE KEY, recorded above from the drum. `featureSites` caps at
+      // 12 per feature and a town has more gates than lighthouses, so the one
+      // lantern room was crowded out of `beacon` by twelve gate lamps and
+      // `featureshot` reported no site on a town that has one. A cap is a
+      // sampling rule and a rare member of a common bucket loses every time.
+      let beaconLogged = isLantern
       const lampH = Math.max(0.72, beaconSize * 0.85)
       const lampY = galY + galT + lampH / 2
       const lx0 = shaftW / 2 + galOut * 0.52, lz0 = shaftD / 2 + galOut * 0.52
-      for (const [mx, mz] of [[lx0, 0], [-lx0, 0], [0, lz0], [0, -lz0]] as const) {
+      for (const [mx, mz] of (isLantern ? [] : [[lx0, 0], [-lx0, 0], [0, lz0], [0, -lz0]]) as ReadonlyArray<readonly [number, number]>) {
         const lamp = new THREE.BoxGeometry(
           mx === 0 ? lampH * 1.15 : lampH * 0.6, lampH,
           mz === 0 ? lampH * 1.15 : lampH * 0.6)

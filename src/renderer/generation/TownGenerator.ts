@@ -3656,6 +3656,48 @@ export class TownGenerator implements IMapGenerator {
     const landmarks: PlacedObject[] = []
     const occupied = this.createOccupied(w, h, roadMap, waterMap)
     this.markBuildings(occupied, buildings, w, h)
+
+    /**
+     * THE LIGHTHOUSE, PLACED AT THE WATER RATHER THAN DRAWN FROM A BAG.
+     *
+     * CLAUDE.md already records this one as never placing: it is 3x3 and
+     * harbor-only, and a type's real odds are its weight TIMES how often the
+     * shape fits, so a three-tile square in a quarter of small plots is a
+     * ghost with a weight. Four fresh seeds confirmed it — no lighthouse in
+     * any of them.
+     *
+     * The fix is not a smaller lighthouse. A lighthouse is not a building the
+     * market happens to want, it is a piece of INFRASTRUCTURE that belongs at
+     * the water's edge, and the placer that should own it is one that knows
+     * where the water is — the same argument that took the water QUARTER out
+     * of the random pool and made it earned by the site.
+     *
+     * So: the most water-exposed buildable spot in the town, scored by how
+     * much open water surrounds it, which is what a promontory IS. One per
+     * town, and only where there is a real body of water to warn ships off.
+     */
+    {
+      const fpL = this.getFootprint('lighthouse')
+      let best: { x: number; y: number; wet: number } | null = null
+      for (let y = 1; y < h - fpL.h - 1; y++) {
+        for (let x = 1; x < w - fpL.w - 1; x++) {
+          if (!this.areaFree(occupied, x, y, fpL.w, fpL.h, w, h)) continue
+          // How much water is in reach — a promontory has it on three sides,
+          // an inland yard has none. Counted, not tested for, because a
+          // predicate stops discriminating the moment the river connects.
+          const wet = this.countNearbyWater(x + 1, y + 1, waterMap, w, h, 5)
+          if (wet < 18) continue
+          if (!best || wet > best.wet) best = { x, y, wet }
+        }
+      }
+      if (best) {
+        landmarks.push(this.createObj('lighthouse', best.x, best.y))
+        this.markArea(occupied, best.x, best.y, fpL.w, fpL.h, w, h)
+        rejected(`lighthouseOk:wet${best.wet}`)
+      } else {
+        rejected('lighthouse~noShore')
+      }
+    }
     // Where would a building close a long look down a street? Landmarks are
     // ranked against this instead of taking the first free rectangle near a
     // district centre, which is how four of 244 long views ended on one.
