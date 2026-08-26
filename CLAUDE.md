@@ -1659,6 +1659,83 @@ So roughly a third of the apparent 44-point tone regression was the camera and
 two thirds is the town — and 0.101 at 23% black is still better than the
 0.088 at 41% the whole tone arc was fought to achieve.
 
+## A BELL TOWER HAD NO BELL, AND THE SHAFT IS WHY
+
+The crown got a gallery and four lamps like every other beacon type, which is
+a lit balcony: correct, and silent about what the building IS. Putting a bell
+in it is not a modelling problem, it is a **plan-geometry** problem, and the
+whole design falls out of one line of arithmetic.
+
+**A REAL BELFRY HANGS ITS BELL IN THE MIDDLE OF AN OPEN STAGE AND THE MIDDLE
+OF THIS ONE IS SOLID.** The shaft is a massing volume all the way to
+`towerTopY`, which is why the first crown's arcade piers sat on a wall that
+was still there and its glow was buried in masonry. So the bell cannot go
+where a bell goes, and the question becomes where it CAN go and still read.
+
+**THE ONLY PLACE WITH SKY BEHIND IT IS BEYOND THE SHAFT'S OUTLINE IN PLAN.**
+Looking along -Z at the +Z face, screen-x is world-x: a bell on the +X face
+sits at `shaftW/2 + 0.5·galOut`, which projects half a metre past each edge of
+the tower, so from any cardinal street view **two of the four bells hang
+against open sky** and the other two hang in front of masonry. That is what a
+campanile looks like, and it is the same fact that made the gallery lamps read
+where a lamp flush on the wall did not.
+
+**AND THEN THE FIRST BELL READ AS A CONE, WHICH THE OBVIOUS FIX COULD NOT
+TOUCH.** A single taper from shoulder to mouth is the wrong profile — a real
+bell's silhouette is the SOUNDBOW, the near-vertical thickened band at the
+mouth — so it was rebuilt as four stacked frusta. **The photograph came back
+indistinguishable.** Measured, the two profiles are within ~2cm of each other
+at every height, which at `RENDER_SCALE = 0.4` and a 5m standoff is under one
+pixel: the ivy lesson, applied to a shape instead of a rate.
+
+**The cause was the PROPORTION, and no profile rescues a proportion.** The
+bell was 1.15m tall and 0.84m across — height/diameter 1.38, against a real
+bell's ~0.8. It was that shape because `bellR` is bounded by the SHELF it
+hangs on, and the shelf was `galOut = 0.95`. **So the fix was to widen the
+gallery, not to reshape the bell**: `galOut = 1.30` for the two belfry types,
+`bellR` from it, and `bellH` derived from `bellR` rather than from the space
+available. A bell's proportion is a fact about bells; the void only gets to
+say whether one fits at all.
+
+**AND A LAMP BESIDE A DARK OBJECT CANNOT MAKE IT VISIBLE, BECAUSE `addBeacon`
+GEOMETRY DOES NOT ILLUMINATE ANYTHING.** It is emissive, so it glows and lights
+nothing, and a bronze shell in shadow stays a dark blob however many lamps
+stand next to it — which is exactly what the first street photograph showed.
+A dark object reads only AGAINST something brighter, so the light has to go
+BEHIND it. There is one surface behind a bell and it is the shaft wall, 13cm
+away; that is enough for a 6cm panel, and it is also the true picture, because
+what you see through a belfry opening at night IS the lit chamber behind the
+bell. **Round-headed, not a rectangle** — a bare glowing rectangle on a wall
+is the failure this file already records for the first beacon.
+
+Three smaller things fell out and each is a pattern already here:
+
+- **The four headstocks CROSS at the corners.** Two beams in one plane is the
+  depth-buffer tie this repo chased once as "flickering overlapping textures".
+  Staggered in height rather than shortened, because shortening leaves each
+  beam floating short of the pier it is seated on — and a real ring of bells
+  IS hung at two levels.
+- **The mid-face is now a bell and the corners are now piers**, so the
+  balustrade drops to the two posts per face that are neither, and the lamps
+  move to the corners. A gate fixed for one member is a gate to sweep.
+- **The downlight over each bell was three and a half metres long** at 0.72 of
+  the headstock and photographed as a strip light. Keyed to the bell it lights.
+
+**`featureshot --wide` IS THE OTHER HALF OF THAT TOOL, AND ITS ABSENCE IS WHY
+THE CONE SURVIVED A ROUND.** The close-up answers "was this built and what
+shape is it"; it cannot answer **"does it read from the street"**, which is
+the question every content review here has actually turned on — and
+`pick: 'largest'` plus a centred crop is precisely the framing that hides it.
+The wide pass takes the FIRST clear vantage at street distance, keeps the
+whole viewport, and clips to the CANVAS: `hideChrome` only removes the HUD
+overlay, so the first wide frame came back two thirds editor UI, which the
+tight pass had never noticed because its crop is centred.
+
+Board: **0 gate failures, 0 regressions across 29 checks** — audit,
+provenance, clash, facade, roofcheck, eyeball, hours, holes and variety all
+unmoved. That is what a correct ornament-only change looks like: it claims no
+tile, moves no building, and every number stays where it was.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)

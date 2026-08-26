@@ -2254,6 +2254,10 @@ export function buildBuildingMeshes(
       const shaftW = towerVol.width, shaftD = towerVol.depth
       const ox0 = towerVol.offsetX ?? 0, oz0 = towerVol.offsetZ ?? 0
       const stone = shiftColor(palette.wall, -0.05, -0.04, -0.03)
+      // Weathered bell bronze. Warm and mid-toned at noon, and at dusk it
+      // falls to a dark shape against the sky, which is the read this whole
+      // feature is built for.
+      const bronze = 0x8f7340
       const push = (g: THREE.BufferGeometry, lx: number, ly: number,
         lz: number, col: number): void => {
         localToWorld(g, lx, ly, lz, leanX, leanZ, rotationY, wx, wy, wz)
@@ -2290,13 +2294,38 @@ export function buildBuildingMeshes(
        * argument that gave the curtain wall its plinth: relief is what makes a
        * big plain surface read, because it casts its own shadow.
        */
-      const galY = towerTopY - Math.max(1.5, beaconSize * 1.9)
+      /**
+       * A BELFRY'S CROWN STOREY HAS TO BE TALL ENOUGH TO HANG A BELL IN.
+       *
+       * The shared crown is `beaconSize * 1.9` — 1.6m, of which the gallery
+       * slab takes 0.38, leaving 1.2m of open air. A great bell is over a
+       * metre from canon to mouth, so on the shared figure there was
+       * physically nowhere to put one and the belfry would have got a token.
+       * The stage is a fraction of the SHAFT for these two types, capped so a
+       * tall campanile does not end up all crown.
+       */
+      const isBelfry = obj.definitionId === 'bell_tower' ||
+        obj.definitionId === 'bell_tower_tall'
+      const shaftH = towerTopY - towerVol.bottomY
+      const crownH = isBelfry
+        ? Math.max(1.5, Math.min(3.1, shaftH * 0.32))
+        : Math.max(1.5, beaconSize * 1.9)
+      const galY = towerTopY - crownH
       // BIG ENOUGH TO BE A SILHOUETTE. The first gallery projected 0.5m on a
       // 4m shaft — 12%, which photographed as a dark line and nothing more.
       // A belfry gallery on a tower this size projects a metre or more, and
       // the whole argument for building one is that you recognise it from
       // the far end of a street.
-      const galOut = Math.max(0.95, beaconSize * 1.05)
+      // A BELFRY'S GALLERY IS WIDER, AND THE BELL IS WHY. The shelf's
+      // projection is the only thing bounding how big a bell can hang on it,
+      // and at 0.95m the biggest bell that fits is 0.84m across — which, hung
+      // in a stage tall enough to swing in, comes out half again taller than
+      // it is wide. That reads as a CONE however the profile is drawn, and no
+      // amount of shaping fixes a proportion. A real bell is about as wide as
+      // it is tall, so the shelf has to give it the width.
+      const galOut = isBelfry
+        ? Math.max(1.30, beaconSize * 1.5)
+        : Math.max(0.95, beaconSize * 1.05)
       const galT = 0.38
       push(new THREE.BoxGeometry(shaftW + galOut * 2, galT, shaftD + galOut * 2),
         ox0, galY + galT / 2, oz0, stone)
@@ -2370,17 +2399,209 @@ export function buildBuildingMeshes(
           push(ring, ox0, ry, oz0, stone)
         }
       }
+      /**
+       * === THE BELLS — and WHY THEY HANG WHERE THEY DO ===
+       *
+       * A bell tower is named after a thing nobody could see. The crown got a
+       * gallery and four lamps like every other beacon type, which is a lit
+       * balcony: correct, and it says nothing about what the building IS.
+       *
+       * THE HARD CONSTRAINT IS THAT THE SHAFT IS SOLID. A real belfry hangs
+       * its bell in the middle of an open stage and you read it through arched
+       * openings on all four faces — but the centre of this stage is a massing
+       * volume, and this session has already put a light inside its own host
+       * three times (the beacon cube, the arcade piers, the lantern drum). So
+       * the bell cannot go where a bell goes.
+       *
+       * WHAT DECIDES IT IS THE SILHOUETTE, and that is pure plan arithmetic.
+       * At every height below `towerTopY` the shaft is behind everything, so
+       * the only place with SKY behind it is beyond the shaft's outline IN
+       * PLAN. Looking along -Z at the +Z face, screen-x is world-x: the bells
+       * on the +X and -X faces sit at |x| = shaftW/2 + 0.5, which projects
+       * half a metre past each edge of the tower. So from any cardinal street
+       * view two of the four bells hang against open sky and the other two
+       * hang in front of masonry — which is exactly what a campanile looks
+       * like, and it is the same reason the gallery lamps read while a lamp
+       * flush on the wall did not.
+       *
+       * The rest is what makes it a bell stage rather than four bells stuck
+       * on a shelf:
+       *
+       *   PIERS      four, at the gallery corners, OUTSIDE the shaft. The void
+       *              between pier and shaft is genuine open air.
+       *   CORNICE    a slab closing the top, oversailing — so the tower gains
+       *              a capital and does not end in an open box against the sky.
+       *   HEADSTOCK  the beam each bell hangs from, spanning between its two
+       *              piers. A bell floating with nothing above it is a balloon.
+       *
+       * All of it sits inside the gallery's own footprint, so it claims no
+       * extent the balcony had not already claimed.
+       */
+      const belfry = isBelfry && crownH >= 2.5
+      if (isBelfry && !belfry) tallyIn('bell~stageTooShort', district)
+      const cornT = 0.30
+      const cornY = towerTopY - cornT
+      const pierT = 0.34
+      if (belfry) {
+        const sy = galY + galT
+        const voidH = cornY - sy
+        const px = shaftW / 2 + galOut - pierT / 2 - 0.05
+        const pz = shaftD / 2 + galOut - pierT / 2 - 0.05
+        for (const sx of [-1, 1]) {
+          for (const sz of [-1, 1]) {
+            push(new THREE.BoxGeometry(pierT, voidH, pierT),
+              ox0 + sx * px, sy + voidH / 2, oz0 + sz * pz, stone)
+          }
+        }
+        push(new THREE.BoxGeometry(shaftW + galOut * 2, cornT, shaftD + galOut * 2),
+          ox0, cornY + cornT / 2, oz0, stone)
+        // A BELL IS A FLARED SHELL, NOT A CONE. Waist, shoulder and canon:
+        // three pieces, because a single taper reads as a hat.
+        //
+        // The radius and the offset are one decision. `bellR` at 0.44 of the
+        // gallery's projection, hung at half of it, leaves the mouth 6cm clear
+        // of the shaft wall on the inside and 6cm inside the balcony edge on
+        // the outside — a bell that grazes either is back to being buried.
+        // HEIGHT DERIVED FROM WIDTH, not from the space available. A bell's
+        // proportion is a fact about bells (roughly as tall as its mouth is
+        // wide); the void only gets to say whether one fits at all.
+        const bellR = Math.min(0.60, galOut * 0.44)
+        const bellH = Math.min(bellR * 1.62, voidH - 0.80)
+        const beamY = cornY - 0.14
+        let bellLogged = false
+        for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const bxs = nx * (shaftW / 2 + galOut * 0.54)
+          const bzs = nz * (shaftD / 2 + galOut * 0.54)
+          // THE FOUR HEADSTOCKS CROSS AT THE CORNERS, so they are staggered in
+          // height rather than shortened. Two beams meeting in the same plane
+          // is a depth-buffer tie — the "flickering overlapping textures"
+          // defect — and shortening them would leave each one floating short
+          // of the pier it is supposed to be seated on. Staggering is also
+          // what a real bell frame does: a ring is hung at two levels.
+          const bY = beamY - (nx ? 0 : 0.22)
+          const beamLen = (nx ? pz : px) * 2
+          push(new THREE.BoxGeometry(nx ? 0.20 : beamLen, 0.20, nz ? 0.20 : beamLen),
+            ox0 + bxs, bY, oz0 + bzs, stone)
+          /**
+           * A DOWNLIGHT OVER EACH BELL, tucked under the cornice.
+           *
+           * The stage reads as a shape from the street and reads as a DARK
+           * shape, which is half of what a weenie needs — pillar 1 wants the
+           * silhouette and pillar 5 wants somewhere for the warm light to
+           * come from. The corner lamps light the parapet and leave the bells
+           * unlit, and there is nowhere behind a bell to put a source: the
+           * shaft wall is 8cm from its inner lip.
+           *
+           * Above it, there is room. A strip under the cornice throws the
+           * light DOWN past the bell, which is both what a floodlit campanile
+           * looks like and the one arrangement that makes a bronze shell
+           * read as a bell rather than as a hole in the frame.
+           *
+           * Deliberately narrow. `addBeacon` is additive and unlit, so area
+           * is brightness: a band the full depth of the shelf is fifteen
+           * square metres of light per tower, which is the uniform pale wash
+           * the lamp-pool comment already records as the worst of both
+           * pillars.
+           */
+          // OVER THE BELL, NOT ACROSS THE FACE. At 0.72 of the headstock it is
+          // three and a half metres of unbroken glow, which photographed as a
+          // strip light — and once the lit arch behind the bell existed it was
+          // also doing the same job twice. Keyed to the bell it lights.
+          const litLen = bellR * 2.4
+          const strip = new THREE.BoxGeometry(
+            nx ? 0.20 : litLen, 0.09, nz ? 0.20 : litLen)
+          localToWorld(strip, ox0 + bxs, cornY - 0.06, oz0 + bzs,
+            leanX, leanZ, rotationY, wx, wy, wz)
+          addBeacon(strip)
+          const mouthY = bY - 0.26 - bellH
+          /**
+           * A LIT ARCH BEHIND THE BELL — and nothing else could have worked.
+           *
+           * `addBeacon` geometry is additive and unlit: it does not
+           * illuminate anything, it only glows. So a lamp beside a bell can
+           * never make the bell visible — a bronze shell in shadow stays a
+           * dark blob whatever is next to it, which is exactly what the first
+           * street photograph showed. The only way a dark object reads is
+           * AGAINST something brighter, which means the light has to be
+           * BEHIND it.
+           *
+           * There is one surface behind a bell and it is the shaft wall,
+           * 13cm away. That is enough for a 6cm panel — and it is also the
+           * architecturally true answer, because what you see through a
+           * belfry opening at night IS the lit chamber behind the bell.
+           *
+           * ROUND-HEADED, because a bare glowing rectangle on a wall is the
+           * failure this file already records ("contained light reads as a
+           * lantern room; the same light unhoused reads as a bright
+           * rectangle"). A box plus a disc at the springing is an arch for
+           * two primitives and no new drawing code.
+           */
+          const archW = bellR * 1.9
+          const archH = bellH * 0.80
+          const panel = new THREE.BoxGeometry(
+            nx ? 0.06 : archW, archH, nz ? 0.06 : archW)
+          localToWorld(panel, ox0 + nx * (shaftW / 2 + 0.05), mouthY + archH / 2,
+            oz0 + nz * (shaftD / 2 + 0.05), leanX, leanZ, rotationY, wx, wy, wz)
+          addBeacon(panel)
+          const head = new THREE.CylinderGeometry(archW / 2, archW / 2, 0.06, 12)
+          if (nx) head.rotateZ(Math.PI / 2)
+          else head.rotateX(Math.PI / 2)
+          localToWorld(head, ox0 + nx * (shaftW / 2 + 0.05), mouthY + archH,
+            oz0 + nz * (shaftD / 2 + 0.05), leanX, leanZ, rotationY, wx, wy, wz)
+          addBeacon(head)
+          // THE PROFILE IS THE WHOLE RECOGNITION, and the first cut got it
+          // wrong in the way that is easiest to miss: a single taper from
+          // shoulder to mouth is geometrically a bell-ish shape and reads as a
+          // CONE — a lampshade on a stick. What names a bell at a distance is
+          // the SOUNDBOW, the near-vertical thickened band at the mouth, and
+          // then a waist that pulls in slowly before the shoulder pulls in
+          // fast. Four stacked frusta, bottom to top, and only the first two
+          // matter for the silhouette.
+          for (const [r0, r1, y0, y1] of [
+            [1.00, 0.95, 0.00, 0.14],   // soundbow — almost straight
+            [0.95, 0.70, 0.14, 0.48],   // waist
+            [0.70, 0.46, 0.48, 0.80],   // shoulder
+            [0.46, 0.26, 0.80, 1.00],   // crown
+          ] as const) {
+            push(new THREE.CylinderGeometry(bellR * r1, bellR * r0,
+              bellH * (y1 - y0), 14),
+            ox0 + bxs, mouthY + bellH * (y0 + y1) / 2, oz0 + bzs, bronze)
+          }
+          // The canon — the strap that carries the bell on its headstock.
+          push(new THREE.BoxGeometry(nx ? 0.09 : 0.22, 0.30, nz ? 0.09 : 0.22),
+            ox0 + bxs, bY - 0.13, oz0 + bzs, bronze)
+          if (!bellLogged) {
+            // WITH ITS EXTENT, through the transform. A bare point on a tower
+            // had `featureshot` framing a 3.2m box at the parapet with the
+            // subject above the crop — see the lantern room.
+            const bm = new THREE.BoxGeometry(bellR * 2, bellH, bellR * 2)
+            localToWorld(bm, ox0 + bxs, mouthY + bellH * 0.5, oz0 + bzs,
+              leanX, leanZ, rotationY, wx, wy, wz)
+            bm.computeBoundingBox()
+            const bb = bm.boundingBox
+            if (bb) {
+              siteOf('bell', (bb.min.x + bb.max.x) / 2,
+                (bb.min.y + bb.max.y) / 2, (bb.min.z + bb.max.z) / 2,
+                bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z)
+            }
+            bm.dispose()
+            bellLogged = true
+          }
+        }
+        tallyIn('bell', district)
+      }
       // BALUSTRADE — posts with GAPS, so the parapet reads as open sky.
       // A lighthouse has its lantern room here instead; a rail around the
-      // glass would only hide it.
-      const postH = isLantern ? 0.34 : Math.max(0.78, beaconSize * 0.85)
+      // glass would only hide it, and a belfry drops to the same low rail so
+      // the posts do not stand in front of the bells.
+      const postH = isLantern || belfry ? 0.34 : Math.max(0.78, beaconSize * 0.85)
       const postT = 0.24
       const bx = shaftW / 2 + galOut - postT / 2, bz = shaftD / 2 + galOut - postT / 2
-      // The lighthouse keeps a low rail — a gallery you can walk is what the
-      // keeper cleans the glass from — but not the tall posts that would
-      // stand in front of the light.
-      void 0
-      for (let i = -2; i <= 2; i++) {
+      // A BELFRY SKIPS THE CORNER AND MID-FACE POSTS, because the corners are
+      // where its piers stand and the mid-face is where its bells hang. Two
+      // solids in one place is a depth-buffer tie, which this repo has already
+      // chased once as "flickering overlapping textures".
+      for (const i of belfry ? [-1, 1] : [-2, -1, 0, 1, 2]) {
         const fx = (i / 2) * bx, fz = (i / 2) * bz
         for (const s2 of [-1, 1]) {
           push(new THREE.BoxGeometry(postT, postH, postT),
@@ -2401,7 +2622,18 @@ export function buildBuildingMeshes(
       const lampH = Math.max(0.72, beaconSize * 0.85)
       const lampY = galY + galT + lampH / 2
       const lx0 = shaftW / 2 + galOut * 0.52, lz0 = shaftD / 2 + galOut * 0.52
-      for (const [mx, mz] of (isLantern ? [] : [[lx0, 0], [-lx0, 0], [0, lz0], [0, -lz0]]) as ReadonlyArray<readonly [number, number]>) {
+      // A BELFRY MOVES ITS LAMPS TO THE CORNERS, because the mid-face is now
+      // occupied by a bell and the two would interpenetrate. The corner is
+      // also the better place for them: on the diagonal, all four are visible
+      // from every bearing at once, and they light the stage the bells hang in
+      // rather than standing beside it.
+      const kx0 = shaftW / 2 + galOut * 0.32, kz0 = shaftD / 2 + galOut * 0.32
+      const lampSpots: ReadonlyArray<readonly [number, number]> = isLantern
+        ? []
+        : belfry
+          ? [[kx0, kz0], [kx0, -kz0], [-kx0, kz0], [-kx0, -kz0]]
+          : [[lx0, 0], [-lx0, 0], [0, lz0], [0, -lz0]]
+      for (const [mx, mz] of lampSpots) {
         const lamp = new THREE.BoxGeometry(
           mx === 0 ? lampH * 1.15 : lampH * 0.6, lampH,
           mz === 0 ? lampH * 1.15 : lampH * 0.6)

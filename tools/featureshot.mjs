@@ -33,6 +33,19 @@ const feature = args.find((a) => !a.startsWith('--') && !/^\d+$/.test(a)) ?? 'bu
 const seed = Number(args.find((a) => /^\d+$/.test(a))) || 4242
 const n = Number((args.find((a) => a.startsWith('--n=')) ?? '').slice(4)) || 2
 const time = Number((args.find((a) => a.startsWith('--time=')) ?? '').slice(7)) || 18.5
+/**
+ * `--wide` — THE CONTEXT SHOT, which is a different question from the tight
+ * one and the tool could not ask it.
+ *
+ * The close-up answers "was this built and what shape is it". It cannot
+ * answer "does it read from the street", which is the question every content
+ * review here has actually turned on — a metre of moulding photographed from
+ * five metres looks like an attraction and looks like nothing from the far
+ * end of a road. `pick: 'largest'` plus a tight crop is exactly the framing
+ * that hides that, so the wide pass takes the FIRST clear vantage at street
+ * distance and keeps the whole frame.
+ */
+const wide = args.includes('--wide')
 
 mkdirSync('.shots/feature', { recursive: true })
 const app = await electron.launch({ args: ['.'], cwd: process.cwd() })
@@ -126,17 +139,45 @@ for (const p of spots.slice(0, n)) {
   // degrees): a camera pointed where the defect is not will report there is
   // none. Level first, then progressively BELOW, which is where a person
   // stands relative to anything on a tower.
-  const v = await lookAt(win, box, {
-    dists: [5, 8, 12, 18, 26],
-    heights: [0, -4, -9, -15, 2],
-    order: 'height',
-    pick: 'largest',
-    minFill: 0.05,
-  })
+  const v = await lookAt(win, box, wide
+    ? {
+      dists: [20, 28, 36, 46],
+      // A STREET IS BELOW A BELFRY. The heights are relative to the subject,
+      // so a feature eighteen metres up needs the camera far under it — the
+      // same vantage argument as the tight pass, further out.
+      heights: [-12, -17, -22, -8],
+      order: 'height',
+      pick: 'first',
+      minFill: 0.001,
+    }
+    : {
+      dists: [5, 8, 12, 18, 26],
+      heights: [0, -4, -9, -15, 2],
+      order: 'height',
+      pick: 'largest',
+      minFill: 0.05,
+    })
   if (!v.ok) { console.log(`  x ${v.why}`); continue }
   await markSubject(win, v.screen)
-  const path = `.shots/feature/${feature}-${seed}-${shot}.png`
-  await win.screenshot({ clip: cropTo(v.screen, FRAME), path })
+  const path = `.shots/feature/${feature}-${seed}-${shot}${wide ? '-wide' : ''}.png`
+  // The wide pass keeps the whole VIEWPORT on purpose — cropping to the
+  // subject would undo the only thing it is measuring — but not the app
+  // chrome. `hideChrome` only removes the HUD overlay, and the tight pass
+  // never saw the side panels because its crop is centred, so the first wide
+  // frame came back two thirds editor UI.
+  const canvas = wide ? await win.evaluate(() => {
+    let best = null
+    for (const c of document.querySelectorAll('canvas')) {
+      const r = c.getBoundingClientRect()
+      if (!best || r.width * r.height > best.width * best.height) {
+        best = { x: r.x, y: r.y, width: r.width, height: r.height }
+      }
+    }
+    return best
+  }) : null
+  await win.screenshot(wide
+    ? (canvas ? { clip: canvas, path } : { path })
+    : { clip: cropTo(v.screen, FRAME), path })
   console.log(`  ✓ ${path}  at (${p.x.toFixed(1)}, ${p.z.toFixed(1)}) — ` +
     `${v.dist?.toFixed(0) ?? '?'}m out, fills ${((v.fill ?? 0) * 100).toFixed(0)}%`)
   shot++
