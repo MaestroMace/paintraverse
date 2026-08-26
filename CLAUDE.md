@@ -1833,6 +1833,19 @@ is the subject's own height above the ground under it, which the bridge knows
 exactly. Third instance in this file of a hand-written vantage table being
 wrong for a population it was not written for.
 
+**AND THE TRACERY IS THE ONE PART KIND THAT IS SUPPOSED TO CROSS THE GLASS,
+SO IT IS DELIBERATELY NOT RECORDED.** Every other 3D member on a wall goes
+through `recordPart` so `facade.mjs` can grade it, and this file's own rule is
+that a kind which is never recorded and a kind with no collisions read
+identically in that census — which is how the colonnade went missing. A
+mullion is the exception and the exception is structural: `facade.mjs` asks
+"does this member cross a painted opening", and a mullion crossing its own
+window is what a mullion IS. Recording it would manufacture a false alarm on
+every pane, and a false alarm nobody can act on is worse here than no
+instrument at all. **This is a declaration, not an oversight** — if a tracery
+bug ever needs catching, the check it wants is containment WITHIN its own
+cell, not collision with it.
+
 **HONEST VERDICT: THIS IS A DETAIL, NOT A WEENIE.** It fires on 100% of its
 eligible population (3 cathedrals over 3 seeds, and `typemix` says those seeds
 grow no temple or chapel at all), it is exact, it costs nothing measurable —
