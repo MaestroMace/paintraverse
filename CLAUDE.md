@@ -2653,7 +2653,7 @@ Run these before believing anything about where the project is.
 | ground read | streets.mjs | 60% of the map one colour family | art-direction call |
 | vista termination | vistas.mjs | 18% of long views end on a landmark, was 6% | improving |
 | prop tenancy | tenancy.mjs | **44% of props explained by their owner** (42 -> 44 is the TOOL being corrected, not the town) | improving |
-| street dressing gates | features.mjs | 1 wallpaper (copperCap, on a roof style), 3 ghosts and all correctly rare | clean |
+| street dressing gates | features.mjs | 0 wallpaper, **6 ghosts and all correctly rare** — `bell` and `stainedGlass` joined, each on 100% of a population of one or two buildings a town | clean |
 | roof material | features.mjs | thatch on 6% of buildings, spread 0-13% | new |
 | roof ornaments | features.mjs | dormer 38 / finial 26 / weatherVane 16 / copperCap 13 / spireCross 3% | new — never counted before |
 | props in a designed group | genlog `vigOk:` | 41/35/27 groups a town over 14 vignettes | new |
@@ -6176,6 +6176,24 @@ feature and could not POINT A CAMERA AT ONE.** That is the same hole
 it name them. `featureSites` records the world position of up to a dozen
 instances of each named feature AT THE POINT IT IS EMITTED, which is the only
 place that knows, and `tools/featureshot.mjs` flies to one and photographs it.
+
+    node tools/featureshot.mjs <feature> [seed] [--n=2] [--time=] [--wide]
+    node tools/featureshot.mjs --list [seed]
+
+**AND `--wide` IS THE HALF THAT ANSWERS THE QUESTION CONTENT REVIEWS ACTUALLY
+TURN ON.** The default pass is a tight crop at five metres with `pick:
+'largest'`, which says "was this built and what shape is it" — and a metre of
+moulding photographed from five metres looks like an attraction and looks like
+nothing from the far end of a street. The wide pass takes the FIRST clear
+vantage at street distance, keeps the whole viewport and clips to the CANVAS
+(`hideChrome` only removes the HUD overlay, so the first wide frame came back
+two thirds editor UI, which the centred tight crop had never noticed). Its
+camera height is DERIVED from the ground under the subject rather than from a
+table, because the offset that stands a camera in the street under an
+eighteen-metre bell puts it twelve metres underground for a chapel window.
+**Take both. Two honest photographs of one build disagreeing is the finding** —
+that is how the stained glass was caught reading as deep jewelled lights up
+close and as near-black slivers from twenty metres.
 
 **And the first run of it settled the buttress in one frame**: a stone-coursed
 pier standing proud of the wall with a stepped weathered cap, casting its own
