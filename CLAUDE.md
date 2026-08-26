@@ -1915,6 +1915,32 @@ success marker over a broken bundle. This file already says to check the build
 with a success marker rather than `tail -1`; the other half is that **the
 success marker is not evidence the code compiles.** Run both gates, every time.
 
+Board: **0 gate failures, 0 regressions across 29 checks**, every row
+byte-identical against the baseline except `mistWater` inside its own ±25
+band. Same verdict as the belfry and for the same reason — a rose window
+claims no tile, moves no building and adds no texture.
+
+### THE THREE MAGICAL ASSETS, AND WHAT THEY HAVE IN COMMON
+
+All three of this arc's content changes are ORNAMENT ON EXISTING STRUCTURE and
+every one of them cost nothing on the board. That is not luck, it is the shape
+of the opportunity: `coverage` sits at 45 against a 50-70 band and CLAUDE.md's
+own standing warning is not to add another PLACED landmark without re-reading
+THE DISTRICT TRADE. Ornament is the move that is still free.
+
+| asset | where it lives | what it buys |
+|---|---|---|
+| belfry bells | the crown of `bell_tower` / `bell_tower_tall` | a silhouette you recognise at 100ft |
+| stained glass | the sacred types' painted openings | colour at the 30ft read |
+| rose window | the cathedral's west gable | a weenie that terminates a vista |
+
+**And each one was placed by asking where the geometry ALREADY leaves room**,
+never by making room: the bells go beyond the shaft's outline in plan because
+that is the only place with sky behind them, the glass goes through the cells
+`facadeOpenings` already lays out, and the rose goes in the triangle
+`roofAxisFor` was already putting on the front of every cathedral. When the
+next session wants a fourth, look for the void before designing the object.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
