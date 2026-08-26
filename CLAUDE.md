@@ -6144,6 +6144,39 @@ The per-mesh bar is still printed, because "is this mesh moving enough to SEE"
 is a real and different question from "is the shader reaching it" — the same
 split the window spill needed between measurable and visible.
 
+## ONE LANDMARK RESHUFFLES THE WHOLE TOWN — placeLandmarks runs FIRST
+
+Adding a single lighthouse moved twenty rows of the board, most of them a long
+way and most of them BETTER, which is the shape that should stop you rather
+than please you:
+
+    deepClash    19 -> 8      spireAtCap   13 -> 0
+    blankFrac  17.3 -> 1.4    litOpenings  12 -> 38
+    wallLuma    101 -> 79     twinNear     11 -> 18
+
+**A building ADDED cannot remove eleven collisions.** That is the same tell as
+the negative window-spill delta and a rate over 100%: a number outside what
+the change can produce convicts the reasoning, not the metric.
+
+The mechanism is pipeline order and nothing else. `placeLandmarks` runs BEFORE
+`placeBuildings`, which takes `[...bridges, ...landmarks]` as ground it must
+not build through and derives `maxBuildings` from what is left — so one 3x3
+landmark occupies nine tiles, changes the cap, and moves every building placed
+after it. It is a different town, and none of the movement is attributable to
+the lighthouse itself.
+
+**Two wrong explanations came first and both were cheap to test and were not
+tested.** The RNG stream was blamed — `createObj` uses `uuid()` and never
+touches the seeded generator. Then pass ordering was blamed, and moving the
+block to the end of `placeLandmarks` produced BYTE-IDENTICAL output. The
+answer came from reading the pipeline, which was one grep. The stale-baseline
+hypothesis was the easiest of all to check and was checked last.
+
+**The isolation that worked is the one that changes exactly one thing:**
+suppress the single `landmarks.push` and rebuild. Not `git stash` (nothing to
+stash on a committed tree), not disabling the pass (it still marks occupancy),
+not weight 0 — one object, in or out.
+
 ## A SPAWN YOU CANNOT LEAVE — the third variant, and each check missed it
 
 Three spawn defects now, and the shape is the same every time: **each new
