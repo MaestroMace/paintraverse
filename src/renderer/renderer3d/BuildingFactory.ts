@@ -19,7 +19,7 @@ import type { DistrictId } from './architecture'
 import { pickMassing, volumeFloors, traceStage, clipToFootprint, MAX_OVERHANG as MAX_OVERHANG_M } from './architecture/Massing'
 import { addBeacon } from './Beacons'
 import { facadeOpenings, quantizeWallM } from './FacadeTexture'
-import { gableMath, clampRoofHeight, clampRoofToWall } from './architecture/Roofs'
+import { gableMath, clampRoofHeight, clampRoofToWall, eaveProjFor } from './architecture/Roofs'
 import { emitVolume, localToWorld, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
 import { pickPaletteForStyle } from './architecture/PaletteBias'
 import { isThatched, roofColorFor } from './Materials'
@@ -4113,6 +4113,116 @@ export function buildBuildingMeshes(
       // the counter-before-the-work failure already on the record here.
       if (glassed) tallyIn('stainedGlass', district)
       else tallyIn('stainedGlass~noOpenings', district)
+    }
+
+    /**
+     * === THE GREAT ROSE WINDOW — on the GABLE, which is where it fits ===
+     *
+     * The stained glass above records why this could not go on the nave WALL:
+     * `facadeOpenings` lays storeys from the ground up at their true height,
+     * so the clear band above the top row is under a metre and a three-metre
+     * disc could only sit on top of painted windows. The note ended "if it is
+     * wanted, it needs the GABLE above the eaves", and that turns out to be
+     * both true and free.
+     *
+     * `roofAxisFor` returns 'x' whenever w >= d, and a cathedral is DEEPER
+     * than it is wide — so its ridge runs along Z and its gable ends are the
+     * +Z and -Z faces. The front of the building is a gable end. That is the
+     * west front, which is exactly where a rose window goes, and nothing had
+     * to be arranged for it: the massing already produces the shape.
+     *
+     * THE SIZE IS BOUNDED BY THE TRIANGLE AND NOTHING ELSE. At height y up a
+     * gable of half-base b and height h, the available half-width is
+     * b*(1 - y/h) — so the disc is inscribed rather than guessed, and the
+     * binding constraint at mid-height is the EAVE below it rather than the
+     * slopes beside it. That is containment with nothing to tune, the same
+     * discipline that sized the great clock per face.
+     */
+    if (STAINED_GLASS_TYPES.has(obj.definitionId) &&
+        (mainVol.roofStyle === 'gabled' || mainVol.roofStyle === 'steep')) {
+      const eaveP = eaveProjFor(mainVol.roofStyle)
+      const alongX = mainVol.roofAxis === 'x'
+      // The gable ends are at +/-(halfExtent + eaveProj) ALONG THE RIDGE —
+      // `buildGablePrism` puts the ridge endpoints there, which is the one
+      // place this is stated unambiguously. Reasoning about it got the
+      // chandlery's hoist beam onto the wrong face once already.
+      const halfAlong = (alongX ? mainVol.width : mainVol.depth) / 2 + eaveP
+      const b = (alongX ? mainVol.depth : mainVol.width) / 2 + eaveP
+      const h = mainVol.roofHeight
+      const baseY = mainVol.bottomY + mainVol.height
+      const cy = baseY + h * 0.50
+      // Inscribed: the slopes on either side, and the eave below.
+      const outer = Math.min(b * 0.50 * 0.85, h * 0.40)
+      if (outer < 0.80) tallyIn('roseWindow~gableTooSmall', district)
+      else {
+        const rimT = Math.max(0.14, outer * 0.13)
+        const dark = shiftColor(palette.wall, -0.32, -0.30, -0.26)
+        const tint = GLASS_TINTS[hash % GLASS_TINTS.length]
+        const push = (g: THREE.BufferGeometry, lx: number, ly: number,
+          lz: number, col: number): void => {
+          localToWorld(g, lx, ly, lz, leanX, leanZ, rotationY, wx, wy, wz)
+          ornamentBatch.addPositioned(g, col)
+        }
+        let roseLogged = false
+        for (const sgn of [1, -1]) {
+          const px = alongX ? sgn * halfAlong : mainVol.offsetX
+          const pz = alongX ? mainVol.offsetZ : sgn * halfAlong
+          const out = (o: number): [number, number] => alongX
+            ? [px + sgn * o, pz] : [px, pz + sgn * o]
+          const face = (g: THREE.BufferGeometry): THREE.BufferGeometry => {
+            if (alongX) g.rotateZ(Math.PI / 2)
+            else g.rotateX(Math.PI / 2)
+            return g
+          }
+          // RIM — a dark ring, so the disc has an edge and its own shadow.
+          // A glowing circle with no surround is the bare-rectangle failure
+          // in the round.
+          const [rx, rz] = out(0.10)
+          push(face(new THREE.CylinderGeometry(outer, outer, rimT, 20)),
+            rx, cy, rz, dark)
+          // GLASS — proud of the rim's outer face, for the reason the clock
+          // dial is: a disc embedded in its own surround is the surround.
+          const [gx, gz] = out(0.10 + rimT * 0.55)
+          const glass = face(new THREE.CylinderGeometry(
+            outer - rimT, outer - rimT, 0.07, 20))
+          localToWorld(glass, gx, cy, gz, leanX, leanZ, rotationY, wx, wy, wz)
+          addBeacon(glass, tint)
+          // TRACERY — eight radial bars and a boss. This is what makes it a
+          // ROSE rather than a porthole, and it is the same argument as the
+          // clock's hands: the division is the recognition.
+          // SHORT OF THE GLASS EDGE, AND BARELY PROUD OF IT. At 1.95 of the
+          // radius the bars reach the rim, and because they stand a few
+          // centimetres in front of the disc, an oblique view — which is
+          // every street view of a gable — projects their ends OUTSIDE its
+          // silhouette and they read as spikes round the wheel. Stopping them
+          // at 1.68 leaves a ring of plain glass the tracery dies into, which
+          // is what a real wheel window has.
+          const [tx, tz] = out(0.10 + rimT * 0.55 + 0.02)
+          for (let k = 0; k < 8; k++) {
+            const ang = (k / 8) * Math.PI
+            const bar = new THREE.BoxGeometry(0.09, (outer - rimT) * 1.68, 0.07)
+            if (alongX) { bar.rotateX(ang); bar.rotateZ(Math.PI / 2) }
+            else { bar.rotateZ(ang) }
+            push(bar, tx, cy, tz, dark)
+          }
+          push(face(new THREE.CylinderGeometry(outer * 0.17, outer * 0.17, 0.09, 10)),
+            tx, cy, tz, dark)
+          if (!roseLogged) {
+            const rm = new THREE.BoxGeometry(outer * 2, outer * 2, outer * 2)
+            localToWorld(rm, gx, cy, gz, leanX, leanZ, rotationY, wx, wy, wz)
+            rm.computeBoundingBox()
+            const rb = rm.boundingBox
+            if (rb) {
+              siteOf('roseWindow', (rb.min.x + rb.max.x) / 2,
+                (rb.min.y + rb.max.y) / 2, (rb.min.z + rb.max.z) / 2,
+                rb.max.x - rb.min.x, rb.max.y - rb.min.y, rb.max.z - rb.min.z)
+            }
+            rm.dispose()
+            roseLogged = true
+          }
+        }
+        tallyIn('roseWindow', district)
+      }
     }
 
     // === COLONNADE → batched ===

@@ -1869,8 +1869,51 @@ grow no temple or chapel at all), it is exact, it costs nothing measurable —
 and at street distance it is a coloured window on a wall rather than the thing
 that pulls you down the road. The hero element it was meant to be is the rose,
 and the arithmetic above says where it cannot go. **Do not re-attempt the rose
-on the nave wall.** If it is wanted, it needs the GABLE above the eaves, which
-is roof geometry and a different piece of work.
+on the nave wall.** It went on the GABLE instead — see below.
+
+## THE GREAT ROSE WINDOW — the massing had already made the shape
+
+The note above ended "if it is wanted, it needs the GABLE above the eaves,
+which is roof geometry and a different piece of work". It turned out to be a
+different piece of work and a much SMALLER one, because the generator was
+already producing exactly the right shape and nobody had looked.
+
+**`roofAxisFor` RETURNS 'x' WHENEVER w >= d, AND A CATHEDRAL IS DEEPER THAN
+IT IS WIDE.** So its ridge runs along Z and its gable ends are the +Z and -Z
+faces — **the front of the building is a gable end.** That is the west front,
+which is where a rose window goes, and nothing had to be arranged for it.
+When a feature seems to need new structure, check what the existing rules
+already produce for that population before building any.
+
+**THE SIZE IS INSCRIBED, NOT GUESSED.** At height y up a gable of half-base b
+and height h the available half-width is `b*(1 - y/h)`, so the disc is bounded
+by the triangle itself — and at mid-height the binding constraint turns out to
+be the EAVE below it rather than the slopes beside it, which is not what I
+expected and is why it is computed rather than assumed. Containment with
+nothing to tune, the same discipline that sized the great clock per face.
+Fires on 3 cathedrals over 3 seeds with **zero `~gableTooSmall` rejections**.
+
+**AND THE GABLE PLANE IS AT `halfExtent + eaveProj` ALONG THE RIDGE, WHICH
+ONLY `buildGablePrism` STATES UNAMBIGUOUSLY.** Its ridge endpoints are at
+`(0, h, ±od)` for a Z ridge, so the triangles are there. Reasoning about roof
+axes rather than reading that function is what put the chandlery's hoist beam
+on the wrong face, and this file already records it costing a round.
+
+**THE TRACERY READ AS SPIKES AROUND THE WHEEL, AND THE CAUSE IS OBLIQUITY
+RATHER THAN LENGTH.** The bars are shorter than the glass radius, so they
+cannot overhang it in plan — but they stand a few centimetres PROUD of the
+disc, and every street view of a gable is an oblique one, which projects their
+ends outside its silhouette. Shortening them to 1.68 of the radius leaves a
+ring of plain glass for the tracery to die into, which is what a real wheel
+window has anyway. **A part that cannot overlap in plan can still overlap on
+screen; the projection is the thing being graded.**
+
+**AND THE BUILD PASSED WHILE THE TYPECHECK FAILED**, on three `Cannot find
+name 'push'` errors — the beacon block's local helper is not in scope in the
+colonnade block. esbuild does not typecheck, so `npm run build` printed its
+success marker over a broken bundle. This file already says to check the build
+with a success marker rather than `tail -1`; the other half is that **the
+success marker is not evidence the code compiles.** Run both gates, every time.
 
 ## Critical files map
 
