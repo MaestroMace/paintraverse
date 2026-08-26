@@ -2358,9 +2358,25 @@ export function buildBuildingMeshes(
        * differ without ever animating.
        */
       if (obj.definitionId === 'clock_tower') {
-        const face = Math.min(shaftW, shaftD)
-        const dialR = face * 0.42
-        const dialY = galY - dialR - 0.55
+        // A CLOCK FACE MUST FIT THE WALL IT IS ON — and the first cut did not.
+        //
+        // `dialR = min(shaftW, shaftD) * 0.42` plus a rim of `dialR * 0.22`
+        // gives an OUTER diameter of 1.28 x the shaft, so on the narrow tower
+        // this seed puts a clock on, the rim was wider than the tower carrying
+        // it. Mounted on a side face and standing half a metre proud, it hung
+        // in mid-air over the neighbouring roof — a disc floating beside the
+        // building rather than a clock on it, which is what the photograph
+        // showed and what a triangle count could never have said.
+        //
+        // Sized per FACE, because a face is not square: the wall you see when
+        // looking along +X is `shaftD` wide, not `shaftW`. And bounded by the
+        // available WALL HEIGHT too, since a dial that fits the width can
+        // still run off the top into the gallery or down through the eaves.
+        // Containment, with nothing to tune.
+        const wallBase = towerVol.bottomY
+        const availH = Math.max(0, galY - wallBase - 0.5)
+        const outerFor = (faceW: number): number =>
+          Math.min(faceW, availH) * 0.5 * 0.86
         // PROUD OF THE WALL, NOT FLUSH WITH IT. The first cut mounted the disc
         // at `shaftW/2 + rimT*0.5` and made it `rimT*0.9` thick — about 15cm
         // out and 14cm deep, which is a disc embedded in its own wall. The
@@ -2368,12 +2384,21 @@ export function buildBuildingMeshes(
         // no camera could find them, because a flush disc on a shaded wall
         // seen at any angle is the wall. The lamps on the gallery ARE visible
         // and they stand off by half a metre; this matches them.
-        const rimT = Math.max(0.30, dialR * 0.22)
-        const standOff = rimT * 1.6
+
         const dark = shiftColor(palette.wall, -0.32, -0.30, -0.26)
         // Two faces, not four: a clock tower reads along the street it faces,
         // and four dials on a 1x1 shaft is a lantern rather than a clock.
+        let clockLogged = false, clockSiteY = galY
         for (const [nx, nz] of [[1, 0], [0, 1]] as const) {
+          // The wall you look at along this normal, and the dial that fits it.
+          const outerR = outerFor(nx ? shaftD : shaftW)
+          const rimT = Math.max(0.16, outerR * 0.16)
+          const dialR = outerR - rimT
+          // Too small to read as a clock is not a clock. A face that cannot
+          // carry one simply does not get one, rather than getting a smudge.
+          if (dialR < 0.55) continue
+          const dialY = wallBase + 0.5 + availH * 0.62
+          const standOff = Math.max(0.18, rimT * 0.8)
           for (const sgn of [-1, 1]) {
             const mx = nx * sgn * (shaftW / 2 + standOff)
             const mz = nz * sgn * (shaftD / 2 + standOff)
@@ -2388,6 +2413,10 @@ export function buildBuildingMeshes(
             push(rim, ox0 + mx, dialY, oz0 + mz, dark)
             const dialG = dial.clone()
             dial.dispose()
+            if (!clockLogged) {
+              clockSiteY = dialY
+              clockLogged = true
+            }
             localToWorld(dialG, ox0 + mx + nx * sgn * 0.06, dialY,
               oz0 + mz + nz * sgn * 0.06,
               leanX, leanZ, rotationY, wx, wy, wz)
@@ -2415,6 +2444,10 @@ export function buildBuildingMeshes(
             }
           }
         }
+        // ONLY IF ONE WAS ACTUALLY BUILT. Every face can be too narrow, and a
+        // census that counts the attempt rather than the emission is the
+        // counter-before-the-work failure this file already records.
+        if (clockLogged) {
         tallyIn('greatClock', district)
         // THROUGH THE TRANSFORM, NOT BY ADDING LOCAL TO WORLD. The first cut
         // wrote `wx + (ox0 + shaftW/2 + 1)`, which mixes a LOCAL offset into a
@@ -2423,7 +2456,7 @@ export function buildBuildingMeshes(
         // building. Every other placement in this file goes through
         // localToWorld for exactly this reason.
         const cm = new THREE.BoxGeometry(0.1, 0.1, 0.1)
-        localToWorld(cm, ox0 + shaftW / 2 + 1.2, dialY, oz0,
+        localToWorld(cm, ox0 + shaftW / 2 + 1.2, clockSiteY, oz0,
           leanX, leanZ, rotationY, wx, wy, wz)
         cm.computeBoundingBox()
         const cmb = cm.boundingBox
@@ -2432,6 +2465,7 @@ export function buildBuildingMeshes(
             (cmb.min.y + cmb.max.y) / 2, (cmb.min.z + cmb.max.z) / 2)
         }
         cm.dispose()
+        }
       }
     }
 
