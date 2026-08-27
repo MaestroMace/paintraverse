@@ -1992,6 +1992,57 @@ REAL feature rather than a correctly-rare one. **The same amount of work spent
 on ordinary buildings instead of on a landmark shows up in a different row of
 the board.**
 
+## WILL-O'-THE-WISP — the first thing in this town that is not cosy
+
+Every light here is warm and every moving thing is friendly: lanterns, hearth
+smoke, fireflies, moths at a lamp, pigeons on the flagstones. **A town at night
+that is ONLY reassuring has no edge to it**, and the oldest folk light in
+Europe is the one that leads you off the path.
+
+**IT BELONGS TO THE BANK, NOT THE WATER, AND THAT SEPARATION IS WHAT MAKES
+BOTH SYSTEMS GRADEABLE.** `initRiverMist` claims the surface and
+`particles.mjs` holds it to ~100% water; a wisp over the same tiles would make
+both numbers say nothing. The marsh list is soft ground with a wet neighbour —
+where the folklore puts it and where marsh gas actually comes from.
+
+**A BAND, NOT A RING.** The first cut asked for a wet ORTHOGONAL neighbour and
+the census answered with wisps on ONE SEED IN THREE: this town quays its
+river, so the urban bank is road and stone and the only soft edge is out in
+the countryside. A marsh is a couple of tiles deep. At radius 2 it fires on all
+three seeds and `systems: 9 drawn` on every one.
+
+**AND SPAWNING ON THE RIGHT GROUND IS NOT ENOUGH — THE EXCURSION HAS TO STAY
+THERE.** At a drift radius of 2.6 the wander reaches more than a tile and the
+census read wisps over PAVING on a third of their samples, which is the
+firefly finding exactly: a glow over cobbles is a dust mote, not a marsh light.
+**Check where a system ENDS UP, not only where it is seeded.**
+
+**EACH ONE BREATHES ON ITS OWN CYCLE, WHICH NEEDS A COLOUR ATTRIBUTE** rather
+than the material's single opacity — twenty points fading together is a
+metronome, the same reason every lantern along a street gets its own sway
+phase. 0.11-0.19 Hz, below the window flicker (0.25-0.7) and the star twinkle
+(0.18-0.40) so nothing beats against anything.
+
+**TWO THINGS THE PHOTOGRAPH CHANGED AND NO NUMBER COULD.**
+
+- **At size 0.34 the isolate frame showed 2-3px specks barely above black** —
+  present, measurable and invisible, which is the verdict the moths got before
+  their orbit was widened. A firefly is 0.08 because it is an insect; this is a
+  hovering lamp with a halo, so 1.05.
+- **The first colour came back as pale grey blobs**, because additive light
+  plus ACES pulls everything toward white. The whole argument for the system is
+  a COLD light in a town whose every other light is amber, so the green has to
+  SURVIVE the tone curve rather than merely be specified.
+
+**`tools/partshot.mjs` IS THE GENERAL FORM OF `mothshot`.** Give it a mesh NAME
+and it flies to a real particle (a vertex is by definition on an instance —
+never the buffer's bounding-box centre, which for a scattered system is a field
+between the members), frames it with `lookAt` rather than a hand-rolled bearing
+(`flyTo` does not test occupancy, five times paid for now), clips to the canvas
+and takes the A/B triple. `particles.mjs` grades extent, spread, tenancy and
+reactivity, and **not one of those can say whether a point survives to a
+pixel.** Reusable for mist, fireflies and pigeons.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
