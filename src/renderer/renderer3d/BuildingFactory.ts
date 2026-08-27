@@ -12,7 +12,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { ObjectDefinition, PlacedObject } from '../core/types'
-import { stableHash } from '../core/types'
+import { stableHash, DWELLING_TYPES } from '../core/types'
 import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
@@ -144,6 +144,19 @@ const SHUTTER_COLORS = [
  * cathedral. A chapel gets it because a chapel has glass; a bell tower does
  * not, because a belfry is an opening with a bell in it.
  */
+/**
+ * A CAT IN THE WINDOW — coats, and the one colour that is not a coat.
+ *
+ * The eyes are EMISSIVE and everything else is not, which is the whole reason
+ * this works at `RENDER_SCALE = 0.4`. A 30cm cat is four pixels at any
+ * distance a person actually stands, and a dark shape four pixels across on a
+ * dark wall at dusk is nothing at all — but two lit specks read, because the
+ * eye finds a point of light long after it has lost a silhouette. That is the
+ * same argument the belfry's lit arch is built on, at a twentieth of the size.
+ */
+const CAT_COATS = [0x8a5228, 0x241f1e, 0x5a5854, 0xb0a897, 0x50372a, 0x6e4426]
+/** Yellow-green, so a cat is not mistaken for one more amber window. */
+const CAT_EYE = 0x8fa32a
 const STAINED_GLASS_TYPES = new Set(['cathedral', 'temple', 'chapel'])
 /**
  * DARK ON PURPOSE, AND THE FIRST SET WAS NOT DARK ENOUGH BY A LONG WAY.
@@ -3954,6 +3967,118 @@ export function buildBuildingMeshes(
     // Circular tower, bay window, and archway specialty blocks moved to
     // architecture/Massing.ts (tmplCircularTower / tmplGatehouse /
     // tmplStepBack-and-friends produce the projecting bays).
+
+    /**
+     * === A CAT IN THE WINDOW ===
+     *
+     * Every content change in this arc so far lands on ONE building a town —
+     * a cathedral, a belfry. That is what a landmark is for, and it is the
+     * wrong shape for whimsy: a delight you meet once is a set piece, and a
+     * delight you keep meeting is a place with something living in it. So this
+     * goes on ordinary houses, and the gate carries the meaning — a cat sits
+     * where somebody LIVES, never on a warehouse or a town gate, and more
+     * often in the quiet quarters than in the market.
+     *
+     * ON A SILL THAT ALREADY EXISTS. `facadeOpenings` is the same function
+     * FacadeTexture paints from and VolumeRenderer hangs its projecting sills
+     * on, so the ledge under the cat is real geometry and the position is
+     * exact rather than guessed — the same containment argument as the glass.
+     */
+    const CAT_ODDS: Record<string, number> = {
+      residential: 0.22, garden: 0.24, slum: 0.20, noble: 0.16, artisan: 0.14,
+    }
+    if (DWELLING_TYPES.has(obj.definitionId) && !isLandmark &&
+        mainVol.habitable !== false &&
+        rand01(hash, 2311) < (CAT_ODDS[district] ?? 0.08)) {
+      const catCells = facadeOpenings(
+        volumeFloors(mainVol), quantizeWallM(mainVol.width, 'front'),
+        quantizeWallM(mainVol.height, 'front', 1.5), 'front', mainVol.wallColor)
+      // A cat sits where it can be SEEN and where it could plausibly have got
+      // to: the lower two storeys, and never a bricked-up opening, which has
+      // no sill to sit on and no room behind it.
+      // FILTER FIRST, THEN CHOOSE — the constraints decide the POPULATION, not
+      // the pick. The first cut took one sill by hash and then tested it, and
+      // the tally said `~atDoor` on 43 against 20 built: most of this town is
+      // one bay wide, so its only ground-floor opening sits over the door, and
+      // a cat that could perfectly well have used the sill upstairs was simply
+      // dropped. Selecting from the valid set is the same fix the vignette
+      // anchor needed — a criterion must measure the population it serves.
+      const sills = catCells.filter((c) => {
+        if (c.blocked) return false
+        const cy = c.vCenter * mainVol.height
+        if (cy >= STOREY_HEIGHT * 2.4) return false
+        const cw = c.uW * mainVol.width
+        const cx = (c.u - 0.5) * mainVol.width
+        const sy = mainVol.bottomY + (c.vCenter - c.vH / 2) * mainVol.height
+        // ON THE WALL IT SITS ON, and clear of the door — the same two
+        // clauses the shutters and the glass need, for the same reasons.
+        if (Math.abs(cx) + cw * 0.5 > frontWallHalfW) return false
+        if (Math.abs(cx) < 0.475 + cw * 0.5 && sy < 2.05) return false
+        return true
+      })
+      if (!sills.length) tallyIn('windowCat~noSill', district)
+      else {
+        const c = sills[hash % sills.length]
+        const cw = c.uW * mainVol.width
+        const cx = (c.u - 0.5) * mainVol.width
+        const sillY = mainVol.bottomY + (c.vCenter - c.vH / 2) * mainVol.height
+        {
+          const coat = CAT_COATS[(hash >> 5) % CAT_COATS.length]
+          const dark = shiftColor(coat, -0.06, -0.05, -0.04)
+          // Facing out of the window, with a little yaw so a street of cats
+          // is not a row of identical ornaments — pillar 2 at the smallest
+          // scale this town has.
+          const look = (rand01(hash, 2317) - 0.5) * 0.9
+          const cz = frontWallZ + 0.15
+          const cpush = (g: THREE.BufferGeometry, dx: number, dy: number,
+            dz: number, col: number): void => {
+            g.rotateY(look)
+            localToWorld(g, cx + dx, sillY + dy, cz + dz,
+              leanX, leanZ, rotationY, wx, wy, wz)
+            detailBatch.addPositioned(g, col)
+          }
+          // A SITTING CAT IS A LOAF WITH A HEAD ON IT. Two spheres, two ears
+          // and a tail curled round the front paws — any more at four pixels
+          // is geometry nobody can see, which is this file's standing rule
+          // about anything under ~5cm.
+          const body = new THREE.SphereGeometry(0.105, 7, 5)
+          body.scale(1.0, 0.92, 1.22)
+          cpush(body, 0, 0.097, 0, coat)
+          const head = new THREE.SphereGeometry(0.072, 7, 5)
+          head.scale(1.0, 0.94, 0.96)
+          cpush(head, 0, 0.235, 0.035, coat)
+          for (const es of [-1, 1]) {
+            const ear = new THREE.ConeGeometry(0.030, 0.058, 4)
+            cpush(ear, es * 0.042, 0.296, 0.020, dark)
+          }
+          // The tail comes round the side and lies along the sill.
+          const tailSide = (hash & 1) ? 1 : -1
+          const tail = new THREE.BoxGeometry(0.038, 0.036, 0.20)
+          cpush(tail, tailSide * 0.093, 0.032, 0.045, dark)
+          // THE EYES ARE THE FEATURE. Tinted beacons, so they ride the same
+          // path the stained glass does and cost one shared draw call.
+          let catLogged = false
+          for (const es of [-1, 1]) {
+            const eye = new THREE.SphereGeometry(0.0235, 5, 4)
+            eye.rotateY(look)
+            localToWorld(eye, cx + es * 0.030, sillY + 0.246, cz + 0.098,
+              leanX, leanZ, rotationY, wx, wy, wz)
+            addBeacon(eye, CAT_EYE)
+            if (!catLogged) {
+              eye.computeBoundingBox()
+              const eb = eye.boundingBox
+              if (eb) {
+                siteOf('windowCat', (eb.min.x + eb.max.x) / 2,
+                  (eb.min.y + eb.max.y) / 2 - 0.10, (eb.min.z + eb.max.z) / 2,
+                  0.55, 0.55, 0.55)
+              }
+              catLogged = true
+            }
+          }
+          tallyIn('windowCat', district)
+        }
+      }
+    }
 
     /**
      * === STAINED GLASS — coloured light through the openings that exist ===

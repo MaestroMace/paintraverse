@@ -154,8 +154,21 @@ for (const p of spots.slice(0, n)) {
   const drop = Math.max(0, p.y - ((typeof groundY === 'number' ? groundY : 0) + 1.6))
   const v = await lookAt(win, box, wide
     ? {
-      dists: [20, 28, 36, 46],
-      heights: [-drop, -drop * 0.62, -drop * 0.3, 0],
+      // AND "STREET DISTANCE" IS NOT ONE DISTANCE EITHER. 20-46m is where you
+      // read a belfry; a cat on a ground-floor sill at 20m in a town whose
+      // facades are 12m apart has no clear line to anywhere, and the tool
+      // reported "no clear view" rather than the honest answer, which is that
+      // the far end of the street is the wrong question for a 30cm subject.
+      // Across the street is the right one.
+      dists: drop > 2 ? [20, 28, 36, 46] : [9, 13, 18, 26],
+      // AND A SUBJECT AT EYE LEVEL COLLAPSES THE TIERS TO ONE. `drop` is the
+      // subject's height above the ground under it, which is ~0 for a cat on
+      // a ground-floor sill — so all four offsets become 0, `order: 'height'`
+      // has a single tier, and a dense street yields no clear line at all.
+      // A low subject wants variation AROUND eye level instead of below it.
+      heights: drop > 2
+        ? [-drop, -drop * 0.62, -drop * 0.3, 0]
+        : [0, 1.6, -1.2, 4, 8],
       order: 'height',
       pick: 'first',
       minFill: 0.001,
