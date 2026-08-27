@@ -1984,6 +1984,14 @@ third and fourth time in this file a hand-written vantage table has been wrong
 for a population it was not written for, and the fix is always the same: derive
 it from the subject.
 
+Board: **0 gate failures, 0 regressions across 29 checks** — and `features
+ghosts` stayed at **7** rather than rising, which is the row worth reading. The
+bell, the glass and the rose each joined that list because they fire on one or
+two buildings a town; at 5% the cat is above the 2% line, so it registers as a
+REAL feature rather than a correctly-rare one. **The same amount of work spent
+on ordinary buildings instead of on a landmark shows up in a different row of
+the board.**
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
