@@ -875,6 +875,11 @@ for (const seed of seeds) {
       // water — a town that quays its whole river legitimately has none,
       // so water tiles are the nearest prerequisite the census can see.
       ['wisps', ['water', 12]],
+      // Sparks come off the ALWAYS_SMOKING trades, so a town with no
+      // smokehouse, kiln, cookshop or bakery legitimately has none —
+      // and the census cannot see a building type from here, so this
+      // one is reported rather than gated.
+      ['embers', ['water', 999999]],
     ]
     const gone = []
     for (const [name, req] of EXPECT) {

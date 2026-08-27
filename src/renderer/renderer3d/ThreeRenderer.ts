@@ -326,7 +326,7 @@ interface ParticleSystem {
   lifetimes: Float32Array
   origins: Float32Array
   count: number
-  type: 'smoke' | 'firefly' | 'bird' | 'moth' | 'precip' | 'mist' | 'flock' | 'wisp'
+  type: 'smoke' | 'firefly' | 'bird' | 'moth' | 'precip' | 'mist' | 'flock' | 'wisp' | 'ember'
   /**
    * TRUE when the system travels with the player rather than sitting over the
    * town. Rain and snow are everywhere by definition, so they are drawn as a
@@ -979,6 +979,12 @@ void main() {
     // in the merge / coalesce step.
     const structureLayer = map.layers.find(l => l.type === 'structure')
     const chimneyPositions: THREE.Vector3[] = []
+    // THE HOT ONES, KEPT SEPARATELY. `ALWAYS_SMOKING` already names the types
+    // whose whole FUNCTION is combustion, and a forge or a kiln throws sparks
+    // where a parlour hearth does not. Collected here rather than sliced off
+    // the front of `chimneyPositions` afterwards, because that ordering is an
+    // implicit contract the farthest-point pass below could quietly break.
+    const hotChimneys: THREE.Vector3[] = []
     if (structureLayer) {
       let result: BuildingBatchResult
       try {
@@ -1109,14 +1115,15 @@ void main() {
         // `BuildingTop.vent*` is already in world units; the fallback is in
         // TILES and has to be converted, which is the trap this same block
         // fell into once already.
-        if (top.ventX !== undefined && top.ventY !== undefined && top.ventZ !== undefined) {
-          chimneyPositions.push(new THREE.Vector3(top.ventX, top.ventY + 0.1, top.ventZ))
-        } else {
-          const fp = { w: def.footprint.w, h: def.footprint.h }
-          chimneyPositions.push(new THREE.Vector3(
-            (obj.x + fp.w / 2) * TILE, top.mainWallTopY + top.mainRoofH * 1.05,
-            (obj.y + fp.h / 2) * TILE))
-        }
+        const flue = (top.ventX !== undefined && top.ventY !== undefined &&
+          top.ventZ !== undefined)
+          ? new THREE.Vector3(top.ventX, top.ventY + 0.1, top.ventZ)
+          : new THREE.Vector3(
+            (obj.x + def.footprint.w / 2) * TILE,
+            top.mainWallTopY + top.mainRoofH * 1.05,
+            (obj.y + def.footprint.h / 2) * TILE)
+        chimneyPositions.push(flue)
+        hotChimneys.push(flue.clone())
       }
       for (const obj of structureLayer.objects) {
         if (ALWAYS_SMOKING.has(obj.definitionId)) continue
@@ -1190,7 +1197,7 @@ void main() {
     this.initParticles(
       chimneyPositions, map.gridWidth * TILE, map.gridHeight * TILE,
       terrainLayer?.terrainTiles ?? null, heightMap,
-      terrainLayer?.waterLevel ?? null)
+      terrainLayer?.waterLevel ?? null, hotChimneys)
 
     // Weather, which allocates once at its maximum and is then scaled by
     // draw range. Before initMoths so the moths keep their place in the
@@ -2156,6 +2163,14 @@ void main() {
         // and dusk creature, which is also the only time you can see a
         // 20cm dark dot against flagstones.
         mat.opacity = isNight ? 0 : isDusk || isDawn ? 0.75 : 0.9
+      } else if (ps.type === 'ember') {
+        // A SPARK IS ONLY A SPARK AGAINST A DARK SKY, and the photograph
+        // reversed my first guess about which hour that is. I weighted DUSK
+        // highest on the reasoning that a forge is worked in the evening —
+        // and an amber spark against an ORANGE dusk sky is the same hue as
+        // its background and nearly vanishes, while against night blue it is
+        // unmistakable. Contrast decides this, not the working day.
+        mat.opacity = isNight ? 1 : isDusk || isDawn ? 0.75 : 0
       } else if (ps.type === 'wisp') {
         // A NIGHT THING, with a hint at dusk. Full dark is where it belongs
         // and where a cold green point has anything to be seen against; the
@@ -2194,6 +2209,10 @@ void main() {
     chimneyPositions: THREE.Vector3[], worldW: number, worldH: number,
     tiles: number[][] | null, heightMap: number[][] | null,
     waterLevel: number[][] | null,
+    /** The ALWAYS_SMOKING flues, which throw sparks. Passed separately rather
+     *  than sliced off the front of `chimneyPositions`, because the
+     *  farthest-point pass below reorders that list. */
+    hotChimneys: THREE.Vector3[],
   ): void {
     // Chimney smoke: 2 particles per chimney × max 16 chimneys = 32.
     // Was 4 × 16 = 64 (originally 8 × 20 = 160). At dusk-walkaround
@@ -2382,6 +2401,7 @@ void main() {
     // were already gathered rather than walking the map a second time.
     this.initRiverMist(water, heightMap, waterLevel)
     this.initWisps(marsh, heightMap)
+    this.initEmbers(hotChimneys)
     this.initFlock(tiles, heightMap)
   }
 
@@ -2565,7 +2585,78 @@ void main() {
    * mist bank floating a metre over the surface is a cloud.
    */
   /**
-   * WILL-O'-THE-WISP — the first thing in this town that is not cosy.
+   * SPARKS OFF THE HOT CHIMNEYS — someone is still working.
+   *
+   * The town's smoke says a hearth is lit and says it identically over a
+   * parlour and a forge. `ALWAYS_SMOKING` already names the four types whose
+   * whole function is COMBUSTION — smokehouse, kiln, cookshop, bakery — and a
+   * fire being worked throws sparks where a banked one does not. So this is
+   * the first moving thing in the town that distinguishes a TRADE from a
+   * household, which is what "living city" is supposed to mean.
+   *
+   * AN EMBER COOLS AS IT RISES, and that is the whole look: bright yellow at
+   * the flue, deep red at the top of its flight, out. The brightness carries
+   * it rather than the size, so it needs a colour attribute — the same
+   * mechanism the wisps needed and for the opposite reason (they breathe on
+   * their own phase, these fade on their own age).
+   *
+   * DERIVED FROM TIME, so there is nothing to integrate and nothing to
+   * respawn: each spark's age is `(t / life + phase) mod 1`, exactly the shape
+   * the birds, moths and mist use.
+   */
+  private initEmbers(hot: THREE.Vector3[]): void {
+    if (!hot.length) return
+    // ENOUGH TO READ AS A PLUME. Nine sparks spread over four metres of rise
+    // is a few dots; the effect is the COLUMN, which is the same argument the
+    // mist makes for its own count — a single mist particle that reads on its
+    // own is a ghost, and a single spark that reads on its own is a firefly.
+    const PER = 15
+    const stacks = Math.min(hot.length, 5)
+    const count = stacks * PER
+    const positions = new Float32Array(count * 3)
+    const velocities = new Float32Array(count * 3)
+    const lifetimes = new Float32Array(count)
+    const origins = new Float32Array(count * 3)
+    const colors = new Float32Array(count * 3)
+
+    for (let ci = 0; ci < stacks; ci++) {
+      const cp = hot[ci]
+      for (let pi = 0; pi < PER; pi++) {
+        const i = ci * PER + pi
+        const i3 = i * 3
+        origins[i3] = cp.x; origins[i3 + 1] = cp.y; origins[i3 + 2] = cp.z
+        positions[i3] = cp.x; positions[i3 + 1] = cp.y; positions[i3 + 2] = cp.z
+        // How far it gets, how long it lasts, and which way it leans.
+        velocities[i3] = 1.6 + Math.random() * 2.3
+        velocities[i3 + 1] = 1.5 + Math.random() * 1.7
+        velocities[i3 + 2] = Math.random() * Math.PI * 2
+        lifetimes[i] = Math.random()
+      }
+    }
+
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    const mat = new THREE.PointsMaterial({
+      // 0.13 IS THE PHYSICAL TRUTH AND IT IS TWO PIXELS. The isolate frame
+      // showed a handful of specks barely above black — the same reading the
+      // wisps gave at 0.34 and the moths gave before their orbit was widened.
+      // A spark is a point SOURCE, and at `RENDER_SCALE = 0.4` a source has
+      // to be drawn bigger than the thing it represents or it is not drawn.
+      size: 0.46, transparent: true, opacity: 0, vertexColors: true,
+      map: LAMP_POOL_TEX, sizeAttenuation: true, depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+    const points = new THREE.Points(geo, mat)
+    points.name = 'embers'
+    this.particleGroup.add(points)
+    this.particleSystems.push({
+      points, positions, velocities, lifetimes, origins, count, type: 'ember',
+    })
+  }
+
+  /**
+   * WILL-O\'-THE-WISP — the first thing in this town that is not cosy.
    *
    * Every light here is warm and every moving thing is friendly: lanterns,
    * hearth smoke, fireflies, moths at a lamp, pigeons on the flagstones. A
@@ -3242,6 +3333,41 @@ void main() {
         }
         const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
         attr.needsUpdate = true
+        continue
+      }
+
+      // Embers: derived from age, so nothing integrates and nothing respawns.
+      // They cool as they climb — the colour does the work, not the size.
+      if (ps.type === 'ember') {
+        const mat = ps.points.material as THREE.PointsMaterial
+        if (mat.opacity <= 0) continue
+        const cAttr = ps.points.geometry.getAttribute('color') as THREE.BufferAttribute
+        const col = cAttr.array as Float32Array
+        for (let i = 0; i < ps.count; i++) {
+          const i3 = i * 3
+          const rise = vel[i3], span = vel[i3 + 1], phase = vel[i3 + 2]
+          const u = (time / span + life[i]) % 1
+          pos[i3 + 1] = orig[i3 + 1] + u * rise
+          // Spreading as it goes, because a spark rides the column out — a
+          // vertical line of them reads as a fountain rather than a fire.
+          const spread = u * 0.42
+          pos[i3] = orig[i3] + Math.cos(phase + u * 3.1) * spread
+          pos[i3 + 2] = orig[i3 + 2] + Math.sin(phase + u * 2.6) * spread
+          // Yellow-hot at the flue, red at the top, out. The flicker is fast
+          // on purpose: this is the one thing in the town that SHOULD read as
+          // a sputter rather than as a breath.
+          // Cooling, but not SQUARED — that put two thirds of every spark's
+          // life below a fifth of its brightness, so most of the population
+          // was invisible at any instant and the flue read as almost empty.
+          const cool = Math.max(0, 1 - u)
+          const g = Math.pow(cool, 1.25) * (0.78 + 0.22 * Math.sin(time * 9 + phase * 5))
+          col[i3] = g
+          col[i3 + 1] = g * (0.30 + 0.45 * cool)
+          col[i3 + 2] = g * 0.09 * cool
+        }
+        const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
+        attr.needsUpdate = true
+        cAttr.needsUpdate = true
         continue
       }
 
