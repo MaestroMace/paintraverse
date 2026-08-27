@@ -875,11 +875,19 @@ for (const seed of seeds) {
       // water — a town that quays its whole river legitimately has none,
       // so water tiles are the nearest prerequisite the census can see.
       ['wisps', ['water', 12]],
-      // Sparks come off the ALWAYS_SMOKING trades, so a town with no
-      // smokehouse, kiln, cookshop or bakery legitimately has none —
-      // and the census cannot see a building type from here, so this
-      // one is reported rather than gated.
-      ['embers', ['water', 999999]],
+      // A PREREQUISITE THAT IS NEVER MET IS NOT A PREREQUISITE, IT IS AN
+      // EXCUSE. The first cut wrote `['water', 999999]` on the reasoning that
+      // sparks need an ALWAYS_SMOKING trade and the census cannot see a
+      // building type — which makes the row unfalsifiable, so `embers` would
+      // have reported absent-and-correctly on every town forever, including
+      // one where the system was broken. That is the ghost this whole census
+      // exists to catch, written into the census.
+      //
+      // Bakeries and cookshops are in almost every town, so the honest entry
+      // is `null` — it should be there. If a legitimate town without a single
+      // hot trade ever trips it, THAT is the moment to find a prerequisite
+      // the tool can actually evaluate.
+      ['embers', null],
     ]
     const gone = []
     for (const [name, req] of EXPECT) {
