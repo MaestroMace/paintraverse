@@ -2114,6 +2114,37 @@ next unrelated commit was never moved by the first one.** Worth doing
 deliberately the next time a single row drifts — the retraction the stained
 glass needed cost far more than one extra reading would have.
 
+## SPARKS OFF THE HOT CHIMNEYS — motion that knows a trade from a home
+
+The town's smoke says a hearth is lit and says it identically over a parlour
+and a forge. `ALWAYS_SMOKING` already names the four types whose whole function
+is COMBUSTION — smokehouse, kiln, cookshop, bakery — and a fire being WORKED
+throws sparks where a banked one does not. **The first moving thing in this
+town that distinguishes a trade from a household**, which is what "living city"
+is supposed to mean.
+
+The flues go in their own list rather than being sliced off the front of
+`chimneyPositions`, because the farthest-point pass reorders that array and an
+implicit ordering contract is exactly the kind of thing that breaks silently.
+
+**THREE READINGS, AND EACH IS THE PHOTOGRAPH CORRECTING THE DESIGN.**
+
+- **At size 0.13 — the physical truth — the isolate showed specks barely above
+  black.** That is the wisps at 0.34 and the moths before their orbit widened.
+  At `RENDER_SCALE = 0.4` **a point SOURCE has to be drawn bigger than the
+  thing it represents or it is not drawn at all.** Three systems have now
+  arrived at that same wall from three different starting sizes.
+- **Cooling SQUARED put two thirds of every spark's life below a fifth of its
+  brightness**, so most of the population was invisible at any instant and a
+  worked flue read as almost empty. A falloff is a population filter.
+- **AND THE HOUR WEIGHTING WAS BACKWARDS.** I gave dusk the highest opacity
+  because that is when a forge is worked — and an amber spark against an
+  ORANGE dusk sky is the same hue as its background and nearly vanishes, while
+  against night blue it is unmistakable. **Contrast decides which hour a warm
+  effect belongs to, not the working day.** The wisps got this right by
+  accident (cold green against anything); this is the first time the town's own
+  palette argued with the schedule.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
