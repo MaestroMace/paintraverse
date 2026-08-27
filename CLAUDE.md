@@ -2056,6 +2056,51 @@ a metric with an unmeasured floor is not evidence of anything. **A row moving
 in the same commit as a change is not the same as a row moved BY it**, which is
 the mistake the stained glass's two tone rows already cost a retraction for.
 
+## A SHOOTING STAR — the sky had STATE and never an EVENT
+
+Pillar 1 is built on the dusk sky and pillar 4 is that motion breathes, and
+between them the sky has acquired stars, a moon, weather and a horizon. **Every
+one of those is STATE. None is an EVENT** — and a thing that happens once in a
+while, that you might miss, is a different kind of delight from a thing that is
+always there. It was the only kind this town did not have.
+
+**NOT A `ParticleSystem`, DELIBERATELY.** That array is graded by
+`particles.mjs` on whether a system's extent covers the TOWN, which is the
+wrong question for something a hundred metres up — the argument `cameraLocal`
+already exists for, one step further. A meteor belongs with the moon and the
+sky dome, which are not in it either.
+
+**AND IT FLIES OVER THE CAMERA, BIASED TO THE HALF OF THE SKY YOU FACE.** A
+uniform bearing is the honest simulation and the wrong DESIGN: **a rare event
+that happens behind you has not happened.** A 130-degree arc is wide enough
+never to read as scripted and narrow enough that looking up is worth doing.
+
+**THREE THINGS THE PHOTOGRAPH FIXED, AND EACH IS ALREADY IN THIS FILE.**
+
+- **The tool pitched up 41 degrees on a fixed yaw** and caught the streak in
+  one frame of nine, because the bearing is random and the camera was aimed at
+  a guess. `fireMeteor` returns the path's MIDPOINT now — the fix that took
+  `celestial.mjs` from "DEAD" to 1700x on nothing but where it looked.
+- **WebGL locks line width to one pixel**, which this file records as exactly
+  right for a rain streak and which is NOT enough for a meteor: a 1px additive
+  line over a dark sky is a thread you have to know to look for. What a meteor
+  has is a burning head, so the halo does the seeing and the line does the
+  direction.
+- **And that head was `sizeAttenuation: true` at 100m**, which divides by
+  distance and made it two pixels across — invisible against a star field that
+  itself renders as 1px dashes. A meteor is a POINT SOURCE and wants a fixed
+  apparent size, which is how the stars are drawn for the same reason.
+
+**`__pt.fireMeteor()` IS WHY `tools/meteorshot.mjs` CAN EXIST.** The schedule
+fires one every 17-43 seconds of dark, which is right for play and impossible
+to photograph by waiting — and **an unverifiable feature is the GHOST this repo
+keeps finding**, real and correct and impossible to grade. One line on the
+bridge turns a rare event into a subject a camera can be pointed at.
+
+`_nightness` is set once in `updateLighting` rather than reclassified in the
+meteor code, because a second copy of "is the sky dark" is how the four
+lighting arms rotted one at a time.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
