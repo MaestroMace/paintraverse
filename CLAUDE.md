@@ -2101,6 +2101,19 @@ bridge turns a rare event into a subject a camera can be pointed at.
 meteor code, because a second copy of "is the sky dark" is how the four
 lighting arms rotted one at a time.
 
+Board: **0 gate failures, 0 regressions across 29 checks**, `celestial dead=1`
+unchanged and `budget` unchanged at 78.2MB — the head takes `LAMP_POOL_TEX`
+rather than a second copy.
+
+**AND IT SETTLED THE PREVIOUS COMMIT'S ONE MOVED ROW.** The wisp board read
+`ffNature` 100 -> 97 and it was called noise on the argument that the column
+grades FIREFLIES, which nothing in that change touched. This build reads
+**100** again with the wisps still in. That is the cheapest possible
+confirmation and it was free: **a row that returns to its old value on the
+next unrelated commit was never moved by the first one.** Worth doing
+deliberately the next time a single row drifts — the retraction the stained
+glass needed cost far more than one extra reading would have.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
