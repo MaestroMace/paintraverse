@@ -2043,6 +2043,19 @@ and takes the A/B triple. `particles.mjs` grades extent, spread, tenancy and
 reactivity, and **not one of those can say whether a point survives to a
 pixel.** Reusable for mist, fireflies and pigeons.
 
+Board: **0 gate failures, 0 regressions across 29 checks**, `missingSystems=0`
+with nine systems drawn, and `budget` unchanged at 78.2MB because the wisps
+take `LAMP_POOL_TEX` rather than allocating a second copy — the shared-texture
+decision this file already records a third caller getting wrong.
+
+**`ffNature` 100 -> 97 IS THE ONE ROW THAT MOVED, AND IT IS NOT THE WISPS.**
+That column grades FIREFLIES, which this change does not touch; a new system
+perturbs nothing about where they spawn. It is the same near-neighbour effect
+the district work documents — and the honest reading is that a 3-point move on
+a metric with an unmeasured floor is not evidence of anything. **A row moving
+in the same commit as a change is not the same as a row moved BY it**, which is
+the mistake the stained glass's two tone rows already cost a retraction for.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
