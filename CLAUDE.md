@@ -2145,6 +2145,31 @@ implicit ordering contract is exactly the kind of thing that breaks silently.
   accident (cold green against anything); this is the first time the town's own
   palette argued with the schedule.
 
+**AND I WROTE THE GHOST INTO THE CENSUS ITSELF.** The `EXPECT` entry for
+`embers` was `['water', 999999]` — a prerequisite that can never be met — on
+the reasoning that sparks need an `ALWAYS_SMOKING` trade and the census cannot
+see a building type from there. **That makes the row unfalsifiable: it would
+have reported "absent, and correctly" on every town forever, including one
+where the system was broken.** The whole purpose of that table is to notice
+absent content, and an entry that can only ever pass is the failure it exists
+to catch. It is `null` now — bakeries and cookshops are in almost every town —
+and the re-run reads **10 systems drawn with embers present on all three
+seeds**, so the row passes on evidence rather than by construction.
+
+**EMBER SPREAD READS 0.17-0.40 AND THAT IS CORRECT, UNLIKE THE SMOKE'S.** The
+smoke's 0.30 was a defect: a hearth is lit all over a town and the budget was
+being truncated to two quarters. Sparks come only off the combustion trades,
+which ARE clustered by quarter, so a low spread is the feature reporting where
+the forges are. **The same number means opposite things for two systems, and
+only what the system CLAIMS distinguishes them.**
+
+**`ffNature` HAS NOW BEEN READ FOUR TIMES ACROSS FOUR UNRELATED BUILDS: 97,
+100, 97, 100**, flagged `(-3)` on two of them. Nothing in the wisps, the meteor
+or the embers touches where fireflies spawn, and the column alternates — so its
+floor is about 3 points and any single reading of 97 is noise. Put it beside
+`mistWater`'s ±25 as a row whose band was never measured and is wider than the
+board implies.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
