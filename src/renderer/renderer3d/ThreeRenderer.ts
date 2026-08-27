@@ -1196,6 +1196,7 @@ void main() {
     // draw range. Before initMoths so the moths keep their place in the
     // system order for a reader; particles.mjs no longer cares.
     this.initPrecipitation()
+    this.initMeteor()
     this.setWeather(this.weather, this.weatherIntensity)
 
     // === MOTHS AT THE LANTERNS ===
@@ -1702,6 +1703,10 @@ void main() {
     const isNight = timeOfDay < 5 || timeOfDay >= 19
     const isDusk = timeOfDay >= 17 && timeOfDay < 19
     const isDawn = timeOfDay >= 5 && timeOfDay < 7
+    // ONE SOURCE FOR "IS THE SKY DARK". The meteor schedule needs it and
+    // this is the only place that classifies the hour — a second copy is how
+    // the four lighting arms rotted one at a time.
+    this._nightness = isNight ? 1 : (isDusk || isDawn) ? 0.5 : 0
     const isGolden = timeOfDay >= 15 && timeOfDay < 17
     // Shadow gating: at deep night the sun is below horizon, shadows are
     // invisible anyway, so skip the shadow pass entirely. Saves a full
@@ -2892,6 +2897,191 @@ void main() {
     })
   }
 
+  /**
+   * A SHOOTING STAR — the sky is the biggest surface in this game and nothing
+   * has ever happened in it.
+   *
+   * Pillar 1 is built on the dusk sky and pillar 4 is that motion breathes,
+   * and between them the sky has acquired stars, a moon, weather and a
+   * horizon — all of which are STATE. None of them is an EVENT. A thing that
+   * happens once in a while, that you might miss, is a different kind of
+   * delight from a thing that is always there, and it is the only kind this
+   * town does not have.
+   *
+   * NOT A ParticleSystem, DELIBERATELY. That array is graded by
+   * `particles.mjs` on whether a system's extent covers the TOWN, which is
+   * the wrong question for something a hundred metres up — the same argument
+   * `cameraLocal` exists for, one step further. A meteor belongs with the
+   * moon and the sky dome, which are not in that array either.
+   *
+   * AND IT FLIES OVER THE CAMERA, not over the map. A rare event that happens
+   * out of frame has not happened: the whole value is in being SEEN, so the
+   * flight is centred on the player with a random bearing. That is also the
+   * truth of it — a real meteor is overhead, not somewhere on the far side of
+   * the parish.
+   */
+  private _meteor: THREE.LineSegments | null = null
+  private _meteorHead: THREE.Points | null = null
+  private _meteorCols: Float32Array | null = null
+  private _meteorPos: Float32Array | null = null
+  private _meteorT = -1
+  private _meteorNext = 9
+  private _meteorFrom = new THREE.Vector3()
+  private _meteorDir = new THREE.Vector3()
+  /** 1 at night, 0.5 at the dusk and dawn edges, 0 in daylight. Set by
+   *  updateLighting so the schedule has one source for "is the sky dark". */
+  private _nightness = 0
+  private static readonly METEOR_SEGS = 9
+
+  private initMeteor(): void {
+    const n = ThreeRenderer.METEOR_SEGS
+    const pos = new Float32Array(n * 6)
+    const col = new Float32Array(n * 6)
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3))
+    const line = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+      vertexColors: true, transparent: true, opacity: 0,
+      depthWrite: false, blending: THREE.AdditiveBlending,
+    }))
+    line.name = 'meteor'
+    // The trail is rebuilt in world space every frame and the camera can be
+    // anywhere, so culling it against a stale bounding sphere drops it.
+    line.frustumCulled = false
+    line.visible = false
+    this.scene.add(line)
+    this._meteor = line
+    this._meteorPos = pos
+    this._meteorCols = col
+
+    // A BURNING HEAD, because WebGL locks line width to one pixel. That is
+    // exactly right for a rain streak — this file already says so — and it
+    // is not enough for a meteor: at `RENDER_SCALE = 0.4` a 1px additive
+    // line over a dark blue sky is a thread you have to know to look for.
+    // What a meteor actually has is a bright point with the trail behind it,
+    // so the halo does the seeing and the line does the direction.
+    const headGeo = new THREE.BufferGeometry()
+    headGeo.setAttribute('position',
+      new THREE.BufferAttribute(new Float32Array(3), 3))
+    const head = new THREE.Points(headGeo, new THREE.PointsMaterial({
+      // SCREEN-SPACE, NOT WORLD-SPACE. `sizeAttenuation` divides by distance,
+      // and this thing is 90-140m up: at a world size of 2.6 the head came
+      // out two pixels across and the whole point of it — being unmistakable
+      // against a star field that itself renders as 1px dashes — was lost.
+      // A meteor is a POINT SOURCE, so it wants a fixed apparent size, which
+      // is how the stars are drawn for the same reason.
+      color: 0xfff4e2, size: 11, transparent: true, opacity: 0,
+      map: LAMP_POOL_TEX, sizeAttenuation: false, depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    }))
+    head.name = 'meteorHead'
+    head.frustumCulled = false
+    head.visible = false
+    this.scene.add(head)
+    this._meteorHead = head
+  }
+
+  /** Start a flight now. Exposed on the debug bridge because a feature that
+   *  fires once every half-minute cannot be photographed by waiting. */
+  fireMeteor(): { x: number; y: number; z: number } | null {
+    if (!this._meteor) return null
+    const cam = this.camera.position
+    // High, and crossing rather than falling: a meteor's whole silhouette is
+    // the streak, and a steep one is on screen for a few frames.
+    //
+    // AND BIASED TOWARD THE HALF OF THE SKY THE PLAYER IS FACING. A uniform
+    // bearing is the honest simulation and it is the wrong DESIGN, because a
+    // rare event that happens behind you has not happened at all — the same
+    // reasoning that puts the flight over the camera rather than over the map.
+    // A 130-degree arc is wide enough that it never reads as scripted and
+    // narrow enough that looking up is worth doing.
+    const bearing = this.cameraYaw + (Math.random() - 0.5) * 2.3
+    const alt = 92 + Math.random() * 46
+    const span = 150
+    this._meteorFrom.set(
+      cam.x + Math.cos(bearing) * span * 0.5,
+      alt + 26,
+      cam.z + Math.sin(bearing) * span * 0.5)
+    this._meteorDir.set(
+      -Math.cos(bearing) * span, -(20 + Math.random() * 26),
+      -Math.sin(bearing) * span).normalize()
+    this._meteorT = 0
+    // The flight's midpoint, so a tool can point a camera at the subject
+    // rather than at a guess. `celestial.mjs` went from "DEAD" to 1700x the
+    // noise floor on nothing but where it looked.
+    return {
+      x: this._meteorFrom.x + this._meteorDir.x * 95,
+      y: this._meteorFrom.y + this._meteorDir.y * 95,
+      z: this._meteorFrom.z + this._meteorDir.z * 95,
+    }
+  }
+
+  /** One flight, then a wait. Nothing to allocate and nothing to recycle. */
+  private updateMeteor(dt: number): void {
+    const line = this._meteor
+    const pos = this._meteorPos
+    const col = this._meteorCols
+    if (!line || !pos || !col) return
+    if (this._meteorT < 0) {
+      // SCARCE, AND ONLY WHEN THE SKY IS DARK. Often enough that a player who
+      // stands and looks up will see one; rare enough that it stays an event.
+      if (this._nightness <= 0) return
+      this._meteorNext -= dt * this._nightness
+      if (this._meteorNext > 0) return
+      this._meteorNext = 17 + Math.random() * 26
+      this.fireMeteor()
+      return
+    }
+    const LIFE = 1.15
+    this._meteorT += dt
+    if (this._meteorT > LIFE) {
+      this._meteorT = -1
+      line.visible = false
+      if (this._meteorHead) this._meteorHead.visible = false
+      return
+    }
+    const u = this._meteorT / LIFE
+    // Fade in fast, out slow — a meteor brightens as it burns and dies away.
+    const bright = Math.min(1, u * 7) * (1 - u * u)
+    const speed = 190
+    const headD = u * speed
+    const TAIL = 26
+    const n = ThreeRenderer.METEOR_SEGS
+    for (let k = 0; k < n; k++) {
+      const d0 = headD - (k / n) * TAIL
+      const d1 = headD - ((k + 1) / n) * TAIL
+      const o = k * 6
+      for (let e = 0; e < 2; e++) {
+        const d = e === 0 ? d0 : d1
+        pos[o + e * 3] = this._meteorFrom.x + this._meteorDir.x * d
+        pos[o + e * 3 + 1] = this._meteorFrom.y + this._meteorDir.y * d
+        pos[o + e * 3 + 2] = this._meteorFrom.z + this._meteorDir.z * d
+        // Head white-hot, tail cooling to blue and out. The taper is what
+        // makes it a meteor rather than a moving dash.
+        const f = Math.max(0, 1 - (k + e) / n)
+        const g = f * f * bright
+        col[o + e * 3] = g
+        col[o + e * 3 + 1] = g * 0.94
+        col[o + e * 3 + 2] = g * 0.86 + f * 0.10 * bright
+      }
+    }
+    ;(line.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true
+    ;(line.geometry.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true
+    ;(line.material as THREE.LineBasicMaterial).opacity = 1
+    line.visible = true
+    const head = this._meteorHead
+    if (head) {
+      const hp = head.geometry.getAttribute('position') as THREE.BufferAttribute
+      const a = hp.array as Float32Array
+      a[0] = this._meteorFrom.x + this._meteorDir.x * headD
+      a[1] = this._meteorFrom.y + this._meteorDir.y * headD
+      a[2] = this._meteorFrom.z + this._meteorDir.z * headD
+      hp.needsUpdate = true
+      ;(head.material as THREE.PointsMaterial).opacity = bright
+      head.visible = true
+    }
+  }
+
   /** Point the one precipitation system at a kind and a rate. */
   private setPrecipitation(kind: 'rain' | 'snow' | null, rate: number): void {
     const ps = this.particleSystems.find((p) => p.type === 'precip')
@@ -3215,6 +3405,7 @@ void main() {
       // breathes, so the wind cannot drift out of step with the smoke.
       tickHangingSway(t)
       tickWater(t)
+      this.updateMeteor(dt)
       // The stars twinkle beside the windows and the water, which is the
       // company they should keep: pillar 4 is "motion breathes", and every
       // one of these is slow enough to read as alive rather than as a pulse.

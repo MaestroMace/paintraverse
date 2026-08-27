@@ -155,6 +155,17 @@ export function installDebugBridge(): void {
     flyToWorld: (x: number, y: number, z: number, yaw: number, pitch: number) =>
       getActiveThreeRenderer()?.debugFlyTo(x, y, z, yaw, pitch) ?? null,
 
+    /**
+     * Start a shooting star NOW.
+     *
+     * The schedule fires one every 17-43 seconds of dark, which is right for
+     * play and impossible to photograph by waiting — so the feature would be
+     * exactly the kind of content this repo calls a GHOST: real, correct and
+     * unverifiable. One line on the bridge turns it into a subject a tool can
+     * point a camera at.
+     */
+    fireMeteor: () => getActiveThreeRenderer()?.fireMeteor() ?? null,
+
     /** The tile -> world factor, so no tool has to hardcode 3.0. */
     TILE,
 
