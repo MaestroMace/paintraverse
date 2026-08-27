@@ -1941,6 +1941,49 @@ that is the only place with sky behind them, the glass goes through the cells
 `roofAxisFor` was already putting on the front of every cathedral. When the
 next session wants a fourth, look for the void before designing the object.
 
+## A CAT IN THE WINDOW — and why whimsy is a different shape from a landmark
+
+All three assets above land on ONE building a town. That is what a landmark is
+for and it is the wrong shape for WHIMSY: **a delight you meet once is a set
+piece, and a delight you keep meeting is a place with something living in it.**
+So this one goes on ordinary houses at 5% of buildings, ~13 a town, and the
+GATE carries the meaning — a cat sits where somebody LIVES, never on a
+warehouse or a town gate, and more often in the quiet quarters than the market.
+That district weighting is what keeps it off the WALLPAPER line: a flat rate
+everywhere would read as healthy and say nothing.
+
+**THE EYES ARE THE FEATURE, because a 30cm cat is four pixels.** At
+`RENDER_SCALE = 0.4` a dark shape that size on a dark wall at dusk is nothing
+at all, and two emissive specks read — the eye finds a point of light long
+after it has lost a silhouette. Same argument as the belfry's lit arch at a
+twentieth of the size, and they ride the tinted-beacon path the stained glass
+added, so every cat in the town costs one shared draw call.
+
+**AND THE PHOTOGRAPH FOUND THE REAL MECHANISM, WHICH WAS NOT THE ONE I BUILT.**
+The strongest read is the cat SILHOUETTED AGAINST ITS OWN LIT WINDOW: a sill is
+in front of glass, glass is lit at dusk, and a black cat on a bright rectangle
+is legible from across the street where the eyes alone are two pixels. That was
+luck rather than design. **Know it before moving these to a doorstep or a roof
+ridge, where there is nothing bright behind them** — the same feature in the
+same town would simply disappear.
+
+**FILTER FIRST, THEN CHOOSE.** The first cut took one sill by hash and then
+tested it, and the reject tally read `~atDoor 43` against 20 built: most of
+this town is one bay wide, so its only ground-floor opening sits over the door,
+and a cat that could perfectly well have used the sill upstairs was dropped
+instead. Selecting from the valid set is the same fix the vignette anchor
+needed — **a criterion must measure the population it serves.** 20 -> 39 over
+three seeds.
+
+**AND `featureshot` NEEDED THE SAME VANTAGE FIX TWICE MORE, BOTH DERIVED.** A
+subject at EYE LEVEL made `drop` zero, so all four height tiers collapsed to
+one and the wide pass reported "no clear view" on every cat; and 20-46m is
+where you read a belfry, not a 30cm subject in a street whose facades are 12m
+apart. Across the street is the right question for a wall detail. That is the
+third and fourth time in this file a hand-written vantage table has been wrong
+for a population it was not written for, and the fix is always the same: derive
+it from the subject.
+
 ## Critical files map
 
 ### Shared vocabulary (import these, never re-declare)
