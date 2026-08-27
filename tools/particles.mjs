@@ -871,6 +871,10 @@ for (const seed of seeds) {
       ['smoke', null], ['fireflies', null], ['birds', null], ['moths', null],
       ['rainfall', null], ['snowfall', null],
       ['rivermist', ['water', 12]], ['pigeons', ['paving', 8]],
+      // A will-o'-the-wisp needs a MARSH, which is soft ground beside
+      // water — a town that quays its whole river legitimately has none,
+      // so water tiles are the nearest prerequisite the census can see.
+      ['wisps', ['water', 12]],
     ]
     const gone = []
     for (const [name, req] of EXPECT) {

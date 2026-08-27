@@ -326,7 +326,7 @@ interface ParticleSystem {
   lifetimes: Float32Array
   origins: Float32Array
   count: number
-  type: 'smoke' | 'firefly' | 'bird' | 'moth' | 'precip' | 'mist' | 'flock'
+  type: 'smoke' | 'firefly' | 'bird' | 'moth' | 'precip' | 'mist' | 'flock' | 'wisp'
   /**
    * TRUE when the system travels with the player rather than sitting over the
    * town. Rain and snow are everywhere by definition, so they are drawn as a
@@ -2151,6 +2151,12 @@ void main() {
         // and dusk creature, which is also the only time you can see a
         // 20cm dark dot against flagstones.
         mat.opacity = isNight ? 0 : isDusk || isDawn ? 0.75 : 0.9
+      } else if (ps.type === 'wisp') {
+        // A NIGHT THING, with a hint at dusk. Full dark is where it belongs
+        // and where a cold green point has anything to be seen against; the
+        // dusk hint exists so the hour the board grades is not simply blank,
+        // the same compromise the fireflies make.
+        mat.opacity = isNight ? 0.9 : isDusk || isDawn ? 0.4 : 0
       } else if (ps.type === 'mist') {
         // MIST IS A COOLING EFFECT, so it is thickest before dawn and gone by
         // mid-morning — the one system here whose schedule is not simply
@@ -2287,12 +2293,39 @@ void main() {
     // place you would actually stand to watch them.
     const soft: Array<[number, number]> = []
     const water: Array<[number, number]> = []
+    const marsh: Array<[number, number]> = []
     if (tiles) {
       for (let ty = 0; ty < tiles.length; ty++) {
         for (let tx = 0; tx < (tiles[ty]?.length ?? 0); tx++) {
           const t = tiles[ty][tx]
           if (t === 3) water.push([tx, ty])
           if (isSoftGround(t) || t === 3) soft.push([tx, ty])
+        }
+      }
+      // AND THE MARSHY FRINGE, which is a different place from either.
+      // A will-o'-the-wisp is a MARSH light — it belongs to the soft ground
+      // BESIDE the water, not to the water itself. Keeping the two claims
+      // apart is what lets `particles.mjs` grade them separately: mist should
+      // read ~100% water and the wisps should not, and if both were spawned
+      // over the same tiles neither number could say anything.
+      //
+      // A BAND, NOT A RING. The first cut asked for a wet ORTHOGONAL
+      // NEIGHBOUR and the census answered with wisps on one seed in three:
+      // this town quays its river, so the urban bank is road and stone and
+      // the only soft edge is out in the countryside. A marsh is a couple of
+      // tiles deep, not one, and widening it to a radius of two is both truer
+      // and what takes the feature off the ghost line.
+      const WET_R = 2
+      for (let ty = 0; ty < tiles.length; ty++) {
+        for (let tx = 0; tx < (tiles[ty]?.length ?? 0); tx++) {
+          if (!isSoftGround(tiles[ty][tx])) continue
+          let wet = false
+          for (let dy = -WET_R; dy <= WET_R && !wet; dy++) {
+            for (let dx = -WET_R; dx <= WET_R; dx++) {
+              if (tiles[ty + dy]?.[tx + dx] === 3) { wet = true; break }
+            }
+          }
+          if (wet) marsh.push([tx, ty])
         }
       }
     }
@@ -2343,6 +2376,7 @@ void main() {
     // Mist belongs to the river, so it is spawned here where the water tiles
     // were already gathered rather than walking the map a second time.
     this.initRiverMist(water, heightMap, waterLevel)
+    this.initWisps(marsh, heightMap)
     this.initFlock(tiles, heightMap)
   }
 
@@ -2525,6 +2559,98 @@ void main() {
    * waterline is resolved the same way TerrainMesh resolves it, because a
    * mist bank floating a metre over the surface is a cloud.
    */
+  /**
+   * WILL-O'-THE-WISP — the first thing in this town that is not cosy.
+   *
+   * Every light here is warm and every moving thing is friendly: lanterns,
+   * hearth smoke, fireflies, moths at a lamp, pigeons on the flagstones. A
+   * town at night that is ONLY reassuring has no edge to it, and the oldest
+   * folk light in Europe is the one that leads you off the path. So this is
+   * cold green, it keeps to the marsh, and it is the one system that appears
+   * where nobody has built anything.
+   *
+   * IT BELONGS TO THE BANK, NOT THE WATER. `initRiverMist` claims the surface
+   * and is graded at ~100% water for exactly that reason; a wisp over the same
+   * tiles would make both numbers meaningless. The marsh list is soft ground
+   * with a wet neighbour — the fringe, which is where the folklore puts it and
+   * where marsh gas actually comes from.
+   *
+   * EACH ONE BREATHES ON ITS OWN CYCLE, which needs a colour attribute rather
+   * than the material's single opacity: twenty points fading together is a
+   * blinking field, and twenty fading independently is a place with things
+   * moving about in it. That is three floats a particle a frame on a system
+   * capped at 28, which is nothing, and it is the only way to get the effect
+   * without a second material per wisp.
+   */
+  private initWisps(
+    marsh: Array<[number, number]>,
+    heightMap: number[][] | null,
+  ): void {
+    if (marsh.length < 4) return
+    // Scarce on purpose. A wisp you see three of is eerie; a wisp you see
+    // forty of is a light show, which is the WALLPAPER failure with a ghost
+    // story attached.
+    const count = Math.min(28, Math.max(8, Math.round(marsh.length * 0.14)))
+    const positions = new Float32Array(count * 3)
+    const velocities = new Float32Array(count * 3)
+    const lifetimes = new Float32Array(count)
+    const origins = new Float32Array(count * 3)
+    const colors = new Float32Array(count * 3)
+
+    for (let i = 0; i < count; i++) {
+      const i3 = i * 3
+      const [tx, tz] = marsh[Math.floor(Math.random() * marsh.length)]
+      const x = (tx + Math.random()) * TILE
+      const z = (tz + Math.random()) * TILE
+      // From the GROUND, at about waist height — the mixed-units bug that
+      // sent chimney smoke over the wrong third of the map, in its vertical
+      // form, and the reason the fireflies read their height the same way.
+      const g = heightMap ? getTerrainHeight(heightMap, x / TILE, z / TILE) : 0
+      const y = g + 0.55 + Math.random() * 0.9
+      origins[i3] = x; origins[i3 + 1] = y; origins[i3 + 2] = z
+      positions[i3] = x; positions[i3 + 1] = y; positions[i3 + 2] = z
+      // Drift radius, rate, phase — the same derive-from-time shape as the
+      // mist and the moths, so nothing integrates and nothing respawns.
+      // DRIFT RADIUS, AND IT IS KEPT SHORT ON PURPOSE. The wander is ~1.4x
+      // this, so at 2.6 a wisp strays more than a tile and the census read it
+      // over PAVING on a third of its samples — the firefly failure, where a
+      // glow over cobbles is a dust mote rather than a marsh light. Spawning
+      // exactly is not enough; the excursion has to stay on the ground the
+      // system claims.
+      velocities[i3] = 0.5 + Math.random() * 1.1
+      velocities[i3 + 1] = 0.05 + Math.random() * 0.09
+      velocities[i3 + 2] = Math.random() * Math.PI * 2
+      // Its own breathing phase, deliberately slow and incommensurate with
+      // the window flicker (0.25-0.7 Hz) and the star twinkle (0.18-0.40) —
+      // this file already records that two periodic things at similar rates
+      // read as one strobe.
+      lifetimes[i] = Math.random()
+      colors[i3] = 0; colors[i3 + 1] = 0; colors[i3 + 2] = 0
+    }
+
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    const mat = new THREE.PointsMaterial({
+      // BIG, BECAUSE A WISP IS A BALL OF LIGHT AND NOT A MOTE. At 0.34 the
+      // isolate frame showed a line of 2-3px specks barely above black —
+      // present, measurable and invisible, which is exactly the verdict the
+      // moths got before their orbit was widened. A firefly is 0.08 and a
+      // moth 0.085 because they are insects; this is a hovering lamp with a
+      // halo, and the radial texture makes the size a soft glow rather than
+      // a hard disc.
+      size: 1.05, transparent: true, opacity: 0, vertexColors: true,
+      map: LAMP_POOL_TEX, sizeAttenuation: true, depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+    const points = new THREE.Points(geo, mat)
+    points.name = 'wisps'
+    this.particleGroup.add(points)
+    this.particleSystems.push({
+      points, positions, velocities, lifetimes, origins, count, type: 'wisp',
+    })
+  }
+
   private initRiverMist(
     water: Array<[number, number]>,
     heightMap: number[][] | null,
@@ -2926,6 +3052,46 @@ void main() {
         }
         const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
         attr.needsUpdate = true
+        continue
+      }
+
+      // Wisps: a slow wander with each light breathing on its own cycle.
+      // The COLOUR carries the pulse rather than the material's opacity,
+      // because one opacity for the whole system is a field that blinks in
+      // unison — a metronome, not a marsh. Same argument as giving every
+      // lantern along a street its own sway phase.
+      if (ps.type === 'wisp') {
+        const mat = ps.points.material as THREE.PointsMaterial
+        if (mat.opacity <= 0) continue
+        const cAttr = ps.points.geometry.getAttribute('color') as THREE.BufferAttribute
+        const col = cAttr.array as Float32Array
+        for (let i = 0; i < ps.count; i++) {
+          const i3 = i * 3
+          const r = vel[i3], w = vel[i3 + 1], phase = vel[i3 + 2]
+          const a = time * w + phase
+          // Two incommensurate terms, so the path never closes visibly and
+          // the thing reads as wandering rather than orbiting.
+          pos[i3] = orig[i3] + Math.cos(a) * r + Math.sin(a * 0.37 + phase) * r * 0.4
+          pos[i3 + 2] = orig[i3 + 2] + Math.sin(a * 0.8) * r
+            + Math.cos(a * 0.29 + phase) * r * 0.4
+          pos[i3 + 1] = orig[i3 + 1] + Math.sin(a * 1.7 + phase) * 0.22
+          // 0.11-0.19 Hz, well below the window flicker and the star twinkle
+          // so nothing beats against anything. Never fully out: a wisp that
+          // vanishes reads as a dropped frame.
+          const br = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(
+            time * (0.7 + life[i] * 0.5) + life[i] * 6.283))
+          // SATURATED, because additive light plus ACES pulls everything
+          // toward white and the first values came back as pale grey blobs.
+          // The entire argument for this system is a COLD light in a town
+          // whose every other light is amber, so the green has to survive the
+          // tone curve rather than merely be specified.
+          col[i3] = 0.16 * br
+          col[i3 + 1] = 0.95 * br
+          col[i3 + 2] = 0.46 * br
+        }
+        const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
+        attr.needsUpdate = true
+        cAttr.needsUpdate = true
         continue
       }
 
