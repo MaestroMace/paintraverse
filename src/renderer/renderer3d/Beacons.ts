@@ -94,17 +94,32 @@ export const CAT_EYE_TINT = 0x8fa32a
  * reads at any distance the specks resolve at, needs no new geometry, and
  * cannot be confused with a lantern.
  *
- * PHASED BY WORLD POSITION, WHICH IS THE SWAY'S TRICK AND IT IS LOAD-BEARING
- * HERE FOR A SECOND REASON. A town of cats blinking in lockstep is a metronome
- * — that is why every lantern gets its own sway phase — and the same smooth
- * `wp.x * a + wp.z * b` gives each cat its own without an attribute. The
- * second reason is the one that decided the form: the two eyes of ONE cat are
- * 6cm apart and MUST blink together, because a cat that winks one eye is a
- * defect a person notices instantly. A SMOOTH function of position separates
- * them by ~0.02 of a radian and separates two cats by about one, so it gets
- * both properties for free. A quantised phase — `floor(wp.x * k)` — would have
- * been the obvious way to give each cat one value and would have straddled a
- * cell boundary on roughly one cat in twenty-five, winking it forever.
+ * PHASED BY A PER-CAT ATTRIBUTE, AND THE FIRST TWO ATTEMPTS AT THAT PHASE ARE
+ * THE FINDING.
+ *
+ * A town of cats blinking in lockstep is a metronome — that is why every
+ * lantern gets its own sway phase — so each cat needs its own. The obvious
+ * source is world position, which is exactly what the sway uses and needs no
+ * attribute at all. It fails here, and it fails in a way that measures as
+ * "nearly working":
+ *
+ *   - A QUANTISED phase (`floor(wp.x * k)`) gives one value per cell, and the
+ *     two eyes of one cat are 6cm apart — so they straddle a boundary on
+ *     roughly one cat in twenty-five and it winks forever. Rejected on
+ *     arithmetic before it was built.
+ *   - A SMOOTH phase (`wp.x * a + wp.z * b`, the sway's own form) separates
+ *     the two eyes by a fiftieth of a radian, which looked like the answer and
+ *     was built. But a varying is INTERPOLATED: every fragment across one eye
+ *     gets a different phase and therefore its own blink moment, so the eye
+ *     never goes dark — a random scatter of its pixels does. Measured, an 8%
+ *     aggregate dip where a blink is a 100% one. A per-object jitter must not
+ *     be a function of a per-FRAGMENT quantity, and the tell was that every
+ *     marker said the mechanism was live.
+ *
+ * The attribute is exactly constant across one cat, identical between its two
+ * eyes, and stays in [0,1) — which the hash below needs, because
+ * `fract(sin(x) * 43758)` stops being a hash once x reaches the ~78 a world
+ * coordinate produces at the far corner of the map.
  *
  * AND THE INTERVAL IS DELIBERATELY NOT A FREQUENCY. This file keeps a table:
  * window flicker 0.25-0.7 Hz, star twinkle 0.18-0.40, lantern sway 0.09-0.13,
@@ -147,12 +162,13 @@ export function applyCatBlink(mat: THREE.Material): void {
     shader.uniforms.uCatTime = _catUniforms.uCatTime
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
+        attribute float aBlink;
         varying float vCatPh;`)
+      // A CONSTANT ACROSS THE WHOLE CAT, so interpolating it changes nothing
+      // and every fragment of both eyes shuts at the same instant. See the
+      // note above for the two position-derived phases this replaced.
       .replace('#include <begin_vertex>', `#include <begin_vertex>
-        {
-          vec3 cwp = (modelMatrix * vec4(transformed, 1.0)).xyz;
-          vCatPh = cwp.x * 0.31 + cwp.z * 0.23;
-        }`)
+        vCatPh = aBlink;`)
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform float uCatTime;
@@ -164,7 +180,7 @@ export function applyCatBlink(mat: THREE.Material): void {
         {
           float T = uCatTime * 0.175 + vCatPh;
           float slot = floor(T);
-          float j = fract(sin(slot * 12.9898 + vCatPh * 7.233) * 43758.5453);
+          float j = fract(sin(slot * 12.9898 + vCatPh * 78.233) * 43758.5453);
           float d = abs(fract(T) - (0.12 + j * 0.76));
           totalEmissiveRadiance *= smoothstep(0.0, 0.028, d);
         }`)

@@ -4135,6 +4135,19 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   growing once a thing moves further than its own width. Its own negative case
   caught two wrong statistics before the third one worked — see the section
   above before adding a fourth.
+- `xvfb-run -a node tools/blinkprobe.mjs [seed]` — **do the cat's eyes blink,
+  and do the two of them do it TOGETHER?** A steady emissive speck is a lamp
+  and this town has hundreds; the blink is what makes it a creature, and no
+  existing instrument can see it — particles.mjs grades particle systems and a
+  cat is geometry, features.mjs counts the gate that placed it, and a still
+  misses a two-tenths-of-a-second dip thirty times in thirty-one. Isolates
+  `catEyes`, pins the blink clock and steps exact phases across three slots.
+  **Read the WINK rows, not just the dip**: the two eyes cannot be separated
+  by any threshold (1.3cm of gap is ~1.5 real pixels at RENDER_SCALE 0.4, and
+  standing closer shrinks the gap with them), so it is graded twice by
+  statistics that fail differently — halving the pair blob, and the lit
+  centroid, which one eye going dark alone drags half a pair-width. It found
+  the real defect on its first honest run.
 - `node tools/growth.mjs [seeds...]` — **does the town get sparser as you walk
   out of it?** DESIGN.md names six marks of organic growth and five had a
   tool; "dense core, sparse edges — growth rings fade outward" had none, and
@@ -6878,6 +6891,98 @@ instrument and not about the town, and the earlier peak-to-peak version had it
 badly enough to report the ropes at 1.25x and call them dead. **Before
 believing a shortfall, ask whether the thing you are measuring is bigger than
 the movement you are measuring it by.**
+
+## A CAT THAT DOES NOT BLINK IS A PAIR OF LAMPS
+
+The cats went in as two emissive specks on a sill, on the argument that at
+`RENDER_SCALE = 0.4` a 30cm cat is four pixels and the eyes are the only part
+that survives. That argument is right and it stops one step short: **a STEADY
+speck is a lantern, and this town has hundreds of those.** What separates a
+creature from a bulb is that its light goes out for a moment and comes back.
+It reads at any distance the specks resolve at, costs no geometry, claims no
+tile, and it is the cheapest possible answer to "is there something alive in
+there".
+
+Cheap because the bucket already existed: cat eyes carry their own tint, so
+they were already their own merged mesh and material, and the blink shader
+reaches them and nothing else.
+
+### THE PHASE WAS WRONG TWICE, AND THE SECOND ONE MEASURED AS "NEARLY WORKING"
+
+A town of cats blinking in lockstep is a metronome — the reason every lantern
+gets its own sway phase — so each cat needs its own. Three candidates:
+
+- **A QUANTISED position phase** (`floor(wp.x * k)`) gives one value per cell,
+  and the two eyes of one cat are 6cm apart, so they straddle a boundary on
+  roughly one cat in twenty-five and it winks forever. Rejected on arithmetic
+  before it was built.
+- **A SMOOTH position phase** — `wp.x * a + wp.z * b`, the sway's own form —
+  separates the two eyes by a fiftieth of a radian and two cats by about one.
+  It looked like the answer and it was built. **A varying is INTERPOLATED**, so
+  every fragment across one eye got a different phase and therefore its own
+  blink moment: the eye never went dark, a random scatter of its pixels did.
+  Measured, an **8% aggregate dip where a blink is a 100% one.**
+- **A per-cat vertex ATTRIBUTE**, which is exactly constant across one cat,
+  identical between its two eyes, and stays in [0,1).
+
+**A PER-OBJECT JITTER MUST NOT BE A FUNCTION OF A PER-FRAGMENT QUANTITY.** The
+sway gets away with it because a rope's displacement is *supposed* to vary
+smoothly along its length; a blink is a property of the ANIMAL and has to be
+constant over everything that belongs to it. Same expression, opposite
+correctness, and the difference is whether the quantity describes the surface
+or the thing.
+
+**AND EVERY MARKER SAID THE MECHANISM WAS LIVE.** This file records four
+"setter accepted and discarded" failures — `toneFloor`, `addPositionedNoised`,
+the water fragment's alpha, the sway's cache key — and the standard check for
+them passed here on every count: the compiled program contained `uCatTime`,
+the uniform was registered on the material, and `pinCatTime(2.5)` read back
+2.5. **The wiring check is not a correctness check**, and when it passes the
+next suspect is the arithmetic, not the plumbing.
+
+The attribute also fixed a third thing nobody had asked about:
+`fract(sin(x) * 43758.5453)` stops being a hash once x reaches the ~78 a world
+coordinate produces at the far corner of a 48-tile map, because the float32
+ULP at 43758 is 0.004.
+
+### AND THE PROBE NEEDED FOUR CORRECTIONS, EACH ONE ALREADY IN THIS FILE
+
+`tools/blinkprobe.mjs` isolates `catEyes`, pins the clock and steps exact
+phases. Getting it to answer took:
+
+- **A ONE-SLOT SWEEP CAN MISS THE BLINK.** The sweep starts at the cat's own
+  phase, so it covers the tail of one slot and the head of the next, and the
+  jitter puts each of those two blinks anywhere in its own slot — both can fall
+  outside the window about a quarter of the time. It did, and the tool printed
+  `DOES NOT BLINK` on a working feature. Three slots now.
+- **THE MASK REACHED OTHER CATS.** `catEyes` is every cat in the town, so the
+  first mask picked up three distant ones as single pixels, which put the x
+  span at 196 samples and split the two-eye clustering 100/1. The grid samples
+  the SUBJECT'S OWN BOX now rather than downsampling the whole canvas — the
+  fix `subjectPixels` and `celestial.mjs`'s moon patch already are, needed a
+  fourth time.
+- **NO THRESHOLD SEPARATES THE TWO EYES, AND STANDING CLOSER CANNOT HELP.**
+  The gap is 1.3cm between two 2.4cm spheres, which at `RENDER_SCALE = 0.4` is
+  about one and a half real pixels before the upscale smears the two bright
+  discs across it — and moving in shrinks the gap and the eyes together. The
+  saved crop shows it exactly: two lobes joined by a bridge. **When a tool
+  cannot resolve two things, stop trying to resolve them and find a statistic
+  that does not need to.**
+- **SO THE WINK IS GRADED TWICE, BY TWO STATISTICS THAT FAIL DIFFERENTLY.**
+  The pair blob is halved at its own midpoint and the halves' darkest phases
+  compared; and independently of any split, the lit pixels' CENTROID must not
+  move, because one eye going dark alone drags it half a pair-width toward the
+  survivor.
+
+Final reading on seed 4242, and the second and third rows are the ones that
+could not be reasoned to:
+
+    dip            0.633 -> 0.166   = 26% of open   (sampling-limited; the
+                                     true floor is 0, the grid cannot land
+                                     on the exact centre of a 0.32s dip)
+    duty           2 of 132 phases over 3 slots — a blink, not a strobe
+    both eyes      darkest at phase 101 and 101 — 0 steps apart
+    centroid       moves 0.14 samples = 2% of a half-pair (a wink is ~100%)
 
 ## Android / mobile build
 

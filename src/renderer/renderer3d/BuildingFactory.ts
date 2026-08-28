@@ -4065,11 +4065,39 @@ export function buildBuildingMeshes(
           // THE EYES ARE THE FEATURE. Tinted beacons, so they ride the same
           // path the stained glass does and cost one shared draw call.
           let catLogged = false
+          /**
+           * THE BLINK PHASE IS AN ATTRIBUTE, AND IT HAS TO BE.
+           *
+           * The first cut derived it in the shader from world position — the
+           * sway's trick, which is right for a rope and wrong here. A varying
+           * is INTERPOLATED, so every fragment of one eye got a slightly
+           * different phase and therefore its own blink moment: the eye never
+           * went dark, a random scatter of its pixels did, and the probe read
+           * an 8% dip where a blink is a 100% one. That reads exactly like a
+           * feature that nearly works.
+           *
+           * A per-cat constant fixes three things at once. The eye goes dark
+           * ALL AT ONCE because every vertex carries the same number; the two
+           * eyes cannot wink out of step because they carry the SAME number,
+           * rather than merely a similar one; and the value stays in [0,1)
+           * instead of reaching 78 at the far corner of the map, which is what
+           * a `fract(sin(x) * 43758)` hash needs to stay a hash at all.
+           *
+           * Safe to merge because the cat tint is its OWN bucket: every
+           * geometry in it comes from here and every one carries `aBlink`.
+           * `mergeGeometries` refuses a set whose attributes disagree, so a
+           * future feature reusing this tint without the attribute fails
+           * loudly rather than silently — which is the right way round.
+           */
+          const blinkPh = rand01(hash, 8821)
           for (const es of [-1, 1]) {
             const eye = new THREE.SphereGeometry(0.0235, 5, 4)
             eye.rotateY(look)
             localToWorld(eye, cx + es * 0.030, sillY + 0.246, cz + 0.098,
               leanX, leanZ, rotationY, wx, wy, wz)
+            const nv = eye.getAttribute('position').count
+            eye.setAttribute('aBlink',
+              new THREE.BufferAttribute(new Float32Array(nv).fill(blinkPh), 1))
             addBeacon(eye, CAT_EYE)
             if (!catLogged) {
               eye.computeBoundingBox()
