@@ -166,6 +166,11 @@ export function installDebugBridge(): void {
      */
     fireMeteor: () => getActiveThreeRenderer()?.fireMeteor() ?? null,
 
+    /** Put every fish-rise site into its burst now — same argument as
+     *  `fireMeteor`: a system that is visible 12% of the time photographs as
+     *  an empty river four times in five. */
+    burstRises: () => getActiveThreeRenderer()?.burstRises() ?? 0,
+
     /** The tile -> world factor, so no tool has to hardcode 3.0. */
     TILE,
 

@@ -328,7 +328,7 @@ interface ParticleSystem {
   lifetimes: Float32Array
   origins: Float32Array
   count: number
-  type: 'smoke' | 'firefly' | 'bird' | 'moth' | 'precip' | 'mist' | 'flock' | 'wisp' | 'ember'
+  type: 'smoke' | 'firefly' | 'bird' | 'moth' | 'precip' | 'mist' | 'flock' | 'wisp' | 'ember' | 'rise'
   /**
    * TRUE when the system travels with the player rather than sitting over the
    * town. Rain and snow are everywhere by definition, so they are drawn as a
@@ -2447,6 +2447,7 @@ void main() {
     // were already gathered rather than walking the map a second time.
     this.initRiverMist(water, heightMap, waterLevel)
     this.initWisps(marsh, heightMap)
+    this.initRises(water, heightMap, waterLevel)
     this.initEmbers(hotChimneys)
     this.initFlock(tiles, heightMap)
   }
@@ -2793,6 +2794,90 @@ void main() {
     })
   }
 
+  /**
+   * A FISH RISES — the river had mist over it, wisps beside it and bridges
+   * across it, and nothing IN it.
+   *
+   * DROPLETS, NOT A RING, and that decision is the whole design. The obvious
+   * shape is the expanding circle, and an expanding circle is a flat
+   * horizontal disc — which is exactly the geometry the puddles were reverted
+   * for: at eye height it foreshortens to a sliver behind the near water and
+   * there is nothing left to see. A splash throws water UP, and perspective
+   * cannot flatten a vertical thing.
+   *
+   * AN EVENT, ON A SCHEDULE, WITHOUT AN EVENT SYSTEM. Each site holds a fixed
+   * point on the water and rises every 14-26 seconds; the burst is 12% of the
+   * cycle and the rest is spent invisible. So this is derived from time like
+   * everything else here — nothing to integrate, nothing to respawn — and it
+   * still reads as something happening rather than something running. A fish
+   * holding one station and coming up at it is also what a fish does.
+   *
+   * NO HOUR GATE, alone among the systems here. Smoke, wisps, embers, moths
+   * and mist all have a time of day they belong to; a fish rises whenever it
+   * likes, and a splash is bright against water at any hour.
+   */
+  private initRises(
+    water: Array<[number, number]>,
+    heightMap: number[][] | null,
+    waterLevel: number[][] | null,
+  ): void {
+    if (water.length < 10) return
+    const SITES = Math.min(10, Math.max(3, Math.round(water.length * 0.06)))
+    // Nine, not six: a splash is a CROWN and four dots is a sneeze.
+    const PER = 9
+    const count = SITES * PER
+    const positions = new Float32Array(count * 3)
+    const velocities = new Float32Array(count * 3)
+    const lifetimes = new Float32Array(count)
+    const origins = new Float32Array(count * 3)
+    const colors = new Float32Array(count * 3)
+
+    for (let si = 0; si < SITES; si++) {
+      const [tx, tz] = water[Math.floor(Math.random() * water.length)]
+      const x = (tx + 0.2 + Math.random() * 0.6) * TILE
+      const z = (tz + 0.2 + Math.random() * 0.6) * TILE
+      // THE SURFACE, RESOLVED THE WAY TerrainMesh RESOLVES IT. Under a water
+      // tile `heightAt` is the BED, which is the confusion that made the
+      // river carve read land-to-bed and photograph as a canyon.
+      const raw = waterLevel?.[tz]?.[tx]
+      const surface = raw === undefined || Number.isNaN(raw)
+        ? (heightMap ? getTerrainHeight(heightMap, x / TILE, z / TILE) : 0)
+        : raw * TERRAIN_WORLD_SCALE
+      const period = 14 + Math.random() * 12
+      const phase = Math.random()
+      for (let pi = 0; pi < PER; pi++) {
+        const i = si * PER + pi
+        const i3 = i * 3
+        origins[i3] = x; origins[i3 + 1] = surface + 0.04; origins[i3 + 2] = z
+        positions[i3] = x; positions[i3 + 1] = surface + 0.04; positions[i3 + 2] = z
+        velocities[i3] = period
+        // Which way this droplet leaves, and how hard.
+        velocities[i3 + 1] = (pi / PER) * Math.PI * 2 + Math.random() * 0.5
+        velocities[i3 + 2] = 0.55 + Math.random() * 0.75
+        lifetimes[i] = phase
+      }
+    }
+
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    const mat = new THREE.PointsMaterial({
+      // 0.17 IS THREE PIXELS AT FOURTEEN METRES — the size wall, for the
+      // fourth time this arc after the wisps, the moths and the embers. A
+      // droplet is a point source and a point source has to be drawn bigger
+      // than the thing it represents or it is not drawn at all.
+      size: 0.42, transparent: true, opacity: 0.95, vertexColors: true,
+      map: LAMP_POOL_TEX, sizeAttenuation: true, depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+    const points = new THREE.Points(geo, mat)
+    points.name = 'rises'
+    this.particleGroup.add(points)
+    this.particleSystems.push({
+      points, positions, velocities, lifetimes, origins, count, type: 'rise',
+    })
+  }
+
   private initRiverMist(
     water: Array<[number, number]>,
     heightMap: number[][] | null,
@@ -3118,6 +3203,31 @@ void main() {
     this._meteorHead = head
   }
 
+  /**
+   * Put every rise site into its burst NOW.
+   *
+   * A site rises for 12% of a 14-26 second cycle, so a still lands on an
+   * empty river four times in five and the isolate frame comes back black —
+   * which reads exactly like "your geometry does not exist". That is the
+   * meteor problem, and the meteor already has `fireMeteor` for it; building
+   * a rare event without the hook that lets a camera see it is how content
+   * ships on trust.
+   *
+   * Rewrites each site's PHASE rather than its position, so the system stays
+   * on its derived-from-time path and simply resumes its own schedule after.
+   */
+  burstRises(): number {
+    const ps = this.particleSystems.find((p) => p.type === 'rise')
+    if (!ps) return 0
+    const t = this.clock.elapsedTime
+    for (let i = 0; i < ps.count; i++) {
+      const period = ps.velocities[i * 3]
+      // Land u at 0.03 — just past the surface, where it is brightest.
+      ps.lifetimes[i] = ((0.03 - t / period) % 1 + 1) % 1
+    }
+    return ps.count
+  }
+
   /** Start a flight now. Exposed on the debug bridge because a feature that
    *  fires once every half-minute cannot be photographed by waiting. */
   fireMeteor(): { x: number; y: number; z: number } | null {
@@ -3379,6 +3489,41 @@ void main() {
         }
         const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
         attr.needsUpdate = true
+        continue
+      }
+
+      // Rises: a short burst on a long cycle, invisible the rest of the time.
+      if (ps.type === 'rise') {
+        const cAttr = ps.points.geometry.getAttribute('color') as THREE.BufferAttribute
+        const col = cAttr.array as Float32Array
+        const BURST = 0.12
+        for (let i = 0; i < ps.count; i++) {
+          const i3 = i * 3
+          const period = vel[i3], ang = vel[i3 + 1], force = vel[i3 + 2]
+          const u = (time / period + life[i]) % 1
+          if (u > BURST) {
+            // Parked at the surface and black, which under AdditiveBlending
+            // draws nothing at all — cheaper than toggling a draw range and
+            // it keeps every particle on the same derived-from-time path.
+            col[i3] = 0; col[i3 + 1] = 0; col[i3 + 2] = 0
+            pos[i3] = orig[i3]; pos[i3 + 1] = orig[i3 + 1]; pos[i3 + 2] = orig[i3 + 2]
+            continue
+          }
+          const b = u / BURST
+          // Up and back down in one arc, spreading as it goes.
+          const r = b * 0.34 * force
+          pos[i3] = orig[i3] + Math.cos(ang) * r
+          pos[i3 + 2] = orig[i3 + 2] + Math.sin(ang) * r
+          pos[i3 + 1] = orig[i3 + 1] + Math.sin(b * Math.PI) * 0.42 * force
+          // Brightest at the instant it breaks the surface.
+          const g = (1 - b) * 0.95
+          col[i3] = g * 0.78
+          col[i3 + 1] = g * 0.90
+          col[i3 + 2] = g
+        }
+        const attr = ps.points.geometry.getAttribute('position') as THREE.BufferAttribute
+        attr.needsUpdate = true
+        cAttr.needsUpdate = true
         continue
       }
 

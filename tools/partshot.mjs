@@ -121,18 +121,37 @@ const canvas = await win.evaluate(() => {
   return best
 })
 const clip = canvas ? { clip: canvas } : {}
+// A SYSTEM THAT IS ONLY VISIBLE PART OF THE TIME NEEDS ASKING, not waiting.
+// The fish rises for 12% of its cycle, so a still lands on an empty river
+// four times in five and the isolate comes back black — which reads exactly
+// like "your geometry does not exist". The bridge hook is the same fix
+// `fireMeteor` already is; any future burst system can join by name.
+await win.evaluate((n) => {
+  if (n === 'rises' && typeof window.__pt.burstRises === 'function') {
+    window.__pt.burstRises()
+  }
+}, name)
 await win.screenshot({ ...clip, path: `.shots/part/${name}-${seed}-view.png` })
 console.log(`  ✓ .shots/part/${name}-${seed}-view.png  ` +
   `${v.dist?.toFixed(0) ?? '?'}m out, fills ${((v.fill ?? 0) * 100).toFixed(1)}%`)
 
 // THE TRIPLE. Hidden proves the subject is what you are looking at; alone
 // says where it is and what shape it really has.
+const burst = async () => {
+  await win.evaluate((n) => {
+    if (n === 'rises' && typeof window.__pt.burstRises === 'function') {
+      window.__pt.burstRises()
+    }
+  }, name)
+}
 const hid = await hideNamed(win, name)
 await win.waitForTimeout(700)
+await burst()
 await win.screenshot({ ...clip, path: `.shots/part/${name}-${seed}-hidden.png` })
 hid.restore()
 const iso = await isolate(win, name)
 await win.waitForTimeout(700)
+await burst()
 await win.screenshot({ ...clip, path: `.shots/part/${name}-${seed}-alone.png` })
 iso.restore()
 console.log(`  ✓ .shots/part/${name}-${seed}-hidden.png  (subject removed)`)
