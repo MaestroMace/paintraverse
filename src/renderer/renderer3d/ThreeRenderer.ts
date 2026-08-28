@@ -171,6 +171,8 @@ const ALWAYS_SMOKING = new Set<string>([
  * particle, which is why it exists.
  */
 const SMOKE_PRIORITY_SHARE = 5
+/** Scratch for the moon's glint colour, so the night branch allocates none. */
+const _moonGlint = new THREE.Color()
 function rand01(hash: number, salt: number): number {
   const n = (hash * 2654435761 + salt * 1597334677) >>> 0
   return n / 0xffffffff
@@ -421,6 +423,11 @@ export class ThreeRenderer {
    *  Materials.starThresholdFor for the census. Defaults match the store's. */
   private _scratchOvercast = new THREE.Color()
   private moonPhase = 0.5
+  /** Where the moon actually hangs at night, in world space. ONE source: the
+   *  disc is drawn here and the water's glint is aimed here, for the reason
+   *  `setWaterSky` exists at all — a river mirroring a moon that is somewhere
+   *  else is the two-authors-of-one-thing defect with a nice picture. */
+  private _moonPos = new THREE.Vector3()
   private starDensity = 0.5
   /** Five buttons and an intensity slider in the Environment panel, read by
    *  nothing at all until now — see Materials.weatherAir. */
@@ -1792,7 +1799,22 @@ void main() {
       }
       if (this.sunDisc) {
         this.discUniforms?.uLit.value.setHex(0xccccdd)
-        this.sunDisc.position.set(0, 180, 0) // moon overhead
+        // LOW, NOT OVERHEAD — and the reason is the water.
+        //
+        // The moon hung at (0, 180, 0), which from anywhere in town is very
+        // nearly straight up. That is fine for a disc you find by looking
+        // up, and it makes a moon PATH impossible: the glint term is
+        // `dot(reflect(view), moonDir)`, and a reflection off a horizontal
+        // surface only points at the zenith when you are staring at your own
+        // feet. So the river had no moon in it, and could not have.
+        //
+        // At ~13 degrees of altitude the moon lays the broken silver road
+        // across the water that it does in life, and it also arrives in
+        // street views instead of only in upward ones — the town's own
+        // vantage lesson, applied to the thing being looked AT.
+        this._moonPos.set(
+          this.townCenterX + 172, 48, this.townCenterZ - 124)
+        this.sunDisc.position.copy(this._moonPos)
         this.sunDisc.scale.setScalar(0.3) // smaller moon
       }
     } else if (isDusk || isDawn) {
@@ -2060,15 +2082,39 @@ void main() {
     // never disagree about what colour the sky is. A river mirroring last
     // hour's sky is a worse defect than one mirroring nothing.
     if (this.skyUniforms) {
-      this._scratchSunDir2
-        .set(sunX - this.townCenterX, Math.max(0.02, sunY), sunZ - this.townCenterZ)
-        .normalize()
-      setWaterSky(
-        this.skyUniforms.uHorizon.value,
-        this.skyUniforms.uZenith.value,
-        this._scratchSunDir2,
-        this.sunLight.color,
-      )
+      // AT NIGHT THE LIGHT ON THE WATER IS THE MOON'S, and it is aimed at the
+      // disc the sky is actually drawing rather than at the sun, which is
+      // under the horizon and was still being handed to the glint. That is
+      // why the river was the darkest thing in the scene after dark — the one
+      // surface in town that should be the brightest, because it is showing
+      // you the sky.
+      if (isNight) {
+        this._scratchSunDir2
+          .set(this._moonPos.x - this.townCenterX, this._moonPos.y,
+            this._moonPos.z - this.townCenterZ)
+          .normalize()
+        // Cool and dim. A moon is sunlight twice removed, so the track is
+        // silver rather than gold — and the glint term multiplies by 1.4, so
+        // this is the value that decides whether the river reads as water or
+        // as a runway.
+        _moonGlint.setHex(0x8fa6c8)
+        setWaterSky(
+          this.skyUniforms.uHorizon.value,
+          this.skyUniforms.uZenith.value,
+          this._scratchSunDir2,
+          _moonGlint,
+        )
+      } else {
+        this._scratchSunDir2
+          .set(sunX - this.townCenterX, Math.max(0.02, sunY), sunZ - this.townCenterZ)
+          .normalize()
+        setWaterSky(
+          this.skyUniforms.uHorizon.value,
+          this.skyUniforms.uZenith.value,
+          this._scratchSunDir2,
+          this.sunLight.color,
+        )
+      }
     }
 
     // Shadow camera follows sun position, targets town center

@@ -157,10 +157,52 @@ export function tickLanternEmissive(time: number): void {
  * are ~0.09 and ~0.13 Hz, two incommensurate terms so the motion never
  * visibly repeats.
  */
-const _swayUniforms = { uSwayTime: { value: 0 } }
+const _swayUniforms = { uSwayTime: { value: 0 }, uSwayGust: { value: 1 } }
 
+/**
+ * AND THE WIND GUSTS, which is what makes it weather rather than a fidget.
+ *
+ * The sway above gives every hanging thing its own phase, so a street of
+ * lanterns does not swing in lockstep — that was the right fix for a
+ * metronome and it leaves a second problem: the amplitude is CONSTANT, so
+ * everything jiggles forever at exactly one strength. Real wind arrives in
+ * pushes, and a town where the washing, the ropes and the signs all surge
+ * together and then ease is a town with weather in it. The per-object phase
+ * keeps them from being a metronome; the shared envelope makes them agree
+ * about the WIND, which is a fact about the place rather than about each
+ * object.
+ *
+ * SLOWER THAN THE SWAY BY A FACTOR OF FOUR, for the reason the whole
+ * frequency table in this file exists: the sway runs at 0.51-0.83 rad/s
+ * (~8-12s) and these two terms are 43s and 27s, so the envelope cannot beat
+ * against the motion it is shaping. Two incommensurate periods again, and
+ * the `pow` makes the lulls longer than the pushes, which is what a gust
+ * actually looks like.
+ *
+ * THE FLOOR IS 0.5 AND IT IS LOAD-BEARING FOR THE INSTRUMENT, not just the
+ * look. `particles.mjs` grades hanging sway by sampling four frames across
+ * the sway period and taking the max pair; a gust that eased to nothing
+ * could put all four in a lull and report a working mechanism as dead — the
+ * phase-aliasing failure that probe was already fixed for once, one level
+ * up. At half amplitude the meshes still read 0.001-0.008 against an
+ * absolute gate of 1e-4, so the worst lull clears it by fifty times.
+ *
+ * Computed here rather than in the shader so there is ONE source: anything
+ * else that should agree with the wind — a weathervane, a drifting leaf —
+ * reads `hangingGust()` instead of re-deriving an envelope that would then
+ * drift out of step.
+ */
 export function tickHangingSway(time: number): void {
   _swayUniforms.uSwayTime.value = time
+  const a = 0.5 + 0.5 * Math.sin(time * 0.145)
+  const b = 0.5 + 0.5 * Math.sin(time * 0.234 + 1.7)
+  _swayUniforms.uSwayGust.value = 0.5 + 0.85 * Math.pow(a * 0.65 + b * 0.35, 2.2)
+}
+
+/** The current gust strength, ~0.5 to ~1.35. One source, so nothing that
+ *  should agree with the wind has to re-derive it. */
+export function hangingGust(): number {
+  return _swayUniforms.uSwayGust.value
 }
 
 /** Give one hanging mesh its own material with the sway compiled in. The
@@ -171,10 +213,12 @@ function applySway(mesh: THREE.Mesh, amp: number): void {
   const mat = (base as THREE.Material).clone()
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uSwayTime = _swayUniforms.uSwayTime
+    shader.uniforms.uSwayGust = _swayUniforms.uSwayGust
     shader.uniforms.uSwayAmp = { value: amp }
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         uniform float uSwayTime;
+        uniform float uSwayGust;
         uniform float uSwayAmp;`)
       // AFTER <begin_vertex>, so `transformed` exists and everything
       // downstream — the shadow pass, the fog varying — sees the moved
@@ -185,8 +229,9 @@ function applySway(mesh: THREE.Mesh, amp: number): void {
           float ph = wp.x * 0.31 + wp.z * 0.23;
           float sw = sin(uSwayTime * 0.58 + ph) * 0.65
                    + sin(uSwayTime * 0.83 + ph * 1.7) * 0.35;
-          transformed.x += sw * uSwayAmp;
-          transformed.z += cos(uSwayTime * 0.51 + ph * 0.8) * uSwayAmp * 0.55;
+          float amp = uSwayAmp * uSwayGust;
+          transformed.x += sw * amp;
+          transformed.z += cos(uSwayTime * 0.51 + ph * 0.8) * amp * 0.55;
         }`)
   }
   mat.needsUpdate = true
