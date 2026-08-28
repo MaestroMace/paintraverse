@@ -4159,6 +4159,17 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   which is 1 for perfect agreement and 0 for the uniform scatter the previous
   implementation produced by construction. A metric whose failing case is
   exactly what it replaced needs no threshold.
+- `xvfb-run -a node tools/clockprobe.mjs [seed]` — **does the town clock tell
+  the time, and does it run FORWARDS?** The rare check with nothing to tune: a
+  clock is right or it is not, so it recovers each hand's bearing in its own
+  dial plane from the instance matrices and compares it to the hour. Pairs the
+  two hands of a dial by their shared origin and takes the SHORTER as the hour
+  hand, because that is what a clock is; derives each dial's outward normal
+  from its own tower's centroid rather than from a table, so it cannot inherit
+  the bug it tests for. **Not every seed grows a clock_tower** — 4242 has
+  none; 31337, 8080 and 777 do. Its handedness row is the one that matters:
+  two dials in every four ran anticlockwise for the life of the feature, and a
+  random hour is what hid it.
 - `node tools/growth.mjs [seeds...]` — **does the town get sparser as you walk
   out of it?** DESIGN.md names six marks of organic growth and five had a
   tool; "dense core, sparse edges — growth rings fade outward" had none, and
@@ -7066,6 +7077,13 @@ THRESHOLD TO ARGUE ABOUT.** The mean resultant length of a set of bearings is
 whose failing case is the previous implementation's exact distribution is the
 best kind available.
 
+Board: **0 gate failures, 0 regressions across 29 checks**, and only
+`eyeball wallLuma` 80 -> 79 moved — one point, inside the ±1 this file
+records for that row. `budget` unchanged at 78.2MB, because an InstancedMesh
+allocates no texture. Same verdict as the belfry and the rose window, and for
+the same reason: an ornament that claims no tile and moves no building should
+move nothing.
+
 **AND THE BEARING IS READ FROM THE TOWN, NOT RE-DERIVED.** `__pt.vanes()`
 returns the count and the live bearing, because a probe that restates the
 formula is the terrain table again — and this repo has paid for that copy
@@ -7074,6 +7092,75 @@ is the "setter accepted and discarded" check that has now caught five
 failures here; the floor for it is the SAME PIN TWICE rather than zero,
 because the base direction drifts on its own clock and two frames are never
 identical.
+
+## THE TOWN CLOCK SHOWED A RANDOM HOUR, AND HALF OF ITS FACES RAN BACKWARDS
+
+`timeOfDay` is a labelled control on the Environment panel. The sky reads it,
+all four branches of `updateLighting` read it, the lanterns, the stars, the
+moon, the mist and the meteors read it. **The clock did not.** Its hands were
+`(hash % 12) / 12` — a fixed random hour per building — under a comment saying
+"so a town's clocks disagree the way real ones do, with nothing to tick".
+
+That is the GHOST-WITH-A-USER-INTERFACE failure this file already records for
+`moonPhase`, `starDensity` and the five weather buttons, landing on the one
+object in the town whose entire job is to display the value. And the comment's
+argument is half right, which is what made it survive: **a real town clock is
+a few MINUTES out, not seven hours.** The disagreement is kept as a per-
+building offset of ±4 minutes and the rest is now the hour.
+
+### AND A RANDOM VALUE HAD BEEN HIDING A SIGN ERROR
+
+The four dials sit at `sgn = ±1` on two axes, and every one of them baked its
+hands with `rotateZ(-ang)`. Seen from OUTSIDE a dial whose normal is +Z or +X
+that is clockwise. Seen from outside one whose normal is -Z or -X the viewer's
+right-hand direction has flipped, so **two faces in every four ran
+anticlockwise** — for the life of the feature.
+
+Nobody could see it, and not for want of looking: a backwards clock showing a
+meaningless time is a clock showing a different meaningless time. It becomes
+glaring the instant the hands mean something. **A random value hides a sign
+error**, which is an argument for wiring real values through even where the
+plausible fake one "looks fine" — the same shape as `celestial.mjs` keeping a
+known-dead control in its table, because a test with no negative case has
+never been tested.
+
+### THE FRAME IS MEASURED FROM `localToWorld`, NOT RESTATED
+
+An instance matrix needs the same local -> world transform the baked geometry
+gets. Writing that product out a second time is the copy-drift this repo has
+paid for in three terrain tables, a roof-cap table, a dwelling list and a door
+palette — and it would be worse here, because the failure is silent geometry
+slightly out of place rather than an error. `localToWorldMatrix` runs a
+four-point probe THROUGH the real function and reads the basis back, so the
+two cannot disagree even if the order of operations in `localToWorld` changes.
+Same trick as the vane pivot, generalised.
+
+### MEASURED, AND THIS IS THE RARE CHECK WITH NOTHING TO TUNE
+
+A clock is right or it is not. `tools/clockprobe.mjs` recovers each hand's
+bearing in its own dial plane from the instance matrices — pairing the two
+hands of a dial by their shared origin, taking the SHORTER as the hour hand
+because that is what a clock is, and deriving each dial's outward normal from
+the centroid of its own tower rather than from a table, so the probe cannot
+inherit the bug it is testing for. Seed 31337:
+
+    4 dials, 12 hour-hand readings over 3, 6 and 9:30
+    worst error          0.50 deg   (the ±4-minute offset is up to 2.0 deg)
+    dials backwards      0
+    photograph at 10:10  hour hand on 10, minute hand on 2
+
+**An InstancedMesh, not a shader** — the same call the weathervanes made and
+for the same reason. Every hand is one box, so the whole town's clocks are one
+draw and a handful of matrix composes whenever the hour changes; `tickClocks`
+hangs off `updateLighting` rather than the frame loop, because that is the one
+place that knows the hour moved.
+
+**One deliberate art change, stated rather than slipped past**: the hands were
+`shiftColor(palette.wall, ...)`, a per-building dark derived from the wall.
+They are a fixed near-black now. A clock's hands are dark for CONTRAST against
+its dial, which is a fact about clocks rather than about the building carrying
+one — and the dial is an emissive gold disc, so the near-black reads crisply
+where a wall-derived brown did not.
 
 ## Android / mobile build
 

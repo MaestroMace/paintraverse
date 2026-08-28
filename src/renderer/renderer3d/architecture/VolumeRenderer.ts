@@ -266,6 +266,43 @@ export function localToWorld(
 }
 
 /**
+ * The SAME transform as a matrix, for anything placed by an instance rather
+ * than by baking — a weathervane arrow that turns, a clock hand that tells the
+ * hour.
+ *
+ * MEASURED FROM THE FUNCTION ABOVE, NOT RESTATED. Writing the product out a
+ * second time is the copy-drift this repo has paid for in three terrain
+ * tables, a roof-cap table, a dwelling list and a door palette — and it is
+ * worse here than usual, because the failure would be silent geometry in
+ * slightly the wrong place rather than an error. Running a four-point probe
+ * THROUGH `localToWorld` and reading the basis back means the two cannot
+ * disagree even if the order of operations in it ever changes.
+ */
+export function localToWorldMatrix(
+  lx: number, ly: number, lz: number,
+  leanX: number, leanZ: number, rotY: number,
+  wx: number, wy: number, wz: number,
+): THREE.Matrix4 {
+  const probe = new THREE.BufferGeometry()
+  probe.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1,
+  ]), 3))
+  localToWorld(probe, lx, ly, lz, leanX, leanZ, rotY, wx, wy, wz)
+  const p = probe.getAttribute('position')
+  const ox = p.getX(0), oy = p.getY(0), oz = p.getZ(0)
+  const ex = [p.getX(1) - ox, p.getY(1) - oy, p.getZ(1) - oz]
+  const ey = [p.getX(2) - ox, p.getY(2) - oy, p.getZ(2) - oz]
+  const ez = [p.getX(3) - ox, p.getY(3) - oy, p.getZ(3) - oz]
+  probe.dispose()
+  return new THREE.Matrix4().set(
+    ex[0], ey[0], ez[0], ox,
+    ex[1], ey[1], ez[1], oy,
+    ex[2], ey[2], ez[2], oz,
+    0, 0, 0, 1,
+  )
+}
+
+/**
  * Apply weathering to a color: darken by up to 25%, and at high weather
  * shift slightly toward a dim moss green for organic decay feel.
  */

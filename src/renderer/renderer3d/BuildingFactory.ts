@@ -19,9 +19,10 @@ import type { DistrictId } from './architecture'
 import { pickMassing, volumeFloors, traceStage, clipToFootprint, MAX_OVERHANG as MAX_OVERHANG_M } from './architecture/Massing'
 import { addBeacon, CAT_EYE_TINT } from './Beacons'
 import { buildVaneMesh } from './Weathervanes'
+import { addClockHand, buildClockMesh } from './Clocks'
 import { facadeOpenings, quantizeWallM } from './FacadeTexture'
 import { gableMath, clampRoofHeight, clampRoofToWall, eaveProjFor } from './architecture/Roofs'
-import { emitVolume, localToWorld, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
+import { emitVolume, localToWorld, localToWorldMatrix, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
 import { pickPaletteForStyle } from './architecture/PaletteBias'
 import { isThatched, roofColorFor } from './Materials'
 import { TILE, STOREY_HEIGHT, MIN_HABITABLE_W } from './scale'
@@ -2794,26 +2795,43 @@ export function buildBuildingMeshes(
               oz0 + mz + nz * sgn * 0.06,
               leanX, leanZ, rotationY, wx, wy, wz)
             addBeacon(dialG)
-            // HANDS — a fixed hour per building, so the clocks of a town
-            // disagree the way real ones do, with nothing to tick.
-            const hour = (hash % 12) / 12 * Math.PI * 2
-            const minute = ((hash >> 4) % 60) / 60 * Math.PI * 2
-            for (const [ang, len, thick] of [
-              [hour, dialR * 0.52, rimT * 0.5],
-              [minute, dialR * 0.82, rimT * 0.34],
+            /**
+             * HANDS — instanced, and they TELL THE TIME.
+             *
+             * They were `(hash % 12) / 12` — a fixed random hour per building
+             * — under a comment saying "so a town's clocks disagree the way
+             * real ones do, with nothing to tick". Disagreeing is right and
+             * the amount was not: a real town clock is a few MINUTES out, not
+             * seven hours, and `timeOfDay` is a labelled control that the sky,
+             * the lighting, the lanterns, the stars, the moon, the mist and
+             * the meteors all read. The one object whose whole job is to
+             * display it did not.
+             *
+             * CLEAR OF THE DIAL'S OWN FACE. The dial is centred 0.06 proud and
+             * is rimT*0.8 thick, so its outer surface is at 0.06 + rimT*0.4 —
+             * hands at a flat 0.14 were inside the glass on any dial bigger
+             * than a dinner plate, which is every one of them.
+             */
+            const handOut = 0.06 + rimT * 0.4 + 0.05
+            const frame = localToWorldMatrix(
+              ox0 + mx + nx * sgn * handOut, dialY, oz0 + mz + nz * sgn * handOut,
+              leanX, leanZ, rotationY, wx, wy, wz)
+            // A few minutes out, per building — the charming half of the
+            // original intent, kept.
+            const offsetMin = ((hash >> 7) % 9) - 4
+            for (const [kind, len, thick] of [
+              ['hour', dialR * 0.52, rimT * 0.5],
+              ['minute', dialR * 0.82, rimT * 0.34],
             ] as const) {
-              const hand = new THREE.BoxGeometry(thick, len, thick * 0.8)
-              // Pivot at the dial centre: shift the bar so it grows outward.
-              hand.translate(0, len / 2, 0)
-              hand.rotateZ(-ang)
-              if (nx) hand.rotateY(Math.PI / 2)
-              // CLEAR OF THE DIAL'S OWN FACE. The dial is centred 0.06 proud
-              // and is rimT*0.8 thick, so its outer surface is at 0.06 +
-              // rimT*0.4 — hands at a flat 0.14 were inside the glass on any
-              // dial bigger than a dinner plate, which is every one of them.
-              const handOut = 0.06 + rimT * 0.4 + 0.05
-              push(hand, ox0 + mx + nx * sgn * handOut, dialY,
-                oz0 + mz + nz * sgn * handOut, dark)
+              addClockHand({
+                frame: frame.clone(),
+                turnY: nx === 1,
+                // SEEN FROM OUTSIDE a -Z or -X dial the viewer's right has
+                // flipped, so the baked `-ang` ran those two faces of every
+                // four ANTICLOCKWISE. Invisible while the hour was random.
+                spin: sgn,
+                len, thick, kind, offsetMin,
+              })
             }
           }
         }
@@ -4514,6 +4532,8 @@ export function buildBuildingMeshes(
   // is where that pass is drained.
   const vaneMesh = buildVaneMesh()
   if (vaneMesh) batched.push(vaneMesh)
+  const clockMesh = buildClockMesh()
+  if (clockMesh) batched.push(clockMesh)
   const ornamentMesh = ornamentBatch.build()
   if (ornamentMesh) {
     // Ornaments are thin geometry — self-shadowing acne under CSM looks

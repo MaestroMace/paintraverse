@@ -25,6 +25,7 @@ import { placeStats } from '../generation/TownGenerator'
 import { lampAnchors, lanternStats, hangingGust, pinHangingGust, pinHangingTime } from '../renderer3d/LanternStrings'
 import { pinCatTime as pinCatBlinkTime } from '../renderer3d/Beacons'
 import { vaneCount, vaneBearing } from '../renderer3d/Weathervanes'
+import { clockCount, clockReading } from '../renderer3d/Clocks'
 import * as THREE from 'three'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
 import { getActiveEditorViewport } from '../editor/EditorViewport'
@@ -217,6 +218,11 @@ export function installDebugBridge(): void {
      *  read the town's own value rather than re-deriving the formula — the
      *  copy-drift rule that cost this repo three terrain tables. */
     vanes: () => ({ count: vaneCount(), bearing: vaneBearing() }),
+
+    /** How many clock hands the town grew and what hour they are showing.
+     *  Same argument as `vanes`: a probe reads the town's value rather than
+     *  restating the formula. */
+    clocks: () => ({ count: clockCount(), reading: clockReading() }),
 
     /** The tile -> world factor, so no tool has to hardcode 3.0. */
     TILE,

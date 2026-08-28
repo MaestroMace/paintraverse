@@ -49,6 +49,7 @@ import { buildLanternStrings, buildWallLanterns, buildWindowSpill, setLanternEmi
 import { buildPropMeshes, setLampPoolOpacity, LAMP_POOL_TEX, propSizes, propInstances, type PropBatchResult } from './PropFactory'
 import { resetBeacons, tickCatBlink } from './Beacons'
 import { resetVanes, tickVanes } from './Weathervanes'
+import { resetClocks, tickClocks } from './Clocks'
 import { starIntensityFor, starThresholdFor, moonPhaseDir, weatherAir } from './Materials'
 
 /**
@@ -889,6 +890,7 @@ void main() {
     // light last town's towers in this one.
     resetBeacons()
     resetVanes()
+    resetClocks()
 
     const palettes = buildingPalettes || DEFAULT_BUILDING_PALETTES
     const defMap = new Map(objectDefs.map(d => [d.id, d]))
@@ -1716,6 +1718,12 @@ void main() {
 
   updateLighting(timeOfDay: number): void {
     this.currentTimeOfDay = timeOfDay
+    // THE TOWN CLOCKS AGREE WITH THE SUN. Here rather than in the frame loop
+    // because the hands only change when the hour does, and this is the one
+    // place that knows the hour changed — the same argument that put
+    // `setWaterSky` at the bottom of this function instead of in four
+    // branches, so the river cannot mirror last hour's sky.
+    tickClocks(timeOfDay)
     const isNight = timeOfDay < 5 || timeOfDay >= 19
     const isDusk = timeOfDay >= 17 && timeOfDay < 19
     const isDawn = timeOfDay >= 5 && timeOfDay < 7
