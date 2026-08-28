@@ -3228,6 +3228,14 @@ void main() {
     return ps.count
   }
 
+  /** Where the sun/moon disc is right now, in world space. Exposed so no tool
+   *  has to restate it — see the bridge comment on `moonPos`. */
+  debugMoonPos(): { x: number; y: number; z: number } | null {
+    if (!this.sunDisc) return null
+    const p = this.sunDisc.position
+    return { x: p.x, y: p.y, z: p.z }
+  }
+
   /** Start a flight now. Exposed on the debug bridge because a feature that
    *  fires once every half-minute cannot be photographed by waiting. */
   fireMeteor(): { x: number; y: number; z: number } | null {

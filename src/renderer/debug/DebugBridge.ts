@@ -164,6 +164,21 @@ export function installDebugBridge(): void {
      * unverifiable. One line on the bridge turns it into a subject a tool can
      * point a camera at.
      */
+    /**
+     * WHERE THE MOON ACTUALLY IS, because `celestial.mjs` had the position
+     * written into it as a literal `[0, 180, 0]`. Moving the moon left the
+     * probe masking a patch of empty sky, and it reported `moonPhase` as
+     * EXACTLY 0.00000 — which this repo already records as the tell that a
+     * mask is off its subject rather than that a subject is dead. A tool that
+     * restates a value the renderer owns is the terrain table again, in the
+     * sky; deriving it is the only fix that cannot drift a second time.
+     */
+    moonPos: () => {
+      const r = getActiveThreeRenderer()
+      const d = r?.debugMoonPos()
+      return d ? [d.x, d.y, d.z] : null
+    },
+
     fireMeteor: () => getActiveThreeRenderer()?.fireMeteor() ?? null,
 
     /** Put every fish-rise site into its burst now — same argument as

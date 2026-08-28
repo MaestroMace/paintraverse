@@ -320,12 +320,24 @@ const record = (label, what, p, a, b) => {
 // this repo insists on everywhere else and is just as binding on a tool.
 {
   await setEnv({ celestial: { starDensity: 0 } })
+  // ASK THE RENDERER WHERE THE MOON IS. This was the literal `[0, 180, 0]`,
+  // copied from `updateLighting` — and the day the moon moved so it could lay
+  // a path on the water, the mask stayed on a patch of empty sky and the probe
+  // reported `moonPhase` as EXACTLY 0.00000. This file's own note says an
+  // exact zero on a masked patch means the mask is off its subject rather than
+  // that the subject is dead, and it was right about its own output. A tool
+  // that restates a value the renderer owns is the terrain table again.
+  const moonWorld = await win.evaluate(() => window.__pt.moonPos?.() ?? null)
+  if (!moonWorld) {
+    console.log('  moon  SKIPPED — __pt.moonPos is missing; the bundle predates')
+    console.log('        the bridge hook, and a missing measurement must not')
+    console.log('        read as a pass.')
+  }
   const p = await probe('moon', 1.35, 22,
     (v) => setEnv({ celestial: { moonPhase: v } }),
     [['new', 0], ['quarter', 0.5], ['full', 1]],
-    // Where updateLighting parks the moon, and a radius generous enough to
-    // hold the whole disc plus its edge.
-    { world: [0, 180, 0], radius: 0.06 })
+    // Derived, with a radius generous enough to hold the disc plus its edge.
+    { world: moonWorld ?? [0, 180, 0], radius: 0.06 })
   console.log(`  moon  vantage: animation floor mad ${p.floor.mad.toFixed(5)}`)
   record('moonPhase', 'new vs full', p, p.frames['new'], p.frames['full'])
   record('  ^ quarter vs full', 'sanity', p, p.frames['quarter'], p.frames['full'])
