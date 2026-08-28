@@ -12,7 +12,7 @@ import type { ObjectDefinition, PlacedObject } from '../core/types'
 import { stableHash, footprintOf } from '../core/types'
 import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { lampAnchors } from './LanternStrings'
-import { takeBeacons, takeTintedBeacons } from './Beacons'
+import { takeBeacons, takeTintedBeacons, CAT_EYE_TINT, applyCatBlink } from './Beacons'
 import { TILE } from './scale'
 
 // Heights tuned for FLOOR_HEIGHT=1.8. A 2-story building = 3.6m eaves,
@@ -2110,9 +2110,18 @@ export function buildPropMeshes(
       mat = new THREE.MeshLambertMaterial({
         color: 0x120c10, emissive: tint, emissiveIntensity: 1.15,
       })
+      // THE ONE BUCKET THAT ANIMATES. Cat eyes already have their own tint and
+      // therefore their own mesh and material, so the blink reaches them and
+      // nothing else — no gate, no name list, no risk of winking a window.
+      if (tint === CAT_EYE_TINT) applyCatBlink(mat)
       _tintedEmissiveMats.set(tint, mat)
     }
     const pane = new THREE.Mesh(merged, mat)
+    // NAMED, because `isolate` and `hideNamed` need one and these had none for
+    // their whole life — so the two most recent pieces of content in the town
+    // were the two things the tool built to find invisible content could not
+    // be pointed at. That is the lantern-rope lesson, unlearned.
+    pane.name = tint === CAT_EYE_TINT ? 'catEyes' : `tintedGlass-${tint.toString(16)}`
     pane.matrixAutoUpdate = false
     pane.updateMatrix()
     pane.castShadow = false

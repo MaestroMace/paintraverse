@@ -23,6 +23,7 @@ import { overhangClamps, resetOverhangClamps, massingTrace, setMassingTrace, MAX
 import { auditRoofWinding, MAX_ROOF_SPAN_RATIO } from '../renderer3d/architecture/Roofs'
 import { placeStats } from '../generation/TownGenerator'
 import { lampAnchors, lanternStats, hangingGust, pinHangingGust, pinHangingTime } from '../renderer3d/LanternStrings'
+import { pinCatTime as pinCatBlinkTime } from '../renderer3d/Beacons'
 import * as THREE from 'three'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
 import { getActiveEditorViewport } from '../editor/EditorViewport'
@@ -204,6 +205,11 @@ export function installDebugBridge(): void {
      *  nothing else, so this freezes the ropes and the washing and touches no
      *  other part of the town. */
     pinSwayTime: (v: number | null) => { pinHangingTime(v); return v },
+    /** And the CAT BLINK clock. Sharper than the sway's case: the eyes are
+     *  shut for about a fifth of a second in every five or six, so a still
+     *  taken at random misses the blink thirty times out of thirty-one and
+     *  "I never saw one" is indistinguishable from "it never fires". */
+    pinCatTime: (v: number | null) => { pinCatBlinkTime(v); return v },
 
     /** The tile -> world factor, so no tool has to hardcode 3.0. */
     TILE,

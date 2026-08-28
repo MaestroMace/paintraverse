@@ -17,7 +17,7 @@ import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
 import { pickMassing, volumeFloors, traceStage, clipToFootprint, MAX_OVERHANG as MAX_OVERHANG_M } from './architecture/Massing'
-import { addBeacon } from './Beacons'
+import { addBeacon, CAT_EYE_TINT } from './Beacons'
 import { facadeOpenings, quantizeWallM } from './FacadeTexture'
 import { gableMath, clampRoofHeight, clampRoofToWall, eaveProjFor } from './architecture/Roofs'
 import { emitVolume, localToWorld, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
@@ -155,8 +155,15 @@ const SHUTTER_COLORS = [
  * same argument the belfry's lit arch is built on, at a twentieth of the size.
  */
 const CAT_COATS = [0x8a5228, 0x241f1e, 0x5a5854, 0xb0a897, 0x50372a, 0x6e4426]
-/** Yellow-green, so a cat is not mistaken for one more amber window. */
-const CAT_EYE = 0x8fa32a
+/**
+ * Yellow-green, so a cat is not mistaken for one more amber window.
+ *
+ * IN `Beacons.ts` BECAUSE TWO PATHS HAVE TO AGREE ON IT. The building path
+ * emits with this tint and the prop path recognises that one bucket to give
+ * it a blink; a private copy here would separate the geometry from its
+ * animation the day either moved.
+ */
+const CAT_EYE = CAT_EYE_TINT
 const STAINED_GLASS_TYPES = new Set(['cathedral', 'temple', 'chapel'])
 /**
  * DARK ON PURPOSE, AND THE FIRST SET WAS NOT DARK ENOUGH BY A LONG WAY.

@@ -3716,6 +3716,15 @@ it was a bigger footprint bought to replace lost coverage.
   including `src/preload`, so that project could not build at all.
   **A green gate that has never failed is not evidence; it is an untested
   instrument.** Feed a check a known-bad input once and watch it go red.
+- **`npm run typecheck` EMITS, so it cannot be run while a board is in
+  flight** — `tsc -b --force` writes into `dist/` and a measurement run is
+  reading it, which this file already records costing one discarded board.
+  The safe form types both projects and writes nothing:
+
+      npx tsc -p tsconfig.web.json --noEmit && npx tsc -p tsconfig.node.json --noEmit
+
+  Same coverage, no output. Use it whenever a harness is running; the plain
+  script is still the one to run before a build.
 - Build check: `npm run typecheck && npm run build`
   **Check the build with a success marker, not `| tail -1`.** On failure the
   last line of `npm run build` is an esbuild stack frame, not an error banner,

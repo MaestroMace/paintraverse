@@ -47,7 +47,7 @@ import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, 
 import { tickWallEmissive } from './architecture/VolumeRenderer'
 import { buildLanternStrings, buildWallLanterns, buildWindowSpill, setLanternEmissiveIntensity, setWindowSpillOpacity, tickLanternEmissive, tickHangingSway, lampAnchors, resetLampAnchors, type LampAnchor } from './LanternStrings'
 import { buildPropMeshes, setLampPoolOpacity, LAMP_POOL_TEX, propSizes, propInstances, type PropBatchResult } from './PropFactory'
-import { resetBeacons } from './Beacons'
+import { resetBeacons, tickCatBlink } from './Beacons'
 import { starIntensityFor, starThresholdFor, moonPhaseDir, weatherAir } from './Materials'
 
 /**
@@ -3729,6 +3729,10 @@ void main() {
       // The hanging content sways on the SAME clock as everything else that
       // breathes, so the wind cannot drift out of step with the smoke.
       tickHangingSway(t)
+      // The cats blink on the same clock as the wind and the smoke, for the
+      // reason the sway is on it: a second copy of "what time is it" is how
+      // the four lighting arms rotted one at a time.
+      tickCatBlink(t)
       tickWater(t)
       this.updateMeteor(dt)
       // The stars twinkle beside the windows and the water, which is the
