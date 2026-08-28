@@ -4111,6 +4111,21 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   because the orbit was tight enough to keep them all inside the lantern's own
   screen footprint. **It cannot grade the MOTION, and says so** — a still
   photograph under-reports a motion feature by construction.
+- `xvfb-run -a node tools/gustprobe.mjs [seed] [--mesh=]` — **does the WIND
+  gust, and does the gust reach a pixel?** particles.mjs grades hanging sway
+  against an absolute floor — is the mesh moving at all — and a push and a
+  lull both read as "moving", so the envelope shipped ungraded. It cannot be
+  answered by waiting either: 43s and 27s terms over an 8-12s swing means any
+  two frames may be in the same gust phase or aliased against the swing, which
+  is the failure the sway check was already fixed for. So `__pt.pinGust` holds
+  the wind and `__pt.pinSwayTime` holds the clock, and the tool steps twelve
+  EXACT phases across one period with the mesh isolated. **Read the LADDER, not
+  the ratio**: rung zero must be exactly 0.00e+0 (proof the isolation is
+  complete and the pin reaches the shader), and the rungs come in below the
+  2.70x commanded IN ORDER OF FEATURE WIDTH, because a frame difference stops
+  growing once a thing moves further than its own width. Its own negative case
+  caught two wrong statistics before the third one worked — see the section
+  above before adding a fourth.
 - `node tools/growth.mjs [seeds...]` — **does the town get sparser as you walk
   out of it?** DESIGN.md names six marks of organic growth and five had a
   tool; "dense core, sparse edges — growth rings fade outward" had none, and
@@ -6760,6 +6775,100 @@ are not looking: `No stash entries found`, and a "build" that finished in
 81ms. **`git checkout <commit> -- src/` is the only form of this that cannot
 silently no-op**, which is why this file already prescribes it, and I reached
 for the convenient one instead.
+
+## I SHIPPED THREE THINGS AND ONLY ONE OF THEM HAD BEEN LOOKED AT
+
+Asked plainly, after a run of content commits, to look over the work again —
+"you know your eyes are bad." The audit is the finding and it is unflattering:
+
+| shipped | evidence at the time |
+|---|---|
+| fish rising on the river | the A/B triple — composite, hidden, alone |
+| the moon's track on the water | ME SQUINTING AT ONE COMPOSITE, no control |
+| wind gusts on everything hanging | **nothing at all** |
+
+Two of three went out on the strength of a look. This file's own words for
+that are already written down — *squinting at a composite is not a reading* —
+under the puddles, which were built, measured at 1.4x the noise floor and
+reverted for exactly this reason. **A feature that is real, correct and
+ungraded is the GHOST this repo keeps finding, and writing the commit message
+does not change that.**
+
+### THE MOON PATH: 2.07x THE MEAN, 3.25x THE PEAK
+
+One pinned camera on the night river, a 128x128 luma grid, the water region
+taken as the bottom 45% of rows, and the single-variable change being
+`_moonGlint` set to black:
+
+    glint on     mean 0.02704   peak 0.46770
+    glint off    mean 0.01305   peak 0.14410
+
+So the pale track IS the moon and not the Fresnel sheen that was already
+there. The control frame is uniformly dark water with no bright patch, which
+is what makes the other one mean something. **Thirty seconds of arithmetic
+after the fact, on a claim I had already published.**
+
+### THE GUSTS NEEDED A HOOK, NOT A LONGER WAIT
+
+The envelope's terms are 43s and 27s over a sway period of 8-12s. So a probe
+that WAITS cannot say which of its frames is a push and which is a lull, and
+any two of them can land at the same phase of the swing underneath — the
+aliasing failure `particles.mjs`'s sway check was already fixed for once.
+`__pt.pinGust` holds the wind at a value and `__pt.pinSwayTime` holds the
+clock, and the question collapses into a single-variable A/B with nothing to
+wait for. Same argument as `fireMeteor` and `burstRises`: **when a feature
+cannot be pointed at, add the handle rather than the patience.**
+
+`tools/gustprobe.mjs`, isolated, twelve exact phases across one full period,
+statistic = the mean over pixels of each pixel's range across those twelve:
+
+    mesh            gust 0.00   0.50      1.00      1.35      push/lull
+    ropeLanterns    0.00e+0     3.07e-4   5.66e-4   7.28e-4     2.38x
+    laundryLines    0.00e+0     8.91e-4   1.70e-3   2.20e-3     2.47x
+    lanternRopes    0.00e+0     7.37e-5   1.19e-4   1.43e-4     1.94x
+                    ^ static     against 2.70x commanded    noise 1.00x
+
+**RUNG ZERO READING EXACTLY 0.00e+0 IS THE WHOLE PROOF.** With one mesh
+visible, the camera still and the gust pinned to nothing, twelve frames are
+byte-identical — so the isolation is complete, the pin reaches the shader, and
+every nonzero figure above IS motion rather than noise. That is the property
+`windowSpill` provides for the sway gate, obtained here for free by pinning.
+
+### AND THE STATISTIC WAS WRONG TWICE, AND ITS OWN NEGATIVE CASE CAUGHT BOTH
+
+This is the part worth keeping. The probe measures gust 1.00 a second time and
+requires the pair to agree; three versions:
+
+- **Adjacent-pair frame difference over the frame gap** measures VELOCITY. A
+  swing sampled four times over 0.7 of its period sometimes straddles the fast
+  part and sometimes the turn. Two runs at an IDENTICAL pinned gust read
+  1.69e-4 and 4.23e-5 — **a fourfold swing with nothing changed, larger than
+  the 2.70x effect being graded.** Its verdict that run was "2 of 3 LIVE", and
+  it was not entitled to say so.
+- **Widest of all pairs** fixes the units — the widest separation any two
+  frames reach IS the peak-to-peak, with no clock in it — and is still an
+  extreme over ONE pair, so it inherits that pair's phase. Noise 1.11x, then
+  2.15x on a re-run of the same mesh and the same build.
+- **Per-pixel range over PINNED phases** uses every frame at every pixel, at
+  phases chosen rather than caught. Noise **exactly 1.00x**.
+
+Every one of those three would have produced a publishable-looking table. Only
+the negative case told them apart, and it is the reason a 2.04x reading did
+not get written up as a confirmed gust. **A test with no negative case has
+never been tested** — third time this file has had to say it, and the first
+time it caught ME rather than the town.
+
+### AND THE THREE MESHES DISAGREE BY FEATURE WIDTH, WHICH IS THE METRIC
+
+All three come in UNDER the 2.70x commanded, and they order themselves:
+garments 2.47x, lantern bulbs 2.38x, 4cm ropes 1.94x. **A frame difference
+stops growing once a thing has moved further than its own width** — past that
+you are subtracting two disjoint silhouettes and the statistic plateaus — so
+the thinnest subject under-reports the most. That ordering is a fact about the
+instrument and not about the town, and the earlier peak-to-peak version had it
+badly enough to report the ropes at 1.25x and call them dead. **Before
+believing a shortfall, ask whether the thing you are measuring is bigger than
+the movement you are measuring it by.**
 
 ## Android / mobile build
 

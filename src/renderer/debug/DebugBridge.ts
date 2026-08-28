@@ -22,7 +22,7 @@ import { setFragmentAudit, getFragmentAudit, setSliverAudit, getSliverAudit } fr
 import { overhangClamps, resetOverhangClamps, massingTrace, setMassingTrace, MAX_TOWER_ASPECT } from '../renderer3d/architecture/Massing'
 import { auditRoofWinding, MAX_ROOF_SPAN_RATIO } from '../renderer3d/architecture/Roofs'
 import { placeStats } from '../generation/TownGenerator'
-import { lampAnchors, lanternStats } from '../renderer3d/LanternStrings'
+import { lampAnchors, lanternStats, hangingGust, pinHangingGust, pinHangingTime } from '../renderer3d/LanternStrings'
 import * as THREE from 'three'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
 import { getActiveEditorViewport } from '../editor/EditorViewport'
@@ -185,6 +185,25 @@ export function installDebugBridge(): void {
      *  `fireMeteor`: a system that is visible 12% of the time photographs as
      *  an empty river four times in five. */
     burstRises: () => getActiveThreeRenderer()?.burstRises() ?? 0,
+
+    /**
+     * The wind, read and held. `gust()` is the value the shader is actually
+     * multiplying by this frame; `pinGust(v)` holds it there, and
+     * `pinGust(null)` gives it back to the envelope.
+     *
+     * Without the pin the gust is ungradeable: its two terms are 43s and 27s
+     * against a sway period of 8-12s, so a probe cannot tell a lull from a
+     * frame that happened to catch the swing at rest. With it the check is a
+     * single-variable A/B with a built-in negative case — pin both halves the
+     * same and the ratio must read one.
+     */
+    gust: () => hangingGust(),
+    pinGust: (v: number | null) => { pinHangingGust(v); return hangingGust() },
+    /** And the sway CLOCK, so a probe can ask for an exact phase instead of
+     *  sampling one by waiting. `uSwayTime` is read by the hanging shader and
+     *  nothing else, so this freezes the ropes and the washing and touches no
+     *  other part of the town. */
+    pinSwayTime: (v: number | null) => { pinHangingTime(v); return v },
 
     /** The tile -> world factor, so no tool has to hardcode 3.0. */
     TILE,

@@ -193,11 +193,43 @@ const _swayUniforms = { uSwayTime: { value: 0 }, uSwayGust: { value: 1 } }
  * drift out of step.
  */
 export function tickHangingSway(time: number): void {
-  _swayUniforms.uSwayTime.value = time
-  const a = 0.5 + 0.5 * Math.sin(time * 0.145)
-  const b = 0.5 + 0.5 * Math.sin(time * 0.234 + 1.7)
+  _swayUniforms.uSwayTime.value = _timePin ?? time
+  if (_gustPin !== null) { _swayUniforms.uSwayGust.value = _gustPin; return }
+  const t = _timePin ?? time
+  const a = 0.5 + 0.5 * Math.sin(t * 0.145)
+  const b = 0.5 + 0.5 * Math.sin(t * 0.234 + 1.7)
   _swayUniforms.uSwayGust.value = 0.5 + 0.85 * Math.pow(a * 0.65 + b * 0.35, 2.2)
 }
+
+/**
+ * HOLD THE WIND AND THE CLOCK, so the envelope can be GRADED rather than
+ * believed.
+ *
+ * THE GUST PIN is the single-variable A/B. The envelope's two terms are 43s
+ * and 27s, so a probe that merely waits runs for a minute and a half and
+ * still cannot say which of its frames is a push and which is a lull.
+ *
+ * THE TIME PIN IS WHAT MAKES THE MEASUREMENT EXACT INSTEAD OF STATISTICAL,
+ * and it was added only after the probe's own negative case failed twice.
+ * Sampling a swing by waiting means sampling it at whatever phase the
+ * screenshot lands on, and a regular 2.2s gap against a 10.8s period visits
+ * about five distinct phases and then repeats — so two runs at an IDENTICAL
+ * pinned gust read 1.11x apart and then 2.15x apart, noise the same size as
+ * the 2.70x effect. With the clock pinned the probe asks for eight EXACT
+ * phases across one period and the swing has nowhere to hide. It is also
+ * seven times faster, because nothing has to be waited for.
+ *
+ * Both are the `fireMeteor` argument: a feature nothing can point an
+ * instrument at is the GHOST this repo keeps finding, and the fix is a hook
+ * rather than a longer wait.
+ *
+ * `uSwayTime` is read by NOTHING ELSE — it exists for this shader alone — so
+ * pinning it freezes the hanging content and touches nothing in the town.
+ */
+let _gustPin: number | null = null
+let _timePin: number | null = null
+export function pinHangingGust(v: number | null): void { _gustPin = v }
+export function pinHangingTime(v: number | null): void { _timePin = v }
 
 /** The current gust strength, ~0.5 to ~1.35. One source, so nothing that
  *  should agree with the wind has to re-derive it. */
