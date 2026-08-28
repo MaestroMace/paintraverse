@@ -45,9 +45,10 @@ const MOUSE_YAW_SENS = 0.0025
 const MOUSE_PITCH_SENS = 0.002
 import { buildBuildingMeshes, setWallEmissiveIntensity, getBuildingDiagnostics, volumeBoxes, facadeParts, type BuildingBatchResult, type BuildingTop, FLOOR_HEIGHT } from './BuildingFactory'
 import { tickWallEmissive } from './architecture/VolumeRenderer'
-import { buildLanternStrings, buildWallLanterns, buildWindowSpill, setLanternEmissiveIntensity, setWindowSpillOpacity, tickLanternEmissive, tickHangingSway, lampAnchors, resetLampAnchors, type LampAnchor } from './LanternStrings'
+import { buildLanternStrings, buildWallLanterns, buildWindowSpill, setLanternEmissiveIntensity, setWindowSpillOpacity, tickLanternEmissive, tickHangingSway, hangingGust, lampAnchors, resetLampAnchors, type LampAnchor } from './LanternStrings'
 import { buildPropMeshes, setLampPoolOpacity, LAMP_POOL_TEX, propSizes, propInstances, type PropBatchResult } from './PropFactory'
 import { resetBeacons, tickCatBlink } from './Beacons'
+import { resetVanes, tickVanes } from './Weathervanes'
 import { starIntensityFor, starThresholdFor, moonPhaseDir, weatherAir } from './Materials'
 
 /**
@@ -887,6 +888,7 @@ void main() {
     // drained by the PROP pass, so a load that skipped either would otherwise
     // light last town's towers in this one.
     resetBeacons()
+    resetVanes()
 
     const palettes = buildingPalettes || DEFAULT_BUILDING_PALETTES
     const defMap = new Map(objectDefs.map(d => [d.id, d]))
@@ -3733,6 +3735,9 @@ void main() {
       // reason the sway is on it: a second copy of "what time is it" is how
       // the four lighting arms rotted one at a time.
       tickCatBlink(t)
+      // The vanes read the SAME gust the hanging content does, which is the
+      // whole point: one wind, and everything that measures it agrees.
+      tickVanes(t, hangingGust())
       tickWater(t)
       this.updateMeteor(dt)
       // The stars twinkle beside the windows and the water, which is the

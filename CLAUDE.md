@@ -4148,6 +4148,17 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   statistics that fail differently — halving the pair blob, and the lit
   centroid, which one eye going dark alone drags half a pair-width. It found
   the real defect on its first honest run.
+- `xvfb-run -a node tools/vaneprobe.mjs [seed]` — **do the weathervanes turn,
+  and do they AGREE?** Two questions that pull against each other: everything
+  else that moves here is deliberately given its own phase, and the vane is
+  the one system where disagreement is the DEFECT, because the wind is a fact
+  about the place. Reads the town's own bearing (`__pt.vanes()`) rather than
+  re-deriving the formula, proves the movement reaches PIXELS with the gust
+  pinned — the floor being the same pin twice, since the base bearing drifts
+  on its own clock — and reports the bearings' mean resultant length **R**,
+  which is 1 for perfect agreement and 0 for the uniform scatter the previous
+  implementation produced by construction. A metric whose failing case is
+  exactly what it replaced needs no threshold.
 - `node tools/growth.mjs [seeds...]` — **does the town get sparser as you walk
   out of it?** DESIGN.md names six marks of organic growth and five had a
   tool; "dense core, sparse edges — growth rings fade outward" had none, and
@@ -6983,6 +6994,86 @@ could not be reasoned to:
     duty           2 of 132 phases over 3 slots — a blink, not a strobe
     both eyes      darkest at phase 101 and 101 — 0 steps apart
     centroid       moves 0.14 samples = 2% of a half-pair (a wink is ~100%)
+
+Board: **0 gate failures, 0 regressions across 29 checks.** Three rows moved
+and none of them is the cats, settled by arithmetic rather than by a second
+run: `mistWater` 87 -> 79 sits inside the ±25 this file records for it (it is
+`Math.random()` at init, not drift), `hours nightWall` 50 -> 47 is exactly the
+±3 recorded when the harness was re-run on an identical commit, and `dayWall`
+202 -> 203 is one point. **The mechanism could not have produced them
+anyway** — `hours` grades a WALL median over hundreds of raycast samples, and
+twenty-six 2.4cm eyes in a separate mesh cannot move it by three points. That
+is the useful half of the mechanism rule: a mechanism that COULD produce a
+number is not evidence that it did, but one that could not is evidence that
+it did not.
+
+## NINETY ROOFS, NINETY DIFFERENT WINDS
+
+`hangingGust()` has named its own missing consumer since the day it was
+written — *"anything else that should agree with the wind — a weathervane, a
+drifting leaf — reads `hangingGust()` instead of re-deriving an envelope that
+would then drift out of step."* Nothing read it. And the weathervanes, 16% of
+buildings and ~23 a town on the graded seed, were **welded at
+`vaneRoll * 2PI`: a fixed random bearing per building.**
+
+**A VANE AT A RANDOM BEARING IS NOT A VANE, IT IS A DECORATION SHAPED LIKE
+ONE** — and ninety of them at ninety bearings actively say the wrong thing,
+because the one statement a skyline of vanes exists to make is which way the
+wind is blowing. This is the unblinking-cat failure one level up: there a
+steady light was indistinguishable from a lamp, here a static instrument
+reads as an ornament, and in both cases the geometry was already correct and
+already placed.
+
+**THEY ALL POINT THE SAME WAY, WHICH IS THE OPPOSITE OF EVERY OTHER RULE IN
+THIS FILE.** Every lantern gets its own sway phase, every cat its own blink,
+every wisp its own breath, because a town in lockstep is a metronome. The
+vane is the exception and the reason is physical: **the wind is a fact about
+the PLACE**, so the instruments measuring it must agree, and a hundred arrows
+leaning together as a gust crosses the town is the entire effect. The
+per-vane term is TURBULENCE — a few degrees of wobble and a slightly
+different lag — not an independent direction. `tickVanes(t, hangingGust())`
+sits beside `tickHangingSway(t)` on the same clock, so the vanes and the
+washing cannot disagree about the weather.
+
+**AN INSTANCED MESH, NOT A SHADER, AND THE CHOICE IS THE LESSON.** The cat
+blink needed a vertex shader because it rides a merged bucket it does not
+own. Every vane arrow is the SAME geometry, so one `InstancedMesh` draws all
+of them in a single call and the rotation is twenty-three matrix composes on
+the CPU per frame, which is nothing. Reaching for the attribute-and-shader
+pattern here — an hour after building it — would have been the harder answer
+to an easier question. **The pole, the cardinal arms and their ball marks
+stay in the shared ornament batch**, because those are bolted to the roof and
+genuinely do not turn; only the arrow left.
+
+And a vane is gimballed on a TRUE VERTICAL whatever the roof under it is
+doing, so the instance carries the pivot's world position and no lean. That
+is more correct than what it replaced, not a simplification.
+
+### THE PROBE ASKS THE TWO QUESTIONS THAT PULL AGAINST EACH OTHER
+
+`tools/vaneprobe.mjs`, on seed 4242:
+
+    23 vanes
+    bearing over ~5.6s   72.7 -> 73.6 deg      swing 0.90 deg — turning
+    PIXELS  gust 1.00 twice   1.09e-5  <- floor
+            gust 0.50 v 1.35  3.94e-5  = 3.6x  — the swing reaches the picture
+    AGREEMENT  worst departure 21.1 deg, concentration R = 0.992 — ONE WIND
+
+**`R` IS THE ROW THAT SEPARATES THE FIX FROM WHAT IT REPLACED, WITH NO
+THRESHOLD TO ARGUE ABOUT.** The mean resultant length of a set of bearings is
+1 for perfect agreement and 0 for a uniform scatter — and the old build was
+*literally* `rand01 * 2PI`, which is that scatter by construction. A metric
+whose failing case is the previous implementation's exact distribution is the
+best kind available.
+
+**AND THE BEARING IS READ FROM THE TOWN, NOT RE-DERIVED.** `__pt.vanes()`
+returns the count and the live bearing, because a probe that restates the
+formula is the terrain table again — and this repo has paid for that copy
+three times. The pixel half then proves the number reaches a picture, which
+is the "setter accepted and discarded" check that has now caught five
+failures here; the floor for it is the SAME PIN TWICE rather than zero,
+because the base direction drifts on its own clock and two frames are never
+identical.
 
 ## Android / mobile build
 

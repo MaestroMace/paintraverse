@@ -15,6 +15,8 @@ import * as THREE from 'three'
 import type { Volume } from './Massing'
 import { volumeFloors } from './Massing'
 import { buildRoof, eaveProjFor, gableMath } from './Roofs'
+// Neutral module, imports three and nothing else — same argument as Beacons.
+import { addVane } from '../Weathervanes'
 import type { BatchedMeshBuilder } from '../BatchedMeshBuilder'
 import type { FacadeConfig, FacadeFace } from '../FacadeTexture'
 import {
@@ -1077,20 +1079,35 @@ function emitRoofOrnaments(
         localToWorld(ballMark, lx + dx, armY, lz + dz, leanX, leanZ, rot, cx, cy, cz)
         ornamentBatch.addPositioned(ballMark, 0xb89858)
       }
-      const arrowAngle = vaneRoll * Math.PI * 2
-      const arrowLen = 0.46, arrowH = 0.095, arrowT = 0.065
-      const arrow = new THREE.BoxGeometry(arrowLen, arrowH, arrowT)
-      arrow.rotateY(arrowAngle)
-      localToWorld(arrow, lx, vaneBaseY + poleH + arrowH / 2, lz,
+      /**
+       * THE ARROW IS THE ONLY PART THAT TURNS, so it leaves the static batch.
+       *
+       * It used to be baked at `vaneRoll * 2PI` — a fixed random bearing per
+       * building — which is not a weathervane. Ninety-odd of them at ninety-odd
+       * bearings says the wind blows a different way on every roof, which is
+       * the one statement a skyline of vanes exists to make and the one it was
+       * making wrongly. The pole, the cardinal arms and their ball marks stay
+       * here because they are bolted down and genuinely do not move.
+       *
+       * A vane is gimballed on a TRUE VERTICAL whatever the roof beneath it is
+       * doing, so the instance carries no lean — which is why only the pivot's
+       * world position is recorded rather than the whole transform.
+       */
+      const arrowH = 0.095
+      const pivot = new THREE.BoxGeometry(0.001, 0.001, 0.001)
+      localToWorld(pivot, lx, vaneBaseY + poleH + arrowH / 2, lz,
         leanX, leanZ, rot, cx, cy, cz)
-      ornamentBatch.addPositioned(arrow, 0x4a3a2a)
-      const headW = 0.10, headH = 0.16
-      const head = new THREE.BoxGeometry(headW, headH, arrowT * 1.2)
-      head.translate(arrowLen / 2 - headW / 2, 0, 0)
-      head.rotateY(arrowAngle)
-      localToWorld(head, lx, vaneBaseY + poleH + arrowH / 2, lz,
-        leanX, leanZ, rot, cx, cy, cz)
-      ornamentBatch.addPositioned(head, 0x4a3a2a)
+      pivot.computeBoundingBox()
+      const pb = pivot.boundingBox
+      if (pb) {
+        // A SEPARATE SALT, not `vaneRoll`. That roll is also the tower gate
+        // (`vaneRoll < 0.5`), so reusing it would give every tower vane a
+        // turbulence phase in the lower half of the range — a bias with no
+        // reason behind it, in the one term whose job is to be uncorrelated.
+        addVane((pb.min.x + pb.max.x) / 2, (pb.min.y + pb.max.y) / 2,
+          (pb.min.z + pb.max.z) / 2, rand01(h, 1327))
+      }
+      pivot.dispose()
     }
   }
 

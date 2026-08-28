@@ -18,6 +18,7 @@ import { buildingStyleVector, pickArchetypes } from './architecture'
 import type { DistrictId } from './architecture'
 import { pickMassing, volumeFloors, traceStage, clipToFootprint, MAX_OVERHANG as MAX_OVERHANG_M } from './architecture/Massing'
 import { addBeacon, CAT_EYE_TINT } from './Beacons'
+import { buildVaneMesh } from './Weathervanes'
 import { facadeOpenings, quantizeWallM } from './FacadeTexture'
 import { gableMath, clampRoofHeight, clampRoofToWall, eaveProjFor } from './architecture/Roofs'
 import { emitVolume, localToWorld, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
@@ -4508,6 +4509,11 @@ export function buildBuildingMeshes(
   if (roofMesh) batched.push(roofMesh)
   const detailMesh = detailBatch.build()
   if (detailMesh) batched.push(detailMesh)
+  // ONE INSTANCED DRAW FOR EVERY VANE IN TOWN. Built here rather than in the
+  // prop pass because the vanes are emitted by the roof-ornament code and this
+  // is where that pass is drained.
+  const vaneMesh = buildVaneMesh()
+  if (vaneMesh) batched.push(vaneMesh)
   const ornamentMesh = ornamentBatch.build()
   if (ornamentMesh) {
     // Ornaments are thin geometry — self-shadowing acne under CSM looks

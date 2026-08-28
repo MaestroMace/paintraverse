@@ -24,6 +24,7 @@ import { auditRoofWinding, MAX_ROOF_SPAN_RATIO } from '../renderer3d/architectur
 import { placeStats } from '../generation/TownGenerator'
 import { lampAnchors, lanternStats, hangingGust, pinHangingGust, pinHangingTime } from '../renderer3d/LanternStrings'
 import { pinCatTime as pinCatBlinkTime } from '../renderer3d/Beacons'
+import { vaneCount, vaneBearing } from '../renderer3d/Weathervanes'
 import * as THREE from 'three'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
 import { getActiveEditorViewport } from '../editor/EditorViewport'
@@ -210,6 +211,12 @@ export function installDebugBridge(): void {
      *  taken at random misses the blink thirty times out of thirty-one and
      *  "I never saw one" is indistinguishable from "it never fires". */
     pinCatTime: (v: number | null) => { pinCatBlinkTime(v); return v },
+
+    /** How many weathervanes the town grew, and where they are all pointing
+     *  this instant. A vane's whole meaning is the bearing, so a probe should
+     *  read the town's own value rather than re-deriving the formula — the
+     *  copy-drift rule that cost this repo three terrain tables. */
+    vanes: () => ({ count: vaneCount(), bearing: vaneBearing() }),
 
     /** The tile -> world factor, so no tool has to hardcode 3.0. */
     TILE,
