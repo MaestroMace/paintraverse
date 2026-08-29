@@ -3276,10 +3276,30 @@ export function buildBuildingMeshes(
           0, 0, rotationY, wx, wy, wz)
         detailBatch.addPositioned(tread, timber)
       }
+      /**
+       * THE RAKE, AND ITS SIGN WAS INVERTED — reported from the device as "a
+       * staircase handrail mirrored along vertical from the position it
+       * should be", and the stringers underneath had the identical error.
+       *
+       * The treads rise as Z DECREASES: t=0 sits at `frontWallZ + stairRun`
+       * and t=1 at `frontWallZ`, because the flight climbs back toward the
+       * wall it is bolted to. So the rake direction is (0, +landY, -stairRun).
+       *
+       * `rotateX(a)` sends a Z-long box to (0, -sin a, cos a). With
+       * a = -atan2(landY, stairRun) that is (0, +landY, +stairRun)/L — the
+       * MIRROR of the flight, sloping the opposite way from the steps it is
+       * supposed to follow. The correct angle is the positive one, which
+       * gives (0, -landY, +stairRun)/L: the same LINE, since a box is
+       * symmetric about its centre, and therefore the rake of the stair.
+       *
+       * A bug in one member is a bug in the PATTERN — the rail below had it
+       * too, and both are fixed here rather than one now and one later.
+       */
+      const rake = Math.atan2(landY, stairRun)
       // Stringers under the treads, so it is a stair and not floating slats.
       for (const sx of [-1, 1]) {
         const stringer = new THREE.BoxGeometry(0.07, 0.16, Math.hypot(stairRun, landY))
-        stringer.rotateX(-Math.atan2(landY, stairRun))
+        stringer.rotateX(rake)
         localToWorld(stringer, baseX + sx * stairW * 0.5, landY * 0.5,
           frontWallZ + stairRun * 0.5 - 0.1, 0, 0, rotationY, wx, wy, wz)
         detailBatch.addPositioned(stringer, timber)
@@ -3298,7 +3318,7 @@ export function buildBuildingMeshes(
         ornamentBatch.addPositioned(post, rail)
       }
       const handrail = new THREE.BoxGeometry(0.05, 0.05, Math.hypot(stairRun, landY))
-      handrail.rotateX(-Math.atan2(landY, stairRun))
+      handrail.rotateX(rake)
       localToWorld(handrail, baseX - side * stairW * 0.5, landY * 0.5 + 0.6,
         frontWallZ + stairRun * 0.5 - 0.1, 0, 0, rotationY, wx, wy, wz)
       ornamentBatch.addPositioned(handrail, rail)

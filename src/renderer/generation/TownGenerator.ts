@@ -601,21 +601,43 @@ const VIGNETTES: Vignette[] = [
 
 const DISTRICT_PROPS: Record<DistrictType, string[]> = {
   market: ['market_stall', 'market_tent', 'crate', 'crate_stack', 'barrel', 'hanging_sign', 'wagon', 'sign', 'cafe_table', 'cart', 'market_tent', 'bunting_pole', 'tent', 'handcart', 'sack_pile'],
-  residential: ['potted_plant', 'bench', 'well', 'fence', 'planter_box', 'flower_box', 'cloth_line', 'rain_barrel', 'woodpile', 'ladder', 'mounting_block', 'handcart'],
-  artisan: ['barrel', 'crate', 'barrel_stack', 'sign', 'fence', 'crate_stack', 'woodpile', 'cart', 'rain_barrel', 'forge_brazier', 'forge_brazier', 'ladder', 'handcart', 'sack_pile'],
-  noble: ['potted_plant', 'planter_box', 'bench', 'statue', 'fountain', 'wall_lantern', 'column', 'garden_arch', 'flower_box', 'heraldic_banner', 'heraldic_banner', 'hedge', 'mounting_block', 'water_trough'],
+  residential: ['potted_plant', 'bench', 'well', 'planter_box', 'flower_box', 'cloth_line', 'rain_barrel', 'woodpile', 'ladder', 'mounting_block', 'handcart'],
+  artisan: ['barrel', 'crate', 'barrel_stack', 'sign', 'crate_stack', 'woodpile', 'cart', 'rain_barrel', 'forge_brazier', 'forge_brazier', 'ladder', 'handcart', 'sack_pile'],
+  noble: ['potted_plant', 'planter_box', 'bench', 'statue', 'fountain', 'wall_lantern', 'column', 'garden_arch', 'flower_box', 'heraldic_banner', 'heraldic_banner', 'mounting_block', 'water_trough'],
   waterfront: ['barrel', 'crate', 'wagon', 'sign', 'bench', 'crate_stack', 'horse_post', 'rain_barrel', 'fish_rack', 'rope_coil', 'sack_pile', 'handcart'],
-  temple: ['statue', 'potted_plant', 'stone_wall', 'wall_lantern', 'column', 'garden_arch', 'prayer_flags', 'prayer_flags', 'hedge'],
+  temple: ['statue', 'potted_plant', 'wall_lantern', 'column', 'garden_arch', 'prayer_flags', 'prayer_flags'],
   slum: ['barrel', 'crate', 'barrel_stack', 'woodpile', 'rain_barrel', 'rubble_pile', 'rubble_pile', 'rubble_pile', 'ladder', 'sack_pile'],
-  garden: ['potted_plant', 'planter_box', 'bench', 'fountain', 'bush', 'tree', 'flower_box', 'garden_arch', 'trellis_arch', 'flower_bed', 'flower_bed', 'hedge', 'beehive'],
+  garden: ['potted_plant', 'planter_box', 'bench', 'fountain', 'bush', 'tree', 'flower_box', 'garden_arch', 'trellis_arch', 'flower_bed', 'flower_bed', 'beehive'],
   harbor: ['barrel', 'crate', 'crate_stack', 'wagon', 'horse_post', 'dock', 'crane', 'fishing_boat', 'rain_barrel', 'fish_rack', 'fish_rack', 'rope_coil', 'rope_coil', 'sack_pile', 'handcart'],
   // Fortress is the one quarter whose palette had no FIRE in it, and it is
   // the quarter that would be manned all night. A brazier is also the only
   // ground-level emitter in the whole prop vocabulary, so this is pillar 5's
   // third light layer reaching a quarter that had none of it.
-  fortress: ['stone_wall', 'barrel', 'crate', 'wall_lantern', 'iron_fence', 'heraldic_banner', 'heraldic_banner', 'water_trough', 'haystack', 'ladder', 'forge_brazier', 'forge_brazier', 'crate_stack', 'sack_pile', 'mounting_block'],
-  cemetery: ['gravestone', 'iron_fence', 'potted_plant', 'tree', 'wall_lantern', 'bench', 'cemetery_cross', 'cemetery_cross', 'hedge'],
+  fortress: ['barrel', 'crate', 'wall_lantern', 'heraldic_banner', 'heraldic_banner', 'water_trough', 'haystack', 'ladder', 'forge_brazier', 'forge_brazier', 'crate_stack', 'sack_pile', 'mounting_block'],
+  cemetery: ['gravestone', 'potted_plant', 'tree', 'wall_lantern', 'bench', 'cemetery_cross', 'cemetery_cross'],
 }
+/**
+ * NO BARRIERS IN THE BAG ABOVE, and their removal is the point rather than a
+ * tidy-up.
+ *
+ * `fence`, `stone_wall`, `iron_fence` and `hedge` were in it, and it is
+ * consumed by a PERIMETER placer that drops one prop on one tile beside one
+ * building. A barrier placed that way can never connect to anything, because
+ * nothing ever intended it to — which is exactly what was reported: "they
+ * don't connect or look like they belong, the placement doesn't seem to have
+ * a reason to be there".
+ *
+ * A BARRIER IS A RUN, NOT A PROP. One tile of fence is not a short fence, it
+ * is a fence that fences nothing; the statement a fence makes — this side is
+ * mine — needs continuity along an edge. The town already knows this in
+ * `placePrecinctWalls`, which lays a quarter's frontage as a line with gaps
+ * for gateways. Barriers are placed by `runBarrier` below and nowhere else.
+ *
+ * This is also the bag's own contract being honoured at last: the comment two
+ * declarations down says it holds "only small ground clutter that belongs at
+ * the kerb", and seven 2x2 civic pieces were removed from it for the same
+ * reason a session ago. A fence is the same mistake in a different shape.
+ */
 
 // Street-edge furniture per district. Deliberately a narrower list than
 // DISTRICT_PROPS: only small ground clutter that belongs at the kerb, so no
@@ -765,7 +787,8 @@ export class TownGenerator implements IMapGenerator {
     this.relaxTerrainSteps(width, height, heightMap, waterMap)
 
     // 8. Place bridges over water where roads cross
-    const bridges = this.placeBridges(width, height, roadMap, waterMap, rng)
+    const bridges = this.placeBridges(
+      width, height, roadMap, waterMap, districtMap, districts, rng)
     // A continuous river severs the town unless something crosses it, and
     // placeBridges only looks for a road heading east into water. This makes
     // "you can walk to the whole town" an invariant instead of a hope.
@@ -3009,13 +3032,92 @@ export class TownGenerator implements IMapGenerator {
    * template, the collision mask and the audit all read `footprintOf`, so a
    * 7x2 bridge needs no special case anywhere downstream.
    */
+  /**
+   * LAY A BARRIER AS A RUN, which is the only way a barrier means anything.
+   *
+   * Every isolated fence tile in this town came from a barrier being treated
+   * as a PROP — one id drawn from a district bag and dropped on one free tile
+   * beside a building. A fence says "this side is mine" and it can only say it
+   * by being continuous, so the unit of placement is the run and not the tile.
+   *
+   * ONE GAP, ALWAYS. An unbroken enclosure is a pen: a yard needs a way in,
+   * and the gap is what stops a run of eight pickets reading as a stockade.
+   * Placed a third of the way along rather than at an end, because a gap at
+   * the end is indistinguishable from a run that stopped early.
+   *
+   * Skips occupied tiles rather than failing on them — a run that meets a
+   * woodpile should stop being a fence for one tile and carry on, the way a
+   * real one does.
+   */
+  private runBarrier(
+    out: PlacedObject[], occupied: boolean[][], id: string,
+    x0: number, y0: number, dx: number, dy: number, len: number,
+    w: number, h: number,
+  ): number {
+    if (len < 2) return 0        // a run of one is the defect, not a short run
+    const gapAt = Math.max(1, Math.floor(len / 3))
+    let placed = 0
+    for (let i = 0; i < len; i++) {
+      if (i === gapAt) continue
+      const x = x0 + dx * i, y = y0 + dy * i
+      if (x < 0 || y < 0 || x >= w || y >= h) continue
+      if (occupied[y][x]) continue
+      // A vertical run wants the vertical variant where the store has one, so
+      // the fence faces along its own line rather than across it.
+      const vId = dy !== 0 && id === 'stone_wall' ? 'stone_wall_v' : id
+      out.push(this.createObj(vId, x, y))
+      occupied[y][x] = true
+      placed++
+    }
+    // A run that could only place one tile is the very thing this exists to
+    // prevent, so take it back out rather than leave a stub behind.
+    if (placed === 1) {
+      const last = out.pop()
+      if (last) occupied[last.y][last.x] = false
+      return 0
+    }
+    return placed
+  }
+
   private placeBridges(
-    w: number, h: number, roadMap: boolean[][], waterMap: boolean[][], rng: () => number
+    w: number, h: number, roadMap: boolean[][], waterMap: boolean[][],
+    districtMap: number[][], districts: District[], rng: () => number
   ): PlacedObject[] {
     const bridges: PlacedObject[] = []
     const taken = new Set<string>()
-    /** Perpendicular width of the deck — a cart and a person passing. */
-    const DECK_W = 2
+    /**
+     * A BRIDGE IS A CROSSING, SO IT TAKES ITS SIZE AND ITS MATERIAL FROM THE
+     * ROAD IT CARRIES.
+     *
+     * Reported from the device: the bridges "are all the same width and
+     * material which doesn't always match the feel of a district". They were —
+     * one hardcoded `DECK_W = 2` and one `definitionId: 'bridge'` for every
+     * crossing in every quarter, from a cathedral close to a slum ditch.
+     *
+     * `bridge` and `footbridge` are the two crossing types that are FULLY
+     * registered — `stone_bridge` and `arched_bridge` are named in the massing
+     * override and defined in none of the six id-keyed tables, so reaching for
+     * them would be the reverse-ghost this repo already records. Two real
+     * types are enough for a real distinction: a masonry span two or three
+     * wide where a town carries carts, a single timber plank where it does
+     * not.
+     */
+    const CROSSING: Partial<Record<DistrictType, { id: string; w: number }>> = {
+      market: { id: 'bridge', w: 3 },
+      harbor: { id: 'bridge', w: 3 },
+      fortress: { id: 'bridge', w: 3 },
+      noble: { id: 'bridge', w: 2 },
+      temple: { id: 'bridge', w: 2 },
+      waterfront: { id: 'bridge', w: 2 },
+      garden: { id: 'footbridge', w: 1 },
+      slum: { id: 'footbridge', w: 1 },
+      cemetery: { id: 'footbridge', w: 1 },
+    }
+    const crossingAt = (x: number, y: number): { id: string; w: number } => {
+      const di = districtMap[y]?.[x] ?? -1
+      const t = di >= 0 ? districts[di]?.type : undefined
+      return (t && CROSSING[t]) || { id: 'bridge', w: 2 }
+    }
     /** Beyond this the water wants a causeway, not a span. */
     const MAX_WATER = 8
     const inB = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h
@@ -3054,22 +3156,46 @@ export class TownGenerator implements IMapGenerator {
           const farX = x + dx * (n + 1), farY = y + dy * (n + 1)
           // Still wet at the budget's end means we never found the far bank.
           if (!dry(farX, farY)) { rejected('~bridgeTooWide'); continue }
+          /**
+           * AND THE FAR BANK HAS TO BE A WALKWAY TOO.
+           *
+           * The near bank required `roadMap`; the far one required only
+           * `dry` — ANY tile that is not water. So a bridge left a street and
+           * landed in a back yard, against a wall, or on the blind side of a
+           * building: "terminating at a wall rather than a logic flow from one
+           * walkway on one side of the river to another", as reported.
+           *
+           * A crossing joins two ROADS. Requiring it on both banks is the
+           * whole fix, and the reject counter below says what it costs so the
+           * next session can see whether the town went short of bridges rather
+           * than having to guess.
+           */
+          if (!roadMap[farY][farX]) { rejected('~bridgeNoFarRoad'); continue }
           // Deck runs from this bank tile to the far bank tile inclusive.
           const len = n + 2
           const alongX = dx === 1
+          const cross = crossingAt(x, y)
+          const DECK_W = cross.w
           const fw = alongX ? len : DECK_W
           const fh = alongX ? DECK_W : len
           // The second row of the deck has to land on something at BOTH ends,
           // or half the bridge finishes over water.
-          const sx = alongX ? 0 : 1, sy = alongX ? 1 : 0
-          if (!dry(x + sx, y + sy) || !dry(farX + sx, farY + sy)) { rejected('~bridgeSecondRow'); continue }
+          // Every row of the deck has to land on something at BOTH ends, or
+          // part of the bridge finishes over water. Was hardcoded to row 1,
+          // which was right only while every deck was two wide.
+          let rowsOk = true
+          for (let r = 1; r < DECK_W && rowsOk; r++) {
+            const sx = alongX ? 0 : r, sy = alongX ? r : 0
+            if (!dry(x + sx, y + sy) || !dry(farX + sx, farY + sy)) rowsOk = false
+          }
+          if (!rowsOk) { rejected('~bridgeSecondRow'); continue }
           // Keep them apart: a quay road runs ALONG the water, so without a
           // spacing rule every tile of it would look across and qualify.
           if (bridges.some((b) => Math.abs(b.x - x) + Math.abs(b.y - y) < 7)) {
             rejected('~bridgeTooClose'); continue
           }
           if (!reserve(x, y, fw, fh)) { rejected('~bridgeTaken'); continue }
-          const obj = this.createObj('bridge', x, y)
+          const obj = this.createObj(cross.id, x, y)
           obj.footprint = { w: fw, h: fh }
           bridges.push(obj)
           break
@@ -6827,13 +6953,6 @@ export class TownGenerator implements IMapGenerator {
             occupied[centerY][centerX] = true
           }
         }
-        // Hedges along garden boundary (1-2 sides)
-        for (let hx = gx; hx < gx + gardenW - 1; hx += 2) {
-          if (hx + 1 < w && gy > 0 && !occupied[gy][hx]) {
-            gardenProps.push(this.createObj('bush', hx, gy))
-            occupied[gy][hx] = true
-          }
-        }
       } else if (dType === 'residential') {
         // Kitchen garden: fruit tree + vegetable-suggesting ground
         if (!occupied[centerY][centerX]) {
@@ -6842,18 +6961,51 @@ export class TownGenerator implements IMapGenerator {
           gardenProps.push(fruitTree)
           occupied[centerY][centerX] = true
         }
-        // Fence along one edge
-        if (gx + 1 < w && !occupied[gy + gardenH - 1][gx]) {
-          gardenProps.push(this.createObj('fence', gx, gy + gardenH - 1))
-          occupied[gy + gardenH - 1][gx] = true
-          if (gx + 1 < w) occupied[gy + gardenH - 1][gx + 1] = true
-        }
+
       } else {
         // Temple/other: contemplative garden
         if (!occupied[centerY][centerX]) {
           gardenProps.push(this.createObj('potted_plant', centerX, centerY))
           occupied[centerY][centerX] = true
         }
+      }
+
+      /**
+       * AND THE GARDEN GETS A BOUNDARY — one run, in the quarter's own
+       * material, along the edge FURTHEST from the building.
+       *
+       * This replaces three separate stubs, all of which produced the
+       * disconnected fragments reported from the device: a single `fence`
+       * object at one corner under a comment reading "fence along one edge";
+       * a line of `bush` placed every OTHER tile under a comment reading
+       * "hedges along garden boundary"; and `fence` / `hedge` / `stone_wall` /
+       * `iron_fence` sitting in the kerb-clutter bag where a perimeter placer
+       * dropped them one tile at a time beside random buildings.
+       *
+       * KEYED BY DISTRICT, because that is the reason a boundary exists and
+       * because removing the barriers from those bags would otherwise turn
+       * `hedge`, `stone_wall` and `iron_fence` into ghosts — content with no
+       * way in, which this repo has recorded finding four separate times. A
+       * clipped hedge round a noble garden, palings round a kitchen garden, a
+       * low wall round a temple close, iron round a graveyard.
+       *
+       * The FAR edge, not a fixed one: a boundary is drawn where the plot
+       * ends, and the plot ends away from the house it belongs to.
+       */
+      const GARDEN_EDGE: Partial<Record<DistrictType, string>> = {
+        garden: 'hedge', noble: 'hedge',
+        residential: 'fence', artisan: 'fence', market: 'fence',
+        waterfront: 'fence', temple: 'stone_wall', cemetery: 'iron_fence',
+      }
+      const edgeId = GARDEN_EDGE[dType]
+      if (edgeId) {
+        const bd = bestDir
+        const along: [number, number] = bd.dy !== 0 ? [1, 0] : [0, 1]
+        const runLen = bd.dy !== 0 ? gardenW : gardenH
+        const ex = bd.dx === 1 ? gx + gardenW - 1 : gx
+        const ey = bd.dy === 1 ? gy + gardenH - 1 : gy
+        this.runBarrier(gardenProps, occupied, edgeId,
+          ex, ey, along[0], along[1], runLen, w, h)
       }
 
       // Mark garden area as occupied
