@@ -83,6 +83,7 @@ export function eaveProjFor(style: RoofStyle): number {
  *   slopeAngle  — angle of slope from horizontal: atan2(roofHeight, perpExtent).
  *   slopeLen    — Euclidean slope edge length, eave corner → ridge peak.
  *   ridgeOnX    — true if the ridge runs along X (gables face ±X).
+ *   ridgeHalf   — half the length of the RIDGE LINE itself (see ridgeHalfLen).
  */
 export interface GableMath {
   ridgeOnX: boolean
@@ -90,6 +91,29 @@ export interface GableMath {
   perpExtent: number
   slopeAngle: number
   slopeLen: number
+  ridgeHalf: number
+}
+
+/**
+ * HALF-LENGTH OF THE RIDGE LINE at the peak, measured along the roof's axis.
+ *
+ * A gabled prism's ridge runs the whole way out to both gable faces, so this
+ * is just the gable extent. **A HIP'S RIDGE IS SHORTER, and by exactly how
+ * much is not a taste decision**: the hip end rakes back so it slopes at the
+ * same pitch as the two sides, which puts each ridge end one half-DEPTH in
+ * from the eave. On a square plan that reaches zero and the roof becomes a
+ * pyramid, which is what a hip on a square plan is.
+ *
+ * Exported because `buildGablePrism` and every ornament that sits on the ridge
+ * have to agree about where the ridge ENDS, and they did not: the cap restated
+ * the prism's inset as `min(w,d)/2 * 0.25` — a fair copy of a value that was
+ * never the ridge at all, because the old hip topped out in a flat SQUARE
+ * plateau of that half-side. A 6m building therefore carried a 5.25m cap over
+ * a 0.75m plateau: a board at peak height, jutting two metres past each end
+ * into the air over the hip slopes, on every hipped roof in the town.
+ */
+export function ridgeHalfLen(alongExtent: number, perpExtent: number, hipped: boolean): number {
+  return hipped ? Math.max(0, alongExtent - perpExtent) : alongExtent
 }
 
 export function gableMath(args: {
@@ -105,7 +129,8 @@ export function gableMath(args: {
   const perpExtent = (ridgeOnX ? args.depth : args.width) / 2 + eave
   const slopeAngle = Math.atan2(args.roofHeight, perpExtent)
   const slopeLen = Math.sqrt(perpExtent * perpExtent + args.roofHeight * args.roofHeight)
-  return { ridgeOnX, gableExtent, perpExtent, slopeAngle, slopeLen }
+  const ridgeHalf = ridgeHalfLen(gableExtent, perpExtent, args.roofStyle === 'hipped')
+  return { ridgeOnX, gableExtent, perpExtent, slopeAngle, slopeLen, ridgeHalf }
 }
 
 
@@ -372,25 +397,42 @@ function buildGablePrism(w: number, d: number, h: number, axis: RoofAxis, hipped
   let verts: number[]
 
   if (hipped) {
-    const inset = Math.min(hw, hd) * 0.25
-    // Ridge is a short segment at top; all four sides are sloped trapezoids.
-    verts = [
-      // North slope (large trapezoid, gable+1 end)
-      -ow, 0, -od,  ow, 0, -od,  inset, h, -inset,
-      -ow, 0, -od,  inset, h, -inset,  -inset, h, -inset,
-      // South slope
-       ow, 0,  od,  -ow, 0,  od,  -inset, h,  inset,
-       ow, 0,  od,  -inset, h,  inset,   inset, h,  inset,
-      // East slope
-       ow, 0, -od,   ow, 0,  od,   inset, h,  inset,
-       ow, 0, -od,   inset, h,  inset,   inset, h, -inset,
-      // West slope
-      -ow, 0,  od,  -ow, 0, -od,  -inset, h, -inset,
-      -ow, 0,  od,  -inset, h, -inset,  -inset, h,  inset,
-      // Top cap
-      -inset, h, -inset,   inset, h, -inset,   inset, h,  inset,
-      -inset, h, -inset,   inset, h,  inset,  -inset, h,  inset,
-    ]
+    // A REAL HIP HAS A RIDGE LINE, running along `axis`, ending one half-depth
+    // in from each eave so the hip end slopes at the same pitch as the sides.
+    // See ridgeHalfLen — this used to top out in a flat SQUARE plateau of side
+    // 2*min(hw,hd)*0.25, which is a truncated pyramid rather than a hip, and
+    // it is why the ridge cap read as a plank floating over the roof.
+    //
+    // Two eave corners plus the nearer ridge END make each face. When the plan
+    // is square the ridge collapses to a point and all four faces become the
+    // triangles of a pyramid, which is correct. Winding is not maintained by
+    // hand — `enforceOutwardWinding` repairs it — so only the topology matters.
+    const rh = ridgeHalfLen(axis === 'x' ? ow : od, axis === 'x' ? od : ow, true)
+    const rA: [number, number, number] = axis === 'x' ? [-rh, h, 0] : [0, h, -rh]
+    const rB: [number, number, number] = axis === 'x' ? [rh, h, 0] : [0, h, rh]
+    // Eave corners, named by compass so the faces below read.
+    const NW: [number, number, number] = [-ow, 0, -od]
+    const NE: [number, number, number] = [ow, 0, -od]
+    const SE: [number, number, number] = [ow, 0, od]
+    const SW: [number, number, number] = [-ow, 0, od]
+    verts = []
+    /** One face: an eave edge rising to one or two ridge points. */
+    const face = (a: number[], b: number[], p: number[], q: number[]) => {
+      verts.push(...a, ...b, ...q)
+      // Degenerate when the ridge collapses (pyramid) or the face is a hip end.
+      if (p[0] !== q[0] || p[2] !== q[2]) verts.push(...a, ...q, ...p)
+    }
+    if (axis === 'x') {
+      face(SW, SE, rA, rB)      // +Z side, long
+      face(NE, NW, rB, rA)      // -Z side, long
+      face(SE, NE, rB, rB)      // +X hip end
+      face(NW, SW, rA, rA)      // -X hip end
+    } else {
+      face(SE, NE, rB, rA)      // +X side, long
+      face(NW, SW, rA, rB)      // -X side, long
+      face(SW, SE, rB, rB)      // +Z hip end
+      face(NE, NW, rA, rA)      // -Z hip end
+    }
   } else if (sag > 0.001) {
     // Subdivided gabled prism with a sagged ridge. Each slope splits into
     // two quads sharing a midpoint vertex on the ridge that has been

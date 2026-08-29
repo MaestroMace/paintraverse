@@ -537,17 +537,13 @@ export function emitVolume(
   // ridge-cap palette without clashing.
   const isRidged = v.roofStyle === 'gabled' || v.roofStyle === 'steep' || v.roofStyle === 'hipped'
   if (isRidged && v.roofHeight > 0.3 && Math.min(v.width, v.depth) >= 1.2) {
-    const ridgeOnX = v.roofAxis === 'x'
-    let ridgeLen: number
-    if (v.roofStyle === 'hipped') {
-      // Hipped roof's ridge runs only between the two interior apex points.
-      // Inset is min(hw, hd) * 0.25 (matches Roofs.ts buildGablePrism).
-      const inset = Math.min(v.width, v.depth) / 2 * 0.25
-      ridgeLen = (ridgeOnX ? v.width : v.depth) - 2 * inset
-    } else {
-      // Gabled/steep ridge spans full length + eave overhang on each end.
-      ridgeLen = (ridgeOnX ? v.width : v.depth) + 2 * eaveProjFor(v.roofStyle)
-    }
+    // THE RIDGE IS ASKED FOR, NOT RESTATED. Both halves of this used to carry
+    // their own copy of the prism's arithmetic, and the hipped copy described
+    // a ridge the geometry did not have — see ridgeHalfLen. A near-square plan
+    // now yields ~0 and gets NO CAP, because a pyramid has an apex rather than
+    // a ridge and a board across it is exactly the reported defect.
+    const { ridgeOnX, ridgeHalf } = gableMath(v)
+    const ridgeLen = ridgeHalf * 2
     if (ridgeLen > 0.2) {
       const capH = 0.10, capW = 0.18
       // Tint: shift roof color toward warm terracotta. Picks up the local
