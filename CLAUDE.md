@@ -7353,6 +7353,157 @@ together said "one cause, now fixed"; the ninth staying put said "there is a
 SECOND thing here", and reading it as leftover noise would have shipped a
 broken measurement into every future tree change.
 
+## A BOARD ACROSS EVERY HIPPED ROOF, AND THE RIDGE IT CAPPED DID NOT EXIST
+
+Reported from the device: "several buildings having a board stuck to the top of
+them jutting out on both long ends". Found by arithmetic in about a minute with
+no photograph, which is the cheap half of this repo's method and the half that
+keeps getting skipped in favour of a camera hunt.
+
+**`buildGablePrism`'s hipped branch never built a ridge.** All four slopes rose
+to a flat SQUARE plateau of half-side `min(hw,hd) * 0.25` — a truncated
+pyramid. The ridge cap in VolumeRenderer restated that inset faithfully, under
+a comment reading "matches Roofs.ts buildGablePrism", and then computed its
+length as `alongDim - 2*inset`: a ridge the geometry does not have.
+
+    6m building, 3m deep, hipped
+      plateau      0.75m x 0.75m
+      ridge cap    5.25m long, at PEAK HEIGHT
+
+A board jutting 2.25m past each end of the only surface it touches, floating
+over the hip slopes, on **every hipped roof in the town** — and `pickRoofStyle`
+returns hipped for about half of all shallow roofs.
+
+**TWO AUTHORS OF ONE SURFACE, WHICH IS THE FACADE FAILURE IN ROOF FORM**, and
+it takes the same fix: the ornament ASKS instead of restating. `ridgeHalfLen`
+is exported from Roofs.ts, returned by `gableMath`, and read by both the prism
+and the cap. A near-square plan yields ~0 and gets NO CAP at all, because a
+pyramid has an apex rather than a ridge and a board across one is the bug.
+
+**And the GEOMETRY was fixed rather than the cap shortened, because the hip was
+the thing that was wrong.** A real hip rakes its end back by the half-DEPTH so
+the hip end slopes at the same pitch as the sides — not a taste decision, it
+falls out of the pitch — and on a square plan that reaches zero and becomes a
+pyramid, which is what a hip on a square plan is. Winding is not maintained by
+hand here, so `enforceOutwardWinding` repaired the new solid and `roofwinding`
+stayed at 0 with no hand-checked vertex order.
+
+**THE PHOTOGRAPH COULD NOT ADJUDICATE AND I NEARLY SAID IT DID.** Two builds,
+same seed, same five vantages: at `RENDER_SCALE = 0.4` a 0.18m cap is under a
+pixel at street distance and the frames are indistinguishable. I read a pale
+slab across a roof in the old frame as the defect; it is a CORNICE, present in
+both. The evidence is the arithmetic, a triangle count moving 300062 -> 299326
+exactly as removing the plateau caps predicts, and `roofwinding = 0`. **When
+the picture cannot resolve the thing, say so instead of describing what you
+expected to see** — this file already records the ivy and the bell profile
+failing the same way, and this is the first time the trap was walked into and
+then walked back out of in the same session.
+
+## A SQUARE FOOTPRINT HAS NO AXIS, AND THE FOOTBRIDGE DID NOT EVEN GUESS
+
+Reported: the bridges "are all the same width and material which doesn't always
+match the feel of a district", and they land "terminating at a wall rather than
+a logic flow from one walkway on one side of the river to another".
+
+**THE MATERIAL IS THE DISTRICT'S; THE WIDTH IS THE ROAD'S.** The first cut put
+BOTH in a table under a paragraph of mine saying "a bridge takes its size and
+its material from the road it carries", and it read neither from a road. A
+district table is a PROXY for carriageway width and this file records what
+proxies cost. The carriageway is exact and sits in `roadMap`. The hardcoded 3
+was not free either: a bridge is placed BEFORE buildings and blocks its
+footprint, so an extra tile of deck on every market crossing is land the placer
+never sees.
+
+**AND THAT BROKE AN ACCIDENT THE SPAN TEMPLATES HAD BEEN LIVING ON.** Both
+derived their axis from `ctx.footW >= ctx.footD`, which this file already
+records costing a round in `bridgeshot`. It survived because a fixed 2-wide
+deck over a channel of 2+ tiles is never square. A 1-tile channel gives
+`len = 3` and a 3-wide street gives `DECK_W = 3`, so a **3x3 footprint is
+ordinary now** and the guess answers X whatever the river does.
+
+**`tmplFootbridge` WAS WORSE, BECAUSE IT DID NOT GUESS AT ALL.** Every
+dimension was hardcoded to X: `span = ctx.footW`, deck `depth: ctx.footD`,
+trestles stepping in X, rails running in Z. A footbridge is one tile wide and
+`len` long, so a north-south crossing has footW 3m and footD `len*3` — and this
+built a 3m-long deck `len` TILES WIDE. A raft lying across the river rather
+than a plank over it, on about half of all footbridges, for the life of the
+template. **The sibling sweep that found the bed-relative height bug in that
+same function looked at the HEIGHTS and stopped: sweep the whole template, not
+the line that matches the one you just fixed.**
+
+`MassingContext.spanAlongX` is threaded exactly the way `groundDrop` was, whose
+own comment says the value existed and simply never reached the templates.
+
+    bridgeshot 31337   7 of 7 read LLL=#=LLL — deck over water, abutments on
+                       both banks, 0 decks above a 1.6m eye height, including
+                       a 3x3 at (36,2)
+
+## THE SPAWN'S CENTRE BIAS COULD OUTVOTE TWELVE METRES OF STREET
+
+Fourth spawn defect, and the first where the code CONTAINED a comment asserting
+the invariant it does not provide:
+
+    // Turning toward the centre is worth up to 4 tiles of view ...
+    // but it can never rescue a view of a wall.
+    const score = clear + (1 - d / Math.PI) * 4
+
+Half a tile of view pointing straight at the centre scores 4.5 and beats four
+clear tiles pointing away. The bias is applied only among directions that
+already clear the 4m bar now, so it breaks ties between acceptable views and
+can never create one; when nothing clears it, the fallback maximises the view
+with no bias at all. **A comment claiming a property is not a test** — second
+instance in a day, after `tmplLeanTo`'s.
+
+## A SHARED HELPER DOES NOT MAKE TWO PLACERS AGREE; READING THE SAME FIELDS DOES
+
+Barriers are laid by exactly two things: `runBarrier` (garden edges, keyed by
+district) and the grouped raster scans (picket fence, precinct wall). The
+picket-fence path sets `footprint: { w: 1, h: 1 }` and `facingY`. `runBarrier`
+— written in the SAME SESSION as the shared helper whose whole purpose is to
+stop two placers disagreeing — set neither.
+
+- **`createObj` reserves the DEFINITION's rectangle, and `hedge`, `fence` and
+  `picket_fence` are all 2x1 there.** A run laid tile by tile therefore had
+  every segment overlapping the next, and PropFactory sizes geometry from the
+  reserved rectangle, so each was drawn 6m wide on 3m spacing. That is the
+  reported "they don't connect" made literal.
+- **`facingY` absent means PropFactory's random fallback**, up to a half turn:
+  right for a barrel, meaningless for a boundary, and exactly what that
+  branch's own comment records as every fence in town running east-west.
+
+    barriers.mjs   isolated tiles      23% -> 7%
+                   dangling run ends   54% -> 4%
+
+## AND `deepClash` IS A REAL REGRESSION I COULD NOT CONVICT — OPEN
+
+`clash.mjs` PRINTED ONE HALF OF A RATE. Every deep pair on 31337 classifies as
+"footprints TOUCH" — the shared-overhang class the per-side clip bounds — so
+the count rises with how many buildings touch AT ALL, and a bare count cannot
+tell a denser town from a regression. It prints the denominator now, which is
+the same lesson as `habitablePinned` (numerator 32 -> 32, denominator 598 ->
+311), the feature census reading 182%, and tenancy dividing by a population its
+numerator cannot contain.
+
+With both halves, it is real:
+
+    a4c225a    8 of 376 touching pairs   2.1%
+    117b42f   33 of 398                  8.3%   <- the whole jump, ONE commit
+    HEAD      27 of 285                  9.5%
+
+Bisected to `117b42f`'s TownGenerator changes — its BuildingFactory diff is the
+staircase rake alone and cannot touch a footprint. **Three suspects tested and
+none convicted**, which is the point of writing it down rather than guessing:
+
+- **Barriers**: 2 of 28 deep pairs involve one, and both are the
+  `workshop x stone_wall_v` this file already has open.
+- **The axis bug above**: fixing it moved the number by ZERO.
+- **Density**: the town IS denser (coverage 44 -> 47, party walls 88 -> 91, 11
+  fewer wall segments freeing land the building budget is derived from), which
+  explains some of it and nowhere near a fourfold rate.
+
+The thing to look at next is the per-side clip's own gap, already open here at
+`workshop:mainBody x stone_wall_v`. **Do not re-run the three tests above.**
+
 ## Android / mobile build
 
 The renderer runs as a plain web app, which is what makes an APK possible —
