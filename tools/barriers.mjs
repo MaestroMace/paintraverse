@@ -44,7 +44,7 @@ await win.waitForTimeout(1200)
 console.log('\n=== BARRIERS — is this fence part of a fence? ===')
 console.log(`  ${BARRIERS.size} barrier ids from the store's own \`barrier\` tag`)
 const totals = new Map()
-let allTiles = 0, allIsolated = 0
+let allTiles = 0, allIsolated = 0, totEnds = 0, totDangling = 0
 for (const seed of SEEDS) {
   await win.evaluate((s) => {
     const inp = [...document.querySelectorAll('.left-panel input')]
@@ -55,6 +55,24 @@ for (const seed of SEEDS) {
   await win.waitForTimeout(150)
   await win.getByRole('button', { name: /^generate$/i }).first().click()
   await win.waitForTimeout(2600)
+
+  // Buildings and water, so the tool can ask the question that actually
+  // matters: does a barrier run END on something?
+  const solid = await win.evaluate(() => {
+    const st = window.__pt.store.getState()
+    const out = new Set()
+    for (const l of st.map.layers) {
+      for (const o of l.objects ?? []) {
+        if (o.definitionId === 'picket_fence' || o.definitionId === 'fence') continue
+        const fp = o.footprint ?? { w: 1, h: 1 }
+        for (let dy = 0; dy < fp.h; dy++) {
+          for (let dx = 0; dx < fp.w; dx++) out.add(`${o.x + dx},${o.y + dy}`)
+        }
+      }
+    }
+    return [...out]
+  })
+  const solidSet = new Set(solid)
 
   const objs = await win.evaluate((ids) => {
     const st = window.__pt.store.getState()
@@ -95,8 +113,55 @@ for (const seed of SEEDS) {
   }
   const iso = [...perId.values()].reduce((a, e) => a + e.iso, 0)
   const til = [...perId.values()].reduce((a, e) => a + e.tiles, 0)
+
+  /**
+   * THE QUESTION THAT ACTUALLY MATTERS: does the run END on something?
+   *
+   * Raw isolation was the first metric and it was too blunt. Driving it to
+   * zero by demanding runs of three took `picket_fence` from 127 tiles to
+   * EIGHT — a scatter defect traded for a ghost — because this town is 91%
+   * party-walled and the free frontage between neighbours is ones and twos.
+   * A one-tile fence closing the gap between two houses is a SIDE GATE and
+   * reads correctly; a one-tile fence in open ground is the reported defect.
+   *
+   * So both are printed. Isolation is context, DANGLING ENDS are the defect:
+   * a run end whose next tile along is neither a building, nor more barrier,
+   * nor water, nor off the map — a boundary that simply stops.
+   */
+  let ends = 0, dangling = 0
+  const seenRun = new Set()
+  for (const [k] of cell) {
+    const [x, y] = k.split(',').map(Number)
+    for (const [dx, dy] of [[1, 0], [0, 1]]) {
+      // Walk each maximal run once, from its head.
+      if (cell.has(`${x - dx},${y - dy}`)) continue
+      if (!cell.has(`${x + dx},${y + dy}`) && (dx === 0)) continue
+      const rk = `${k}:${dx},${dy}`
+      if (seenRun.has(rk)) continue
+      seenRun.add(rk)
+      let ex = x, ey = y
+      while (cell.has(`${ex + dx},${ey + dy}`)) { ex += dx; ey += dy }
+      for (const [tx, ty, sx, sy] of [[x, y, -dx, -dy], [ex, ey, dx, dy]]) {
+        const nx = tx + sx, ny = ty + sy
+        ends++
+        const off = nx < 0 || ny < 0 || nx >= 48 || ny >= 48
+        if (off || solidSet.has(`${nx},${ny}`) || cell.has(`${nx},${ny}`)) continue
+        // A CORNER IS NOT A LOOSE END. The walk splits on direction, so where
+        // a boundary turns, one run stops and another starts on the same tile.
+        // Counting that as dangling reported the town wall — a closed RING
+        // with no ends at all — as half loose, which is the metric measuring
+        // its own traversal rather than the town.
+        const turns = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+          .some(([ox, oy]) => (ox !== sx || oy !== sy) && cell.has(`${tx + ox},${ty + oy}`))
+        if (!turns) dangling++
+      }
+    }
+  }
   console.log(`\n  seed ${seed}: ${til} barrier tiles, ${iso} isolated ` +
     `(${(iso / Math.max(1, til) * 100).toFixed(0)}%)`)
+  console.log(`    run ends that stop in OPEN GROUND: ${dangling} of ${ends} ` +
+    `(${(dangling / Math.max(1, ends) * 100).toFixed(0)}%)`)
+  totEnds += ends; totDangling += dangling
 }
 
 console.log('\n  BY TYPE — a curtain wall is thirty tiles long and would drown')
@@ -110,5 +175,8 @@ for (const [id, e] of rows) {
 }
 console.log(`\n  TOTAL  ${allIsolated} of ${allTiles} barrier tiles stand alone ` +
   `(${(allIsolated / Math.max(1, allTiles) * 100).toFixed(0)}%)`)
-console.log('  A fence means "this side is mine". One tile cannot say it.')
+console.log(`  ${totDangling} of ${totEnds} run ends stop in open ground ` +
+  `(${(totDangling / Math.max(1, totEnds) * 100).toFixed(0)}%)`)
+console.log('  A fence means "this side is mine". A boundary that stops in')
+console.log('  open ground has not said it, whatever its length.')
 await app.close()

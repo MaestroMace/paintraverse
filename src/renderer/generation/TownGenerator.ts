@@ -3079,6 +3079,94 @@ export class TownGenerator implements IMapGenerator {
     return placed
   }
 
+  /**
+   * GROUP EDGE CANDIDATES INTO STRAIGHT RUNS, and throw away the stubs.
+   *
+   * Two placers had independently written the same defect: collect qualifying
+   * tiles by raster scan, then emit one barrier per tile. A tile whose
+   * neighbours happen not to qualify becomes a fence one tile long, and one
+   * tile cannot say the only thing a fence says. Measured across three seeds
+   * before this existed: `picket_fence` 127 tiles with 73 isolated (57%) and
+   * `precinct_wall` 61 with 25 (41%).
+   *
+   * `alongX` is the run's direction and comes from the street the boundary
+   * fronts: a street to the NORTH or SOUTH means the boundary runs EAST-WEST.
+   * Two neighbours join only if they agree about it — a north-south picket
+   * beside an east-west one is a corner, not a continuation.
+   *
+   * The filter belongs in one place rather than in each placer's head, which
+   * is the rule this repo already had to learn about barriers three times over
+   * in the TOOLS. Same mistake, one layer down.
+   */
+  private groupRuns<T extends { x: number; y: number; alongX: boolean }>(
+    cells: T[], minLen: number,
+    /**
+     * Does the run END on something? A boundary that stops in open ground is
+     * the defect; one that stops against a wall is a boundary.
+     *
+     * REQUIRING LENGTH ALONE WAS WRONG AND THE MEASUREMENT SAID SO. A minimum
+     * of three took isolated barrier tiles from 23% to 2% and took
+     * `picket_fence` from 127 tiles to EIGHT and `precinct_wall` to zero — a
+     * scatter defect traded for a ghost, which is the worse of the two.
+     *
+     * The cause is the town itself: 91% of buildings share a party wall, so
+     * the free tiles along a street frontage are ones and twos between
+     * neighbours. There is no room for a long fence there and there never was.
+     *
+     * And a one-tile fence closing the gap between two houses is not the
+     * reported defect — it is a side gate, and it reads correctly precisely
+     * BECAUSE it lands on masonry at both ends. What was reported is a fence
+     * that "doesn't connect": one standing in open ground, going nowhere. So
+     * the rule is ANCHORING, not length, and a short anchored run is kept
+     * while a long unanchored one still is not.
+     */
+    anchored?: (x: number, y: number) => boolean,
+    /** EVERY CLAUSE COUNTS ITSELF. Dropping a candidate silently is how a
+     *  pass becomes a ghost without anyone noticing — the run filter cut the
+     *  picket fence hard and there was no counter to say by how much. */
+    tally?: (k: string) => void,
+  ): T[][] {
+    const key = (x: number, y: number) => `${x},${y}`
+    const at = new Map<string, T>()
+    for (const c of cells) at.set(key(c.x, c.y), c)
+    const seen = new Set<string>()
+    const runs: T[][] = []
+    for (const c of cells) {
+      if (seen.has(key(c.x, c.y))) continue
+      const sx = c.alongX ? 1 : 0, sy = c.alongX ? 0 : 1
+      // Walk back to the head so each run is emitted exactly once.
+      let hx = c.x, hy = c.y
+      for (;;) {
+        const p = at.get(key(hx - sx, hy - sy))
+        if (!p || p.alongX !== c.alongX) break
+        hx -= sx; hy -= sy
+      }
+      const line: T[] = []
+      for (let cx = hx, cy = hy; ; cx += sx, cy += sy) {
+        const n = at.get(key(cx, cy))
+        if (!n || n.alongX !== c.alongX || seen.has(key(cx, cy))) break
+        seen.add(key(cx, cy))
+        line.push(n)
+      }
+      if (line.length >= minLen) { runs.push(line); continue }
+      if (!anchored) { tally?.(`~runTooShort@${line.length}`); continue }
+      /**
+       * Short run: keep it only if BOTH ends butt against something.
+       *
+       * A CORNER COUNTS. `alongX` flips where a boundary turns, so a run that
+       * goes round a corner is split here into two — and testing only `solid`
+       * would throw both halves away as unanchored stubs even though each one
+       * ends on the other. That is the metric's own blind spot reproduced in
+       * the fix: a turn is not a loose end.
+       */
+      const ends = (x: number, y: number) => at.has(key(x, y)) || anchored(x, y)
+      const a = line[0], b = line[line.length - 1]
+      if (ends(a.x - sx, a.y - sy) && ends(b.x + sx, b.y + sy)) runs.push(line)
+      else tally?.(`~runUnanchored@${line.length}`)
+    }
+    return runs
+  }
+
   private placeBridges(
     w: number, h: number, roadMap: boolean[][], waterMap: boolean[][],
     districtMap: number[][], districts: District[], rng: () => number
@@ -3170,7 +3258,17 @@ export class TownGenerator implements IMapGenerator {
            * next session can see whether the town went short of bridges rather
            * than having to guess.
            */
-          if (!roadMap[farY][farX]) { rejected('~bridgeNoFarRoad'); continue }
+          // ROAD, OR ONE STEP FROM IT. Demanding the landing tile itself be
+          // carriageway took the town from nine crossings to ONE — a defect
+          // traded for a ghost, the same overcorrection the fence run filter
+          // made in the same session. A bridge that lands one tile from a
+          // street still gives the "logic flow from one walkway to another"
+          // that was asked for; one that lands in a back garden does not.
+          const farWalk = roadMap[farY][farX] ||
+            [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([ox, oy]) =>
+              inB(farX + ox, farY + oy) && roadMap[farY + oy][farX + ox] &&
+              !waterMap[farY + oy][farX + ox])
+          if (!farWalk) { rejected('~bridgeNoFarRoad'); continue }
           // Deck runs from this bank tile to the far bank tile inclusive.
           const len = n + 2
           const alongX = dx === 1
@@ -3195,6 +3293,7 @@ export class TownGenerator implements IMapGenerator {
             rejected('~bridgeTooClose'); continue
           }
           if (!reserve(x, y, fw, fh)) { rejected('~bridgeTaken'); continue }
+          rejected(`bridgeOk:${cross.id}${DECK_W}`)
           const obj = this.createObj(cross.id, x, y)
           obj.footprint = { w: fw, h: fh }
           bridges.push(obj)
@@ -6194,7 +6293,7 @@ export class TownGenerator implements IMapGenerator {
    * - It only walls a quarter's ROAD frontage. An interior boundary between
    *   two built quarters needs no wall and would read as a maze.
    * - It leaves gates. A sealed precinct is a bug, not an edge, so every run
-   *   longer than GATE_EVERY tiles gets an opening, and any tile a road
+   *   of three tiles or more gets exactly one opening, and any tile a road
    *   actually enters through is skipped outright.
    * - It never counts as a building. The definitions are `infrastructure`
    *   with a `barrier` tag, which is the population split urbanform.mjs now
@@ -6265,7 +6364,6 @@ export class TownGenerator implements IMapGenerator {
     // the town DESIGNED as public: plaza flagstone, which is a square, and a
     // gravel path, which is somewhere to walk.
     const NEVER_FENCE = new Set([13, 14])   // gravel path, plaza flagstone
-    const GATE_EVERY = 6
     const out: PlacedObject[] = []
 
     const isStreet = (x: number, y: number): boolean =>
@@ -6303,7 +6401,7 @@ export class TownGenerator implements IMapGenerator {
     const byDistrict = new Map<number, DistrictType>()
     for (const d of districts) byDistrict.set(d.id, d.type)
 
-    let run = 0
+    const cand: Array<{ x: number; y: number; dt: DistrictType; alongX: boolean }> = []
     for (let y = 1; y < h - 1; y++) {
       for (let x = 1; x < w - 1; x++) {
         const dt = byDistrict.get(districtMap[y]?.[x] ?? -1)
@@ -6323,23 +6421,49 @@ export class TownGenerator implements IMapGenerator {
         // A tile the street passes THROUGH is a threshold, not a boundary —
         // the same clause the precinct wall needed and for the same reason.
         if ((rN && rS) || (rE && rW)) { rejected('fence~threshold'); continue }
-        run++
-        if (run % GATE_EVERY === 0) continue      // the garden gate
+        // A CANDIDATE, NOT A FENCE — see the run filter below.
+        // A street to the NORTH or SOUTH means the boundary runs EAST-WEST.
+        cand.push({ x, y, dt, alongX: (rN || rS) })
+      }
+    }
+
+    /**
+     * KEEP ONLY THE RUNS.
+     *
+     * The loop above was a raster scan that placed a fence at every qualifying
+     * tile independently, so a tile whose neighbours happened not to qualify
+     * became a fence one tile long. Measured across three seeds: 127 picket
+     * tiles and **73 of them isolated — 57%**, the worst offender in the town
+     * and precisely what was reported as "they don't connect or look like they
+     * belong, the placement doesn't seem to have a reason to be there".
+     *
+     * AND THE GATE MOVED INTO THE RUN. `run % GATE_EVERY` counted every fence
+     * placed ANYWHERE ON THE MAP, so the opening fell at an arbitrary point of
+     * an arbitrary boundary: a global tally wearing the name of a local one. A
+     * gate belongs a third of the way along the fence it opens.
+     */
+    const solidAt = (x: number, y: number): boolean =>
+      x < 0 || y < 0 || x >= w || y >= h || homes.has(`${x},${y}`) || waterMap[y][x]
+    for (const line of this.groupRuns(cand, 3, solidAt, (k) => rejected(`fence${k}`))) {
+      const gateAt = Math.max(1, Math.floor(line.length / 3))
+      for (let i = 0; i < line.length; i++) {
+        if (i === gateAt) continue                 // the garden gate
+        const t = line[i]
         out.push({
           id: uuid(),
           definitionId: 'picket_fence',
-          x, y,
+          x: t.x, y: t.y,
           rotation: 0, scaleX: 1, scaleY: 1,
-          elevation: Math.min(Math.round((heightMap[y]?.[x] ?? 0) * 2) / 2, 2),
+          elevation: Math.min(Math.round((heightMap[t.y]?.[t.x] ?? 0) * 2) / 2, 2),
           footprint: { w: 1, h: 1 },
           // `facingY` DECIDES the fence's direction. PropFactory falls back to
           // a random angle up to a half turn on a 1x1 prop, which is right for
           // a barrel and nonsense for a boundary; the fence runs ALONG the
           // street, so it turns a quarter when the street is east or west.
-          properties: { district: dt, boundary: true, facingY: (rN || rS) ? 0 : Math.PI / 2 },
+          properties: { district: t.dt, boundary: true, facingY: t.alongX ? 0 : Math.PI / 2 },
         })
         rejected('fenceOk')
-        occupied.add(`${x},${y}`)
+        occupied.add(`${t.x},${t.y}`)
       }
     }
     return out
@@ -6380,7 +6504,6 @@ export class TownGenerator implements IMapGenerator {
     // gates are `town_gate` and `gatehouse`, both real buildings — a 1.45m
     // coping course round a garrison would read as a garden.
     const WALLED: Set<DistrictType> = new Set(['cemetery', 'temple', 'garden', 'noble'])
-    const GATE_EVERY = 7
     const out: PlacedObject[] = []
 
     const occupied = new Set<string>()
@@ -6416,12 +6539,24 @@ export class TownGenerator implements IMapGenerator {
       }
       if (edges.length < 4) continue    // too small a quarter to be worth an edge
 
-      let run = 0
-      for (const e of edges) {
-        run++
-        // Leave a gap for a gateway, offset by the quarter's own id so every
-        // precinct in a town does not gap at the same count.
-        if ((run + d.id) % GATE_EVERY === 0) continue
+      /**
+       * RUNS, NOT TILES — the same defect the picket fence had, in the placer
+       * whose whole purpose is a continuous boundary. `edges` was a raster
+       * sweep of the quarter and every qualifying tile became a wall segment,
+       * so 25 of 61 precinct tiles stood alone (41%). This is the "small wall"
+       * named from the device as the worst offender.
+       *
+       * The gate had the same shape of bug as the fence's: `(run + d.id) %
+       * GATE_EVERY` counted every segment in the QUARTER, so the opening fell
+       * wherever that tally happened to land rather than in the wall it opens.
+       */
+      const solidAt = (x: number, y: number): boolean =>
+        x < 0 || y < 0 || x >= w || y >= h || occupied.has(`${x},${y}`) || waterMap[y][x]
+      for (const line of this.groupRuns(edges, 3, solidAt, (k) => rejected(`precinct${k}`))) {
+      const gateAt = Math.max(1, Math.floor(line.length / 3))
+      for (let i = 0; i < line.length; i++) {
+        if (i === gateAt) continue                 // the gateway
+        const e = line[i]
         const id = e.alongX ? 'precinct_wall' : 'precinct_wall_v'
         out.push({
           id: uuid(),
@@ -6436,6 +6571,7 @@ export class TownGenerator implements IMapGenerator {
           properties: { district: d.type, precinct: true },
         })
         occupied.add(`${e.x},${e.y}`)
+      }
       }
     }
     return out
