@@ -12,7 +12,7 @@
 
 import * as THREE from 'three'
 import type { MapDocument, ObjectDefinition } from '../core/types'
-import { stableHash, DWELLING_TYPES } from '../core/types'
+import { stableHash, DWELLING_TYPES, footprintOf } from '../core/types'
 import { getTerrainHeight } from './TerrainMesh'
 import { BatchedMeshBuilder } from './BatchedMeshBuilder'
 import { LAMP_POOL_TEX } from './PropFactory'
@@ -309,6 +309,18 @@ function applySway(mesh: THREE.Mesh, amp: number): void {
  * the 3-in-4 dice. Same shape as the reject counters that closed the rear
  * outshot in one run after a count had bought nothing.
  */
+/**
+ * Every rope span the town built, with each end's height and the eave it was
+ * tied to. Read by `tools/ropeprobe.mjs`.
+ */
+export interface LanternSpan {
+  ax: number; ay: number; az: number
+  bx: number; by: number; bz: number
+  aEave: number; bEave: number
+  kind: 'lantern' | 'laundry'
+}
+export const lanternSpans: LanternSpan[] = []
+
 export const lanternStats: Record<string, number> = {}
 function reject(k: string): void { lanternStats[k] = (lanternStats[k] ?? 0) + 1 }
 
@@ -516,7 +528,7 @@ export function buildWallLanterns(
     const h = stableHash(obj)
     if (h % 100 >= LANTERN_ODDS(obj.definitionId) * 100) continue
     const def = defMap.get(obj.definitionId)
-    const fpT = def?.footprint ?? { w: 1, h: 1 }
+    const fpT = def ? footprintOf(obj, def) : { w: 1, h: 1 }
     const ctx = obj.x + fpT.w / 2
     const ctz = obj.y + fpT.h / 2
     const groundY = heightMap ? getTerrainHeight(heightMap, ctx, ctz) : 0
@@ -588,13 +600,44 @@ export function buildWallLanterns(
  * the exact support function of a yawed box, `hw*|ux| + hd*|uz|` measured in
  * the box's own frame. Used to stop lantern ropes at the wall.
  */
-function supportRadius(
+/**
+ * Where the line LEAVES the building — the point on its wall, not the
+ * projection of its farthest corner.
+ *
+ * This was the box's SUPPORT FUNCTION, `halfW*|lx| + halfD*|lz|`, which is the
+ * greatest extent of the box along the direction and therefore lands at or
+ * BEYOND the wall the rope should be tied to: on a diagonal it overshoots by
+ * up to the corner-minus-wall distance and ties the rope to a point in the
+ * air just off the building. The slab exit is the actual crossing, so the end
+ * sits on the eave edge the way a rope tied by a person would.
+ */
+function wallExit(
   b: { halfW: number; halfD: number; yaw: number }, ux: number, uz: number
 ): number {
   const c = Math.cos(-b.yaw), s = Math.sin(-b.yaw)
   const lx = ux * c - uz * s
   const lz = ux * s + uz * c
-  return b.halfW * Math.abs(lx) + b.halfD * Math.abs(lz)
+  const tx = Math.abs(lx) > 1e-6 ? b.halfW / Math.abs(lx) : Infinity
+  const tz = Math.abs(lz) > 1e-6 ? b.halfD / Math.abs(lz) : Infinity
+  return Math.min(tx, tz)
+}
+
+/** Does the segment cross this axis-aligned footprint rectangle? Standard 2D
+ *  slab test — exact, and it needs no raycast against 200k triangles. */
+function segHitsRect(
+  ax: number, az: number, bx: number, bz: number,
+  r: { x0: number; z0: number; x1: number; z1: number },
+): boolean {
+  const dx = bx - ax, dz = bz - az
+  let t0 = 0, t1 = 1
+  for (const [p, q] of [
+    [-dx, ax - r.x0], [dx, r.x1 - ax], [-dz, az - r.z0], [dz, r.z1 - az],
+  ] as const) {
+    if (Math.abs(p) < 1e-9) { if (q < 0) return false; continue }
+    const t = q / p
+    if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t } else { if (t < t0) return false; if (t < t1) t1 = t }
+  }
+  return t0 <= t1
 }
 
 export function buildLanternStrings(
@@ -629,11 +672,16 @@ export function buildLanternStrings(
     /** Stable architectural seed, so which garments hang on which line is the
      *  same on every run. `obj.id` is a UUID minted per generate. */
     seed: number
+    /** The reserved footprint in world XZ, so a candidate span can be tested
+     *  against every OTHER building. A rope that crosses one passes through a
+     *  roof, which is what "hovering in the air" looks like from the street
+     *  when the roof it crosses is taller than the rope. */
+    x0: number; z0: number; x1: number; z1: number
   }> = []
   for (const obj of structureLayer.objects) {
     if (EXCLUDE.has(obj.definitionId)) continue
     const def = defMap.get(obj.definitionId)
-    const fpT = def?.footprint ?? { w: 1, h: 1 }
+    const fpT = def ? footprintOf(obj, def) : { w: 1, h: 1 }
     const ctx = obj.x + fpT.w / 2
     const ctz = obj.y + fpT.h / 2
     const groundY = heightMap ? getTerrainHeight(heightMap, ctx, ctz) : 0
@@ -649,9 +697,42 @@ export function buildLanternStrings(
       yaw: t ? t.rotationY : 0,
       home: DWELLING_TYPES.has(obj.definitionId),
       seed: stableHash(obj),
+      x0: obj.x * TILE, z0: obj.y * TILE,
+      x1: (obj.x + fpT.w) * TILE, z1: (obj.y + fpT.h) * TILE,
     })
   }
   if (centers.length < 2) return { ropeMesh: null, lanternMesh: null, wallLanternMesh: null }
+
+  /**
+   * EVERYTHING A ROPE COULD HIT, which is not the same set as everything a
+   * rope can be TIED TO.
+   *
+   * The first sightline check tested against `centers`, and `centers` excludes
+   * walls, gates, archways, staircases and watchtowers — so it could not see a
+   * rope crossing any of them and 22 spans still went over a roof. That is the
+   * sample-excludes-members failure this repo records for `allsides`
+   * photographing the one pair that was fine: ask what the population LEAVES
+   * OUT, not only what it contains.
+   *
+   * And the test carries each obstacle's HEIGHT, because "crosses" is not the
+   * defect — a rope ten metres up passing over a 1.45m churchyard wall is
+   * correct and common. The defect is crossing something the rope does not
+   * clear.
+   */
+  const obstacles: Array<{ x0: number; z0: number; x1: number; z1: number; topY: number }> = []
+  for (const obj of structureLayer.objects) {
+    const def = defMap.get(obj.definitionId)
+    const fpT = def ? footprintOf(obj, def) : { w: 1, h: 1 }
+    const t = tops?.get(obj.id)
+    const g = heightMap
+      ? getTerrainHeight(heightMap, obj.x + fpT.w / 2, obj.y + fpT.h / 2) : 0
+    obstacles.push({
+      x0: obj.x * TILE, z0: obj.y * TILE,
+      x1: (obj.x + fpT.w) * TILE, z1: (obj.y + fpT.h) * TILE,
+      // The apex, not the eave: a rope has to clear the ridge it passes over.
+      topY: t ? Math.max(t.mainWallTopY, t.apexY ?? t.mainWallTopY) : g + HANG_HEIGHT,
+    })
+  }
 
   // Pick pairs. Simple O(N²) scan with a distance filter; N is typically
   // ~150–200 so cost is a few tens of thousands of ops, cheap at load.
@@ -659,6 +740,11 @@ export function buildLanternStrings(
   // pincushion any single roof with chains.
   interface StringSpec {
     ax: number; az: number; bx: number; bz: number; y: number
+    /** Each end's own tie-off height and the eave it was tied to. Recorded so
+     *  a probe can ask the ONE question a rope has to answer — is this end
+     *  actually ON the building it claims to be tied to — without re-deriving
+     *  anything from pixels. */
+    ay: number; by: number; aEave: number; bEave: number
     kind: 'lantern' | 'laundry'; seed: number
   }
   const strings: StringSpec[] = []
@@ -842,15 +928,61 @@ export function buildLanternStrings(
         // it connected and left it poking out of their far sides — invisible
         // when buildings were a metre wide, obvious once they are ten.
         const ux = -dx / d, uz = -dz / d          // unit vector a -> b
-        const inA = supportRadius(a, ux, uz)
-        const inB = supportRadius(b, -ux, -uz)
+        const inA = wallExit(a, ux, uz)
+        const inB = wallExit(b, -ux, -uz)
         // Nothing left to span once both buildings are pulled in: skip rather
         // than emit a backwards rope.
         if (inA + inB >= d - 0.5) continue
+        const ax = a.cx + ux * inA, az = a.cz + uz * inA
+        const bx = b.cx - ux * inB, bz = b.cz - uz * inB
+        /**
+         * SIGHTLINE. A span that crosses a third building's footprint passes
+         * over — or through — its roof, and from the street that is exactly
+         * the "rope hanging in the air" the device reported: the roof it
+         * crosses hides the far end, so the rope appears to stop in space.
+         *
+         * 63% of spans did this before the check existed. Nothing on the board
+         * could see it, because a rope over a roof is not a collision, not a
+         * blank surface and not an outlier — it is only wrong in the sense
+         * that no one would ever string it.
+         */
+        // Provisional tie-off heights, needed before the sightline test can
+        // ask whether the rope clears what it crosses.
+        const ayTry = wantsLaundry ? y : a.eaveY + EAVE_CLEARANCE
+        const byTry = wantsLaundry ? y : b.eaveY + EAVE_CLEARANCE
+        const spanLen = Math.hypot(bx - ax, bz - az)
+        const sagTry = Math.max(SAG, spanLen * SAG_FRACTION)
+        let blocked = false
+        for (let k = 1; k < 12 && !blocked; k++) {
+          const t = k / 12
+          if (t <= 0.18 || t >= 0.82) continue   // the ends sit on their own roofs
+          const sx = ax * (1 - t) + bx * t
+          const sz = az * (1 - t) + bz * t
+          const sy = ayTry * (1 - t) + byTry * t - sagTry * Math.sin(Math.PI * t)
+          for (const o of obstacles) {
+            if (sx < o.x0 || sx > o.x1 || sz < o.z0 || sz > o.z1) continue
+            if (sy < o.topY + 0.5) { blocked = true; break }
+          }
+        }
+        if (blocked) { reject('rope~noSightline'); continue }
+        /**
+         * EACH END AT ITS OWN EAVE.
+         *
+         * This was a single `y = max(aEave, bEave) + clearance` for BOTH ends,
+         * so a rope between a twelve-metre building and a five-metre one hung
+         * level off the taller roofline and terminated seven metres above the
+         * shorter one — tied at one end and floating at the other, which is
+         * precisely what was reported. Measured: 44 of 150 ends more than
+         * 1.5m above their own eave, the worst 13.31m.
+         *
+         * Laundry keeps a single height, because a washing line IS level and
+         * its height is already bounded below both eaves.
+         */
+        const ay = ayTry, by = byTry
         strings.push({
-          ax: a.cx + ux * inA, az: a.cz + uz * inA,
-          bx: b.cx - ux * inB, bz: b.cz - uz * inB,
-          y, kind, seed: (a.seed ^ (b.seed * 31)) >>> 0,
+          ax, az, bx, bz,
+          y, ay, by, aEave: a.eaveY, bEave: b.eaveY,
+          kind, seed: (a.seed ^ (b.seed * 31)) >>> 0,
         })
         if (wantsLaundry) laundryPlaced++
         usage[i]++
@@ -860,6 +992,16 @@ export function buildLanternStrings(
       }
     }
     if (strings.length >= MAX_STRINGS) break
+  }
+  // PUBLISH THE SPANS. A rope's whole claim is that both ends are tied to
+  // something; nothing could check it, and a floating end is invisible to
+  // every metric here because it is neither a collision nor a blank surface.
+  lanternSpans.length = 0
+  for (const s of strings) {
+    lanternSpans.push({
+      ax: s.ax, ay: s.ay, az: s.az, bx: s.bx, by: s.by, bz: s.bz,
+      aEave: s.aEave, bEave: s.bEave, kind: s.kind,
+    })
   }
   if (strings.length === 0) return { ropeMesh: null, lanternMesh: null, wallLanternMesh: null }
 
@@ -887,7 +1029,9 @@ export function buildLanternStrings(
       const x = s.ax * (1 - t) + s.bx * t
       const z = s.az * (1 - t) + s.bz * t
       const sag = sagDepth * Math.sin(Math.PI * t)  // 0 at endpoints, max at t=0.5
-      points.push([x, s.y - sag, z])
+      // Each end at its OWN height, so a rope between a tall building and a
+      // short one slopes rather than hanging level off the taller eave.
+      points.push([x, s.ay * (1 - t) + s.by * t - sag, z])
     }
     // Rope segments: a thin box from each point to the next.
     for (let k = 0; k < SEGMENTS; k++) {

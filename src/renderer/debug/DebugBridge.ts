@@ -22,7 +22,7 @@ import { setFragmentAudit, getFragmentAudit, setSliverAudit, getSliverAudit } fr
 import { overhangClamps, resetOverhangClamps, massingTrace, setMassingTrace, MAX_TOWER_ASPECT } from '../renderer3d/architecture/Massing'
 import { auditRoofWinding, MAX_ROOF_SPAN_RATIO } from '../renderer3d/architecture/Roofs'
 import { placeStats } from '../generation/TownGenerator'
-import { lampAnchors, lanternStats, hangingGust, pinHangingGust, pinHangingTime } from '../renderer3d/LanternStrings'
+import { lampAnchors, lanternStats, lanternSpans, hangingGust, pinHangingGust, pinHangingTime } from '../renderer3d/LanternStrings'
 import { pinCatTime as pinCatBlinkTime } from '../renderer3d/Beacons'
 import { vaneCount, vaneBearing } from '../renderer3d/Weathervanes'
 import { clockCount, clockReading } from '../renderer3d/Clocks'
@@ -240,6 +240,11 @@ export function installDebugBridge(): void {
      *  Same argument as `vanes`: a probe reads the town's value rather than
      *  restating the formula. */
     clocks: () => ({ count: clockCount(), reading: clockReading() }),
+
+    /** Every rope span with each end's height and the eave it was tied to.
+     *  A floating end is neither a collision nor a blank surface, so no metric
+     *  here could see one; this is the handle that makes it measurable. */
+    lanternSpans: () => lanternSpans.map((s) => ({ ...s })),
 
     /** The tile -> world factor, so no tool has to hardcode 3.0. */
     TILE,
