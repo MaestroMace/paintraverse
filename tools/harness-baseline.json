@@ -14,9 +14,9 @@
   },
   "provenance": {
     "outsideBox": 0,
-    "doubled": 9,
+    "doubled": 17,
     "spireAtCap": 0,
-    "habitablePinned": 15
+    "habitablePinned": 13
   },
   "humanscale": {
     "subHuman": 0
@@ -25,30 +25,30 @@
     "openTops": 0
   },
   "odd": {
-    "overZ3": 17,
-    "bareWall": 4
+    "overZ3": 27,
+    "bareWall": 2
   },
   "urbanform": {
-    "coverage": 45,
+    "coverage": 48,
     "partyWalls": 91,
     "streetWidth": 12,
-    "frontage": 74
+    "frontage": 75
   },
   "districts": {
-    "character": 77
+    "character": 71
   },
   "clash": {
-    "deepClash": 8,
-    "onAir": 17,
+    "deepClash": 27,
+    "onAir": 18,
     "buried": 0
   },
   "eyeball": {
-    "roofToWallMed": 41,
-    "stackedMed": 68,
-    "roofOver80": 4,
-    "dwellingsOver4": 7,
-    "wallLuma": 79,
-    "roofBlackPct": 53
+    "roofToWallMed": 45,
+    "stackedMed": 75,
+    "roofOver80": 5,
+    "dwellingsOver4": 10,
+    "wallLuma": 80,
+    "roofBlackPct": 52
   },
   "facade": {
     "overOpening": 0,
@@ -56,17 +56,17 @@
     "awnBad": 0
   },
   "variety": {
-    "twinNear": 18,
-    "twinAny": 39
+    "twinNear": 20,
+    "twinAny": 35
   },
   "traverse": {
-    "reachPct": 87,
+    "reachPct": 92,
     "noPass": 0,
-    "clamber": 32,
+    "clamber": 43,
     "lowHead": 3
   },
   "growth": {
-    "coreEdge100": 280,
+    "coreEdge100": 243,
     "corePct": 56
   },
   "particles": {
@@ -77,16 +77,16 @@
     "noReact": 0,
     "noSway": 0,
     "swayBlind": 0,
-    "mistWater": 78,
+    "mistWater": 87,
     "mistOffRiver": 0,
     "laundryGaps": 0,
     "missingSystems": 0
   },
   "holes": {
-    "holes": 5,
+    "holes": 8,
     "blanks": 1,
     "blankFrac": 1.4,
-    "litOpenings": 38
+    "litOpenings": 32
   },
   "river": {
     "bankRelief": 1.31,
@@ -95,43 +95,43 @@
   },
   "site": {
     "quay": 47,
-    "wallSealed": 83
+    "wallSealed": 81
   },
   "vistas": {
-    "landmarkEnds": 18
+    "landmarkEnds": 23
   },
   "features": {
     "ghosts": 6,
     "wallpaper": 0
   },
   "tenancy": {
-    "explainable": 52,
-    "explained": 41,
+    "explainable": 55,
+    "explained": 48,
     "orphaned": 9
   },
   "streets": {
     "overWide": 5
   },
   "budget": {
-    "textureMB": 78.2
+    "textureMB": 77.7
   },
   "propscale": {
-    "outOfRange": 5
+    "outOfRange": 6
   },
   "hours": {
-    "nightWall": 50,
-    "duskWall": 101,
-    "goldenWall": 180,
-    "dayWall": 202,
-    "duskRoof": 99,
+    "nightWall": 36,
+    "duskWall": 93,
+    "goldenWall": 182,
+    "dayWall": 157,
+    "duskRoof": 10,
     "nightSky": 65,
     "inverted": 0,
     "blackedOut": 0,
     "unmeasured": 0
   },
   "allsides": {
-    "flankFront": 67,
-    "backFront": 33,
+    "flankFront": 63,
+    "backFront": 34,
     "graded": 19,
     "backN": 11
   },
