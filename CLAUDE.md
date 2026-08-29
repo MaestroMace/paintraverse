@@ -7292,6 +7292,41 @@ Both fixed, the same seed reads:
 The motion signal is 200x what the first run measured, and none of that is the
 town — it is where the camera looked.
 
+### AND THEN IT SWAYED THE ENTIRE TOWN, WHICH ONLY THE BOARD COULD SEE
+
+`BatchedMeshBuilder.build()` ends `new THREE.Mesh(merged, getSharedLambertVC())`
+— **ONE material instance, shared by the roof batch, the detail batch, the
+ornament batch and the whole prop batch.** So applying the sway to what it
+hands back displaced every batched mesh in the town downwind by up to 21cm.
+
+**THE PROBE PASSED, AND IT WAS RIGHT TO.** It isolates the canopy, so it
+measured the leaves moving correctly — exactly 0.00e+0 static, 3.92e-4 in
+motion, dead on the flags' bearing — while everything else in the town moved
+with them and it could not possibly know. **An isolating probe cannot see
+collateral damage.** That is not a flaw in the probe; it is the whole reason
+the battery exists, and this file's standing rule to *run the battery for the
+system you are NOT working on* has never had a cleaner demonstration.
+
+The board named it without knowing anything about materials:
+
+    hours   dayWall       202 -> 213 (+11)
+    holes   litOpenings    38 -> 23  (-15)
+    holes   blanks / frac   1 -> 2, 1.4 -> 2.5
+    allsides flankFront    67 -> 70
+    propscale outOfRange    5 -> 6
+    eyeball wallLuma / roofBlackPct   80 -> 79, 53 -> 52
+
+**Seven rows drifting together in one commit is the signature of a GLOBAL
+shift**, not of a local feature — a single mesh gaining a sway cannot move a
+prop's measured size or a wall's daylight median. Reading them one at a time
+would have produced seven small excuses; reading the SHAPE of the set is what
+pointed at a shared object.
+
+Cloning the material before patching it fixes it, the leaves read identically
+afterwards (3.92e-4 and 6.10e-4 to the digit), and the drifted rows return to
+baseline — which is the proof, because a fix that merely stops the symptom
+would not put six unrelated numbers back exactly where they were.
+
 ## Android / mobile build
 
 The renderer runs as a plain web app, which is what makes an APK possible —

@@ -2067,8 +2067,28 @@ export function buildPropMeshes(
   const canopyMesh = canopyBatch.build()
   if (canopyMesh) {
     canopyMesh.name = 'foliage'
-    const cm = Array.isArray(canopyMesh.material) ? canopyMesh.material[0] : canopyMesh.material
-    if (cm) applyFoliageSway(cm)
+    /**
+     * CLONE THE MATERIAL FIRST. `BatchedMeshBuilder.build()` returns
+     * `getSharedLambertVC()` — ONE instance shared by the roof batch, the
+     * detail batch, the ornament batch and the whole prop batch — so applying
+     * the sway to what it hands back displaced every batched mesh in the town
+     * downwind by up to 21cm.
+     *
+     * The probe could not see it and said so cheerfully: it ISOLATES the
+     * canopy, so it graded the leaves moving correctly while everything else
+     * moved with them. The board caught it — `hours dayWall` +11,
+     * `holes litOpenings` -15, `propscale outOfRange` +1 and four more rows
+     * drifting together, which is the signature of a global shift rather than
+     * a local feature. **An isolating probe cannot see collateral damage; that
+     * is what the battery is for.**
+     */
+    const shared = Array.isArray(canopyMesh.material)
+      ? canopyMesh.material[0] : canopyMesh.material
+    if (shared) {
+      const own = (shared as THREE.Material).clone()
+      canopyMesh.material = own
+      applyFoliageSway(own)
+    }
     batched.push(canopyMesh)
   }
 
