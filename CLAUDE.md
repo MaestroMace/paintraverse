@@ -4148,8 +4148,13 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   statistics that fail differently — halving the pair blob, and the lit
   centroid, which one eye going dark alone drags half a pair-width. It found
   the real defect on its first honest run.
-- `xvfb-run -a node tools/vaneprobe.mjs [seed]` — **do the weathervanes turn,
-  and do they AGREE?** Two questions that pull against each other: everything
+- `xvfb-run -a node tools/vaneprobe.mjs [seed]` — **is there ONE WIND, and
+  does everything that measures it agree?** Grades the vanes AND the banners
+  together, deliberately: a vane and a flag disagreeing is worse than either
+  being wrong alone, since one arbitrary bearing reads as a decoration and two
+  contradictory ones read as a mistake. The opposition between them — a vane
+  points INTO the wind, a flag streams AWAY — is a graded row, not an
+  assumption. **4242 grows no flagpole; 31337 does.** Two questions that pull against each other: everything
   else that moves here is deliberately given its own phase, and the vane is
   the one system where disagreement is the DEFECT, because the wind is a fact
   about the place. Reads the town's own bearing (`__pt.vanes()`) rather than
@@ -7155,12 +7160,76 @@ draw and a handful of matrix composes whenever the hour changes; `tickClocks`
 hangs off `updateLighting` rather than the frame loop, because that is the one
 place that knows the hour moved.
 
+Board: **0 gate failures, 0 regressions across 29 checks.** `mistWater`
+79 -> 89 is inside its ±25, and `eyeball wallLuma` went 79 -> **80**, back to
+the value it held two boards ago — which is free confirmation that the
+previous commit's 79 was noise rather than the weathervanes, by the rule this
+file already states: *a row that returns to its old value on the next
+unrelated commit was never moved by the first one.*
+
 **One deliberate art change, stated rather than slipped past**: the hands were
 `shiftColor(palette.wall, ...)`, a per-building dark derived from the wall.
 They are a fixed near-black now. A clock's hands are dark for CONTRAST against
 its dial, which is a fact about clocks rather than about the building carrying
 one — and the dial is an emissive gold disc, so the near-black reads crisply
 where a wall-derived brown did not.
+
+## A HALF-SWEPT PATTERN IS WORSE THAN AN UNSWEPT ONE — the banners
+
+The sibling sweep the vane fix demanded, and it found the identical defect one
+file over: the flag on a noble or temple roof was yawed by
+`rand01(hash, 1607) * 2PI`, under a comment saying "so banners on different
+buildings flap in different directions". Word for word what the vanes said,
+and `localToWorld`'s own doc-comment lists "flag banners rotated to a
+hash-determined wind angle" four hundred lines above the code.
+
+**AND AFTER THE VANE FIX IT WAS ACTIVELY WORSE THAN BEFORE.** One arbitrary
+bearing reads as a decoration nobody thinks about. A town whose vanes all
+agree while its flags each fly somewhere else reads as a MISTAKE, because the
+eye can now see there IS a wind and see something ignoring it. That is a
+sharper version of the rule this file already states — a bug in a gate is a
+bug in a pattern, so grep the pattern the same day — with a reason attached:
+fixing half of a pattern can leave the system worse than not starting.
+
+**THE SECOND READER IS WHAT PROVED THE VALUE BELONGED SOMEWHERE ELSE.** The
+bearing lived inside `Weathervanes.ts` for exactly one commit, which was
+correct while the vanes were its only consumer. `Wind.ts` owns it now — the
+`core/terrain.ts` argument, arrived at from the other direction: not "three
+copies drifted" but "the moment there were two readers, a private detail
+stopped being one".
+
+**AND THE TWO POINT OPPOSITE WAYS, WHICH IS THE PHYSICS.** A vane points INTO
+the wind — that is what makes it an instrument — and a flag streams AWAY from
+it. `windBearing()` is the direction the wind comes FROM, so the vanes take it
+unturned and the banners take it plus half a turn. That opposition is a GRADED
+ROW rather than an assumption, because two systems agreeing exactly would mean
+one of them is wrong.
+
+### THE METRIC CAUGHT MY OWN BUG ON ITS FIRST REAL RUN
+
+    BANNERS  5 flags, mean bearing -140.7 deg, concentration R = 0.422
+    FLAGS SCATTERED — every roof has its own wind
+
+**The flags were inheriting their BUILDING'S yaw.** The vanes compose an
+instance from a world position and a world quaternion; the banners kept the
+full local -> world matrix and multiplied a yaw onto it, so every flag carried
+its building's rotation on top of the wind — the exact defect being fixed,
+re-entering through the transform. A flag is gimballed on a true vertical like
+a vane: the roof under it has no say in which way the wind blows.
+
+    R                     0.422 -> 0.989
+    opposition to vanes   33.7 deg -> 4.1 deg from the half-turn
+
+### AND THE PROBE FAILED SILENTLY BEFORE IT FOUND ANYTHING
+
+`win.evaluate((n) => { ... })` — with the mesh name never forwarded as the
+second argument. So `o.name === undefined` matched nothing, the function
+returned null, BOTH branches of the report were skipped, and the tool printed
+**no line at all**. A missing measurement reading as silence, inside the check
+written to grade the sibling sweep, on the same day this file records the same
+class twice over. There is an unreachable `else` under it now that says what
+it could not read: **an else that "cannot happen" is cheaper than the run
+where it did.**
 
 ## Android / mobile build
 

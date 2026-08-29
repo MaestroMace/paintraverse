@@ -50,6 +50,8 @@ import { buildPropMeshes, setLampPoolOpacity, LAMP_POOL_TEX, propSizes, propInst
 import { resetBeacons, tickCatBlink } from './Beacons'
 import { resetVanes, tickVanes } from './Weathervanes'
 import { resetClocks, tickClocks } from './Clocks'
+import { resetBanners, tickBanners } from './Banners'
+import { tickWind } from './Wind'
 import { starIntensityFor, starThresholdFor, moonPhaseDir, weatherAir } from './Materials'
 
 /**
@@ -891,6 +893,7 @@ void main() {
     resetBeacons()
     resetVanes()
     resetClocks()
+    resetBanners()
 
     const palettes = buildingPalettes || DEFAULT_BUILDING_PALETTES
     const defMap = new Map(objectDefs.map(d => [d.id, d]))
@@ -3743,9 +3746,13 @@ void main() {
       // reason the sway is on it: a second copy of "what time is it" is how
       // the four lighting arms rotted one at a time.
       tickCatBlink(t)
-      // The vanes read the SAME gust the hanging content does, which is the
-      // whole point: one wind, and everything that measures it agrees.
-      tickVanes(t, hangingGust())
+      // ONE WIND, ADVANCED ONCE, then read by everything that measures it.
+      // The vanes point into it, the banners stream away from it, and both
+      // ride the same gust the hanging content does — a town whose washing
+      // surges while its flags hang has two winds in it.
+      tickWind(t, hangingGust())
+      tickVanes(t)
+      tickBanners(t)
       tickWater(t)
       this.updateMeteor(dt)
       // The stars twinkle beside the windows and the water, which is the

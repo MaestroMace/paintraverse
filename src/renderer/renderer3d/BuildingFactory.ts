@@ -20,6 +20,7 @@ import { pickMassing, volumeFloors, traceStage, clipToFootprint, MAX_OVERHANG as
 import { addBeacon, CAT_EYE_TINT } from './Beacons'
 import { buildVaneMesh } from './Weathervanes'
 import { addClockHand, buildClockMesh } from './Clocks'
+import { addBanner, buildBannerMesh } from './Banners'
 import { facadeOpenings, quantizeWallM } from './FacadeTexture'
 import { gableMath, clampRoofHeight, clampRoofToWall, eaveProjFor } from './architecture/Roofs'
 import { emitVolume, localToWorld, localToWorldMatrix, shiftColor, setWallEmissiveIntensity as setVolumeEmissiveIntensity } from './architecture/VolumeRenderer'
@@ -3077,32 +3078,31 @@ export function buildBuildingMeshes(
       localToWorld(cap, poleLocalX, poleBaseY + poleH + 0.04, poleLocalZ,
         leanX, leanZ, rotationY, wx, wy, wz)
       ornamentBatch.addPositioned(cap, 0xb89858)         // brass
-      // Banner: a thin rectangle attached to the pole's upper portion,
-      // angled out from the pole as if blowing in the wind. Build at
-      // origin, translate so its inner edge is at the pole, rotate by a
-      // hash-determined yaw so banners on different buildings flap in
-      // different directions.
-      const bannerW = 0.65, bannerH = 0.45, bannerT = 0.025
-      const bannerYaw = rand01(hash, 1607) * Math.PI * 2
-      const banner = new THREE.BoxGeometry(bannerW, bannerH, bannerT)
-      banner.translate(bannerW / 2, 0, 0)              // inner edge at origin
-      banner.rotateY(bannerYaw)
-      // Banner color from a small heraldic palette: deep red, midnight blue,
-      // forest green, royal purple, gold ochre.
+      /**
+       * BANNER — instanced, and it flies DOWNWIND.
+       *
+       * Its yaw was `rand01(hash, 1607) * 2PI` under a comment saying "so
+       * banners on different buildings flap in different directions", which
+       * is word for word what the weathervanes said. A bug in one instance is
+       * a bug in a PATTERN, and `localToWorld`'s own doc-comment lists "flag
+       * banners rotated to a hash-determined wind angle" four hundred lines
+       * above this.
+       *
+       * After the vane fix it was actively worse than before: a town whose
+       * vanes all agree while its flags each fly somewhere else reads as a
+       * mistake rather than as a decoration, because the eye can now see there
+       * IS a wind and see the flags ignoring it. A half-swept pattern is worse
+       * than an unswept one.
+       */
       const bannerColors = [0x8e2424, 0x2a3a72, 0x2e5a32, 0x4a2a5e, 0xa07020]
-      const bannerColor = bannerColors[hash % bannerColors.length]
-      localToWorld(banner, poleLocalX, poleBaseY + poleH * 0.78, poleLocalZ,
-        leanX, leanZ, rotationY, wx, wy, wz)
-      ornamentBatch.addPositioned(banner, bannerColor)
-      // A small triangular tail at the banner's free edge — adds the
-      // "split-tail" pennant silhouette. Approximated as a thin sliver.
-      const tailW = 0.12
-      const tail = new THREE.BoxGeometry(tailW, bannerH * 0.6, bannerT)
-      tail.translate(bannerW + tailW / 2 - 0.02, 0, 0)
-      tail.rotateY(bannerYaw)
-      localToWorld(tail, poleLocalX, poleBaseY + poleH * 0.78, poleLocalZ,
-        leanX, leanZ, rotationY, wx, wy, wz)
-      ornamentBatch.addPositioned(tail, bannerColor)
+      // The HOIST POSITION only. A flag is gimballed on a true vertical, so
+      // the building's own yaw has no say in which way the wind blows it —
+      // passing the whole frame let every flag inherit its building's
+      // rotation and scattered the skyline all over again.
+      const bf = localToWorldMatrix(poleLocalX, poleBaseY + poleH * 0.78,
+        poleLocalZ, leanX, leanZ, rotationY, wx, wy, wz).elements
+      addBanner(bf[12], bf[13], bf[14],
+        bannerColors[hash % bannerColors.length], rand01(hash, 1607))
     }
 
     // === IVY PATCHES → ornament-batched ===
@@ -4534,6 +4534,8 @@ export function buildBuildingMeshes(
   if (vaneMesh) batched.push(vaneMesh)
   const clockMesh = buildClockMesh()
   if (clockMesh) batched.push(clockMesh)
+  const bannerMesh = buildBannerMesh()
+  if (bannerMesh) batched.push(bannerMesh)
   const ornamentMesh = ornamentBatch.build()
   if (ornamentMesh) {
     // Ornaments are thin geometry — self-shadowing acne under CSM looks

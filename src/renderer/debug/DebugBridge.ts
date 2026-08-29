@@ -26,6 +26,8 @@ import { lampAnchors, lanternStats, hangingGust, pinHangingGust, pinHangingTime 
 import { pinCatTime as pinCatBlinkTime } from '../renderer3d/Beacons'
 import { vaneCount, vaneBearing } from '../renderer3d/Weathervanes'
 import { clockCount, clockReading } from '../renderer3d/Clocks'
+import { bannerCount } from '../renderer3d/Banners'
+import { windBearing } from '../renderer3d/Wind'
 import * as THREE from 'three'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
 import { getActiveEditorViewport } from '../editor/EditorViewport'
@@ -218,6 +220,13 @@ export function installDebugBridge(): void {
      *  read the town's own value rather than re-deriving the formula — the
      *  copy-drift rule that cost this repo three terrain tables. */
     vanes: () => ({ count: vaneCount(), bearing: vaneBearing() }),
+
+    /** ONE WIND, and both instruments that read it. A vane points INTO the
+     *  wind and a flag streams AWAY from it, so a probe can check the two
+     *  are half a turn apart — which is the whole claim. */
+    wind: () => ({
+      bearing: windBearing(), vanes: vaneCount(), banners: bannerCount(),
+    }),
 
     /** How many clock hands the town grew and what hour they are showing.
      *  Same argument as `vanes`: a probe reads the town's value rather than

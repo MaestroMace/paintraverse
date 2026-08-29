@@ -37,6 +37,9 @@
  * centimetres its tip actually travels at that distance.
  */
 import * as THREE from 'three'
+// ONE WIND. This module computed the bearing until the banners became a
+// second reader; a value two files must agree on belongs somewhere neutral.
+import { windBearing, windGust } from './Wind'
 
 export interface VaneSite {
   /** World position of the pivot — the top of the pole. */
@@ -100,7 +103,7 @@ export function buildVaneMesh(): THREE.InstancedMesh | null {
   mesh.receiveShadow = true
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
   _mesh = mesh
-  tickVanes(0, 1)
+  tickVanes(0)
   return mesh
 }
 
@@ -146,8 +149,7 @@ function mergeSimple(geos: THREE.BufferGeometry[]): THREE.BufferGeometry {
 
 /** Where every vane is pointing this frame, in radians. Exposed so a probe can
  *  ask the town rather than re-deriving the formula — the copy-drift rule. */
-let _bearing = 0
-export function vaneBearing(): number { return _bearing }
+export function vaneBearing(): number { return windBearing() }
 
 /**
  * Aim every vane. `gust` is `hangingGust()`, ~0.5 to ~1.35.
@@ -163,26 +165,27 @@ export function vaneBearing(): number { return _bearing }
  * would be the metronome fix applied to the one system where disagreement is
  * the defect.
  */
-export function tickVanes(time: number, gust: number): void {
+export function tickVanes(time: number): void {
   const mesh = _mesh
   if (!mesh) return
-  // Prevailing wind, turning slowly. Two incommensurate terms so it never
-  // visibly repeats — the same rule the sway and the blink follow.
-  const base = 0.9 + 0.55 * Math.sin(time * 0.037) + 0.30 * Math.sin(time * 0.0231 + 2.1)
-  // The gust leans the whole skyline the same way at the same moment.
-  const lean = (gust - 0.95) * 0.55
+  // A VANE POINTS INTO THE WIND — that is what makes it an instrument rather
+  // than a flag, and it is why this takes `windBearing()` unturned while the
+  // banners take it plus half a turn.
+  const bearing = windBearing()
+  const lean = (windGust() - 0.95) * 0.55
   for (let i = 0; i < sites.length; i++) {
     const s = sites[i]
     const ph = s.phase * Math.PI * 2
     // Turbulence: small, per-vane, and slower than the sway so the roofline
-    // does not shimmer.
+    // does not shimmer. A vane that swung as freely as a flag would stop
+    // reading as one wind, which is the whole point of the system.
     const wobble = 0.16 * Math.sin(time * 0.29 + ph) + 0.09 * Math.sin(time * 0.47 + ph * 1.7)
-    _q.setFromAxisAngle(_up, base + lean * (0.8 + 0.4 * s.phase) + wobble)
+    // The per-vane share of the gust lean: some are stiffer than others.
+    _q.setFromAxisAngle(_up, bearing + lean * (s.phase - 0.5) * 0.4 + wobble)
     _p.set(s.x, s.y, s.z)
     _m.compose(_p, _q, _s)
     mesh.setMatrixAt(i, _m)
   }
-  _bearing = base + lean
   mesh.instanceMatrix.needsUpdate = true
 }
 

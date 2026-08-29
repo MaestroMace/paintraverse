@@ -1,5 +1,12 @@
 /**
- * VANEPROBE — do the weathervanes turn, and do they AGREE?
+ * VANEPROBE — is there ONE WIND, and does everything that measures it agree?
+ *
+ * Grades both instruments together, deliberately. A vane and a flag
+ * disagreeing about the wind is worse than either being wrong alone: one
+ * arbitrary bearing reads as a decoration, two contradictory ones read as a
+ * mistake, because the eye can see there is a wind and see something ignoring
+ * it. So the opposition between them — a vane points INTO the wind, a flag
+ * streams AWAY from it — is a graded row rather than an assumption.
  *
  * A vane welded at a fixed bearing is a decoration shaped like an instrument.
  * Worse, ninety of them at ninety different fixed bearings say the wind blows
@@ -227,6 +234,69 @@ if (spread && spread.length > 2) {
   console.log(`  ${R > 0.9 ? 'ONE WIND — the skyline agrees'
     : R > 0.5 ? 'PARTIAL — the per-vane term is too large to read as one wind'
       : 'SCATTERED — every roof has its own wind, which is the defect'}`)
+}
+/**
+ * AND THE BANNERS, which had the identical defect one file over: a yaw of
+ * `rand01(hash, 1607) * 2PI` under a comment saying "so banners on different
+ * buildings flap in different directions" — word for word what the vanes said.
+ *
+ * A direction's compass yaw comes straight out of the instance matrix:
+ * `Ry(t)` maps +X to `(cos t, 0, -sin t)`, and both the arrow and the flag are
+ * authored pointing +X, so `atan2(-z, x)` of column 0 is what each one is
+ * actually doing in the world. Nothing inferred and no formula restated.
+ */
+const yaws = (meshName) => win.evaluate((n) => {
+  const three = window.__pt.renderer()
+  let m = null
+  three.scene.traverse((o) => { if (o.name === n) m = o })
+  if (!m) return null
+  const T = window.__pt.THREE
+  const mat = new T.Matrix4()
+  const out = []
+  for (let i = 0; i < m.count; i++) {
+    m.getMatrixAt(i, mat)
+    const e = mat.elements
+    out.push(Math.atan2(-e[2], e[0]))
+  }
+  return out
+}, meshName)
+/** Circular mean and concentration. R is 1 for perfect agreement and 0 for a
+ *  uniform scatter — which is exactly what `rand01 * 2PI` produced, so the row
+ *  separates the fix from what it replaced with no threshold to argue about. */
+const circ = (a) => {
+  let sx = 0, sy = 0
+  for (const y of a) { sx += Math.cos(y); sy += Math.sin(y) }
+  return { mean: Math.atan2(sy, sx), R: Math.hypot(sx, sy) / a.length }
+}
+const wrapPi = (a) => { let x = a; while (x > Math.PI) x -= Math.PI * 2; while (x < -Math.PI) x += Math.PI * 2; return x }
+
+const vy = await yaws('weatherVanes')
+const by = await yaws('banners')
+if (by && by.length && vy && vy.length) {
+  const V = circ(vy), B = circ(by)
+  console.log(`\n  BANNERS   ${by.length} flags, mean bearing ` +
+    `${(B.mean * 180 / Math.PI).toFixed(1)} deg, concentration R = ${B.R.toFixed(3)}`)
+  // A flag streams DOWNWIND and a vane points UPWIND, so the two must sit half
+  // a turn apart. That opposition is the claim; agreeing exactly would mean
+  // one of them is wrong.
+  const opp = Math.abs(Math.abs(wrapPi(B.mean - V.mean)) - Math.PI) * 180 / Math.PI
+  console.log(`  vanes ${(V.mean * 180 / Math.PI).toFixed(1)} deg vs flags ` +
+    `${(B.mean * 180 / Math.PI).toFixed(1)} deg — ` +
+    `${opp.toFixed(1)} deg from the half-turn they should differ by`)
+  console.log(`  ${B.R > 0.85 && opp < 20 ? 'ONE WIND — the vanes point into it and the flags stream away'
+    : B.R <= 0.85 ? 'FLAGS SCATTERED — every roof has its own wind'
+      : 'FLAGS NOT OPPOSED — they are not streaming downwind of the vanes'}`)
+} else if (vy && vy.length) {
+  console.log('\n  BANNERS   none in this town — flagPole needs a noble, temple')
+  console.log('            or wealthy building. features.mjs owns that rate.')
+} else {
+  // SAYING NOTHING IS NOT A RESULT. The first cut of this block forgot to
+  // forward the mesh name into `win.evaluate`, so `o.name === undefined`
+  // matched nothing, both branches above were skipped and the tool printed
+  // NO LINE AT ALL — a missing measurement reading as silence, in the check
+  // written to grade the sibling sweep. An unreachable else is cheap.
+  console.log(`\n  BANNERS   NOT GRADED — read ${vy ? vy.length : 'null'} vane`)
+  console.log('            yaws and could not identify the meshes.')
 }
 console.log('\nfeatures.mjs owns the vane RATE; this owns whether it is an instrument.')
 await app.close()
