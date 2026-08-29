@@ -3065,7 +3065,25 @@ export class TownGenerator implements IMapGenerator {
       // A vertical run wants the vertical variant where the store has one, so
       // the fence faces along its own line rather than across it.
       const vId = dy !== 0 && id === 'stone_wall' ? 'stone_wall_v' : id
-      out.push(this.createObj(vId, x, y))
+      const obj = this.createObj(vId, x, y)
+      // ONE TILE PER SEGMENT. `createObj` reserves the DEFINITION's rectangle
+      // and `hedge`, `fence` and `picket_fence` are all 2x1 there — so a run
+      // laid tile by tile had every segment overlapping the next, which is
+      // the "doesn't connect" complaint made literal, and PropFactory sizes
+      // the geometry from the reserved rectangle so each one was drawn 6m
+      // wide on 3m spacing. The picket-fence placer got this right in the
+      // same session (`footprint: { w: 1, h: 1 }`, forty lines away) and this
+      // one did not: a fix applied to one of two placers, inside the shared
+      // helper written to stop exactly that.
+      obj.footprint = { w: 1, h: 1 }
+      // AND THE FACING IS DECIDED, NOT ROLLED. PropFactory's fence branch
+      // falls back to a random angle up to a half turn when `facingY` is
+      // absent — right for a barrel, meaningless for a boundary, and the
+      // reason its own comment records every fence in town once running
+      // east-west. The run direction is known here and nowhere else.
+      obj.properties = { ...(obj.properties ?? {}), boundary: true,
+        facingY: dx !== 0 ? 0 : Math.PI / 2 }
+      out.push(obj)
       occupied[y][x] = true
       placed++
     }
@@ -3190,21 +3208,35 @@ export class TownGenerator implements IMapGenerator {
      * wide where a town carries carts, a single timber plank where it does
      * not.
      */
-    const CROSSING: Partial<Record<DistrictType, { id: string; w: number }>> = {
-      market: { id: 'bridge', w: 3 },
-      harbor: { id: 'bridge', w: 3 },
-      fortress: { id: 'bridge', w: 3 },
-      noble: { id: 'bridge', w: 2 },
-      temple: { id: 'bridge', w: 2 },
-      waterfront: { id: 'bridge', w: 2 },
-      garden: { id: 'footbridge', w: 1 },
-      slum: { id: 'footbridge', w: 1 },
-      cemetery: { id: 'footbridge', w: 1 },
+    /**
+     * THE MATERIAL IS THE DISTRICT'S; THE WIDTH IS THE ROAD'S.
+     *
+     * The first cut of this put both in the table, and the paragraph above it
+     * said "a bridge takes its size and its material from the road it carries"
+     * while the code read neither from a road. A district table is a PROXY for
+     * carriageway width and this file records what proxies cost — the road
+     * painter inferred hierarchy from a neighbour count and painted the whole
+     * town as alley the moment the corridors were capped. The carriageway is
+     * an exact quantity sitting in `roadMap`, so measure it.
+     *
+     * A hardcoded 3 also bought ten regressions: a bridge is placed BEFORE
+     * buildings and blocks its footprint, so an extra tile of deck on every
+     * market crossing is land the placer never sees.
+     */
+    const CROSSING: Partial<Record<DistrictType, string>> = {
+      garden: 'footbridge', slum: 'footbridge', cemetery: 'footbridge',
     }
-    const crossingAt = (x: number, y: number): { id: string; w: number } => {
+    const crossingAt = (x: number, y: number): string => {
       const di = districtMap[y]?.[x] ?? -1
       const t = di >= 0 ? districts[di]?.type : undefined
-      return (t && CROSSING[t]) || { id: 'bridge', w: 2 }
+      return (t && CROSSING[t]) || 'bridge'
+    }
+    /** Contiguous carriageway from the bank tile, across the crossing. */
+    const roadWidthAt = (x: number, y: number, px: number, pz: number): number => {
+      let n = 1
+      while (n < 3 && inB(x + px * n, y + pz * n) &&
+             roadMap[y + pz * n][x + px * n] && !waterMap[y + pz * n][x + px * n]) n++
+      return n
     }
     /** Beyond this the water wants a causeway, not a span. */
     const MAX_WATER = 8
@@ -3264,16 +3296,32 @@ export class TownGenerator implements IMapGenerator {
           // made in the same session. A bridge that lands one tile from a
           // street still gives the "logic flow from one walkway to another"
           // that was asked for; one that lands in a back garden does not.
-          const farWalk = roadMap[farY][farX] ||
-            [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([ox, oy]) =>
-              inB(farX + ox, farY + oy) && roadMap[farY + oy][farX + ox] &&
-              !waterMap[farY + oy][farX + ox])
+          // WITHIN TWO TILES OF A STREET, which is the third value tried and
+          // the first that does not starve the feature. Requiring the landing
+          // tile itself to be carriageway took seed 4242 from nine crossings
+          // to ONE and cost seven points of `traverse reachPct`; one step out
+          // still left six rejected on that seed. Two tiles is a doorstep's
+          // distance — you step off the deck and you are on a street — and it
+          // still refuses the back-of-a-building landings that were reported.
+          let farWalk = false
+          for (let oy = -2; oy <= 2 && !farWalk; oy++) {
+            for (let ox = -2; ox <= 2; ox++) {
+              if (Math.abs(ox) + Math.abs(oy) > 2) continue
+              const nx = farX + ox, ny = farY + oy
+              if (!inB(nx, ny) || waterMap[ny][nx]) continue
+              if (roadMap[ny][nx]) { farWalk = true; break }
+            }
+          }
           if (!farWalk) { rejected('~bridgeNoFarRoad'); continue }
           // Deck runs from this bank tile to the far bank tile inclusive.
           const len = n + 2
           const alongX = dx === 1
-          const cross = crossingAt(x, y)
-          const DECK_W = cross.w
+          const crossId = crossingAt(x, y)
+          // A footbridge is one plank whatever it crosses — that is what the
+          // type IS, and widening it would make it the masonry span again.
+          const DECK_W = crossId === 'footbridge'
+            ? 1
+            : Math.max(2, roadWidthAt(x, y, alongX ? 0 : 1, alongX ? 1 : 0))
           const fw = alongX ? len : DECK_W
           const fh = alongX ? DECK_W : len
           // The second row of the deck has to land on something at BOTH ends,
@@ -3293,8 +3341,8 @@ export class TownGenerator implements IMapGenerator {
             rejected('~bridgeTooClose'); continue
           }
           if (!reserve(x, y, fw, fh)) { rejected('~bridgeTaken'); continue }
-          rejected(`bridgeOk:${cross.id}${DECK_W}`)
-          const obj = this.createObj(cross.id, x, y)
+          rejected(`bridgeOk:${crossId}${DECK_W}`)
+          const obj = this.createObj(crossId, x, y)
           obj.footprint = { w: fw, h: fh }
           bridges.push(obj)
           break
