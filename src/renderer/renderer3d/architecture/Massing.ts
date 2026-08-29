@@ -328,6 +328,25 @@ interface MassingContext {
    * plinth — the value existed and simply never reached the templates.
    */
   groundDrop: number
+  /**
+   * WHICH WAY A SPAN CROSSES, from the placer that knows — because A SQUARE
+   * FOOTPRINT HAS NO AXIS.
+   *
+   * `tmplStoneBridge` and `tmplFootbridge` both opened with
+   * `ctx.footW >= ctx.footD`, and this file already records that guess costing
+   * a round: `bridgeshot` walked a north-south chain east and west and read
+   * three dangling bridges that were fine. It was survivable only because a
+   * fixed 2-wide deck over a channel of 2+ tiles is never square.
+   *
+   * Deriving deck width from the carriageway broke that accident. A 1-tile
+   * channel gives len = 3 and a 3-wide street gives DECK_W = 3, so a 3x3
+   * footprint is now ordinary — and on one the guess answers X whatever the
+   * river does, building the span ACROSS the water instead of over it.
+   *
+   * Undefined for everything that is not a crossing, where the footprint's
+   * own proportions are the honest answer.
+   */
+  spanAlongX?: boolean
 }
 
 /* ------------------------------------------------------------------ */
@@ -2354,14 +2373,29 @@ function tmplFootbridge(ctx: MassingContext): Volume[] {
   const deckT = 0.16
   const drop = Math.min(6, Math.max(0.6, ctx.groundDrop))
   const deckY = drop + CAMBER - deckT   // trestle top, measured from the BED
-  const span = Math.max(ctx.footW, 2.4)
+  /**
+   * AND IT HAD NO AXIS AT ALL — worse than the stone bridge's guess, which is
+   * at least sometimes right. Every dimension below was hardcoded to X: the
+   * span was `ctx.footW`, the trestles stepped in X, the rails ran in Z. A
+   * footbridge is one tile wide and `len` long, so a crossing running
+   * north-south has footW = 3m and footD = len*3 — and this built a 3m-long
+   * deck `len` tiles WIDE: a raft lying across the river rather than a plank
+   * over it. Half of all footbridges, for the life of the template.
+   *
+   * The sibling sweep that found the bed-relative bug in here looked at the
+   * HEIGHTS and stopped. Sweep the whole template, not the line that matches.
+   */
+  const longAxisX = ctx.spanAlongX ?? (ctx.footW >= ctx.footD)
+  const span = Math.max(longAxisX ? ctx.footW : ctx.footD, 2.4)
+  const wide = longAxisX ? ctx.footD : ctx.footW
   const wood = 0x7a6244
   const vols: Volume[] = []
   // Two trestles down into the bed.
   for (const s of [-1, 1]) {
     vols.push({
       role: 'mainBody',
-      offsetX: s * (span * 0.32), offsetZ: 0,
+      offsetX: longAxisX ? s * (span * 0.32) : 0,
+      offsetZ: longAxisX ? 0 : s * (span * 0.32),
       width: 0.22, depth: 0.22,
       bottomY: -drop, height: deckY,
       roofStyle: 'none', roofHeight: 0, roofAxis: 'x',
@@ -2375,7 +2409,8 @@ function tmplFootbridge(ctx: MassingContext): Volume[] {
     role: 'trim',
     walkable: true,
     offsetX: 0, offsetZ: 0,
-    width: span + 0.12, depth: ctx.footD + 0.12,
+    width: (longAxisX ? span : wide) + 0.12,
+    depth: (longAxisX ? wide : span) + 0.12,
     bottomY: CAMBER - deckT, height: deckT,
     roofStyle: 'flat', roofHeight: 0, roofAxis: 'x',
     wallColor: wood, roofColor: wood,
@@ -2385,8 +2420,10 @@ function tmplFootbridge(ctx: MassingContext): Volume[] {
   for (const s of [-1, 1]) {
     vols.push({
       role: 'trim',
-      offsetX: 0, offsetZ: s * (ctx.footD / 2),
-      width: span + 0.12, depth: 0.08,
+      offsetX: longAxisX ? 0 : s * (wide / 2),
+      offsetZ: longAxisX ? s * (wide / 2) : 0,
+      width: longAxisX ? span + 0.12 : 0.08,
+      depth: longAxisX ? 0.08 : span + 0.12,
       bottomY: CAMBER, height: 0.62,
       roofStyle: 'none', roofHeight: 0, roofAxis: 'x',
       wallColor: 0x6a5640, roofColor: 0x6a5640,
@@ -2603,7 +2640,10 @@ function tmplStaircase(ctx: MassingContext): Volume[] {
  * waterline, so a deck at local ground height would be submerged.
  */
 function tmplStoneBridge(ctx: MassingContext): Volume[] {
-  const longAxisX = ctx.footW >= ctx.footD
+  // ASK, DO NOT GUESS — see MassingContext.spanAlongX. `footW >= footD` is
+  // meaningless on a square footprint, and a 3x3 crossing is ordinary now that
+  // the deck width comes from the carriageway.
+  const longAxisX = ctx.spanAlongX ?? (ctx.footW >= ctx.footD)
   const span = longAxisX ? ctx.footW : ctx.footD
   const wide = longAxisX ? ctx.footD : ctx.footW
   // THE DECK MEETS THE BANK; THE PIERS GO DOWN TO THE BED.
@@ -3252,6 +3292,8 @@ export interface PickMassingInput {
   roofColor: number
   /** Ground fall across the footprint — see MassingContext.groundDrop. */
   groundDrop?: number
+  /** Which way a span crosses — see MassingContext.spanAlongX. */
+  spanAlongX?: boolean
 }
 
 
@@ -3340,6 +3382,7 @@ export function pickMassing(input: PickMassingInput): MassingResult {
     wallH: input.wallH, floors: input.floors,
     wallColor: input.wallColor, roofColor: input.roofColor,
     groundDrop: Math.max(0, input.groundDrop ?? 0),
+    spanAlongX: input.spanAlongX,
   }
 
   const override = DEF_OVERRIDE[input.definitionId]

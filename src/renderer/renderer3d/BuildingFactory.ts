@@ -973,6 +973,11 @@ export function buildBuildingMeshes(
       wallColor: palette.wall, roofColor,
       // The gap a span has to cross — see MassingContext.groundDrop.
       groundDrop: getHeight ? maxTH - minTH : 0,
+      // Which way it crosses — see MassingContext.spanAlongX. Only the placer
+      // knows, and a square footprint cannot be asked.
+      spanAlongX: typeof obj.properties?.spanAlongX === 'boolean'
+        ? obj.properties.spanAlongX as boolean
+        : undefined,
     })
 
     // THE PLINTH IS EMITTED HERE, AFTER THE MASSING, AND THAT ORDER IS THE

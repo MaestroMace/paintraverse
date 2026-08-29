@@ -3343,6 +3343,11 @@ export class TownGenerator implements IMapGenerator {
           if (!reserve(x, y, fw, fh)) { rejected('~bridgeTaken'); continue }
           rejected(`bridgeOk:${crossId}${DECK_W}`)
           const obj = this.createObj(crossId, x, y)
+          // WHICH WAY IT CROSSES. Both span templates used to derive this from
+          // `footW >= footD`, which is a guess on any square footprint and a
+          // 3x3 crossing is ordinary now — and the footbridge did not even
+          // guess, it assumed X. Only this loop knows, so it says.
+          obj.properties.spanAlongX = alongX
           obj.footprint = { w: fw, h: fh }
           bridges.push(obj)
           break

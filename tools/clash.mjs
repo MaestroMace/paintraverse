@@ -236,9 +236,35 @@ clashes.sort((p, q) => q.depth - p.depth)
     const worst = Math.max(...a.map((c) => c.depth))
     console.log(`  ${String(a.length).padStart(4)}  ${label.padEnd(34)} worst ${worst.toFixed(2)}m   ${note}`)
   }
+  /**
+   * AND THE DENOMINATOR, because `touching` is a RATE and this printed one
+   * half of it.
+   *
+   * Every deep pair on seed 31337 classified as "footprints TOUCH", which is
+   * the shared-overhang class the per-side clip exists to bound — so the count
+   * rises with how many buildings TOUCH at all, and a town that terraces more
+   * shows more of them without anything having got worse. Read as a bare
+   * count it went 8 -> 27 across a change that never touched massing, and
+   * there was no way to tell a denser town from a regression.
+   *
+   * This repo has now had to learn the same thing from `habitablePinned`
+   * (numerator 32 -> 32, denominator 598 -> 311), from the feature census
+   * reading 182%, and from tenancy dividing by a population its numerator
+   * cannot contain. A percentage is two measurements wearing one number.
+   */
+  const ids = Object.keys(foot)
+  let touchingPairs = 0
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      if (tileGap(ids[i], ids[j]) === 0) touchingPairs++
+    }
+  }
   console.log(`WHY THEY OVERLAP — ${deep.length} pairs deeper than 0.5m, by what the`)
   console.log('reserved tile footprints say about the two buildings:')
   line('touching', 'footprints TOUCH', 'two 0.6m overhangs meeting, plus any yaw')
+  console.log(`        of ${touchingPairs} pairs whose footprints touch at all ` +
+    `— ${(cls.touching.length / Math.max(1, touchingPairs) * 100).toFixed(1)}% ` +
+    `of the population that COULD fail this way`)
   line('apart', 'footprints a tile or more APART', 'NOT explained by the overhang cap')
   line('overlapping', 'footprints OVERLAP', 'audit.mjs should have caught this')
   line('unknown', 'footprint not found', 'the tool cannot say — treat as a bug in it')
