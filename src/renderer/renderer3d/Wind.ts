@@ -27,6 +27,20 @@
 let _bearing = 0
 /** The gust strength that produced it, so a reader can lag or lead. */
 let _gust = 1
+let _timePin: number | null = null
+
+/**
+ * Hold the wind's own clock, so a probe can freeze the WHOLE system.
+ *
+ * `pinGust` was not enough on its own and the foliage check is what proved
+ * it: with the canopy isolated, the camera still and the foliage clock
+ * pinned, two frames still differed — because the prevailing bearing keeps
+ * turning on the real clock, so "the same phase twice" was never the same
+ * scene. A static pair that does not read exactly zero invalidates every
+ * figure measured against it, which is the property the sway gate and the
+ * gust ladder both rest on.
+ */
+export function pinWindTime(v: number | null): void { _timePin = v }
 
 /**
  * Advance the wind. `gust` is `hangingGust()`, ~0.5 to ~1.35, so the swing and
@@ -40,7 +54,8 @@ let _gust = 1
  * ten seconds reads as a broken hinge rather than as weather.
  */
 export function tickWind(time: number, gust: number): void {
-  const base = 0.9 + 0.55 * Math.sin(time * 0.037) + 0.30 * Math.sin(time * 0.0231 + 2.1)
+  const t = _timePin ?? time
+  const base = 0.9 + 0.55 * Math.sin(t * 0.037) + 0.30 * Math.sin(t * 0.0231 + 2.1)
   // The gust leans the whole skyline the same way at the same moment, which
   // is the entire effect: one gust crosses the town and everything measuring
   // it moves together.

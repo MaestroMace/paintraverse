@@ -52,6 +52,7 @@ import { resetVanes, tickVanes } from './Weathervanes'
 import { resetClocks, tickClocks } from './Clocks'
 import { resetBanners, tickBanners } from './Banners'
 import { tickWind } from './Wind'
+import { tickFoliage } from './Foliage'
 import { starIntensityFor, starThresholdFor, moonPhaseDir, weatherAir } from './Materials'
 
 /**
@@ -3753,6 +3754,9 @@ void main() {
       tickWind(t, hangingGust())
       tickVanes(t)
       tickBanners(t)
+      // And the leaves, which are the largest soft thing in the town and were
+      // the last rigid one.
+      tickFoliage(t)
       tickWater(t)
       this.updateMeteor(dt)
       // The stars twinkle beside the windows and the water, which is the

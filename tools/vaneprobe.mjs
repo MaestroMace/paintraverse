@@ -298,5 +298,120 @@ if (by && by.length && vy && vy.length) {
   console.log(`\n  BANNERS   NOT GRADED — read ${vy ? vy.length : 'null'} vane`)
   console.log('            yaws and could not identify the meshes.')
 }
+/**
+ * AND THE LEAVES — the third consumer, and the largest soft thing in the town.
+ *
+ * Four questions, and the first one is what makes the rest trustworthy:
+ *
+ *   1. THE SAME PHASE TWICE MUST READ EXACTLY ZERO. With the canopy isolated,
+ *      the camera still and the clock pinned, a frame that does not change is
+ *      proof the isolation is complete AND that the pin reaches the shader.
+ *      That is the property `windowSpill` provides for the sway gate and
+ *      rung zero provides for the gust ladder; without it every figure below
+ *      is just a number.
+ *   2. TWO DIFFERENT PHASES MUST DIFFER — the leaves actually move.
+ *   3. A STRONGER GUST MUST MOVE THEM FURTHER, at a fixed phase, so the one
+ *      variable is the wind rather than the clock.
+ *   4. AND THEY MUST LEAN THE WAY THE FLAGS FLY. `windBearing()` is where the
+ *      wind comes FROM; both the banners and the leaves take it plus half a
+ *      turn, so a town whose flags stream one way and whose trees bend
+ *      another is impossible by construction — and asserted anyway, because
+ *      "impossible by construction" is what was said about the flags before
+ *      they inherited their buildings' yaw.
+ */
+if (await win.evaluate(() => typeof window.__pt.pinFoliageTime === 'function')) {
+  const w = await win.evaluate(() => window.__pt.wind())
+  const fdir = w.foliage?.dir
+  const fiso = await isolate(win, 'foliage')
+  if (!fiso.found || !fdir) {
+    console.log('\n  FOLIAGE   NOT GRADED — no mesh named "foliage" in this town.')
+    if (fiso.found) await fiso.restore()
+  } else {
+    // A CAMERA POINTED WHERE THE SUBJECT IS NOT WILL REPORT THERE IS NONE.
+    // The frame above is aimed at a rooftop vane; the first run of this block
+    // reused it and measured a canopy that was barely in shot, so the motion
+    // came back at 1.4x the floor. Aim at a real canopy vertex — a vertex is
+    // by definition on an instance, and the merged mesh's own bounding box is
+    // the whole town.
+    const fbox = await win.evaluate(() => {
+      const three = window.__pt.renderer()
+      let m = null
+      three.scene.traverse((o) => { if (o.name === 'foliage' && o.geometry) m = o })
+      if (!m) return null
+      const p = m.geometry.getAttribute('position')
+      const k = Math.floor(p.count / 2)
+      const cx = p.getX(k), cy = p.getY(k), cz = p.getZ(k)
+      const lo = [cx, cy, cz], hi = [cx, cy, cz]
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), y = p.getY(i), z = p.getZ(i)
+        if ((x - cx) ** 2 + (z - cz) ** 2 > 9) continue
+        lo[0] = Math.min(lo[0], x); lo[1] = Math.min(lo[1], y); lo[2] = Math.min(lo[2], z)
+        hi[0] = Math.max(hi[0], x); hi[1] = Math.max(hi[1], y); hi[2] = Math.max(hi[2], z)
+      }
+      return { min: lo, max: hi }
+    })
+    if (fbox) {
+      const fv = await lookAt(win, fbox, {
+        dists: [7, 11, 16, 24], heights: [0, 2, -2, 5],
+        order: 'height', pick: 'largest', minFill: 0.02,
+      })
+      if (fv.ok) console.log(`\n  (foliage framed from ${fv.dist?.toFixed(1)}m, ` +
+        `fills ${((fv.fill ?? 0) * 100).toFixed(1)}%)`)
+    }
+    await win.waitForTimeout(600)
+    // PIN THE WIND'S OWN CLOCK TOO. The prevailing bearing turns on the real
+    // clock, so pinning only the foliage phase left "the same phase twice"
+    // measuring the passage of time — 1.47e-6 where it had to be exactly 0.
+    const grabF = async (t, g) => {
+      await win.evaluate(([tt, gg]) => {
+        window.__pt.pinWindTime(50); window.__pt.pinFoliageTime(tt)
+        window.__pt.pinGust(gg)
+      }, [t, g])
+      await win.waitForTimeout(650)
+      return shootGrid()
+    }
+    const f0 = await grabF(3.0, 1.0)
+    const f0b = await grabF(3.0, 1.0)
+    const f1 = await grabF(7.4, 1.0)
+    const gLo = await grabF(3.0, 0.5)
+    const gHi = await grabF(3.0, 1.35)
+    await win.evaluate(() => {
+      window.__pt.pinFoliageTime(null); window.__pt.pinGust(null)
+      window.__pt.pinWindTime(null)
+    })
+    await win.screenshot({ ...clip, path: `.shots/vane/foliage-${seed}-alone.png` })
+    await fiso.restore()
+    const md = (u, v) => {
+      let d = 0
+      for (let i = 0; i < u.length; i++) d += Math.abs(u[i] - v[i])
+      return d / u.length
+    }
+    const still = md(f0, f0b)
+    const moved = md(f0, f1)
+    const gustDelta = md(gLo, gHi)
+    console.log(`\n  FOLIAGE   same phase twice   ${still.toExponential(2)}` +
+      `   <- must be exactly 0`)
+    console.log(`            phase 3.0 vs 7.4   ${moved.toExponential(2)}   the leaves move`)
+    console.log(`            gust 0.50 vs 1.35  ${gustDelta.toExponential(2)}` +
+      `   at one phase, so this is the wind alone`)
+    // Re-read AFTER the pins: `w` was sampled before the wind clock was held,
+    // and comparing a live bearing against a pinned direction vector would be
+    // comparing two different moments.
+    const w2 = await win.evaluate(() => window.__pt.wind())
+    const bearing = w2.bearing
+    // The leaves' own direction vector against the wind's half-turn.
+    const want = [Math.cos(bearing + Math.PI), Math.sin(bearing + Math.PI)]
+    const fd = w2.foliage?.dir ?? fdir
+    const off = Math.hypot(fd[0] - want[0], fd[1] - want[1])
+    console.log(`            downwind vector ${fd.map((v) => v.toFixed(3)).join(', ')} ` +
+      `vs ${want.map((v) => v.toFixed(3)).join(', ')} — off by ${off.toFixed(4)}`)
+    const ok = still === 0 && moved > 0 && gustDelta > 0 && off < 0.02
+    console.log(`  ${ok ? 'THE LEAVES ARE IN THE SAME WIND'
+      : still !== 0 ? 'ISOLATION LEAKED — the static pair is not zero, so nothing below it counts'
+        : moved === 0 ? 'STATIC — the shader is not reaching the canopy'
+          : gustDelta === 0 ? 'GUST DEAD — amplitude does not follow the wind'
+            : 'OFF-WIND — the leaves are not leaning with the flags'}`)
+  }
+}
 console.log('\nfeatures.mjs owns the vane RATE; this owns whether it is an instrument.')
 await app.close()

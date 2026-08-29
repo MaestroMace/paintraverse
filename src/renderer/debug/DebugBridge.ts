@@ -27,7 +27,8 @@ import { pinCatTime as pinCatBlinkTime } from '../renderer3d/Beacons'
 import { vaneCount, vaneBearing } from '../renderer3d/Weathervanes'
 import { clockCount, clockReading } from '../renderer3d/Clocks'
 import { bannerCount } from '../renderer3d/Banners'
-import { windBearing } from '../renderer3d/Wind'
+import { windBearing, pinWindTime } from '../renderer3d/Wind'
+import { foliageState, pinFoliageTime } from '../renderer3d/Foliage'
 import * as THREE from 'three'
 import { getActiveThreeRenderer } from '../ui/components/ThreeViewport'
 import { getActiveEditorViewport } from '../editor/EditorViewport'
@@ -226,7 +227,14 @@ export function installDebugBridge(): void {
      *  are half a turn apart — which is the whole claim. */
     wind: () => ({
       bearing: windBearing(), vanes: vaneCount(), banners: bannerCount(),
+      foliage: foliageState(),
     }),
+    /** Hold the foliage clock, so a probe asks for a phase instead of
+     *  catching one — the same hook `pinSwayTime` and `pinCatTime` are. */
+    pinFoliageTime: (v: number | null) => { pinFoliageTime(v); return v },
+    /** And the WIND's own clock. Pinning the gust alone leaves the prevailing
+     *  bearing turning, so "the same phase twice" was never the same scene. */
+    pinWindTime: (v: number | null) => { pinWindTime(v); return v },
 
     /** How many clock hands the town grew and what hour they are showing.
      *  Same argument as `vanes`: a probe reads the town's value rather than

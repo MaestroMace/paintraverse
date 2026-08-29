@@ -4154,7 +4154,11 @@ Screenshots land in `.shots/`. Three more tools and a live bridge:
   being wrong alone, since one arbitrary bearing reads as a decoration and two
   contradictory ones read as a mistake. The opposition between them — a vane
   points INTO the wind, a flag streams AWAY — is a graded row, not an
-  assumption. **4242 grows no flagpole; 31337 does.** Two questions that pull against each other: everything
+  assumption. It grades the FOLIAGE as the third consumer, and its static pair
+  must read exactly 0.00e+0 — which needs `pinWindTime` as well as `pinGust`,
+  because the prevailing bearing turns on the real clock and "the same phase
+  twice" was otherwise never the same scene. **4242 grows no flagpole; 31337
+  does.** Two questions that pull against each other: everything
   else that moves here is deliberately given its own phase, and the vane is
   the one system where disagreement is the DEFECT, because the wind is a fact
   about the place. Reads the town's own bearing (`__pt.vanes()`) rather than
@@ -7230,6 +7234,63 @@ written to grade the sibling sweep, on the same day this file records the same
 class twice over. There is an unreachable `else` under it now that says what
 it could not read: **an else that "cannot happen" is cheaper than the run
 where it did.**
+
+## THE LEAVES WERE THE LAST RIGID THING
+
+The wind turns the vanes, flies the flags and swings the washing, and every
+tree in the town stood perfectly still through all of it. That is the
+unblinking-cat failure at the largest scale available: a canopy is metres
+across and there are hundreds of them, so a skyline where the cloth moves and
+the leaves do not reads as a PHOTOGRAPH with two animated stickers on it.
+
+**THE CANOPY MOVES AND THE TRUNK DOES NOT**, which is both physically true and
+the entire reason it was cheap. Trees share one batched mesh with every barrel
+and crate in the town, so a shader on that material would rock the whole
+street; splitting the CANOPY geometry into its own batch gives it its own
+material and touches nothing else. No attribute, no gate, no name list — the
+same shape that made the cat's eyes free, because their tint already put them
+in their own bucket.
+
+The join is allowed to cheat: the crown moves a few centimetres while the
+trunk stays put, so the two separate very slightly at the fork. The canopy
+overlaps the trunk top by design, and this repo already paid that price
+knowingly for the lantern ropes, whose endpoints detach from their eaves by
+7cm. The alternative is threading a weight attribute through a shared batch
+builder for a seam nobody can see from the street.
+
+**AND THE PHASE COMES FROM WORLD POSITION, WHICH WAS WRONG FOR THE CAT AND IS
+RIGHT HERE.** A varying is interpolated, so a position-derived phase varies
+across the surface — which broke the blink, because a blink is a property of
+the ANIMAL and has to be constant over it. A canopy is SUPPOSED to vary
+smoothly across itself. Same expression, opposite correctness, and the
+difference is whether the quantity describes the surface or the thing standing
+on it.
+
+### THE PROBE'S FIRST RUN FAILED TWO WAYS AND BOTH ARE NAMED HERE ALREADY
+
+    FOLIAGE   same phase twice   1.47e-6   <- must be exactly 0
+              phase 3.0 vs 7.4   2.02e-6   ...only 1.4x the floor
+
+- **The camera was pointed at a rooftop weathervane.** The block reused the
+  frame from the section above it and measured a canopy that was barely in
+  shot. *A camera pointed where the subject is not will report there is none*
+  — this file's oldest instrument lesson, and the fix is the usual one: aim at
+  a real vertex, because the merged mesh's own box is the whole town.
+- **`pinGust` was not enough, because the prevailing bearing keeps turning on
+  the real clock.** So "the same phase twice" was never the same scene. A
+  static pair that does not read EXACTLY zero invalidates every figure
+  measured against it — the property the sway gate and the gust ladder both
+  rest on — so `pinWindTime` freezes the whole system.
+
+Both fixed, the same seed reads:
+
+    FOLIAGE   same phase twice   0.00e+0   <- isolation complete, pin reaches
+              phase 3.0 vs 7.4   3.92e-4   the leaves move
+              gust 0.50 vs 1.35  6.10e-4   at ONE phase, so this is the wind
+              downwind vector    off by 0.0000 from the flags' half-turn
+
+The motion signal is 200x what the first run measured, and none of that is the
+town — it is where the camera looked.
 
 ## Android / mobile build
 

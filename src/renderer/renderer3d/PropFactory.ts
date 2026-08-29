@@ -13,6 +13,7 @@ import { stableHash, footprintOf } from '../core/types'
 import { BatchedMeshBuilder, setBuildEnvelope } from './BatchedMeshBuilder'
 import { lampAnchors } from './LanternStrings'
 import { takeBeacons, takeTintedBeacons, CAT_EYE_TINT, applyCatBlink } from './Beacons'
+import { applyFoliageSway } from './Foliage'
 import { TILE } from './scale'
 
 // Heights tuned for FLOOR_HEIGHT=1.8. A 2-story building = 3.6m eaves,
@@ -215,6 +216,8 @@ export function buildPropMeshes(
   const geo = getGeo()
   resetPropSizes()
   const batch = new BatchedMeshBuilder()
+  /** Leaves only. See the canopy block for why this is separate. */
+  const canopyBatch = new BatchedMeshBuilder()
   // NOTHING IN THE STREET IS ALLOWED TO BE A BLACK HOLE. eyeball.mjs reads
   // props as the darkest surface class in the town — 31% of their pixels
   // effectively black against 4% for walls — and the cause is the palette,
@@ -402,7 +405,14 @@ export function buildPropMeshes(
       trunk.translate(px, elev + trunkH / 2, pz)
       batch.addPositioned(trunk, trunkColor)
 
-      // Canopy
+      // CANOPY — its own batch, and that is the whole trick.
+      //
+      // Trees share one batched mesh with every barrel and crate in the town,
+      // so a sway shader on that material would rock the entire street. The
+      // canopy is the only part that should move — a trunk is rigid — so
+      // splitting it out gives the leaves their own material and touches
+      // nothing else. Same shape as the cat's eyes, which were free to
+      // animate because their tint already put them in their own bucket.
       if (species === 'pine') {
         // Taller, narrower layered pine
         for (let layer = 0; layer < 4; layer++) {
@@ -410,7 +420,7 @@ export function buildPropMeshes(
           const c = geo.pineCone.clone()
           c.scale(r / 0.6, 1.6, r / 0.6)
           c.translate(px, elev + trunkH + 0.2 + layer * 0.55, pz)
-          batch.addPositioned(c, canopyColor)
+          canopyBatch.addPositioned(c, canopyColor)
         }
       } else if (species === 'poplar') {
         // Narrow columnar poplar — 3 tall stacked ellipsoids
@@ -418,7 +428,7 @@ export function buildPropMeshes(
           const c = geo.treeCanopy.clone()
           c.scale(0.55, 1.4, 0.55)
           c.translate(px, elev + trunkH + 0.4 + layer * 1.1, pz)
-          batch.addPositioned(c, layer === 1 ? canopyColor
+          canopyBatch.addPositioned(c, layer === 1 ? canopyColor
             : new THREE.Color(canopyColor).multiplyScalar(0.8).getHex())
         }
       } else if (species === 'willow') {
@@ -426,7 +436,7 @@ export function buildPropMeshes(
         const d = geo.willowDome.clone()
         d.scale(1.9, 0.85, 1.9)
         d.translate(px, elev + trunkH + 0.35, pz)
-        batch.addPositioned(d, canopyColor)
+        canopyBatch.addPositioned(d, canopyColor)
         for (let li = 0; li < 5; li++) {
           const angle = (li / 5) * Math.PI * 2
           const lobe = geo.treeCanopy.clone()
@@ -436,7 +446,7 @@ export function buildPropMeshes(
             elev + trunkH + 0.05,
             pz + Math.sin(angle) * 1.2,
           )
-          batch.addPositioned(lobe, new THREE.Color(canopyColor).multiplyScalar(0.85).getHex())
+          canopyBatch.addPositioned(lobe, new THREE.Color(canopyColor).multiplyScalar(0.85).getHex())
         }
       } else if (species === 'birch') {
         // Airy, narrow lobes
@@ -450,7 +460,7 @@ export function buildPropMeshes(
             baseY + Math.sin(li * 1.1) * 0.25,
             pz + Math.sin(angle) * 0.32,
           )
-          batch.addPositioned(lobe, li % 2 === 0 ? canopyColor
+          canopyBatch.addPositioned(lobe, li % 2 === 0 ? canopyColor
             : new THREE.Color(canopyColor).multiplyScalar(0.8).getHex())
         }
       } else {
@@ -467,13 +477,13 @@ export function buildPropMeshes(
             baseY + Math.sin(li * 1.3) * 0.25,
             pz + Math.sin(angle) * 0.5,
           )
-          batch.addPositioned(lobe, li % 2 === 0 ? canopyColor
+          canopyBatch.addPositioned(lobe, li % 2 === 0 ? canopyColor
             : new THREE.Color(canopyColor).multiplyScalar(0.78).getHex())
         }
         const top = geo.treeCanopy.clone()
         top.scale(lobeR * 0.75, lobeR * 0.75, lobeR * 0.75)
         top.translate(px, baseY + lobeR * 0.55, pz)
-        batch.addPositioned(top, canopyColor)
+        canopyBatch.addPositioned(top, canopyColor)
 
         // Fruit dots on apple/pear — 4 tiny red/yellow spheres
         if (species === 'apple' || species === 'pear') {
@@ -487,7 +497,7 @@ export function buildPropMeshes(
               baseY + 0.1,
               pz + Math.sin(ang) * lobeR * 0.7,
             )
-            batch.addPositioned(fruit, fruitColor)
+            canopyBatch.addPositioned(fruit, fruitColor)
           }
         }
       }
@@ -2053,6 +2063,14 @@ export function buildPropMeshes(
   const batched: THREE.Mesh[] = []
   const merged = batch.build()
   if (merged) batched.push(merged)
+  // THE LEAVES, which move. One extra draw call for every tree in the town.
+  const canopyMesh = canopyBatch.build()
+  if (canopyMesh) {
+    canopyMesh.name = 'foliage'
+    const cm = Array.isArray(canopyMesh.material) ? canopyMesh.material[0] : canopyMesh.material
+    if (cm) applyFoliageSway(cm)
+    batched.push(canopyMesh)
+  }
 
   // Merge all emissive lamp-bulb geometries into a single mesh sharing
   // _lampEmissiveMat — one draw call for every bulb in the town instead
