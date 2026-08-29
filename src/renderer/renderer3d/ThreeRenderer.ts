@@ -1464,7 +1464,28 @@ void main() {
       }
 
       const centreYaw = Math.atan2(cz - spawnZ, cx - spawnX)
+      /**
+       * A WALL WITHIN 4m FILLS THE FRAME, and the centre bias used to be able
+       * to choose one.
+       *
+       * This was `score = clear + (1 - d/PI) * 4` under a comment claiming the
+       * bias "can never rescue a view of a wall" — an invariant the arithmetic
+       * simply does not provide. Half a tile of view pointing straight at the
+       * town centre scores 4.5 and beats four clear tiles pointing away: the
+       * bias outvotes up to twelve metres of real street. `spawn.mjs` caught
+       * it as one seed in sixteen the moment a layout change moved the spawn.
+       *
+       * So the bias is applied only AMONG directions that already clear the
+       * bar. It breaks ties between acceptable views and can no longer create
+       * one, which is what the comment always claimed. When nothing clears it
+       * — a spawn genuinely wedged in a gap, after the relocation above has
+       * already tried to escape — the fallback maximises the view itself with
+       * no bias at all, so the player faces the best there is rather than the
+       * centre.
+       */
+      const MIN_VIEW_T = 4 / TILE
       let bestYaw = centreYaw, bestScore = -Infinity
+      let fallbackYaw = centreYaw, fallbackClear = -Infinity
       for (let i = 0; i < 32; i++) {
         const yaw = (i / 32) * Math.PI * 2
         const dx = Math.cos(yaw), dz = Math.sin(yaw)
@@ -1475,15 +1496,16 @@ void main() {
           if (!freeAt(spawnX + dx * s, spawnZ + dz * s)) break
           clear = s
         }
-        // Turning toward the centre is worth up to 4 tiles of view, so a
-        // slightly shorter street pointing inward beats a long one pointing
-        // out of town — but it can never rescue a view of a wall.
+        if (clear > fallbackClear) { fallbackClear = clear; fallbackYaw = yaw }
+        if (clear < MIN_VIEW_T) continue
+        // Turning toward the centre is worth up to 4 tiles, so a slightly
+        // shorter street pointing inward beats a long one pointing out of town.
         let d = Math.abs(yaw - centreYaw) % (Math.PI * 2)
         if (d > Math.PI) d = Math.PI * 2 - d
         const score = clear + (1 - d / Math.PI) * 4
         if (score > bestScore) { bestScore = score; bestYaw = yaw }
       }
-      this.cameraYaw = bestYaw
+      this.cameraYaw = bestScore > -Infinity ? bestYaw : fallbackYaw
     }
     this.cameraPitch = -0.05
     this.verticalVel = 0
