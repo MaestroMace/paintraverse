@@ -173,6 +173,20 @@ export interface PropInstance {
 }
 export const propInstances: PropInstance[] = []
 
+/** The extent of a prop that landed in more than one batch. Either side may be
+ *  null — most props have no leaves and no tree has anything but. */
+function unionBounds(
+  a: { min: THREE.Vector3; max: THREE.Vector3 } | null,
+  b: { min: THREE.Vector3; max: THREE.Vector3 } | null,
+): { min: THREE.Vector3; max: THREE.Vector3 } | null {
+  if (!a) return b
+  if (!b) return a
+  return {
+    min: a.min.clone().min(b.min),
+    max: a.max.clone().max(b.max),
+  }
+}
+
 function recordPropSize(
   id: string, bb: { min: THREE.Vector3; max: THREE.Vector3 } | null,
   groundY = 0,
@@ -277,6 +291,12 @@ export function buildPropMeshes(
     const elev = getHeight ? getHeight(ptx, ptz) : (obj.elevation || 0)
     const hash = stableHash(obj)
     const _auditFrom = batch.count
+    // AND THE CANOPY BATCH, because a prop's size is now spread over two of
+    // them. `boundsSince` can only see the builder it belongs to, so once the
+    // leaves moved out `tree` measured 0.23m wide against a 2-8m target — the
+    // TOOL lost the canopy, not the town. propscale caught it as the one row
+    // that did not snap back when the shared-material bug was fixed.
+    const _auditFromCanopy = canopyBatch.count
     // TELL THE SLIVER AUDIT WHOSE GEOMETRY THIS IS.
     //
     // Nothing here ever set an envelope, so every prop was measured against
@@ -2054,7 +2074,9 @@ export function buildPropMeshes(
     // FOOTPRINT, which is in metres now and was in tiles when they were
     // written. They had never been drawn before, so the rescale swept past
     // them: content with no way in cannot be caught by looking at the screen.
-    recordPropSize(id, batch.boundsSince(_auditFrom), elev)
+    recordPropSize(id, unionBounds(
+      batch.boundsSince(_auditFrom), canopyBatch.boundsSince(_auditFromCanopy),
+    ), elev)
     setBuildEnvelope(null)
   }
 

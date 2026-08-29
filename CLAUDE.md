@@ -7323,9 +7323,35 @@ would have produced seven small excuses; reading the SHAPE of the set is what
 pointed at a shared object.
 
 Cloning the material before patching it fixes it, the leaves read identically
-afterwards (3.92e-4 and 6.10e-4 to the digit), and the drifted rows return to
-baseline — which is the proof, because a fix that merely stops the symptom
-would not put six unrelated numbers back exactly where they were.
+afterwards (3.92e-4 and 6.10e-4 to the digit), and **eight of the nine rows
+returned to baseline EXACTLY** — `dayWall` 202, `litOpenings` 38,
+`flankFront` 67, `holes` 5, `blanks` 1, `blankFrac` 1.4, `wallLuma` 80,
+`roofBlackPct` 53. That is the proof: a fix that merely suppressed a symptom
+would not put eight unrelated numbers back where they were.
+
+### AND THE NINTH ROW WAS A DIFFERENT BUG, WHICH IS WHY IT DID NOT SNAP BACK
+
+`propscale outOfRange` stayed at 6, and it was right to. A prop's measured
+size comes from `batch.boundsSince(_auditFrom)`, and `boundsSince` can only
+see the builder it belongs to — so the moment the leaves moved to their own
+batch, **`tree` measured 0.23m wide against a 2-8m target.** The TOOL lost the
+canopy; the town never changed.
+
+    tree, p10 / median width    0.23 / 0.32  ->  1.37 / 3.88
+    tree, p10 / median height   4.67 / 5.30  ->  5.84 / 9.02
+    propscale outOfRange             6       ->  5   (baseline)
+
+**A census that reads ONE batch cannot see geometry that moved to another**,
+and splitting a mesh for a rendering reason silently redraws the boundary
+every such census depends on. Same family as `registry.mjs` scoped by what one
+path handles, and as `slivers.mjs` measuring props against a stale building
+envelope. The fix is a union of the two, because a prop's extent is now a fact
+about two builders.
+
+**The row that refuses to snap back is the useful one.** Eight rows returning
+together said "one cause, now fixed"; the ninth staying put said "there is a
+SECOND thing here", and reading it as leftover noise would have shipped a
+broken measurement into every future tree change.
 
 ## Android / mobile build
 
