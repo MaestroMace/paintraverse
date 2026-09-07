@@ -29,7 +29,7 @@
  *   xvfb-run -a -s "-screen 0 1400x900x24" node tools/tenancy.mjs [seeds...]
  */
 import { _electron as electron } from 'playwright-core'
-import { DWELLINGS, BARRIERS, parseBuildingProps } from './lib/taxonomy.mjs'
+import { DWELLINGS, BARRIERS, GROUND, parseBuildingProps } from './lib/taxonomy.mjs'
 
 // READ THE GENERATOR'S OWN TABLE, do not restate it. See the note on the
 // EXPLAINS constant below for what the restatement cost.
@@ -63,9 +63,10 @@ for (const seed of seeds) {
   // uses it is built in the PAGE, so it has to cross the boundary explicitly —
   // a closure over a module import silently becomes a ReferenceError inside
   // evaluate. Sent as an array because a Set does not survive serialisation.
-  const r = await win.evaluate(({ dwellingIds, barrierIds, buildingProps }) => {
+  const r = await win.evaluate(({ dwellingIds, barrierIds, groundIds, buildingProps }) => {
     const DWELLINGS = new Set(dwellingIds)
     const BARRIERS = new Set(barrierIds)
+    const GROUND = new Set(groundIds)
     const st = window.__pt.store.getState()
     const map = st.map
     const defs = st.objectDefinitions
@@ -110,9 +111,16 @@ for (const seed of seeds) {
     // explained tenancy seven points on forty boundaries scored as props with
     // no owner. `BARRIERS` is parsed from the store's own `barrier` tag, so a
     // new one joins by being one.
-    const UNOWNED_BY_NATURE = new Set([...BARRIERS,
-      'lamppost', 'street_lamp_double', 'tree',
-      'bush', 'well', 'fountain', 'road_marker', 'signpost', 'monument',
+    // AND A TREE IS UNOWNED FOR THE SAME REASON AGAIN. `tree` and `bush` were
+    // hand-listed here and `orchard_tree` — literally a tree — was not, so 22
+    // orchard trees, 14 reed beds and 3 rocky outcrops a town landed in the
+    // ORPHAN bucket while standing exactly where the countryside pass put
+    // them. The orphan count is the number that answers "do the props look
+    // scattered", so a hand-written list was over-reporting the defect it
+    // grades. `GROUND` is parsed from the store's own tag, like BARRIERS.
+    const UNOWNED_BY_NATURE = new Set([...BARRIERS, ...GROUND,
+      'lamppost', 'street_lamp_double',
+      'well', 'fountain', 'road_marker', 'signpost', 'monument',
       'gravestone', 'cemetery_cross', 'dock', 'crane', 'fishing_boat',
       'bunting_pole', 'prayer_flags'])
     // AND THIS TABLE IS NOW READ, NOT RESTATED.
@@ -194,7 +202,7 @@ for (const seed of seeds) {
       ownedN, explainedN, orphanN, insideN, civicN,
       orphanKinds, ownedKinds, typeCounts, propsByDistrict,
     }
-  }, { dwellingIds: [...DWELLINGS], barrierIds: [...BARRIERS], buildingProps: BUILDING_PROPS })
+  }, { dwellingIds: [...DWELLINGS], barrierIds: [...BARRIERS], groundIds: [...GROUND], buildingProps: BUILDING_PROPS })
   if (!r) { console.log(`seed ${seed}: no terrain`); continue }
   rows.push({ seed, ...r })
   await win.waitForTimeout(150)

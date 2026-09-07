@@ -701,7 +701,7 @@ const defaultObjectDefs: ObjectDefinition[] = [
     id: 'tree',
     name: 'Tree',
     category: 'vegetation',
-    tags: ['nature'],
+    tags: ['nature', 'ground'],
     color: '#2D5A27',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
@@ -710,7 +710,7 @@ const defaultObjectDefs: ObjectDefinition[] = [
     id: 'bush',
     name: 'Bush',
     category: 'vegetation',
-    tags: ['nature'],
+    tags: ['nature', 'ground'],
     color: '#3A7A33',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
@@ -1187,7 +1187,7 @@ const defaultObjectDefs: ObjectDefinition[] = [
     id: 'standing_stone',
     name: 'Standing Stone',
     category: 'prop',
-    tags: ['natural', 'landmark'],
+    tags: ['nature', 'landmark', 'ground'],
     color: '#7E7A72',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
@@ -1232,7 +1232,7 @@ const defaultObjectDefs: ObjectDefinition[] = [
     id: 'boulder',
     name: 'Boulder',
     category: 'prop',
-    tags: ['natural', 'stone'],
+    tags: ['nature', 'stone', 'ground'],
     color: '#8A8580',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
@@ -1241,7 +1241,7 @@ const defaultObjectDefs: ObjectDefinition[] = [
     id: 'rock',
     name: 'Rock',
     category: 'prop',
-    tags: ['natural', 'stone'],
+    tags: ['nature', 'stone', 'ground'],
     color: '#938E86',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
@@ -1250,7 +1250,7 @@ const defaultObjectDefs: ObjectDefinition[] = [
     id: 'rocky_outcrop',
     name: 'Rocky Outcrop',
     category: 'prop',
-    tags: ['natural', 'stone'],
+    tags: ['nature', 'stone', 'ground'],
     color: '#807A72',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
@@ -1271,7 +1271,7 @@ const defaultObjectDefs: ObjectDefinition[] = [
     id: 'reeds',
     name: 'Reeds',
     category: 'prop',
-    tags: ['natural', 'water'],
+    tags: ['nature', 'water', 'ground'],
     color: '#6E7A46',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []
@@ -1325,7 +1325,7 @@ const defaultObjectDefs: ObjectDefinition[] = [
     id: 'orchard_tree',
     name: 'Orchard Tree',
     category: 'vegetation',
-    tags: ['nature', 'countryside'],
+    tags: ['nature', 'countryside', 'ground'],
     color: '#2D7A27',
     footprint: { w: 1, h: 1 },
     styleSetSlots: []

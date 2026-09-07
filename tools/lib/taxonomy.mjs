@@ -75,6 +75,41 @@ export const BARRIERS = (() => {
 })()
 
 /**
+ * PROPS THAT BELONG TO THE EARTH, not to a building.
+ *
+ * `tenancy.mjs` hand-listed `tree` and `bush` in its unowned set and NOT
+ * `orchard_tree`, which is literally a tree — so 22 orchard trees, 14 reed
+ * beds and 3 rocky outcrops a town were scored as props with "no reason to be
+ * here" while sitting exactly where the countryside pass meant to put them.
+ * That is the fifth hand-written population in this repo to drift, and the
+ * orphan count it feeds is the number that answers "do the props look
+ * scattered", so it was over-reporting the very defect it grades.
+ *
+ * **A NATURE TAG CANNOT ANSWER THIS.** A flower box is nature and belongs to
+ * a windowsill; a boulder is nature and belongs to the ground. The store now
+ * carries `ground` for the second kind, so a new one joins by being one —
+ * the same move that fixed BARRIERS, and the same reason.
+ *
+ * (The store also spelled this concept two ways. `nature` and `natural` had a
+ * clean 9/5 split with zero overlap, and `planStyle.ts` reads only `nature`,
+ * so the five geological props were drawing with a generic plan glyph. One
+ * spelling now.)
+ */
+export const GROUND = (() => {
+  const src = readFileSync('src/renderer/app/store.ts', 'utf8')
+  const out = new Set()
+  for (const m of src.matchAll(/id:\s*'([a-z_0-9]+)',[\s\S]{0,240}?tags:\s*\[([^\]]*)\]/g)) {
+    if (/'ground'/.test(m[2])) out.add(m[1])
+  }
+  if (out.size < 4) {
+    throw new Error(`taxonomy: GROUND parsed ${out.size} ids from store.ts — ` +
+      'the declaration shape changed. Failing rather than grading the town ' +
+      'against a population that is silently wrong.')
+  }
+  return out
+})()
+
+/**
  * WHAT EACH BUILDING TYPE WOULD PLAUSIBLY OWN — read out of the generator.
  *
  * `tenancy.mjs` kept a hand-written EXPLAINS table under a comment saying it
