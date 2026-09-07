@@ -3,7 +3,8 @@
     "problems": 0
   },
   "roofwinding": {
-    "inward": 0
+    "inward": 0,
+    "capOverhang": 0
   },
   "audit": {
     "errors": 0

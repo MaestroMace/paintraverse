@@ -116,6 +116,20 @@ export function ridgeHalfLen(alongExtent: number, perpExtent: number, hipped: bo
   return hipped ? Math.max(0, alongExtent - perpExtent) : alongExtent
 }
 
+/**
+ * Does this style top out in a RIDGE LINE rather than a point or a plane?
+ *
+ * Exported because the ridge cap's gate and `auditRoofWinding`'s ridge check
+ * must name the same set, and a hand-written list in either is the failure
+ * this file already records twice — the winding audit enumerating styles by
+ * hand, and the category sweep that missed `staircase` because it filtered on
+ * a field somebody typed. The audit inherits the gate instead of restating it,
+ * so a new style cannot be added to the cap without the check following it.
+ */
+export function hasRidge(style: RoofStyle): boolean {
+  return style === 'gabled' || style === 'steep' || style === 'hipped'
+}
+
 export function gableMath(args: {
   width: number
   depth: number
@@ -674,6 +688,14 @@ function buildMansard(w: number, d: number, h: number, axis: RoofAxis): THREE.Bu
 export function auditRoofWinding(): Array<{
   style: RoofStyle; axis: RoofAxis; sag: number
   triangles: number; inward: number; inwardCentroids: string[]
+  /** Half-length of the ridge the GEOMETRY actually has, measured from the
+   *  vertices sitting at the solid's own maximum Y. */
+  ridgeBuilt: number
+  /** Half-length the ridge ORNAMENTS believe in, from `ridgeHalfLen`. */
+  ridgeClaimed: number
+  /** Does anything sit on this ridge? Styles with no cap are reported and
+   *  never failed — see hasRidge. */
+  capped: boolean
 }> {
   const out: ReturnType<typeof auditRoofWinding> = []
   // ENUMERATED FROM A COMPILER-CHECKED TABLE, not restated. This was a
@@ -724,7 +746,37 @@ export function auditRoofWinding(): Array<{
             }
           }
         }
-        out.push({ style, axis, sag, triangles: n, inward, inwardCentroids: bad })
+        /**
+         * AND THE RIDGE THE ROOF HAS, AGAINST THE RIDGE ITS CAP CLAIMS.
+         *
+         * The winding half of this audit asks whether a face is drawn. It
+         * cannot ask whether the thing sitting ON that face fits, and that is
+         * a whole defect class: reported from the device as "a board stuck to
+         * the top of them jutting out on both long ends", and it was the
+         * ridge cap describing a ridge the hipped prism never had — the hip
+         * topped out in a flat SQUARE plateau while the cap spanned
+         * `alongDim - 2*inset`, so a 6m building carried a 5.25m board over
+         * 0.75m of roof.
+         *
+         * Measured from the VERTICES rather than from either formula, so the
+         * check cannot inherit the bug it is testing for. This is the
+         * containment question the method prefers: no threshold beyond float
+         * noise, and it answers for every style at once.
+         */
+        let maxY = -Infinity
+        for (let i = 0; i < pos.count; i++) maxY = Math.max(maxY, pos.getY(i))
+        let rMinX = Infinity, rMaxX = -Infinity, rMinZ = Infinity, rMaxZ = -Infinity
+        for (let i = 0; i < pos.count; i++) {
+          if (pos.getY(i) < maxY - 1e-3) continue
+          rMinX = Math.min(rMinX, pos.getX(i)); rMaxX = Math.max(rMaxX, pos.getX(i))
+          rMinZ = Math.min(rMinZ, pos.getZ(i)); rMaxZ = Math.max(rMaxZ, pos.getZ(i))
+        }
+        const ridgeBuilt = axis === 'x' ? (rMaxX - rMinX) / 2 : (rMaxZ - rMinZ) / 2
+        const gm = gableMath({ width: 7, depth: 4.5, roofHeight: 3.2, roofStyle: style, roofAxis: axis })
+        out.push({
+          style, axis, sag, triangles: n, inward, inwardCentroids: bad,
+          ridgeBuilt, ridgeClaimed: gm.ridgeHalf, capped: hasRidge(style),
+        })
       }
     }
   }

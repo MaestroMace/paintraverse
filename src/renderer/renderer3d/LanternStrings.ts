@@ -32,8 +32,10 @@ const EAVE_CLEARANCE = 0.55
 const SAG = 0.35
 // Segments per string (more = smoother catenary).
 const SEGMENTS = 10
-// How many lanterns per string, evenly spaced along t ∈ (0,1).
-const LANTERN_COUNT = 3
+// Metres between lanterns on a string. SPACING is the constant and the count
+// falls out of the span — a flat count of 3 hung a 15m string at almost twice
+// the pitch of a 7.8m one, which is the opposite of "fits perfectly".
+const LANTERN_PITCH = 2.4
 // Limit on total strings per map — performance bound.
 const MAX_STRINGS = 25
 // Pair filter: accept when building centers are this far apart in XZ. The
@@ -1102,9 +1104,22 @@ export function buildLanternStrings(
       }
       continue
     }
-    // Lanterns at interpolated t-values along the rope.
-    for (let li = 1; li <= LANTERN_COUNT; li++) {
-      const tL = li / (LANTERN_COUNT + 1)
+    /**
+     * SPACING IS THE CONSTANT, NOT THE COUNT.
+     *
+     * `LANTERN_COUNT` was a flat 3 while the pair filter admits spans from
+     * 2.6 to 5.0 tiles — 7.8m to 15m — so the longest string in town hung its
+     * lanterns almost twice as far apart as the shortest, and the ask was for
+     * a string that "looks like it fits perfectly". A real festoon is hung at
+     * a pitch and the span decides how many that is.
+     *
+     * Bounded at both ends for the reasons the constants give: SEGMENTS is 10,
+     * so more than about six lanterns start sharing a rope vertex and read as
+     * a clump rather than a line.
+     */
+    const lanternCount = Math.max(2, Math.min(6, Math.round(span / LANTERN_PITCH)))
+    for (let li = 1; li <= lanternCount; li++) {
+      const tL = li / (lanternCount + 1)
       const idx = Math.round(tL * SEGMENTS)
       const [lx, ly, lz] = points[idx]
       // Lantern body — box w/ slight taper, hanging 0.12 below the rope.

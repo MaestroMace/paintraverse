@@ -30,3 +30,34 @@ for (const r of rows) {
     `  tris=${String(r.triangles).padStart(3)}  inward=${String(r.inward).padStart(3)}${flag}`)
 }
 console.log(`\nTOTAL INWARD-FACING TRIANGLES: ${bad}`)
+
+/**
+ * AND THE RIDGE THE CAP CLAIMS, AGAINST THE RIDGE THE ROOF HAS.
+ *
+ * Winding says whether a face is DRAWN. It has nothing to say about whether
+ * the thing sitting on that face FITS, and that gap had a live defect in it
+ * for the life of the hipped roof: the prism topped out in a flat square
+ * plateau of half-side `min(hw,hd)*0.25` while the ridge cap spanned
+ * `alongDim - 2*inset`, so a 6m building carried a 5.25m board at peak height
+ * over 0.75m of roof — reported from the device as "a board stuck to the top
+ * of them jutting out on both long ends".
+ *
+ * `ridgeBuilt` is measured from the VERTICES at the solid's own maximum Y, so
+ * it cannot inherit either formula's bug. `capped` comes from the same
+ * `hasRidge` predicate that gates the cap, so a new roof style joins this
+ * check by joining the feature.
+ */
+console.log('\n=== RIDGE (does the cap fit the roof it sits on?) ===')
+let overhang = 0
+for (const r of rows) {
+  if (!r.capped) continue
+  const over = r.ridgeClaimed - r.ridgeBuilt
+  const badRidge = over > 1e-3
+  if (badRidge) overhang++
+  console.log(
+    `${r.style.padEnd(8)} axis=${r.axis} sag=${r.sag}` +
+    `  built=${r.ridgeBuilt.toFixed(2)}m  claimed=${r.ridgeClaimed.toFixed(2)}m` +
+    (badRidge ? `  <-- CAP OVERHANGS BY ${(over * 2).toFixed(2)}m, ${over.toFixed(2)} EACH END` : ''))
+}
+console.log(`\nCAPS LONGER THAN THEIR OWN RIDGE: ${overhang}`)
+if (bad > 0 || overhang > 0) process.exit(1)

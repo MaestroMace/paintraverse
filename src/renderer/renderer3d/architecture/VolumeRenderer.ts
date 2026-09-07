@@ -14,7 +14,7 @@
 import * as THREE from 'three'
 import type { Volume } from './Massing'
 import { volumeFloors } from './Massing'
-import { buildRoof, eaveProjFor, gableMath } from './Roofs'
+import { buildRoof, eaveProjFor, gableMath, hasRidge } from './Roofs'
 // Neutral module, imports three and nothing else — same argument as Beacons.
 import { addVane } from '../Weathervanes'
 import type { BatchedMeshBuilder } from '../BatchedMeshBuilder'
@@ -535,8 +535,10 @@ export function emitVolume(
   // hipped roof in a Traverse-Town reference shot has this. Color picks a
   // warm terracotta tinted by the roof color so each town has a coherent
   // ridge-cap palette without clashing.
-  const isRidged = v.roofStyle === 'gabled' || v.roofStyle === 'steep' || v.roofStyle === 'hipped'
-  if (isRidged && v.roofHeight > 0.3 && Math.min(v.width, v.depth) >= 1.2) {
+  // `hasRidge` rather than a restated union: `auditRoofWinding` grades exactly
+  // the styles that get a cap, and a hand-written list in either place is how
+  // a new style joins the cap without the check following it.
+  if (hasRidge(v.roofStyle) && v.roofHeight > 0.3 && Math.min(v.width, v.depth) >= 1.2) {
     // THE RIDGE IS ASKED FOR, NOT RESTATED. Both halves of this used to carry
     // their own copy of the prism's arithmetic, and the hipped copy described
     // a ridge the geometry did not have — see ridgeHalfLen. A near-square plan

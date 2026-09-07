@@ -137,8 +137,17 @@ const CHECKS = [
     why: 'inward-facing roof triangles are DELETED, not mis-lit',
     electron: true,
     cmd: ['xvfb-run', ['-a', '-s', '-screen 0 1400x900x24', 'node', 'tools/roofwinding.mjs']],
-    extract: (o) => ({ inward: num(o, /TOTAL INWARD-FACING TRIANGLES:\s*(\d+)/) }),
-    gates: { inward: (v) => v === 0 },
+    // Two questions, and the second one had a live defect in it: winding says
+    // whether a face is DRAWN, and nothing asked whether the ornament sitting
+    // ON that face fits. `capOverhang` is the hipped ridge cap describing a
+    // ridge the prism never had — a 5.25m board over 0.75m of roof, on every
+    // hipped roof in town. Both are gates; a count with no consumer is a print
+    // statement, which is how `featureCounts` sat unread for a year.
+    extract: (o) => ({
+      inward: num(o, /TOTAL INWARD-FACING TRIANGLES:\s*(\d+)/),
+      capOverhang: num(o, /CAPS LONGER THAN THEIR OWN RIDGE:\s*(\d+)/),
+    }),
+    gates: { inward: (v) => v === 0, capOverhang: (v) => v === 0 },
   },
   {
     name: 'audit',
